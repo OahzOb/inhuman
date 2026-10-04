@@ -15,6 +15,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.inhuman.core.ai.provider.deepseek.DeepSeekSearchProvider
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.secret.SecureStore
@@ -166,8 +167,29 @@ private fun InhumanRoot() {
 			// view model rather than reusing one that is still holding the
 			// previous transcript.
 			val id = openConversationId!!
-			val factory = remember(id, agents) {
-				viewModelFactory { ChatViewModel(repository, agents, secure, id) }
+			val factory = remember(id, agents, secure) {
+				viewModelFactory {
+					ChatViewModel(
+						repository = repository,
+						agents = agents,
+						secure = secure,
+						conversationId = id,
+						// Search runs on DeepSeek's own service, through the
+						// Anthropic-compatible endpoint where the native
+						// `web_search` server tool is understood. So there is no
+						// second vendor and no second credential: the key already
+						// configured for chatting is the one it uses.
+						//
+						// The key is passed as a function rather than a string.
+						// Captured at construction it would be whatever was
+						// configured when the conversation opened, so a user who
+						// added a key afterwards would get "search failed" with
+						// nothing to suggest why, until they restarted.
+						searchProvider = DeepSeekSearchProvider(
+							apiKey = { secure.get(SecureStore.KEY_DEEPSEEK_API_KEY) },
+						),
+					)
+				}
 			}
 			val vm: ChatViewModel = viewModel(key = "chat-$id", factory = factory)
 			ChatScreen(
