@@ -64,6 +64,7 @@ fun ChatScreen(
 	viewModel: ChatViewModel,
 	onBack: () -> Unit,
 	onOpenSettings: () -> Unit,
+	onOpenFiles: () -> Unit = {},
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	val listState = rememberLazyListState()
@@ -97,6 +98,7 @@ fun ChatScreen(
 					IconButton(onClick = onBack) { Text("‹", style = MaterialTheme.typography.titleLarge) }
 				},
 				actions = {
+					TextButton(onClick = onOpenFiles) { Text("Files") }
 					TextButton(onClick = onOpenSettings) { Text("Key") }
 				},
 				colors = TopAppBarDefaults.topAppBarColors(

@@ -20,6 +20,8 @@ import com.inhuman.ui.ConversationsViewModel
 import com.inhuman.ui.chat.ChatScreen
 import com.inhuman.ui.chat.ChatViewModel
 import com.inhuman.ui.chat.SettingsViewModel
+import com.inhuman.ui.files.FilesScreen
+import com.inhuman.ui.files.FilesViewModel
 import com.inhuman.ui.settings.SettingsScreen
 
 /**
@@ -60,6 +62,7 @@ private fun InhumanRoot() {
 	// Which conversation the chat screen is showing. Null means the list.
 	var openConversationId by remember { mutableStateOf<String?>(null) }
 	var showSettings by remember { mutableStateOf(false) }
+	var showFiles by remember { mutableStateOf(false) }
 
 	val settingsFactory = remember(secure) { viewModelFactory { SettingsViewModel(secure) } }
 
@@ -67,6 +70,13 @@ private fun InhumanRoot() {
 		showSettings -> {
 			val vm: SettingsViewModel = viewModel(factory = settingsFactory)
 			SettingsScreen(viewModel = vm, onBack = { showSettings = false })
+		}
+
+		showFiles && openConversationId != null -> {
+			val id = openConversationId!!
+			val factory = remember(id) { viewModelFactory { FilesViewModel(repository, id) } }
+			val vm: FilesViewModel = viewModel(key = "files-$id", factory = factory)
+			FilesScreen(viewModel = vm, onBack = { showFiles = false })
 		}
 
 		openConversationId != null -> {
@@ -82,6 +92,7 @@ private fun InhumanRoot() {
 				viewModel = vm,
 				onBack = { openConversationId = null },
 				onOpenSettings = { showSettings = true },
+				onOpenFiles = { showFiles = true },
 			)
 		}
 
