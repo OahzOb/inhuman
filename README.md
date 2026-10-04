@@ -9,18 +9,46 @@ The sandbox is the point. It is enforced in code, not requested in a prompt.
 
 ## Status
 
-Phase 0 complete: the project builds, runs, and renders. There is no chat yet —
-what exists is the skeleton, the design system, and the workspace sandbox with
-its tests.
+Working, and installed on a phone. A conversation can be started against a
+chosen assistant, replies stream with reasoning and a live token breakdown,
+files can be read and written by both the model and the user, and answers can be
+regenerated and compared.
 
 | Phase | Contents | State |
 | --- | --- | --- |
 | **0** | Skeleton, Compose, theme, `SessionWorkspace` + tests | **done** |
-| 1 | DeepSeek adapter, streaming replies | not started |
-| 2 | Room persistence, conversation list | not started |
-| 3 | Markdown + code highlighting | not started |
-| 4 | File tools, approval, `DocumentsProvider`, upload/download | not started |
-| 5 | Agent loop, multi-turn tool calling, reasoning display | not started |
+| **1** | DeepSeek adapter, streaming replies | **done** |
+| **2** | Room persistence, conversation list | **done** |
+| **3** | Markdown + code highlighting | **done** |
+| **4** | File tools, approval, `DocumentsProvider`, upload/download | **done** |
+| **5** | Agent loop, multi-turn tool calling, reasoning display | **done** |
+
+Beyond the phases: assistants with visible system prompts, per-conversation
+model and reasoning effort read from the provider, an approval gate on the one
+irreversible tool, branch switching, image attachments, and usage reporting.
+
+### What the agent can do
+
+| Tool | Notes |
+| --- | --- |
+| `list_files` `read_file` `file_info` | read-only, safe to replay |
+| `write_file` `append_file` `create_directory` `move_file` | change the workspace |
+| `delete_file` | the only one behind an approval gate |
+| `read_time` | the clock, in the device zone and UTC, plus date arithmetic |
+| `web_search` | **defined, not wired** — see below |
+
+A reply that used a tool which changed the workspace cannot be regenerated,
+because regenerating re-runs the turn and would write a second time. No
+rollback: the blast radius of a bad rollback is the user's files, whereas
+refusing to replay cannot corrupt anything.
+
+**`web_search` needs a service.** `SearchProvider` is an interface in
+`core:ai/tools` with no implementation, and the view model takes it as a
+constructor parameter that is currently null. While it is null the tool is not
+registered at all — a model given a tool that always fails retries it and then
+reports that search is broken, whereas a model without the tool says it cannot
+search, which is true. The interface documents what an implementation has to
+return; picking the vendor is the only step left.
 
 ---
 
