@@ -125,6 +125,14 @@ data class ChatMessageUi(
 	 */
 	val branches: Branches? = null,
 	/**
+	 * The message this one is an alternative to, when it has alternatives.
+	 *
+	 * Carried alongside [branches] because switching needs *both* ids and the
+	 * one being switched to is not on the active path, so it cannot be looked up
+	 * in the transcript.
+	 */
+	val branchParentId: String? = null,
+	/**
 	 * Images on this message, as workspace paths.
 	 *
 	 * Paths rather than bytes: this is the transcript, read on every screen

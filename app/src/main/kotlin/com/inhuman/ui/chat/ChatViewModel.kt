@@ -335,7 +335,19 @@ class ChatViewModel(
 			it.copy(messages = it.messages.take(cut), isStreaming = true, error = null)
 		}
 
-		viewModelScope.launch { runTurn(apiKey = apiKey, demo = demo) }
+		viewModelScope.launch {
+			runTurn(apiKey = apiKey, demo = demo)
+			// Reload after answering, so the new reply is recognised as a
+			// sibling of the one it replaced.
+			//
+			// Without this the transcript on screen is correct but its branch
+			// information is not: runTurn appends the reply with no siblings
+			// known, and nothing recomputes them. The tree in the database has
+			// the two replies under one parent the whole time -- only the view
+			// model's copy was missing it, so the switcher never appeared and
+			// the earlier answer could not be reached again.
+			reload()
+		}
 	}
 
 	/**
@@ -345,10 +357,26 @@ class ChatViewModel(
 	 * changes the active path from that point down, so everything below it may
 	 * differ, and computing that here would duplicate `activePath` badly.
 	 */
-	fun selectBranch(childId: String) {
+	/**
+	 * Show a different reply at a branch point.
+	 *
+	 * ## Why the parent is passed in rather than looked up
+	 *
+	 * The obvious implementation takes only the child id and finds the parent by
+	 * searching the transcript -- which cannot work, and failed silently at
+	 * first. `messages` holds the **active path**, so the reply being switched
+	 * *to* is by definition not in it; the lookup found nothing and returned, and
+	 * the arrow did nothing at all.
+	 *
+	 * The caller already knows both ids, because it is displaying the branch
+	 * count and got them from the same query.
+	 *
+	 * Reloads afterwards rather than patching state locally: the selection
+	 * changes the active path from that point down, so everything below it may
+	 * differ, and computing that here would duplicate `activePath` badly.
+	 */
+	fun selectBranch(parentId: String, childId: String) {
 		viewModelScope.launch {
-			val target = _state.value.messages.firstOrNull { it.id == childId } ?: return@launch
-			val parentId = target.parentId ?: return@launch
 			repository.selectBranch(parentId, childId)
 			reload()
 		}
@@ -1032,6 +1060,7 @@ private fun MessageEntity.toUi(branches: Branches? = null): ChatMessageUi {
 		},
 		toolCalls = toolCallsJson?.let(::decodeCalls).orEmpty(),
 		branches = branches,
+		branchParentId = parentId,
 		attachments = decodeAttachments(attachmentsJson),
 	)
 }

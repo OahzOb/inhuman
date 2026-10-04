@@ -221,7 +221,12 @@ fun ChatScreen(
 							message.id == lastAssistantId,
 						isStreaming = state.isStreaming,
 						onRegenerate = viewModel::regenerate,
-						onSelectBranch = viewModel::selectBranch,
+						// Both ids go up: the alternative being switched to is
+						// not on the active path, so the view model cannot find
+						// its parent by searching the transcript.
+						onSelectBranch = { parentId, childId ->
+							if (parentId != null) viewModel.selectBranch(parentId, childId)
+						},
 					)
 				}
 			}
@@ -392,7 +397,7 @@ private fun MessageBubble(
 	isLastAssistantMessage: Boolean,
 	isStreaming: Boolean,
 	onRegenerate: () -> Unit,
-	onSelectBranch: (String) -> Unit,
+	onSelectBranch: (String?, String) -> Unit,
 ) {
 	val alignment = if (message.fromUser) Alignment.End else Alignment.Start
 	val bubbleColor = if (message.fromUser) {
@@ -487,7 +492,7 @@ private fun MessageBubble(
 		message.branches?.let { branches ->
 			BranchSwitcher(
 				branches = branches,
-				onSelect = onSelectBranch,
+				onSelect = { childId -> onSelectBranch(message.branchParentId, childId) },
 				enabled = !message.isStreaming,
 				modifier = Modifier.padding(top = 6.dp),
 			)
