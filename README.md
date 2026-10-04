@@ -35,20 +35,23 @@ irreversible tool, branch switching, image attachments, and usage reporting.
 | `write_file` `append_file` `create_directory` `move_file` | change the workspace |
 | `delete_file` | the only one behind an approval gate |
 | `read_time` | the clock, in the device zone and UTC, plus date arithmetic |
-| `web_search` | **defined, not wired** — see below |
+| `web_search` | DeepSeek's native search, no second vendor or key |
 
 A reply that used a tool which changed the workspace cannot be regenerated,
 because regenerating re-runs the turn and would write a second time. No
 rollback: the blast radius of a bad rollback is the user's files, whereas
 refusing to replay cannot corrupt anything.
 
-**`web_search` needs a service.** `SearchProvider` is an interface in
-`core:ai/tools` with no implementation, and the view model takes it as a
-constructor parameter that is currently null. While it is null the tool is not
-registered at all — a model given a tool that always fails retries it and then
-reports that search is broken, whereas a model without the tool says it cannot
-search, which is true. The interface documents what an implementation has to
-return; picking the vendor is the only step left.
+**Search is expensive and that is not a defect.** DeepSeek exposes no search
+endpoint — its web search is a *server-side tool*, so the model searches inside a
+model turn. One search therefore costs a whole turn in latency and tokens, and on
+a hard question the model will search several times as it narrows the query. A
+measured run took close to a minute. It needs no extra service and no extra key:
+the credential already configured for chatting is the one it uses, over the
+Anthropic-compatible endpoint where the tool is understood.
+
+Search results are excerpts, not pages. The links are cleaned of campaign
+parameters before the model sees them, because it cites them back to the user.
 
 ---
 
