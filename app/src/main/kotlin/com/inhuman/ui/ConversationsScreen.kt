@@ -86,6 +86,25 @@ fun ConversationsScreen(
 	LaunchedEffect(pendingDelete?.id) {
 		pendingDelete?.let { viewModel.countFiles(it) }
 	}
+
+	/**
+	 * Drop the confirmation when the conversation it names is gone.
+	 *
+	 * `pendingDelete` holds a *copy* of a conversation, taken when the icon was
+	 * tapped. That copy does not stop being a valid object when the row is
+	 * deleted, so the dialog stayed on screen naming a conversation that no
+	 * longer existed -- and if nothing else closed it, it stayed for the rest of
+	 * the session.
+	 *
+	 * Keyed on the whole list so that any change re-evaluates it. The check is
+	 * by id against the live rows, which is the only question that matters:
+	 * "is the thing this dialog is about still here".
+	 */
+	LaunchedEffect(state.conversations) {
+		val id = pendingDelete?.id ?: return@LaunchedEffect
+		if (state.conversations.none { it.id == id }) pendingDelete = null
+	}
+
 	val formFactor = currentFormFactor()
 	val useFab = prefersFabForPrimaryAction()
 
@@ -164,8 +183,26 @@ fun ConversationsScreen(
 	// conversation?" reads like it removes a list entry.
 	pendingDelete?.let { conversation ->
 		val fileCount = state.deletePreviewCounts[conversation.id]
+
+		// One meaning of "close", used by all three ways out.
+		//
+		// The dialog can be closed by Cancel, by tapping outside it, or by the
+		// system Back button, and the first version handled them inconsistently:
+		// Cancel cleared both pieces of state, while `onDismissRequest` cleared
+		// only the cached file count. So tapping outside left the dialog open --
+		// and visibly changed it, because the count it had just discarded was
+		// the only thing making the body read "its folder is empty" instead of
+		// the fallback "and its folder".
+		//
+		// That is the whole bug: a dismissal that dismissed part of the state.
+		// Written once here so the next path added cannot get it half right.
+		val closeDialog = {
+			viewModel.cancelDelete()
+			pendingDelete = null
+		}
+
 		AlertDialog(
-			onDismissRequest = viewModel::cancelDelete,
+			onDismissRequest = closeDialog,
 			title = { Text("Delete \"${conversation.title}\"?") },
 			text = {
 				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -189,13 +226,7 @@ fun ConversationsScreen(
 				}
 			},
 			dismissButton = {
-				TextButton(onClick = {
-					// Local state, so it must be cleared here as well as in the
-					// view model -- cancelDelete only drops the cached file
-					// count, and the dialog is driven by pendingDelete.
-					viewModel.cancelDelete()
-					pendingDelete = null
-				}) { Text("Cancel") }
+				TextButton(onClick = closeDialog) { Text("Cancel") }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
