@@ -43,9 +43,22 @@ fun MarkdownText(
 	text: String,
 	modifier: Modifier = Modifier,
 ) {
-	// Parsing happens off the composition and is retained across updates, so
-	// scrolling a long reply does not reparse it.
-	val state = rememberMarkdownState(text)
+	// retainState is the fix for the flicker, and leaving it at its default was
+	// the bug.
+	//
+	// Parsing happens off the composition and its result arrives asynchronously.
+	// With retainState = false the state clears while the next parse is in
+	// flight, so a token arriving between a recomposition and its parse leaves
+	// nothing to draw and the bubble blinks -- at token rate, which reads as
+	// continuous flickering rather than as one dropped frame. Retaining the
+	// previous result means the last complete render stays on screen until the
+	// next one is ready.
+	//
+	// The signature is
+	//   rememberMarkdownState(content, lookupLinks, retainState, flavour, parser, …)
+	// and everything after `content` defaults to exactly the value that causes
+	// the flicker.
+	val state = rememberMarkdownState(content = text, retainState = true)
 
 	Markdown(
 		markdownState = state,

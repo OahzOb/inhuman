@@ -6,21 +6,27 @@ import com.inhuman.core.ai.ChatMessage
 import com.inhuman.core.ai.ChatProvider
 import com.inhuman.core.ai.ChatRequest
 import com.inhuman.core.ai.FinishReason
+import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.ai.Role
 import com.inhuman.core.ai.StreamChunk
 import com.inhuman.core.ai.Tool
 import com.inhuman.core.ai.ToolSpec
 import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
 import com.inhuman.core.ai.provider.demo.DemoProvider
+import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
+import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
+import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.MessageEntity
 import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.core.files.tools.FileTools
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -54,6 +60,7 @@ import java.util.UUID
  */
 class ChatViewModel(
 	private val repository: ConversationRepository,
+	private val agents: AgentRepository,
 	private val secure: SecureStore,
 	private val conversationId: String,
 ) : ViewModel() {
@@ -64,14 +71,73 @@ class ChatViewModel(
 	private var conversation: ConversationEntity? = null
 	private var streamJob: Job? = null
 
-	private var model: String = DEFAULT_MODEL
+	/** The assistant behind this conversation, once loaded. */
+	private var agent: AgentEntity? = null
+
+	private var model: String? = null
+	private var reasoningEffort: String? = null
+	private var thinking: Boolean = false
 
 	init {
 		viewModelScope.launch {
 			conversation = repository.conversation(conversationId)?.entity
-			conversation?.model?.let { model = it }
+			val c = conversation
+			// The conversation's own settings win over the agent's, because a
+			// conversation may have been switched to a different model after it
+			// started. The agent supplies the defaults it was created with.
+			agent = c?.agentId?.let { agents.byId(it) }
+				?: agents.byId(Database.DEFAULT_AGENT_ID)
+			model = c?.model ?: agent?.model
+			reasoningEffort = c?.reasoningEffort ?: agent?.reasoningEffort
+			thinking = c?.thinking ?: agent?.thinking ?: false
+
 			refreshConfiguration()
 			reload()
+		}
+	}
+
+	/** The model list, for the in-conversation picker. */
+	val availableModels: Flow<List<RemoteModel>>
+		get() = flow { emit(agents.models().getOrNull().orEmpty()) }
+
+	/** Effort levels the current model advertises, straight from the provider. */
+	suspend fun effortLevels(): List<String> =
+		agents.effortLevels(model ?: agent?.model)
+
+	/** Called after the model list is (re)loaded, so a picker can refresh. */
+	suspend fun reloadModels(): List<RemoteModel> =
+		agents.models(force = true).getOrNull().orEmpty()
+
+	/**
+	 * Switch the model for this conversation only.
+	 *
+	 * Not written back to the agent: switching models mid-conversation is a
+	 * decision about *this* thread, and editing the assistant would change every
+	 * other conversation held with it.
+	 */
+	fun setModel(modelId: String?) {
+		model = modelId
+		// Cleared rather than carried: effort levels are per-model, so keeping
+		// one across a switch can send a value the new model rejects.
+		reasoningEffort = null
+		viewModelScope.launch {
+			repository.setModel(conversationId, modelId)
+			repository.setReasoning(conversationId, reasoningEffort, thinking)
+		}
+	}
+
+	fun setThinking(enabled: Boolean) {
+		thinking = enabled
+		if (!enabled) reasoningEffort = null
+		viewModelScope.launch {
+			repository.setReasoning(conversationId, reasoningEffort, thinking)
+		}
+	}
+
+	fun setReasoningEffort(level: String?) {
+		reasoningEffort = level
+		viewModelScope.launch {
+			repository.setReasoning(conversationId, reasoningEffort, thinking)
 		}
 	}
 
@@ -255,23 +321,39 @@ class ChatViewModel(
 		val reasoning = StringBuilder()
 		val answer = StringBuilder()
 		val calls = linkedMapOf<Int, ToolCallUi>()
-		var usage: UsageUi? = null
+		var promptTokens: Int? = null
+		var completionTokens: Int? = null
+		var cachedTokens: Int? = null
+		var reasoningTokens: Int? = null
 		var finish: String? = null
 		var failure: String? = null
+
+		// Timed here rather than in the provider: what a user perceives as
+		// latency is measured from the moment they see the spinner, which is
+		// before any transport work has happened.
+		val startedAt = System.currentTimeMillis()
+		var firstTokenAt: Long? = null
+		var finishedAt: Long? = null
+
+		// Captured before the finally block so the closing work can see them.
+		var finishedCalls: List<ToolCallUi> = emptyList()
 
 		try {
 			provider.stream(
 				ChatRequest(
-					model = model,
+					model = model ?: agent?.model ?: DEFAULT_MODEL,
 					messages = history,
 					tools = toolSpecs,
-					// Off for a chat app: "hi" should not cost a paragraph of
-					// thinking. Turning it on is a per-conversation choice that
-					// the reasoning UI already supports.
-					thinking = false,
+					// Taken from the assistant, and off by default: "hi" should
+					// not cost a paragraph of thinking.
+					thinking = thinking,
+					reasoningEffort = reasoningEffort,
 					userId = conversationId,
 				),
 			).collect { chunk ->
+				if (firstTokenAt == null && chunk is StreamChunk.TextDelta) {
+					firstTokenAt = System.currentTimeMillis()
+				}
 				when (chunk) {
 					is StreamChunk.ReasoningDelta -> {
 						reasoning.append(chunk.text)
@@ -312,17 +394,21 @@ class ChatViewModel(
 					}
 
 					is StreamChunk.Usage -> {
-						usage = UsageUi(
-							promptTokens = chunk.promptTokens,
-							completionTokens = chunk.completionTokens,
-							cachedPromptTokens = chunk.cachedPromptTokens,
-							reasoningTokens = chunk.reasoningTokens,
-						)
-						val u = usage
-						updateMessage(replyId) { it.copy(usage = u) }
+						// Held as separate nullable fields rather than assembled
+						// into a UsageUi here, because the timing fields are not
+						// known until the stream ends and rebuilding the object
+						// per chunk would publish a series of intermediate
+						// numbers that flicker.
+						promptTokens = chunk.promptTokens
+						completionTokens = chunk.completionTokens
+						cachedTokens = chunk.cachedPromptTokens
+						reasoningTokens = chunk.reasoningTokens
 					}
 
-					is StreamChunk.Finish -> finish = chunk.reason.describe()
+					is StreamChunk.Finish -> {
+						finish = chunk.reason.describe()
+						finishedAt = System.currentTimeMillis()
+					}
 
 					is StreamChunk.Failure -> {
 						failure = chunk.message
@@ -339,33 +425,53 @@ class ChatViewModel(
 				}
 			}
 		} finally {
-			updateMessage(replyId) { it.copy(isStreaming = false, finishReason = finish) }
-		}
+			finishedCalls = calls.values.toList()
+			// Assembled once, at the end, when every field is known.
+			val endedAt = finishedAt ?: System.currentTimeMillis()
+			val usage = if (
+				promptTokens != null || completionTokens != null ||
+				cachedTokens != null || reasoningTokens != null
+			) {
+				UsageUi(
+					promptTokens = promptTokens,
+					completionTokens = completionTokens,
+					cachedPromptTokens = cachedTokens,
+					reasoningTokens = reasoningTokens,
+					timeToFirstTokenMs = firstTokenAt?.let { it - startedAt },
+					generationMs = firstTokenAt?.let { endedAt - it },
+				)
+			} else {
+				null
+			}
+			updateMessage(replyId) { it.copy(isStreaming = false, finishReason = finish, usage = usage) }
 
-		val finishedCalls = calls.values.toList()
-		if (answer.isNotEmpty() || reasoning.isNotEmpty() || finishedCalls.isNotEmpty()) {
-			repository.appendMessage(
-				MessageEntity(
-					id = replyId,
-					conversationId = conversationId,
-					parentId = parent,
-					role = "assistant",
-					content = answer.toString(),
-					reasoning = reasoning.toString().takeIf { it.isNotBlank() },
-					model = model,
-					finishReason = finish,
-					error = failure,
-					createdAt = System.currentTimeMillis(),
-					promptTokens = usage?.promptTokens,
-					completionTokens = usage?.completionTokens,
-					cachedPromptTokens = usage?.cachedPromptTokens,
-					reasoningTokens = usage?.reasoningTokens,
-					toolCallsJson = finishedCalls.takeIf { it.isNotEmpty() }?.let { encodeCalls(it) },
-				),
-				parent,
-			)
-		} else {
-			_state.update { s -> s.copy(messages = s.messages.filterNot { it.id == replyId }) }
+			val finalUsage = usage
+			if (answer.isNotEmpty() || reasoning.isNotEmpty() || finishedCalls.isNotEmpty()) {
+				repository.appendMessage(
+					MessageEntity(
+						id = replyId,
+						conversationId = conversationId,
+						parentId = parent,
+						role = "assistant",
+						content = answer.toString(),
+						reasoning = reasoning.toString().takeIf { it.isNotBlank() },
+						model = model,
+						finishReason = finish,
+						error = failure,
+						createdAt = System.currentTimeMillis(),
+						promptTokens = finalUsage?.promptTokens,
+						completionTokens = finalUsage?.completionTokens,
+						cachedPromptTokens = finalUsage?.cachedPromptTokens,
+						reasoningTokens = finalUsage?.reasoningTokens,
+						timeToFirstTokenMs = finalUsage?.timeToFirstTokenMs,
+						generationMs = finalUsage?.generationMs,
+						toolCallsJson = finishedCalls.takeIf { it.isNotEmpty() }?.let { encodeCalls(it) },
+					),
+					parent,
+				)
+			} else {
+				_state.update { s -> s.copy(messages = s.messages.filterNot { it.id == replyId }) }
+			}
 		}
 
 		return TurnOutcome(
@@ -373,7 +479,7 @@ class ChatViewModel(
 			text = answer.toString(),
 			reasoning = reasoning.toString(),
 			toolCalls = finishedCalls,
-			usage = usage,
+			usage = null,
 			finish = finish,
 			failure = failure,
 		)
@@ -517,11 +623,18 @@ class ChatViewModel(
 	 *
 	 * Tool results are separate messages in storage but must be attached to the
 	 * assistant turn that requested them on the wire, which is what this
-	 * reassembles.
+	 * reassembles. The assistant's system prompt goes first, because it is the
+	 * standing instruction for the whole conversation rather than something
+	 * said once.
 	 */
 	private fun buildWireHistory(): List<ChatMessage> {
 		val visible = _state.value.messages.dropLast(1)
 		val out = mutableListOf<ChatMessage>()
+
+		agent?.systemPrompt?.takeIf { it.isNotBlank() }?.let {
+			out += ChatMessage(Role.System, it)
+		}
+
 		for (m in visible) {
 			when {
 				m.toolResultFor != null -> out += ChatMessage(
@@ -641,8 +754,15 @@ private fun MessageEntity.toUi(): ChatMessageUi {
 		reasoningText = reasoning.orEmpty(),
 		finishReason = finishReason,
 		error = error,
-		usage = if (promptTokens != null || completionTokens != null) {
-			UsageUi(promptTokens, completionTokens, cachedPromptTokens, reasoningTokens)
+		usage = if (promptTokens != null || completionTokens != null || timeToFirstTokenMs != null) {
+			UsageUi(
+				promptTokens = promptTokens,
+				completionTokens = completionTokens,
+				cachedPromptTokens = cachedPromptTokens,
+				reasoningTokens = reasoningTokens,
+				timeToFirstTokenMs = timeToFirstTokenMs,
+				generationMs = generationMs,
+			)
 		} else {
 			null
 		},

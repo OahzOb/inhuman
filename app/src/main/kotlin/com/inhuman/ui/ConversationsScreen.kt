@@ -1,5 +1,10 @@
 package com.inhuman.ui
 
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -65,6 +71,7 @@ fun ConversationsScreen(
 	viewModel: ConversationsViewModel,
 	onOpenConversation: (String) -> Unit,
 	onOpenSettings: () -> Unit,
+	onOpenAgents: () -> Unit,
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	val formFactor = currentFormFactor()
@@ -77,11 +84,14 @@ fun ConversationsScreen(
 				actions = {
 					// On a phone the FAB carries the primary action, so the top
 					// bar keeps only the title and this.
+					IconButton(onClick = onOpenAgents) {
+						Icon(Icons.Outlined.Person, contentDescription = "Assistants")
+					}
 					IconButton(onClick = onOpenSettings) {
 						Icon(Icons.Outlined.Settings, contentDescription = "Settings")
 					}
 					if (!useFab) {
-						IconButton(onClick = { viewModel.create(onOpenConversation) }) {
+						IconButton(onClick = { viewModel.startNewConversation() }) {
 							Icon(Icons.Filled.Add, contentDescription = "New conversation")
 						}
 					}
@@ -96,7 +106,7 @@ fun ConversationsScreen(
 		floatingActionButton = {
 			if (useFab) {
 				FloatingActionButton(
-					onClick = { viewModel.create(onOpenConversation) },
+					onClick = { viewModel.startNewConversation() },
 					containerColor = MaterialTheme.colorScheme.primary,
 					contentColor = MaterialTheme.colorScheme.onPrimary,
 					shape = RoundedCornerShape(16.dp),
@@ -122,7 +132,7 @@ fun ConversationsScreen(
 
 				state.conversations.isEmpty() -> EmptyState(
 					formFactor = formFactor,
-					onNewConversation = { viewModel.create(onOpenConversation) },
+					onNewConversation = { viewModel.startNewConversation() },
 				)
 
 				else -> ConversationList(
@@ -132,6 +142,68 @@ fun ConversationsScreen(
 				)
 			}
 		}
+	}
+
+	// Which assistant to start with.
+	//
+	// Asked before the conversation exists rather than after, because the
+	// assistant's instructions shape every turn that follows, and retrofitting
+	// them would mean the first exchange was answered under different rules than
+	// the rest.
+	state.choosingAgent?.let { available ->
+		AlertDialog(
+			onDismissRequest = viewModel::cancelChoosing,
+			title = { Text("Start with which assistant?") },
+			text = {
+				Column(
+					modifier = Modifier
+						.fillMaxWidth()
+						.heightIn(max = 400.dp)
+						.verticalScroll(rememberScrollState()),
+					verticalArrangement = Arrangement.spacedBy(6.dp),
+				) {
+					available.forEach { agent ->
+						Column(
+							modifier = Modifier
+								.fillMaxWidth()
+								.background(
+									MaterialTheme.colorScheme.surfaceVariant,
+									RoundedCornerShape(10.dp),
+								)
+								.clickable { viewModel.chooseAgent(agent, onOpenConversation) }
+								.padding(12.dp),
+							verticalArrangement = Arrangement.spacedBy(3.dp),
+						) {
+							Text(
+								text = agent.name.ifBlank { "(unnamed)" },
+								style = MaterialTheme.typography.bodyLarge,
+								color = MaterialTheme.colorScheme.onSurface,
+							)
+							// Two lines of the instructions, so the choice is
+							// informed rather than a guess between two names.
+							Text(
+								text = agent.systemPrompt,
+								style = MaterialTheme.typography.labelLarge,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+								maxLines = 2,
+								overflow = TextOverflow.Ellipsis,
+							)
+						}
+					}
+				}
+			},
+			confirmButton = {
+				TextButton(onClick = { viewModel.chooseAgent(null, onOpenConversation) }) {
+					Text("No assistant")
+				}
+			},
+			dismissButton = {
+				TextButton(onClick = viewModel::cancelChoosing) { Text("Cancel") }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
 	}
 }
 

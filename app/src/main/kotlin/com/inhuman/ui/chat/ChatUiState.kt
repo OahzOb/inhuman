@@ -66,9 +66,64 @@ data class ChatMessageUi(
 	val toolCalls: List<ToolCallUi> = emptyList(),
 )
 
+/**
+ * What one turn cost.
+ *
+ * Kept as reported rather than derived where possible: a zero and an absent
+ * field mean different things (a provider that reports no cache hit versus one
+ * that does not report caching at all), so nullable fields are preserved rather
+ * than defaulted.
+ */
 data class UsageUi(
-	val promptTokens: Int?,
-	val completionTokens: Int?,
-	val cachedPromptTokens: Int?,
-	val reasoningTokens: Int?,
-)
+	val promptTokens: Int? = null,
+	val completionTokens: Int? = null,
+	val cachedPromptTokens: Int? = null,
+	val reasoningTokens: Int? = null,
+	/**
+	 * Milliseconds from the request being sent to the first token arriving.
+	 *
+	 * Separate from the total because it is the number a user actually feels:
+	 * a reasoning model can spend many seconds here before a single character
+	 * appears, and without it a slow start looks like a hang.
+	 */
+	val timeToFirstTokenMs: Long? = null,
+	/** Milliseconds from first token to the stream finishing. */
+	val generationMs: Long? = null,
+) {
+	/**
+	 * Output tokens per second, over the generating period only.
+	 *
+	 * Measured from the first token rather than from the request, because
+	 * including the wait for the first one folds two unrelated things together
+	 * -- how fast the model writes, and how long it thought first -- and
+	 * produces a number that moves for reasons the reader cannot see.
+	 */
+	val tokensPerSecond: Double?
+		get() {
+			val completion = completionTokens ?: return null
+			val ms = generationMs ?: return null
+			if (ms <= 0 || completion <= 0) return null
+			return completion * 1000.0 / ms
+		}
+
+	/**
+	 * Share of the prompt served from cache, as a fraction.
+	 *
+	 * DeepSeek bills a cache hit at roughly a fiftieth of a miss, so this is the
+	 * number that explains a surprising bill -- and, because it is measured per
+	 * request, it is also how someone learns their prefix is or is not being
+	 * reused across turns.
+	 */
+	val cacheHitRatio: Double?
+		get() {
+			val cached = cachedPromptTokens ?: return null
+			val prompt = promptTokens ?: return null
+			if (prompt <= 0) return null
+			return (cached.toDouble() / prompt).coerceIn(0.0, 1.0)
+		}
+
+	val hasAnything: Boolean
+		get() = promptTokens != null || completionTokens != null ||
+			cachedPromptTokens != null || reasoningTokens != null ||
+			timeToFirstTokenMs != null
+}

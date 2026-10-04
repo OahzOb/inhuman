@@ -3,6 +3,7 @@ package com.inhuman.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
+import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.secret.SecureStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +32,7 @@ data class SettingsUiState(
  */
 class SettingsViewModel(
 	private val secure: SecureStore,
+	private val agents: AgentRepository,
 ) : ViewModel() {
 
 	private val _state = MutableStateFlow(SettingsUiState())
@@ -69,6 +71,11 @@ class SettingsViewModel(
 		val key = _state.value.apiKeyInput.trim()
 		if (key.isEmpty()) {
 			secure.remove(SecureStore.KEY_DEEPSEEK_API_KEY)
+			// The model list was fetched with the old key and is now either
+			// stale or was fetched with a key that no longer exists. Dropping it
+			// is the only correct thing: a picker offering models the current
+			// key cannot reach is worse than an empty one.
+			viewModelScope.launch { agents.invalidateModels() }
 			_state.value = _state.value.copy(
 				hasSavedKey = false,
 				status = "Key removed.",
@@ -77,6 +84,7 @@ class SettingsViewModel(
 			return
 		}
 		secure.put(SecureStore.KEY_DEEPSEEK_API_KEY, key)
+		viewModelScope.launch { agents.invalidateModels() }
 		_state.value = _state.value.copy(
 			hasSavedKey = true,
 			status = "Saved, encrypted with a Keystore-held key.",

@@ -57,30 +57,6 @@ class ConversationRepository(
 		return Conversation(entity, store.activePath(all))
 	}
 
-	/**
-	 * Create a conversation and its workspace together.
-	 *
-	 * The workspace is made eagerly rather than on first use. A conversation
-	 * with no directory would look fine until the user asked the assistant to
-	 * write something, and then fail at the least convenient moment.
-	 */
-	suspend fun create(title: String = "New conversation", model: String? = null): ConversationEntity {
-		val now = System.currentTimeMillis()
-		val conversation = ConversationEntity(
-			id = UUID.randomUUID().toString(),
-			title = title,
-			// Opaque and stable. Never derived from the title: renaming would
-			// then have to move the directory, and a failed move orphans files.
-			workspaceId = UUID.randomUUID().toString(),
-			model = model,
-			createdAt = now,
-			updatedAt = now,
-		)
-		Database.workspaceDir(context, conversation.workspaceId).mkdirs()
-		db.conversations().upsert(conversation)
-		return conversation
-	}
-
 	/** The workspace for a conversation, opened and ready for tools. */
 	fun workspace(conversation: ConversationEntity) =
 		SessionWorkspace.open(Database.workspaceDir(context, conversation.workspaceId))
@@ -91,6 +67,41 @@ class ConversationRepository(
 	suspend fun setPinned(id: String, pinned: Boolean) = db.conversations().setPinned(id, pinned)
 
 	suspend fun setModel(id: String, model: String?) = db.conversations().setModel(id, model)
+
+	suspend fun setReasoning(id: String, effort: String?, thinking: Boolean) =
+		db.conversations().setReasoning(id, effort, thinking)
+
+	/**
+	 * Create a conversation bound to an assistant.
+	 *
+	 * The assistant's model and reasoning settings are copied onto the
+	 * conversation rather than read through the agent later. That copy is what
+	 * makes editing an assistant safe: a model change must not silently rewrite
+	 * conversations already held with it, because a transcript is a record of
+	 * what was actually said and the settings that produced it are part of it.
+	 */
+	suspend fun create(
+		title: String = "New conversation",
+		agent: com.inhuman.core.data.db.AgentEntity? = null,
+	): ConversationEntity {
+		val now = System.currentTimeMillis()
+		val conversation = ConversationEntity(
+			id = UUID.randomUUID().toString(),
+			title = title,
+			// Opaque and stable. Never derived from the title: renaming would
+			// then have to move the directory, and a failed move orphans files.
+			workspaceId = UUID.randomUUID().toString(),
+			agentId = agent?.id,
+			model = agent?.model,
+			reasoningEffort = agent?.reasoningEffort,
+			thinking = agent?.thinking ?: false,
+			createdAt = now,
+			updatedAt = now,
+		)
+		Database.workspaceDir(context, conversation.workspaceId).mkdirs()
+		db.conversations().upsert(conversation)
+		return conversation
+	}
 
 	suspend fun appendMessage(message: MessageEntity, parentId: String?) =
 		store.append(message, parentId)

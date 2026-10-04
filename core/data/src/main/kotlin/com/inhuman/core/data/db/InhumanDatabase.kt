@@ -47,6 +47,16 @@ interface ConversationDao {
 	@Query("UPDATE conversations SET model = :model WHERE id = :id")
 	suspend fun setModel(id: String, model: String?)
 
+	/**
+	 * Set the reasoning controls together.
+	 *
+	 * One statement rather than two because they are only meaningful as a pair:
+	 * an effort level with thinking off is ignored by the provider, and storing
+	 * it separately invites a row where the two disagree.
+	 */
+	@Query("UPDATE conversations SET reasoningEffort = :effort, thinking = :thinking WHERE id = :id")
+	suspend fun setReasoning(id: String, effort: String?, thinking: Boolean)
+
 	@Query("UPDATE conversations SET updatedAt = :now WHERE id = :id")
 	suspend fun touch(id: String, now: Long)
 
@@ -82,19 +92,49 @@ interface MessageDao {
 	suspend fun deleteAllIn(conversationId: String)
 }
 
+@Dao
+interface AgentDao {
+
+	@Query("SELECT * FROM agents ORDER BY isDefault DESC, updatedAt DESC")
+	fun observeAll(): Flow<List<AgentEntity>>
+
+	@Query("SELECT * FROM agents ORDER BY isDefault DESC, updatedAt DESC")
+	suspend fun all(): List<AgentEntity>
+
+	@Query("SELECT * FROM agents WHERE id = :id")
+	suspend fun byId(id: String): AgentEntity?
+
+	/**
+	 * The seeded assistant.
+	 *
+	 * Named `defaultAgent`, not `default`: the latter is a Java keyword, and KSP
+	 * rejects it with "not a valid name" before any Kotlin compiler sees it.
+	 */
+	@Query("SELECT * FROM agents WHERE isDefault = 1 LIMIT 1")
+	suspend fun defaultAgent(): AgentEntity?
+
+	@Insert(onConflict = OnConflictStrategy.REPLACE)
+	suspend fun upsert(agent: AgentEntity)
+
+	@Query("DELETE FROM agents WHERE id = :id AND isDefault = 0")
+	suspend fun delete(id: String)
+}
+
 @Database(
-	entities = [ConversationEntity::class, MessageEntity::class],
-	// Bumped when columns were added for tool calls. Room refuses to open a
-	// database whose schema hash does not match rather than guessing, which is
-	// how this was caught: the app crashed on launch with
-	// "Looks like you've changed schema but forgot to update the version
-	// number" instead of quietly losing conversations.
-	version = 2,
+	entities = [ConversationEntity::class, MessageEntity::class, AgentEntity::class],
+	// Bumped when columns were added for tool calls, again for measured
+	// latency, and again for assistants. Room refuses to open a database whose
+	// schema hash does not match rather than guessing, which is how each was
+	// caught: the app crashed on launch with "Looks like you've changed schema
+	// but forgot to update the version number" instead of quietly losing
+	// conversations.
+	version = 4,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
 	abstract fun conversations(): ConversationDao
 	abstract fun messages(): MessageDao
+	abstract fun agents(): AgentDao
 
 	companion object {
 		const val NAME = "inhuman.db"
@@ -115,6 +155,117 @@ abstract class InhumanDatabase : RoomDatabase() {
 				connection.execSQL("ALTER TABLE messages ADD COLUMN toolName TEXT")
 			}
 		}
+
+		/**
+		 * 2 -> 3: measured latency.
+		 *
+		 * Also additive and nullable. Stored rather than recomputed because a
+		 * figure that only exists in memory vanishes on reload, and comparing
+		 * two models means wanting the older row as much as the newer one.
+		 */
+		val MIGRATION_2_3 = object : Migration(2, 3) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL("ALTER TABLE messages ADD COLUMN timeToFirstTokenMs INTEGER")
+				connection.execSQL("ALTER TABLE messages ADD COLUMN generationMs INTEGER")
+			}
+		}
+
+		/**
+		 * 3 -> 4: assistants.
+		 *
+		 * Adds the table and the columns that link a conversation to one. The
+		 * new conversation columns are nullable, so existing conversations keep
+		 * working with no assistant attached -- which is the honest state, since
+		 * they were held before assistants existed and inventing one for them
+		 * would be putting words in their mouth.
+		 *
+		 * **The default assistant is seeded here as well as in `onCreate`**, and
+		 * that is not redundancy. `onCreate` runs only when the database file is
+		 * created, so an existing install migrating to this version would arrive
+		 * with an empty assistants table, no default to fall back to, and a
+		 * picker with nothing in it -- on exactly the upgrade path most users
+		 * take. Found by checking a real device after the migration rather than
+		 * by reading the code.
+		 */
+		val MIGRATION_3_4 = object : Migration(3, 4) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"""
+					CREATE TABLE IF NOT EXISTS agents (
+						id TEXT NOT NULL PRIMARY KEY,
+						name TEXT NOT NULL,
+						systemPrompt TEXT NOT NULL,
+						model TEXT,
+						reasoningEffort TEXT,
+						thinking INTEGER NOT NULL DEFAULT 0,
+						createdAt INTEGER NOT NULL,
+						updatedAt INTEGER NOT NULL,
+						isDefault INTEGER NOT NULL DEFAULT 0
+					)
+					""".trimIndent(),
+				)
+				connection.execSQL("ALTER TABLE conversations ADD COLUMN agentId TEXT")
+				connection.execSQL("ALTER TABLE conversations ADD COLUMN reasoningEffort TEXT")
+				connection.execSQL("ALTER TABLE conversations ADD COLUMN thinking INTEGER NOT NULL DEFAULT 0")
+				connection.execSQL("CREATE INDEX IF NOT EXISTS index_conversations_agentId ON conversations(agentId)")
+				seedDefaultAgent(connection)
+			}
+		}
+
+		/**
+		 * The assistant every install starts with.
+		 *
+		 * Its instructions are written out rather than left blank, because an
+		 * empty system prompt gives a model nothing to work with and makes the
+		 * first conversation a poor introduction. They say what the app is for
+		 * -- the workspace -- which is the one thing a user would otherwise have
+		 * to discover by accident.
+		 *
+		 * Lives here, next to both callers, rather than in `Database` where it
+		 * started: `onCreate` and the 3 -> 4 migration are the two places a
+		 * database comes into being, and a helper that only one of them could
+		 * reach is how the upgrade path came to be missing it.
+		 */
+		internal fun seedDefaultAgent(connection: SQLiteConnection) {
+			val now = System.currentTimeMillis()
+			// Prepared and bound rather than interpolated: the instructions
+			// contain apostrophes, and a string-built statement would either
+			// break on them or need escaping that is easy to get wrong. Binding
+			// also keeps the prompt text out of any query log.
+			val statement = connection.prepare(
+				"""
+				INSERT OR IGNORE INTO agents
+					(id, name, systemPrompt, model, reasoningEffort, thinking, createdAt, updatedAt, isDefault)
+				VALUES (?, ?, ?, NULL, NULL, 0, ?, ?, 1)
+				""".trimIndent(),
+			)
+			try {
+				statement.bindText(1, DEFAULT_AGENT_ID)
+				statement.bindText(2, "Assistant")
+				statement.bindText(3, DEFAULT_SYSTEM_PROMPT)
+				statement.bindLong(4, now)
+				statement.bindLong(5, now)
+				statement.step()
+			} finally {
+				statement.close()
+			}
+		}
+
+		/** Stable id so a reinstall cannot produce two defaults. */
+		const val DEFAULT_AGENT_ID = "default-agent"
+
+		val DEFAULT_SYSTEM_PROMPT = """
+			You are a helpful assistant.
+
+			You have a workspace: a folder belonging to this conversation that you can
+			read and write with the tools provided. It is the only place you can
+			touch — every path you pass is relative to it, and you cannot reach
+			anything outside it. Use it when a task involves files, and prefer
+			writing results there over describing them, so the user can open them.
+
+			Be direct. Answer the question that was asked, in as many words as it
+			needs and no more.
+		""".trimIndent()
 	}
 }
 

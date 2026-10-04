@@ -2,6 +2,9 @@ package com.inhuman.core.data.db
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.execSQL
 import java.io.File
 
 /**
@@ -23,14 +26,54 @@ object Database {
 				InhumanDatabase::class.java,
 				InhumanDatabase.NAME,
 			)
-				.addMigrations(InhumanDatabase.MIGRATION_1_2)
+				.addMigrations(
+					InhumanDatabase.MIGRATION_1_2,
+					InhumanDatabase.MIGRATION_2_3,
+					InhumanDatabase.MIGRATION_3_4,
+				)
 				// Deliberately no fallbackToDestructiveMigration. It would make
 				// a missing migration look like a successful upgrade while
 				// deleting every conversation, and the whole point of writing
 				// the migration is that the data is the user's.
+				.addCallback(object : RoomDatabase.Callback() {
+					override fun onCreate(connection: SQLiteConnection) {
+						super.onCreate(connection)
+						// Seeded in onCreate rather than on first read, so a
+						// conversation is never created without an assistant to
+						// attach to. A lazily-created default would mean the very
+						// first conversation has none, which is exactly the case
+						// the default exists for.
+						InhumanDatabase.seedDefaultAgent(connection)
+					}
+				})
 				.build()
 				.also { instance = it }
 		}
+
+	/**
+	 * The assistant every install starts with.
+	 *
+	 * Its instructions are written out rather than left blank, because an empty
+	 * system prompt gives a model nothing to work with and makes the first
+	 * conversation a poor introduction. They say what the app is for -- the
+	 * workspace -- which is the one thing a user would otherwise have to
+	 * discover by accident.
+	 */
+	/** Stable id so a reinstall cannot produce two defaults. */
+	const val DEFAULT_AGENT_ID = "default-agent"
+
+	val DEFAULT_SYSTEM_PROMPT = """
+		You are a helpful assistant.
+
+		You have a workspace: a folder belonging to this conversation that you can
+		read and write with the tools provided. It is the only place you can
+		touch — every path you pass is relative to it, and you cannot reach
+		anything outside it. Use it when a task involves files, and prefer
+		writing results there over describing them, so the user can open them.
+
+		Be direct. Answer the question that was asked, in as many words as it
+		needs and no more.
+	""".trimIndent()
 
 	/** Directory holding one workspace per conversation. */
 	fun workspacesRoot(context: Context): File =

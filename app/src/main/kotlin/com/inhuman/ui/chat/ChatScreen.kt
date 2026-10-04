@@ -40,7 +40,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -74,12 +76,27 @@ fun ChatScreen(
 	// added there is not noticed until the app restarts.
 	LaunchedEffect(Unit) { viewModel.refreshConfiguration() }
 
-	// Follow the newest content, but only while a reply is arriving. Scrolling
-	// on every state change would yank the view back down while the user is
-	// reading something earlier.
-	LaunchedEffect(state.isStreaming, state.messages.size) {
-		if (state.messages.isNotEmpty()) {
-			listState.animateScrollToItem(state.messages.lastIndex)
+	// Follow the newest content while a reply arrives, but never fight the user.
+	//
+	// Two things matter here. The effect keys on the *number* of messages, not
+	// on any content, so a token arriving does not restart it -- keying on
+	// something that changes per token would fire an animated scroll many times
+	// a second, which is its own kind of flicker. And it only scrolls when the
+	// user is already near the bottom: yanking the view down while someone is
+	// reading earlier in the conversation is the single most annoying thing a
+	// chat app can do.
+	val atBottom by remember {
+		derivedStateOf {
+			val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()
+			last == null || last.index >= listState.layoutInfo.totalItemsCount - 2
+		}
+	}
+	LaunchedEffect(state.messages.size) {
+		if (state.messages.isNotEmpty() && atBottom) {
+			// scrollToItem, not animateScrollToItem: the list is already growing
+			// under the user's eyes, and an animation racing the arrival of the
+			// next chunk is what makes streaming look unsteady.
+			listState.scrollToItem(state.messages.lastIndex)
 		}
 	}
 
@@ -287,21 +304,11 @@ private fun MessageBubble(message: ChatMessageUi) {
 		// Token accounting, shown only when the provider reported it. Cache hits
 		// are called out because DeepSeek bills them about 50x cheaper, so
 		// seeing them is how a user knows prefix caching is working.
+		// What the turn cost. Collapsed to a single line until tapped: speed and
+		// the cache share answer the questions people actually ask, and the
+		// full breakdown is there for when something looks wrong.
 		message.usage?.let { u ->
-			val bits = buildList {
-				u.promptTokens?.let { add("in $it") }
-				u.completionTokens?.let { add("out $it") }
-				u.cachedPromptTokens?.takeIf { it > 0 }?.let { add("cached $it") }
-				u.reasoningTokens?.takeIf { it > 0 }?.let { add("think $it") }
-			}
-			if (bits.isNotEmpty()) {
-				Text(
-					text = bits.joinToString(" · "),
-					style = MaterialTheme.typography.labelLarge,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.padding(top = 4.dp),
-				)
-			}
+			UsageLine(usage = u, modifier = Modifier.padding(top = 4.dp))
 		}
 	}
 }

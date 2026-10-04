@@ -12,27 +12,20 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.core.design.InhumanTheme
 import com.inhuman.ui.ConversationsScreen
 import com.inhuman.ui.ConversationsViewModel
+import com.inhuman.ui.agents.AgentsScreen
+import com.inhuman.ui.agents.AgentsViewModel
 import com.inhuman.ui.chat.ChatScreen
 import com.inhuman.ui.chat.ChatViewModel
 import com.inhuman.ui.chat.SettingsViewModel
 import com.inhuman.ui.files.FilesScreen
 import com.inhuman.ui.files.FilesViewModel
 import com.inhuman.ui.settings.SettingsScreen
-
-/**
- * Where the app currently is.
- *
- * Plain state rather than a navigation library. With three screens and no deep
- * links, a navigation graph would be more machinery than the problem has --
- * and Navigation 3's "you own the back stack" model means adopting it later is
- * a change of where this list lives, not a rewrite of the screens.
- */
-private enum class Screen { Conversations, Chat, Settings }
 
 class MainActivity : ComponentActivity() {
 	override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,27 +42,43 @@ class MainActivity : ComponentActivity() {
 	}
 }
 
+/**
+ * Where the app currently is.
+ *
+ * Plain state rather than a navigation library. With five screens and no deep
+ * links, a navigation graph would be more machinery than the problem has -- and
+ * Navigation 3's "you own the back stack" model means adopting it later is a
+ * change of where this list lives, not a rewrite of the screens.
+ */
 @Composable
 private fun InhumanRoot() {
 	val context = androidx.compose.ui.platform.LocalContext.current
 	// One store and one repository for the process. The Keystore lookup inside
 	// SecureStore is not free, and Room's concurrency is per-instance -- two
 	// instances against one file would serialise badly and invite locking that
-	// a single instance avoids.
+	// a single instance avoids. AgentRepository also caches the model list, so
+	// a second instance would fetch it twice.
 	val secure = remember { SecureStore(context) }
 	val repository = remember { ConversationRepository(context) }
+	val agents = remember { AgentRepository(context, secure) }
 
 	// Which conversation the chat screen is showing. Null means the list.
 	var openConversationId by remember { mutableStateOf<String?>(null) }
 	var showSettings by remember { mutableStateOf(false) }
 	var showFiles by remember { mutableStateOf(false) }
-
-	val settingsFactory = remember(secure) { viewModelFactory { SettingsViewModel(secure) } }
+	var showAgents by remember { mutableStateOf(false) }
 
 	when {
 		showSettings -> {
-			val vm: SettingsViewModel = viewModel(factory = settingsFactory)
+			val factory = remember(secure, agents) { viewModelFactory { SettingsViewModel(secure, agents) } }
+			val vm: SettingsViewModel = viewModel(factory = factory)
 			SettingsScreen(viewModel = vm, onBack = { showSettings = false })
+		}
+
+		showAgents -> {
+			val factory = remember(agents) { viewModelFactory { AgentsViewModel(agents) } }
+			val vm: AgentsViewModel = viewModel(factory = factory)
+			AgentsScreen(viewModel = vm, onBack = { showAgents = false })
 		}
 
 		showFiles && openConversationId != null -> {
@@ -84,8 +93,8 @@ private fun InhumanRoot() {
 			// view model rather than reusing one that is still holding the
 			// previous transcript.
 			val id = openConversationId!!
-			val factory = remember(id) {
-				viewModelFactory { ChatViewModel(repository, secure, id) }
+			val factory = remember(id, agents) {
+				viewModelFactory { ChatViewModel(repository, agents, secure, id) }
 			}
 			val vm: ChatViewModel = viewModel(key = "chat-$id", factory = factory)
 			ChatScreen(
@@ -97,12 +106,15 @@ private fun InhumanRoot() {
 		}
 
 		else -> {
-			val factory = remember(repository) { viewModelFactory { ConversationsViewModel(repository) } }
+			val factory = remember(repository, agents) {
+				viewModelFactory { ConversationsViewModel(repository, agents) }
+			}
 			val vm: ConversationsViewModel = viewModel(factory = factory)
 			ConversationsScreen(
 				viewModel = vm,
 				onOpenConversation = { openConversationId = it },
 				onOpenSettings = { showSettings = true },
+				onOpenAgents = { showAgents = true },
 			)
 		}
 	}
@@ -111,9 +123,9 @@ private fun InhumanRoot() {
 /**
  * A [ViewModelProvider.Factory] for a view model with constructor arguments.
  *
- * Written by hand rather than pulled from a DI framework: there are exactly two
- * view models and one dependency, and Koin would be more configuration than the
- * graph it describes. It earns its place when the graph grows, not before.
+ * Written by hand rather than pulled from a DI framework. The graph is still
+ * small enough to read in one screen, and a container would be more
+ * configuration than the thing it configures.
  */
 private inline fun <reified VM : ViewModel> viewModelFactory(
 	crossinline create: () -> VM,

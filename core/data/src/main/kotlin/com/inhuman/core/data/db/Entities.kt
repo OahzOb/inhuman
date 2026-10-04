@@ -6,6 +6,53 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
+ * A configured assistant.
+ *
+ * ## Why this is separate from a conversation
+ *
+ * A conversation is one thread; an agent is the standing configuration behind
+ * it -- instructions, model, and how hard the model should think. Keeping them
+ * apart is what lets someone have a "code review" assistant and a "translate"
+ * assistant without either one's instructions leaking into the other, and lets
+ * the same assistant be reused across many conversations.
+ *
+ * The conversation stores a copy of the model and effort rather than reading
+ * them through the agent on every turn. That copy is what makes editing an
+ * agent safe: changing an agent's model must not silently rewrite the settings
+ * of conversations already had with it, because a transcript is a record of
+ * what was actually said.
+ */
+@Entity(tableName = "agents")
+data class AgentEntity(
+	@PrimaryKey val id: String,
+	val name: String,
+	/**
+	 * The instructions sent as the system message.
+	 *
+	 * Stored and shown verbatim. An assistant whose instructions a user cannot
+	 * read is one they cannot trust or fix, and hiding them behind a preset
+	 * name is how a prompt ends up doing something nobody intended.
+	 */
+	val systemPrompt: String,
+	/** Model id, or null to use whatever the provider defaults to. */
+	val model: String? = null,
+	/**
+	 * Reasoning effort, as the provider spells it, or null for the default.
+	 *
+	 * Free text rather than an enum on purpose: the levels are per-model and
+	 * come from `GET /models`, so an enum here would be a hardcoded guess about
+	 * someone else's API -- and would need a release to add a level.
+	 */
+	val reasoningEffort: String? = null,
+	/** Whether thinking is on at all for this assistant. */
+	val thinking: Boolean = false,
+	val createdAt: Long,
+	val updatedAt: Long,
+	/** The one seeded on first launch. Cannot be deleted from the UI. */
+	val isDefault: Boolean = false,
+)
+
+/**
  * A conversation.
  *
  * [workspaceId] is the directory name on disk and is generated once at creation
@@ -20,15 +67,30 @@ import androidx.room.PrimaryKey
  */
 @Entity(
 	tableName = "conversations",
-	indices = [Index(value = ["workspaceId"], unique = true)],
+	indices = [
+		Index(value = ["workspaceId"], unique = true),
+		Index("agentId"),
+	],
 )
 data class ConversationEntity(
 	@PrimaryKey val id: String,
 	val title: String,
 	/** Directory name under filesDir/conversations/. Opaque, never shown. */
 	val workspaceId: String,
-	/** Model id in use, or null to follow the default. */
+	/** The assistant this conversation was started with. */
+	val agentId: String? = null,
+	/**
+	 * Model in use, copied from the agent at creation and editable per
+	 * conversation.
+	 *
+	 * Copied rather than joined so that editing an agent does not rewrite the
+	 * settings of conversations already held -- what was said is a record, and
+	 * the settings that produced it are part of that record.
+	 */
 	val model: String? = null,
+	/** Reasoning effort for this conversation. Null means the model default. */
+	val reasoningEffort: String? = null,
+	val thinking: Boolean = false,
 	val createdAt: Long,
 	val updatedAt: Long,
 	val pinned: Boolean = false,
@@ -101,6 +163,14 @@ data class MessageEntity(
 	val completionTokens: Int? = null,
 	val cachedPromptTokens: Int? = null,
 	val reasoningTokens: Int? = null,
+
+	/**
+	 * Measured latency, stored because a number that is only computed live
+	 * disappears the moment the message is reloaded -- and a user comparing two
+	 * models wants yesterday's figures as much as this turn's.
+	 */
+	val timeToFirstTokenMs: Long? = null,
+	val generationMs: Long? = null,
 
 	/** Which child branch is currently shown beneath this message. */
 	val selectedChildId: String? = null,
