@@ -213,7 +213,7 @@ fun ChatScreen(
 					horizontal = comfortableGutter(),
 					vertical = 12.dp,
 				),
-				verticalArrangement = Arrangement.spacedBy(14.dp),
+				verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 			) {
 				items(state.messages, key = { it.id }) { message ->
 					MessageBubble(
@@ -297,7 +297,7 @@ fun ChatScreen(
 			onDismissRequest = viewModel::declinePendingCall,
 			title = { Text("Allow this action?") },
 			text = {
-				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+				Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
 					Text(pending.summary, style = MaterialTheme.typography.bodyLarge)
 					if (pending.call.argumentsJson.isNotBlank()) {
 						Text(
@@ -466,6 +466,47 @@ private fun summariseArguments(call: ToolCallUi): String {
 	return args.take(60)
 }
 
+/**
+ * The one line that stands for a tool result.
+ *
+ * ## The duplicate this removes
+ *
+ * A search result opens with its own header — `latest Python version release — 5
+ * results` — and the collapsed row was prefixing that with the tool name, so the
+ * row read `web_search — latest Python version release — 5 results` while the
+ * expanded body underneath began with the same words again. On a phone that
+ * wrapped to two lines, which is most of what made a one-line index entry stand
+ * 53dp tall.
+ *
+ * The count moves out of the text and into the row's trailing slot, where the
+ * collapsed header already has a place for it -- so the same fact is stated once,
+ * in the position a reader looks for it.
+ *
+ * ## Why the parsing is this shallow
+ *
+ * It handles the shapes the tools here actually produce. Anything else falls
+ * through to the raw first line, which is never wrong, only less tidy -- and a
+ * general parser for prose would be a larger thing to get wrong than the two
+ * lines it would save.
+ */
+private fun toolResultSummary(
+	toolName: String?,
+	firstLine: String,
+): Pair<String, String?> {
+	if (firstLine.isBlank()) return (toolName ?: "Tool result") to null
+
+	// "… — 5 results", "… — 3 files", "… — 1 item".
+	val counted = Regex("^(.*?)\\s+—\\s+(\\d+)\\s+(results?|files?|items?|matches?)$")
+		.find(firstLine)
+	val body = counted?.groupValues?.get(1)?.trim() ?: firstLine
+	val count = counted?.groupValues?.get(2)?.let { "$it ${counted.groupValues[3]}" }
+
+	// The count is stated once, in the slot made for it, and the tool name is
+	// dropped when there is one: "5 results" already says a search happened.
+	val text = if (count != null) body else toolName?.let { "$it — $body" } ?: body
+	return text to count
+}
+
 @Composable
 private fun MessageBubble(
 	message: ChatMessageUi,
@@ -494,19 +535,27 @@ private fun MessageBubble(
 	// produces pages of it, and left expanded the transcript is mostly search
 	// results with the answer somewhere underneath.
 	//
-	// The first line is the header, since every tool result leads with what it
-	// did: "Created notes.txt (24 B, 1 lines)". That tells a reader whether it
-	// is worth opening.
+	// The row names the tool and summarises what came back, because those are
+	// the two things that decide whether it is worth opening.
 	if (message.isToolResult) {
 		val firstLine = message.plainText.lineSequence()
 			.firstOrNull { it.isNotBlank() }
 			?.trim()
 			.orEmpty()
+		val (summaryText, summaryCount) = toolResultSummary(message.toolName, firstLine)
 		CollapsibleSection(
-			summary = message.toolName?.let { "$it — $firstLine" } ?: firstLine.ifBlank { "Tool result" },
+			summary = summaryText,
+			// The count goes in the header's right-hand slot rather than into the
+			// sentence. It is the same fact either way, but a fixed-width slot
+			// does not push the description along with it, so a column of these
+			// lines up.
+			trailing = summaryCount,
 			modifier = Modifier
 				.widthIn(max = Layout.ReadableMeasure)
-				.padding(vertical = 2.dp),
+				// No vertical padding of its own. The collapsed header already
+				// carries its own inset, and the 2dp that used to be here was
+				// part of a measured 47px gap between two one-line rows.
+				.padding(vertical = 0.dp),
 		) {
 			Text(
 				text = message.plainText.ifBlank { "(empty)" },
@@ -526,9 +575,9 @@ private fun MessageBubble(
 			modifier = Modifier
 				.widthIn(max = Layout.ReadableMeasure)
 				.background(bubbleColor, RoundedCornerShape(14.dp))
-				.padding(horizontal = 14.dp, vertical = 10.dp),
+				.padding(horizontal = 12.dp, vertical = 8.dp),
 		) {
-			Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
 				// Reasoning first, collapsed, and never in the way of the answer.
 				//
 				// It is shown when a model has thought and hidden otherwise, so
@@ -561,7 +610,7 @@ private fun MessageBubble(
 						trailing = calls.count { it.state == ToolCallUi.State.Failed }
 							.takeIf { it > 0 }?.let { "$it failed" },
 					) {
-						Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+						Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed)) {
 							calls.forEach { ToolCallLine(it) }
 						}
 					}

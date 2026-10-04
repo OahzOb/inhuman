@@ -25,6 +25,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
+import com.inhuman.core.design.Layout
 import androidx.compose.ui.unit.dp
 
 /**
@@ -81,7 +83,10 @@ fun CollapsibleSection(
 			modifier = Modifier
 				.fillMaxWidth()
 				.clickable { expanded = !expanded }
-				.padding(horizontal = 8.dp, vertical = 6.dp),
+				.padding(
+					horizontal = 8.dp,
+					vertical = Layout.Space.CollapsedPadding,
+				),
 			verticalAlignment = Alignment.CenterVertically,
 			horizontalArrangement = Arrangement.spacedBy(4.dp),
 		) {
@@ -95,6 +100,18 @@ fun CollapsibleSection(
 				text = summary,
 				style = MaterialTheme.typography.labelLarge,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				// One line, always.
+				//
+				// A wrapped summary is what made these rows tall: "web_search —
+				// latest Python version release — 5 results" ran to two lines on
+				// a phone and turned a one-line index entry into a 53dp block.
+				// Truncated, the row is a fixed height and a list of them reads
+				// as a list -- which is the whole point of collapsing them.
+				//
+				// Nothing is lost: the full text is one tap away, and the tail of
+				// a truncated summary is the part that says least.
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis,
 				modifier = Modifier.weight(1f),
 			)
 			trailing?.let {

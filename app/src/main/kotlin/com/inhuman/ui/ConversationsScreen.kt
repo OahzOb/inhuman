@@ -312,7 +312,7 @@ private fun ConversationList(
 			horizontal = comfortableGutter(),
 			vertical = 8.dp,
 		),
-		verticalArrangement = Arrangement.spacedBy(4.dp),
+		verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
 	) {
 		items(conversations, key = { it.id }) { conversation ->
 			ConversationRow(
@@ -337,7 +337,10 @@ private fun ConversationRow(
 			.fillMaxWidth()
 			.background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
 			.clickable(onClick = onClick)
-			.padding(start = 14.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+			// 8dp rather than 12. Two lines of text give this row ~100dp of
+			// content already, so the padding was a quarter of the row for no
+			// separation it did not already have from the gap below it.
+			.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		Column(

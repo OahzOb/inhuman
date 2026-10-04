@@ -46,6 +46,50 @@ object Layout {
 
 	/** Gutter once there is room to breathe. */
 	val GutterWide: Dp = 32.dp
+
+	/**
+	 * Vertical rhythm, in one place.
+	 *
+	 * These were literals scattered across three screens, which is how the
+	 * transcript ended up spending more vertical space on the gaps between
+	 * things than on the things. Measured on a phone: a one-line collapsed tool
+	 * result stood 53dp tall with an 18dp gap to the next, so a turn with eight
+	 * searches put sixteen rows on screen of which most were margins.
+	 *
+	 * Naming them puts the trade in one file instead of eight.
+	 */
+	object Space {
+		/**
+		 * Between separate messages.
+		 *
+		 * The largest gap in the transcript, and it should be: a new message is
+		 * a new thought. It stays clearly above the others so that grouping
+		 * *inside* a message reads as grouping.
+		 */
+		val BetweenMessages: Dp = 10.dp
+
+		/** Between blocks inside one message. */
+		val InMessage: Dp = 6.dp
+
+		/**
+		 * Between consecutive collapsed rows.
+		 *
+		 * Smaller than [InMessage] on purpose. A stack of collapsed tool results
+		 * is one list of things that happened, not several thoughts, and spacing
+		 * them like separate thoughts is what made a search-heavy turn read as
+		 * mostly empty page.
+		 */
+		val BetweenCollapsed: Dp = 4.dp
+
+		/**
+		 * Inside a collapsed header, above and below its label.
+		 *
+		 * Half the 20dp Material's minimum touch target would imply, because the
+		 * row already exceeds that: a 14sp label plus this is past 40dp. Adding
+		 * the full 20dp on each side is what made a one-line summary 53dp tall.
+		 */
+		val CollapsedPadding: Dp = 5.dp
+	}
 }
 
 /**

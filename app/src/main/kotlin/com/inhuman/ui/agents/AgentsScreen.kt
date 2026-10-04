@@ -266,7 +266,12 @@ private fun AgentEditor(
 					// than pushing the buttons off the screen.
 					.heightIn(max = 460.dp)
 					.verticalScroll(rememberScrollState()),
-				verticalArrangement = Arrangement.spacedBy(14.dp),
+				// 9dp rather than 14. Measured in the dialog, the gaps between a
+				// label and the thing it labels ran to 74px and the gap after
+				// Name to 200px, against 42-53px for the labels themselves -- so
+				// more of the dialog was gap than content, and the tools list
+				// needed scrolling past two screens of nothing to reach.
+				verticalArrangement = Arrangement.spacedBy(9.dp),
 			) {
 				OutlinedTextField(
 					value = draft.name,
@@ -315,7 +320,14 @@ private fun AgentEditor(
 							// assistant editor showed two fields and then its
 							// buttons. A text area with no maximum in a Column
 							// does not stay small; it takes what is available.
-							.heightIn(min = 110.dp, max = 190.dp),
+							//
+							// Lowered to 140dp once the field proved to be what
+							// kept the tools list below the fold: at 190dp it
+							// measured 515px of a 1434px dialog, so a third of
+							// the editor was one text box. 140dp still shows
+							// eight lines of a monospace prompt -- enough to see
+							// the shape of one -- and the text scrolls inside it.
+							.heightIn(min = 96.dp, max = 140.dp),
 						textStyle = MaterialTheme.typography.bodyMedium.copy(
 							fontFamily = FontFamily.Monospace,
 						),
