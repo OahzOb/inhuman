@@ -15,3 +15,9 @@ local.properties
 .idea/
 *.iml
 .DS_Store
+
+# The QuickJS sandbox builds. Reproducible from jni/qjs_jni.c using
+# _research/android-sandbox/build-qjs.ps1, which is checked in -- so these are
+# build output like any other. Two megabytes of binary in a history that cannot
+# shed it is a decision to make deliberately rather than by default.
+_research/android-sandbox/out/
