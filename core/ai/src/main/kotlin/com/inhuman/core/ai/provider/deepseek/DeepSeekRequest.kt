@@ -66,9 +66,37 @@ internal object DeepSeekRequest {
 
 	private fun message(m: ChatMessage): JsonObject = buildJsonObject {
 		put("role", m.role.wireName)
-		put("content", m.content)
-		// DeepSeek requires prior reasoning back on the wire when tools are in
-		// play; without tools it ignores the field. See ChatMessage.reasoning.
+		// A tool result is addressed to a specific call; without the id the
+		// provider cannot match it and rejects the transcript.
+		m.toolCallId?.let { put("tool_call_id", it) }
+
+		// An assistant turn that requested tools sends null content rather than
+		// an empty string. The wire format distinguishes "no text" from "empty
+		// text", and some providers reject the latter.
+		if (m.role == Role.Assistant && m.toolCalls.isNotEmpty()) {
+			put("content", JsonNull)
+			put("tool_calls", buildJsonArray {
+				m.toolCalls.forEach { call ->
+					add(buildJsonObject {
+						put("id", call.id)
+						put("type", "function")
+						put("function", buildJsonObject {
+							put("name", call.name)
+							// Sent back exactly as received. Re-serialising a
+							// parsed object would reorder keys and change
+							// whitespace, and the transcript is compared against
+							// what the provider produced.
+							put("arguments", call.argumentsJson)
+						})
+					})
+				}
+			})
+		} else {
+			put("content", m.content)
+		}
+
+		// DeepSeek requires prior reasoning back on the wire when the earlier
+		// turn used thinking; see ChatMessage.reasoning for the measurements.
 		m.reasoning?.let { put("reasoning_content", it) }
 	}
 

@@ -106,4 +106,25 @@ data class MessageEntity(
 	val selectedChildId: String? = null,
 	/** Set when the turn ended in an error, so the UI can mark it. */
 	val error: String? = null,
+
+	/**
+	 * Tool calls this assistant turn requested, as a JSON array.
+	 *
+	 * Stored as text rather than a child table because it is only ever read and
+	 * written whole, alongside its message. A join would add a table and a
+	 * query for something that is never queried independently.
+	 */
+	val toolCallsJson: String? = null,
+
+	/**
+	 * For a tool-result message: the id of the call it answers.
+	 *
+	 * The wire format requires every call to be answered, and answering the
+	 * wrong one is worse than not answering -- the model then sees a result
+	 * attached to an operation that did not produce it.
+	 */
+	val toolCallId: String? = null,
+
+	/** For a tool-result message: which tool produced it, for display. */
+	val toolName: String? = null,
 )

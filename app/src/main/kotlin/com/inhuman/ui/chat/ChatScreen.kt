@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -156,6 +157,52 @@ fun ChatScreen(
 				enabled = state.configured,
 			)
 		}
+	}
+
+	// The approval gate.
+	//
+	// Rendered as a dialog over the transcript rather than inline, because it
+	// blocks the turn: nothing else happens until it is answered, and an inline
+	// card could be scrolled past without noticing that the run has stopped.
+	//
+	// The text is written for a person, not for the model. Showing the raw tool
+	// name and JSON arguments would be technically complete and practically
+	// useless -- the point of the gate is that someone reads it before saying
+	// yes, and nobody reads `{"path":"a.txt"}` carefully.
+	state.pendingApproval?.let { pending ->
+		AlertDialog(
+			onDismissRequest = viewModel::declinePendingCall,
+			title = { Text("Allow this action?") },
+			text = {
+				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+					Text(pending.summary, style = MaterialTheme.typography.bodyLarge)
+					if (pending.call.argumentsJson.isNotBlank()) {
+						Text(
+							text = pending.call.argumentsJson,
+							style = MaterialTheme.typography.bodyMedium,
+							fontFamily = FontFamily.Monospace,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier
+								.fillMaxWidth()
+								.background(
+									MaterialTheme.colorScheme.surfaceVariant,
+									RoundedCornerShape(8.dp),
+								)
+								.padding(10.dp),
+						)
+					}
+				}
+			},
+			confirmButton = {
+				TextButton(onClick = viewModel::approvePendingCall) { Text("Allow") }
+			},
+			dismissButton = {
+				TextButton(onClick = viewModel::declinePendingCall) { Text("Decline") }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
 	}
 }
 

@@ -35,6 +35,8 @@ data class ChatUiState(
 	val configured: Boolean = false,
 	/** True when replies come from the built-in scripted source. */
 	val demoMode: Boolean = false,
+	/** A tool call waiting on the user's consent. */
+	val pendingApproval: PendingApproval? = null,
 )
 
 data class ChatMessageUi(
@@ -42,6 +44,11 @@ data class ChatMessageUi(
 	/** The message this one answers. Kept so a branch can be extended later. */
 	val parentId: String? = null,
 	val fromUser: Boolean,
+	/** True for a tool result, which is rendered as a card rather than speech. */
+	val isToolResult: Boolean = false,
+	/** For a tool result: the call it answers. */
+	val toolResultFor: String? = null,
+	val toolName: String? = null,
 	val parts: List<AssistantPart> = emptyList(),
 	val plainText: String = "",
 	/**
@@ -55,6 +62,8 @@ data class ChatMessageUi(
 	val finishReason: String? = null,
 	val usage: UsageUi? = null,
 	val error: String? = null,
+	/** Tool calls this turn requested. */
+	val toolCalls: List<ToolCallUi> = emptyList(),
 )
 
 data class UsageUi(

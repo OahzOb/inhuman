@@ -23,10 +23,11 @@ object Database {
 				InhumanDatabase::class.java,
 				InhumanDatabase.NAME,
 			)
-				// No destructive migration. This is the first schema, so there
-				// is nothing to migrate yet -- but leaving the fallback off now
-				// is what forces a real migration to be written rather than
-				// silently wiping a user's conversations later.
+				.addMigrations(InhumanDatabase.MIGRATION_1_2)
+				// Deliberately no fallbackToDestructiveMigration. It would make
+				// a missing migration look like a successful upgrade while
+				// deleting every conversation, and the whole point of writing
+				// the migration is that the data is the user's.
 				.build()
 				.also { instance = it }
 		}

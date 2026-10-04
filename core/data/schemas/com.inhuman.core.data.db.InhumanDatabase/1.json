@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "0688ede6df8da3f91d1f681593629792",
+    "identityHash": "26d8a4e906e889dbebfa1314f419f32a",
     "entities": [
       {
         "tableName": "conversations",
@@ -70,7 +70,7 @@
       },
       {
         "tableName": "messages",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `conversationId` TEXT NOT NULL, `parentId` TEXT, `role` TEXT NOT NULL, `content` TEXT NOT NULL, `reasoning` TEXT, `model` TEXT, `finishReason` TEXT, `createdAt` INTEGER NOT NULL, `promptTokens` INTEGER, `completionTokens` INTEGER, `cachedPromptTokens` INTEGER, `reasoningTokens` INTEGER, `selectedChildId` TEXT, `error` TEXT, PRIMARY KEY(`id`), FOREIGN KEY(`conversationId`) REFERENCES `conversations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `conversationId` TEXT NOT NULL, `parentId` TEXT, `role` TEXT NOT NULL, `content` TEXT NOT NULL, `reasoning` TEXT, `model` TEXT, `finishReason` TEXT, `createdAt` INTEGER NOT NULL, `promptTokens` INTEGER, `completionTokens` INTEGER, `cachedPromptTokens` INTEGER, `reasoningTokens` INTEGER, `selectedChildId` TEXT, `error` TEXT, `toolCallsJson` TEXT, `toolCallId` TEXT, `toolName` TEXT, PRIMARY KEY(`id`), FOREIGN KEY(`conversationId`) REFERENCES `conversations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -151,6 +151,21 @@
             "fieldPath": "error",
             "columnName": "error",
             "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "toolCallsJson",
+            "columnName": "toolCallsJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "toolCallId",
+            "columnName": "toolCallId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "toolName",
+            "columnName": "toolName",
+            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -196,7 +211,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '0688ede6df8da3f91d1f681593629792')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '26d8a4e906e889dbebfa1314f419f32a')"
     ]
   }
 }

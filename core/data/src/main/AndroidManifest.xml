@@ -1,2 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+	<!--
+	  The documents provider is the only way to make app-private files
+	  browsable in the system Files app without root and without
+	  MANAGE_EXTERNAL_STORAGE. A chat app cannot honestly justify the latter
+	  under Play policy.
+
+	  android:permission="android.permission.MANAGE_DOCUMENTS" restricts callers
+	  to the system and DocumentsUI, which is the documented pattern: the
+	  provider is exported because the system must reach it, but not to ordinary
+	  apps.
+	-->
+	<application>
+		<provider
+			android:name="com.inhuman.core.data.provider.WorkspaceDocumentsProvider"
+			android:authorities="${applicationId}.documents"
+			android:exported="true"
+			android:grantUriPermissions="true"
+			android:permission="android.permission.MANAGE_DOCUMENTS">
+			<intent-filter>
+				<action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+			</intent-filter>
+		</provider>
+	</application>
+
+</manifest>

@@ -18,11 +18,25 @@ enum class Role {
 }
 
 /**
+ * A tool call attached to an assistant message.
+ *
+ * [argumentsJson] is the **assembled** string, not a fragment: it is only
+ * meaningful once every delta has arrived, and it is stored as the provider
+ * sent it rather than re-serialised from a parsed object. Re-serialising would
+ * change key order and whitespace, and the transcript sent back on the next
+ * turn is compared against what the provider produced.
+ */
+data class ToolCall(
+	val id: String,
+	val name: String,
+	val argumentsJson: String,
+)
+
+/**
  * A message as sent to a provider.
  *
- * Text-only for now. Multimodal parts, reasoning replay and tool-call payloads
- * are additions rather than a redesign: [content] would become a list of parts
- * and [toolCalls] gains a sibling for results.
+ * Text-only for now. Multimodal parts are an addition rather than a redesign:
+ * [content] would become a list of parts.
  */
 data class ChatMessage(
 	val role: Role,
@@ -54,6 +68,16 @@ data class ChatMessage(
 	 * again. Sending it when thinking is off is harmless (also verified).
 	 */
 	val reasoning: String? = null,
+	/** Tool calls this assistant turn requested. */
+	val toolCalls: List<ToolCall> = emptyList(),
+	/**
+	 * For a [Role.Tool] message: which call it answers.
+	 *
+	 * The wire format requires every tool call to be answered, and answering
+	 * the wrong one is worse than not answering -- the model sees a result
+	 * attached to an operation that did not produce it.
+	 */
+	val toolCallId: String? = null,
 )
 
 /**

@@ -8,6 +8,9 @@ import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.Update
+import androidx.room.migration.Migration
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.execSQL
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -18,6 +21,16 @@ interface ConversationDao {
 
 	@Query("SELECT * FROM conversations WHERE id = :id")
 	suspend fun byId(id: String): ConversationEntity?
+
+	/**
+	 * Every conversation, for the documents provider.
+	 *
+	 * A separate query from [observeAll] because that one is a `Flow` for the
+	 * list screen; the provider runs on a Binder thread and needs a plain
+	 * suspend read.
+	 */
+	@Query("SELECT * FROM conversations ORDER BY pinned DESC, updatedAt DESC")
+	suspend fun all(): List<ConversationEntity>
 
 	@Query("SELECT * FROM conversations WHERE id = :id")
 	fun observe(id: String): Flow<ConversationEntity?>
@@ -71,7 +84,12 @@ interface MessageDao {
 
 @Database(
 	entities = [ConversationEntity::class, MessageEntity::class],
-	version = 1,
+	// Bumped when columns were added for tool calls. Room refuses to open a
+	// database whose schema hash does not match rather than guessing, which is
+	// how this was caught: the app crashed on launch with
+	// "Looks like you've changed schema but forgot to update the version
+	// number" instead of quietly losing conversations.
+	version = 2,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -80,6 +98,23 @@ abstract class InhumanDatabase : RoomDatabase() {
 
 	companion object {
 		const val NAME = "inhuman.db"
+
+		/**
+		 * 1 -> 2: tool-call columns.
+		 *
+		 * All three are nullable text, so the migration is additive and no
+		 * existing row needs interpreting. Written out rather than using
+		 * `fallbackToDestructiveMigration`, which would delete every
+		 * conversation on upgrade -- acceptable while nothing has shipped, and
+		 * a data-loss bug the moment something has.
+		 */
+		val MIGRATION_1_2 = object : Migration(1, 2) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL("ALTER TABLE messages ADD COLUMN toolCallsJson TEXT")
+				connection.execSQL("ALTER TABLE messages ADD COLUMN toolCallId TEXT")
+				connection.execSQL("ALTER TABLE messages ADD COLUMN toolName TEXT")
+			}
+		}
 	}
 }
 
