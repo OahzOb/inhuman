@@ -1,0 +1,28 @@
+pluginManagement {
+	repositories {
+		google()
+		mavenCentral()
+		gradlePluginPortal()
+	}
+}
+
+dependencyResolutionManagement {
+	repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+	repositories {
+		google()
+		mavenCentral()
+	}
+}
+
+rootProject.name = 'inhuman'
+
+// Module split follows one rule: a module that has no Android UI must not
+// depend on one. `:core:ai` in particular knows nothing about Compose or
+// Activities -- it is a plain HTTP + streaming library, which is what keeps the
+// provider code testable without a device.
+include ':app'
+include ':core:common'
+include ':core:design'
+include ':core:data'
+include ':core:ai'
+include ':core:files'

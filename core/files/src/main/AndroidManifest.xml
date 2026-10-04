@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+	<!--
+	  Deliberately no MANAGE_EXTERNAL_STORAGE and no READ/WRITE_EXTERNAL_STORAGE.
+
+	  Per-conversation workspaces live under context.filesDir, which needs no
+	  permission at all and is a real POSIX filesystem. The user reaches those
+	  files through a DocumentsProvider (added in the phase that builds the
+	  workspace), not through a broad storage grant. MANAGE_EXTERNAL_STORAGE
+	  requires a Play-policy justification that a chat app cannot honestly make.
+	-->
+
+</manifest>

@@ -1,0 +1,35 @@
+plugins {
+	alias(libs.plugins.android.library)
+	alias(libs.plugins.kotlin.serialization)
+}
+
+android {
+	namespace = 'com.inhuman.core.ai'
+	compileSdk = 37
+
+	defaultConfig {
+		minSdk = 34
+	}
+
+	compileOptions {
+		sourceCompatibility = JavaVersion.VERSION_17
+		targetCompatibility = JavaVersion.VERSION_17
+	}
+}
+
+dependencies {
+	implementation project(':core:common')
+
+	// `api` rather than `implementation` on purpose: this module's public
+	// surface returns Flow<StreamChunk>, so consumers need coroutines and
+	// serialization on their compile classpath regardless.
+	api libs.kotlinx.coroutines.android
+	api libs.kotlinx.serialization.json
+
+	implementation libs.okhttp
+	implementation libs.okhttp.sse
+	implementation libs.okhttp.logging
+
+	testImplementation libs.junit
+	testImplementation libs.kotlinx.coroutines.test
+}

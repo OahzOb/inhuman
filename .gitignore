@@ -1,0 +1,17 @@
+# Build output and caches. Reproducible from the checked-in build files.
+.gradle/
+build/
+*/build/
+.kotlin/
+
+# Screenshots produced by tools/build-and-shot.ps1. Useful to look at, not worth
+# versioning -- they are regenerated on demand.
+.shots/
+
+# The SDK location, which differs per machine.
+local.properties
+
+# IDE state.
+.idea/
+*.iml
+.DS_Store

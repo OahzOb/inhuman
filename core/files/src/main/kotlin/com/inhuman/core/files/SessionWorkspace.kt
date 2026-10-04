@@ -1,0 +1,160 @@
+package com.inhuman.core.files
+
+import java.io.File
+import java.nio.file.Files
+
+/**
+ * The one and only way a path becomes a [File] inside a conversation's
+ * workspace.
+ *
+ * ## Why this class exists
+ *
+ * The agent must be confined to its conversation directory as a matter of
+ * **code**, not as a matter of prompting. A prompt is a request; this is a
+ * gate. The rule it enforces is:
+ *
+ * > A tool never receives the workspace root and never builds a path itself.
+ * > It hands a relative string to [resolve], and [resolve] either returns a
+ * > file that is provably inside the root or refuses.
+ *
+ * Because the constructor is private and [root] is never exposed, a tool
+ * holding a `SessionWorkspace` has no way to construct a path that skipped
+ * this check.
+ *
+ * ## The two checks, and why both are needed
+ *
+ * 1. **No symlinks, ever.** Rejecting a symlink outright is stronger than
+ *    resolving one. It removes not just the escape but the time-of-check to
+ *    time-of-use window that resolving leaves open: if a symlink can never
+ *    exist inside the workspace, it can never be swapped in between the check
+ *    and the `open()`.
+ * 2. **Canonical prefix check.** A second line of defence. If a bug ever let a
+ *    symlink through, or a path component resolved somewhere unexpected, the
+ *    canonical target still has to sit under the canonical root.
+ *
+ * ## What this does NOT protect against
+ *
+ * It does not sandbox the process. Anything running as the same UID can read
+ * the same files regardless. This confines the **agent's tool calls**, which is
+ * exactly what it is for.
+ */
+class SessionWorkspace private constructor(
+	/** The canonical workspace root. Private: callers get [resolve]d files only. */
+	private val root: File,
+	val limits: WorkspaceLimits,
+) {
+
+	/** Outcome of turning an agent-supplied string into a file. */
+	sealed interface Resolution {
+		data class Ok(val file: File) : Resolution
+		data class Rejected(val reason: String) : Resolution
+	}
+
+	/**
+	 * Resolve an agent-supplied relative path against the workspace root.
+	 *
+	 * @param agentPath a path relative to the workspace, using `/` or `\`.
+	 *   Leading separators are tolerated for convenience, absolute paths are
+	 *   not honoured -- every path is treated as relative no matter what it
+	 *   looks like, so an attempt at `/etc/passwd` simply resolves to
+	 *   `<root>/etc/passwd`, which is inside the sandbox and harmless.
+	 */
+	fun resolve(agentPath: String): Resolution {
+		if (agentPath.indexOf('\u0000') >= 0) {
+			return Resolution.Rejected("path contains a null byte")
+		}
+
+		// Treat everything as relative. Stripping leading separators rather
+		// than rejecting them means an absolute-looking path degrades safely
+		// instead of becoming an error the model will keep retrying.
+		val cleaned = agentPath.trim().replace('\\', '/').trimStart('/')
+		if (cleaned.isEmpty()) return Resolution.Ok(root)
+
+		val parts = cleaned.split('/').filter { it.isNotEmpty() && it != "." }
+
+		// Every filesystem call below is wrapped, because a malformed component
+		// is a normal thing for a model to produce -- a Windows drive letter, a
+		// reserved device name, a character the filesystem refuses. Those must
+		// surface as a rejection the model can read and correct, not as an
+		// exception that tears down the agent loop. Getting this wrong is how a
+		// sandbox turns into a crash.
+		return try {
+			var cursor = root
+			for (part in parts) {
+				if (part == "..") {
+					return Resolution.Rejected("'..' is not allowed in a workspace path")
+				}
+				cursor = File(cursor, part)
+
+				// Walk and check. A symlinked component is refused even when it
+				// points back inside the root: allowing some symlinks and not
+				// others is the kind of rule that eventually has a hole.
+				if (Files.isSymbolicLink(cursor.toPath())) {
+					return Resolution.Rejected("symbolic links are not allowed in the workspace")
+				}
+			}
+
+			// Canonical prefix check. canonicalFile() also resolves any symlink
+			// in the *parent* chain, so this catches escapes the per-segment
+			// walk could not see.
+			val canonicalRoot = root.canonicalFile
+			val target = cursor.canonicalFile
+			val rootPath = canonicalRoot.path.trimEnd(File.separatorChar)
+			if (target.path != rootPath && !target.path.startsWith(rootPath + File.separator)) {
+				Resolution.Rejected("path escapes the conversation workspace")
+			} else {
+				Resolution.Ok(target)
+			}
+		} catch (e: java.nio.file.InvalidPathException) {
+			Resolution.Rejected("path is not valid on this filesystem: ${e.reason ?: e.message}")
+		} catch (e: java.io.IOException) {
+			Resolution.Rejected("path could not be resolved: ${e.message}")
+		}
+	}
+
+	/**
+	 * Resolve [agentPath] and compute the workspace-relative path of the result,
+	 * for display and for storing in tool results.
+	 */
+	fun relativize(file: File): String {
+		val rootPath = root.canonicalFile.path.trimEnd(File.separatorChar)
+		val p = file.canonicalFile.path
+		return when {
+			p == rootPath -> ""
+			p.startsWith(rootPath + File.separator) -> p.substring(rootPath.length + 1).replace('\\', '/')
+			else -> error("file is not inside this workspace")
+		}
+	}
+
+	/** Total bytes currently held by this workspace, for quota enforcement. */
+	fun usedBytes(): Long {
+		var total = 0L
+		root.walkTopDown()
+			.onEnter { dir -> if (Files.isSymbolicLink(dir.toPath())) return@onEnter false else true }
+			.forEach { if (it.isFile) total += it.length() }
+		return total
+	}
+
+	/** Number of files currently in this workspace, for quota enforcement. */
+	fun fileCount(): Int {
+		var n = 0
+		root.walkTopDown()
+			.onEnter { dir -> if (Files.isSymbolicLink(dir.toPath())) return@onEnter false else true }
+			.forEach { if (it.isFile) n++ }
+		return n
+	}
+
+	companion object {
+		/**
+		 * Open (creating if needed) the workspace rooted at [dir].
+		 *
+		 * The root is canonicalised once, here. Doing it per-call would compare
+		 * against a possibly different string if the directory were moved or a
+		 * parent were a symlink.
+		 */
+		fun open(dir: File, limits: WorkspaceLimits = WorkspaceLimits()): SessionWorkspace {
+			dir.mkdirs()
+			return SessionWorkspace(dir.canonicalFile, limits)
+		}
+	}
+}

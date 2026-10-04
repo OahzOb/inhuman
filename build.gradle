@@ -1,0 +1,15 @@
+// Plugins are declared here, without applying them to the root project, so that
+// each module can apply the ones it needs and Gradle resolves every version in
+// one place.
+//
+// Note what is NOT here: org.jetbrains.kotlin.android. AGP 9 ships built-in
+// Kotlin support and applying that plugin alongside it fails with
+// "Cannot add extension with name 'kotlin', as there is an extension already
+// registered with that name". AGP compiles the Kotlin sources itself.
+plugins {
+	alias(libs.plugins.android.application) apply false
+	alias(libs.plugins.android.library) apply false
+	alias(libs.plugins.compose.compiler) apply false
+	alias(libs.plugins.ksp) apply false
+	alias(libs.plugins.kotlin.serialization) apply false
+}
