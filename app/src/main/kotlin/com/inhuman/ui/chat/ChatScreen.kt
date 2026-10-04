@@ -1,5 +1,8 @@
 package com.inhuman.ui.chat
 
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -70,6 +73,7 @@ fun ChatScreen(
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	val listState = rememberLazyListState()
+	var showModelPicker by remember { mutableStateOf(false) }
 
 	// Re-read the key and demo setting whenever this screen appears. The view
 	// model outlives the navigation trip to settings, so without this a key
@@ -104,12 +108,34 @@ fun ChatScreen(
 		topBar = {
 			TopAppBar(
 				title = {
-					Text(
-						text = state.title,
-						style = MaterialTheme.typography.titleMedium,
-						maxLines = 1,
-						overflow = TextOverflow.Ellipsis,
-					)
+					// Tapping the title opens the model controls. The title is
+					// the only thing in the bar that is not already a button, and
+					// putting the current model under it means the settings are
+					// visible without being in the way -- which matters because
+					// they change what an answer costs.
+					Column(
+						modifier = Modifier.clickable { showModelPicker = true },
+					) {
+						Text(
+							text = state.title,
+							style = MaterialTheme.typography.titleMedium,
+							maxLines = 1,
+							overflow = TextOverflow.Ellipsis,
+						)
+						Text(
+							text = buildString {
+								append(state.modelLabel)
+								if (state.thinking) {
+									append(" · thinking")
+									state.reasoningEffort?.let { append(" ($it)") }
+								}
+							},
+							style = MaterialTheme.typography.labelLarge,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							maxLines = 1,
+							overflow = TextOverflow.Ellipsis,
+						)
+					}
 				},
 				navigationIcon = {
 					IconButton(onClick = onBack) { Text("‹", style = MaterialTheme.typography.titleLarge) }
@@ -178,8 +204,23 @@ fun ChatScreen(
 		}
 	}
 
-	// The approval gate.
+	// The model and reasoning controls, for this conversation only.
 	//
+	// Opened from the title rather than given a button: it is a setting that is
+	// looked at occasionally and matters constantly, and a bar with Files, Key
+	// and Model in it is a bar with no room for the conversation's name.
+	if (showModelPicker) {
+		ModelPickerDialog(
+			chat = viewModel,
+			currentModel = state.model,
+			effectiveModel = state.effectiveModel,
+			currentEffort = state.reasoningEffort,
+			currentThinking = state.thinking,
+			onDismiss = { showModelPicker = false },
+		)
+	}
+
+	// The approval gate.
 	// Rendered as a dialog over the transcript rather than inline, because it
 	// blocks the turn: nothing else happens until it is answered, and an inline
 	// card could be scrolled past without noticing that the run has stopped.

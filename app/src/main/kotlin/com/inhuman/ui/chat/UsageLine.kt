@@ -112,6 +112,15 @@ private fun detailRows(u: UsageUi): List<Pair<String, String>> = buildList {
 	u.timeToFirstTokenMs?.let { add("first token" to formatMs(it)) }
 	u.generationMs?.let { add("generating" to formatMs(it)) }
 	u.tokensPerSecond?.let { add("speed" to "%.1f tok/s".format(it)) }
+		?: run {
+			// Say why the row is absent rather than leaving a gap. Someone who
+			// saw a speed on the last reply and not on this one should be able
+			// to tell that the answer was simply too short to measure, not that
+			// something failed.
+			if (u.speedWithheldForShortReply) {
+				add("speed" to "too short to measure")
+			}
+		}
 	u.promptTokens?.let { add("prompt tokens" to it.toString()) }
 	u.cachedPromptTokens?.let { cached ->
 		val prompt = u.promptTokens

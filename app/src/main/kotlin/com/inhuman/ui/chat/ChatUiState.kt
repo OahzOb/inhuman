@@ -29,7 +29,6 @@ data class ChatUiState(
 	val messages: List<ChatMessageUi> = emptyList(),
 	val input: String = "",
 	val isStreaming: Boolean = false,
-	val model: String? = null,
 	val error: String? = null,
 	/** True once the provider has been configured with a usable key. */
 	val configured: Boolean = false,
@@ -37,6 +36,28 @@ data class ChatUiState(
 	val demoMode: Boolean = false,
 	/** A tool call waiting on the user's consent. */
 	val pendingApproval: PendingApproval? = null,
+	/**
+	 * The model chosen for this conversation, or null to follow the assistant.
+	 *
+	 * Kept as the *choice* rather than the resolved id so the picker can show
+	 * which option is selected: "the assistant's default" and an explicit
+	 * selection of that same model send identically but are different states.
+	 */
+	val model: String? = null,
+	/**
+	 * The model actually in use: [model] if set, the assistant's otherwise.
+	 *
+	 * Separate from [model] because null there is a meaningful choice, and
+	 * anything looking up capabilities needs the resolved id. Looking one up by
+	 * a null id finds nothing, which is how the effort control came to report
+	 * that a model with three levels had none.
+	 */
+	val effectiveModel: String? = null,
+	/** Human-facing label for [model], since the id and the name differ. */
+	val modelLabel: String = "default model",
+	/** Reasoning effort for this conversation, as the provider spells it. */
+	val reasoningEffort: String? = null,
+	val thinking: Boolean = false,
 )
 
 data class ChatMessageUi(
@@ -97,14 +118,28 @@ data class UsageUi(
 	 * including the wait for the first one folds two unrelated things together
 	 * -- how fast the model writes, and how long it thought first -- and
 	 * produces a number that moves for reasons the reader cannot see.
+	 *
+	 * **Null below a minimum window, and that floor is the point.** A one-word
+	 * answer arrives whole: the first and last deltas are milliseconds apart, so
+	 * dividing by that interval produced "22000.0 tok/s" on a live run. The
+	 * arithmetic was right and the number was meaningless, which is worse than
+	 * showing nothing -- a figure that implausible teaches the reader to distrust
+	 * the whole panel, including the parts that are sound.
 	 */
 	val tokensPerSecond: Double?
 		get() {
 			val completion = completionTokens ?: return null
 			val ms = generationMs ?: return null
-			if (ms <= 0 || completion <= 0) return null
+			if (ms < MIN_SPEED_WINDOW_MS || completion <= 0) return null
 			return completion * 1000.0 / ms
 		}
+
+	/** Whether the speed figure was withheld for being too small a sample. */
+	val speedWithheldForShortReply: Boolean
+		get() = completionTokens != null &&
+			completionTokens!! > 0 &&
+			generationMs != null &&
+			generationMs!! < MIN_SPEED_WINDOW_MS
 
 	/**
 	 * Share of the prompt served from cache, as a fraction.
@@ -126,4 +161,17 @@ data class UsageUi(
 		get() = promptTokens != null || completionTokens != null ||
 			cachedPromptTokens != null || reasoningTokens != null ||
 			timeToFirstTokenMs != null
+
+	companion object {
+		/**
+		 * Shortest generating window worth dividing by.
+		 *
+		 * Below roughly a tenth of a second the interval between the first and
+		 * last delta is dominated by scheduling and network jitter rather than
+		 * by the model, so the quotient says more about the device than about
+		 * the provider. 100ms still reports speed for any answer of a sentence
+		 * or more.
+		 */
+		const val MIN_SPEED_WINDOW_MS = 100L
+	}
 }

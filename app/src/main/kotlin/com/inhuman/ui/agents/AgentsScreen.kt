@@ -279,7 +279,16 @@ private fun AgentEditor(
 						onValueChange = { v -> onChange { it.copy(systemPrompt = v) } },
 						modifier = Modifier
 							.fillMaxWidth()
-							.heightIn(min = 140.dp),
+							// Bounded at BOTH ends, and the upper bound is the
+							// important one. With only a minimum, this field
+							// grew to fill every pixel the dialog had left --
+							// measured at 934px of a 1208px content area -- and
+							// pushed the model picker and the thinking switch
+							// out of the scroll region entirely, so the
+							// assistant editor showed two fields and then its
+							// buttons. A text area with no maximum in a Column
+							// does not stay small; it takes what is available.
+							.heightIn(min = 110.dp, max = 190.dp),
 						textStyle = MaterialTheme.typography.bodyMedium.copy(
 							fontFamily = FontFamily.Monospace,
 						),

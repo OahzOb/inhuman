@@ -93,16 +93,49 @@ class ChatViewModel(
 
 			refreshConfiguration()
 			reload()
+			publishModelState()
 		}
 	}
 
-	/** The model list, for the in-conversation picker. */
-	val availableModels: Flow<List<RemoteModel>>
-		get() = flow { emit(agents.models().getOrNull().orEmpty()) }
+	/**
+	 * Mirror the model settings into the state the UI reads.
+	 *
+	 * Called after every change rather than derived in the screen, because the
+	 * label needs the fetched model list -- and "DeepSeek-V4.1-Flash" is what
+	 * the provider calls it while "deepseek-flash" is what goes on the wire.
+	 * Showing the id would be showing an implementation detail.
+	 */
+	private suspend fun publishModelState() {
+		val list = agents.models().getOrNull().orEmpty()
 
-	/** Effort levels the current model advertises, straight from the provider. */
-	suspend fun effortLevels(): List<String> =
-		agents.effortLevels(model ?: agent?.model)
+		// Resolve all the way to a concrete id.
+		//
+		// "Provider default" is a real choice for *which model to send*, but it
+		// is not an answer to "which effort levels does this model have" -- and
+		// the id that will actually be sent is known: DEFAULT_MODEL, the same
+		// constant the request uses. Leaving this null made the effort control
+		// report that a model with three levels had none, because it looked up
+		// capabilities by a null id.
+		//
+		// The API's own default is the honest fallback when the list has not
+		// arrived: it is what the provider will use if nothing else is chosen.
+		val id = model ?: agent?.model ?: list.firstOrNull()?.id ?: DEFAULT_MODEL
+
+		val label = list.firstOrNull { it.id == id }?.displayName?.takeIf { it.isNotBlank() }
+			?: if (model == null && agent?.model == null) "${id} (default)" else id
+
+		_state.update {
+			it.copy(
+				// The choice, so the picker can show what was picked.
+				model = model,
+				// The resolved id, for looking anything up.
+				effectiveModel = id,
+				modelLabel = label,
+				reasoningEffort = reasoningEffort,
+				thinking = thinking,
+			)
+		}
+	}
 
 	/** Called after the model list is (re)loaded, so a picker can refresh. */
 	suspend fun reloadModels(): List<RemoteModel> =
@@ -123,6 +156,7 @@ class ChatViewModel(
 		viewModelScope.launch {
 			repository.setModel(conversationId, modelId)
 			repository.setReasoning(conversationId, reasoningEffort, thinking)
+			publishModelState()
 		}
 	}
 
@@ -131,6 +165,7 @@ class ChatViewModel(
 		if (!enabled) reasoningEffort = null
 		viewModelScope.launch {
 			repository.setReasoning(conversationId, reasoningEffort, thinking)
+			publishModelState()
 		}
 	}
 
@@ -138,6 +173,7 @@ class ChatViewModel(
 		reasoningEffort = level
 		viewModelScope.launch {
 			repository.setReasoning(conversationId, reasoningEffort, thinking)
+			publishModelState()
 		}
 	}
 
