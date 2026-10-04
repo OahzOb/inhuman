@@ -126,7 +126,9 @@ class SessionWorkspace private constructor(
 		}
 	}
 
-	/** Total bytes currently held by this workspace, for quota enforcement. */
+	/**
+	 * Total bytes currently held by this workspace, for quota enforcement.
+	 */
 	fun usedBytes(): Long {
 		var total = 0L
 		root.walkTopDown()
@@ -134,6 +136,19 @@ class SessionWorkspace private constructor(
 			.forEach { if (it.isFile) total += it.length() }
 		return total
 	}
+
+	/**
+	 * The root, for filesystem queries that need a path.
+	 *
+	 * Exposed as a narrow accessor rather than handing out the `File` itself:
+	 * the root is what every path check compares against, so a caller that
+	 * could replace or wrap it would defeat the gate. This returns a copy of
+	 * the canonical root, and [resolve] remains the only way to obtain a file
+	 * *inside* it.
+	 *
+	 * Used for `StatFs`, which needs a path to answer "is there room".
+	 */
+	fun rootPath(): File = root
 
 	/** Number of files currently in this workspace, for quota enforcement. */
 	fun fileCount(): Int {

@@ -25,7 +25,12 @@ android {
 
 dependencies {
 	implementation project(':core:common')
+	// The tools implement the Tool contract defined there. Not `api`: the
+	// dependency runs one way, files -> ai, and leaking the AI module to
+	// anything that depends on the sandbox would invert that.
+	implementation project(':core:ai')
 	implementation libs.kotlinx.coroutines.android
+	implementation libs.kotlinx.serialization.json
 
 	testImplementation libs.junit
 }
