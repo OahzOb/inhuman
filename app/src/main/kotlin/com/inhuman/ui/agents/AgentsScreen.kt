@@ -29,6 +29,10 @@ import androidx.compose.material3.Checkbox
 import com.inhuman.core.ai.tools.ToolCatalog
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.inhuman.core.design.LongTextField
+import com.inhuman.core.design.WideDialog
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -254,293 +258,305 @@ private fun AgentEditor(
 
 	// Local, because it is a view of the draft rather than part of it.
 	var showPreview by remember { mutableStateOf(false) }
+	// Whether per-tool descriptions are shown. Off by default: the list is ten
+	// rows and the blurbs are the only part not needed to make a choice, so
+	// showing them doubles the length of the section to answer a question most
+	// people do not have.
+	var showToolHelp by rememberSaveable { mutableStateOf(false) }
 
-	AlertDialog(
+	WideDialog(
 		onDismissRequest = onDismiss,
-		title = { Text(if (draft.isNew) "New assistant" else "Edit assistant") },
-		text = {
-			Column(
-				modifier = Modifier
-					.fillMaxWidth()
-					// Bounded so a long prompt scrolls inside the dialog rather
-					// than pushing the buttons off the screen.
-					.heightIn(max = 460.dp)
-					.verticalScroll(rememberScrollState()),
-				// 9dp rather than 14. Measured in the dialog, the gaps between a
-				// label and the thing it labels ran to 74px and the gap after
-				// Name to 200px, against 42-53px for the labels themselves -- so
-				// more of the dialog was gap than content, and the tools list
-				// needed scrolling past two screens of nothing to reach.
-				verticalArrangement = Arrangement.spacedBy(9.dp),
+		title = if (draft.isNew) "New assistant" else "Edit assistant",
+		confirmLabel = "Save",
+		onConfirm = onSave,
+		confirmEnabled = draft.canSave,
+	) {
+		OutlinedTextField(
+			value = draft.name,
+			onValueChange = { v -> onChange { it.copy(name = v) } },
+			label = { Text("Name") },
+			singleLine = true,
+			modifier = Modifier.fillMaxWidth(),
+		)
+
+		// A preview with an editor behind it, rather than a small text field.
+		//
+		// `OutlinedTextField` with a height constraint paints its text past its
+		// own border instead of clipping it -- measured at six lines inside a
+		// 150dp field, the last line drawn through the border and over the
+		// caption below. That is the tangle the screenshot showed, and making
+		// the field taller only moves where the overrun happens.
+		LongTextField(
+			value = draft.systemPrompt,
+			onValueChange = { v -> onChange { it.copy(systemPrompt = v) } },
+			label = "System prompt",
+			dialogTitle = "System prompt",
+			placeholder = "Tell the assistant what it is for.",
+			previewLines = 4,
+			textStyle = MaterialTheme.typography.bodyMedium.copy(
+				fontFamily = FontFamily.Monospace,
+			),
+		)
+		Row(
+			modifier = Modifier.fillMaxWidth(),
+			horizontalArrangement = Arrangement.SpaceBetween,
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			Text(
+				text = "Sent on every turn in this assistant's conversations.",
+				style = MaterialTheme.typography.labelLarge,
+				color = MaterialTheme.colorScheme.outline,
+				modifier = Modifier.weight(1f),
+			)
+			// The full request, not just the prompt: the model, the thinking
+			// level, and which tools travel with it.
+			TextButton(
+				onClick = { showPreview = true },
+				enabled = draft.systemPrompt.isNotBlank(),
 			) {
-				OutlinedTextField(
-					value = draft.name,
-					onValueChange = { v -> onChange { it.copy(name = v) } },
-					label = { Text("Name") },
-					singleLine = true,
-					modifier = Modifier.fillMaxWidth(),
-				)
+				Text("Preview request", style = MaterialTheme.typography.labelLarge)
+			}
+		}
 
-				Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-					Row(
-						modifier = Modifier.fillMaxWidth(),
-						horizontalArrangement = Arrangement.SpaceBetween,
-						verticalAlignment = Alignment.CenterVertically,
-					) {
-						Text(
-							text = "System prompt",
-							style = MaterialTheme.typography.labelLarge,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-						)
-						// Preview, next to the thing it previews.
-						//
-						// The field is scrollable and the prompt wraps, so the
-						// editor already shows all of it -- what it cannot show
-						// is the whole of it at once, wrapped to a readable
-						// width, together with what else goes in the request. On
-						// a long prompt those are different things.
-						TextButton(
-							onClick = { showPreview = true },
-							enabled = draft.systemPrompt.isNotBlank(),
-						) {
-							Text("Preview", style = MaterialTheme.typography.labelLarge)
-						}
-					}
-					OutlinedTextField(
-						value = draft.systemPrompt,
-						onValueChange = { v -> onChange { it.copy(systemPrompt = v) } },
-						modifier = Modifier
-							.fillMaxWidth()
-							// Bounded at BOTH ends, and the upper bound is the
-							// important one. With only a minimum, this field
-							// grew to fill every pixel the dialog had left --
-							// measured at 934px of a 1208px content area -- and
-							// pushed the model picker and the thinking switch
-							// out of the scroll region entirely, so the
-							// assistant editor showed two fields and then its
-							// buttons. A text area with no maximum in a Column
-							// does not stay small; it takes what is available.
-							//
-							// Lowered to 140dp once the field proved to be what
-							// kept the tools list below the fold: at 190dp it
-							// measured 515px of a 1434px dialog, so a third of
-							// the editor was one text box. 140dp still shows
-							// eight lines of a monospace prompt -- enough to see
-							// the shape of one -- and the text scrolls inside it.
-							.heightIn(min = 96.dp, max = 140.dp),
-						textStyle = MaterialTheme.typography.bodyMedium.copy(
-							fontFamily = FontFamily.Monospace,
-						),
-					)
-					Text(
-						text = "Sent as the system message on every turn in this assistant's conversations.",
-						style = MaterialTheme.typography.labelLarge,
-						color = MaterialTheme.colorScheme.outline,
-					)
-				}
+		HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-				HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-				// Model, from the provider rather than from a list in the app.
-				SectionLabel("Model")
-				if (modelsError != null) {
-					Text(
-						text = modelsError,
-						style = MaterialTheme.typography.bodyMedium,
-						color = MaterialTheme.colorScheme.error,
-					)
-					TextButton(onClick = onReloadModels) { Text("Retry") }
-				} else if (loadingModels) {
-					CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-				}
-				FlowRowCompat {
-					ChoiceChip(
-						label = "provider default",
-						selected = draft.model == null,
-						onClick = { onChange { it.copy(model = null, reasoningEffort = null) } },
-					)
-					models.forEach { m ->
-						ChoiceChip(
-							label = m.displayName?.takeIf { it.isNotBlank() } ?: m.id,
-							selected = draft.model == m.id,
-							onClick = {
-								// Effort is cleared when the model changes: the
-								// levels are per-model, so carrying one across
-								// would send a value the new model may reject.
-								onChange { it.copy(model = m.id, reasoningEffort = null) }
-							},
-						)
-					}
-				}
-
-				// Thinking and effort, which only apply when thinking is on.
-				Row(
-					modifier = Modifier.fillMaxWidth(),
-					horizontalArrangement = Arrangement.SpaceBetween,
-					verticalAlignment = Alignment.CenterVertically,
-				) {
-					Column(modifier = Modifier.weight(1f)) {
-						Text(
-							text = "Thinking",
-							style = MaterialTheme.typography.bodyLarge,
-							color = MaterialTheme.colorScheme.onSurface,
-						)
-						Text(
-							text = "Off is the right default for chat: \"hi\" should not cost a paragraph of reasoning.",
-							style = MaterialTheme.typography.labelLarge,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-						)
-					}
-					Switch(
-						checked = draft.thinking,
-						onCheckedChange = { v ->
-							onChange { it.copy(thinking = v, reasoningEffort = if (v) it.reasoningEffort else null) }
-						},
-					)
-				}
-
-				if (draft.thinking) {
-					SectionLabel("Reasoning effort")
-					if (levels.isEmpty()) {
-						Text(
-							text = "This model reports no effort levels; the provider default will be used.",
-							style = MaterialTheme.typography.labelLarge,
-							color = MaterialTheme.colorScheme.outline,
-						)
-					} else {
-						FlowRowCompat {
-							ChoiceChip(
-								label = "model default",
-								selected = draft.reasoningEffort == null,
-								onClick = { onChange { it.copy(reasoningEffort = null) } },
-							)
-							// Exactly the levels the model advertises, in the order
-							// it advertises them. Nothing is invented here: a
-							// hardcoded scale would let the app send a value the
-							// API does not accept.
-							levels.forEach { level ->
-								ChoiceChip(
-									label = level,
-									selected = draft.reasoningEffort == level,
-									onClick = { onChange { it.copy(reasoningEffort = level) } },
-								)
-							}
-						}
-					}
-				}
-
-				HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-				// --- tools ---------------------------------------------------
-				//
-				// The consequences are stated on the rows rather than in a note
-				// underneath, because a note under a list is read after the
-				// choice instead of before it.
-				Row(
-					modifier = Modifier.fillMaxWidth(),
-					horizontalArrangement = Arrangement.SpaceBetween,
-					verticalAlignment = Alignment.CenterVertically,
-				) {
-					SectionLabel("Tools")
-					Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-						TextButton(onClick = { onChange { it.copy(tools = ToolCatalog.allSelection()) } }) {
-							Text("All", style = MaterialTheme.typography.labelLarge)
-						}
-						TextButton(onClick = { onChange { it.copy(tools = emptyList()) } }) {
-							Text("None", style = MaterialTheme.typography.labelLarge)
-						}
-					}
-				}
-
-				Text(
-					text = if (draft.tools == null) {
-						// Worth saying out loud, because it is not what "All"
-						// does and the difference only shows up later.
-						"Everything, including tools added in future versions."
-					} else {
-						"${draft.tools.size} of ${ToolCatalog.all.size} selected."
+		// --- model ----------------------------------------------------------
+		SectionLabel("Model")
+		if (modelsError != null) {
+			Text(
+				text = modelsError,
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.error,
+			)
+			TextButton(onClick = onReloadModels) { Text("Retry") }
+		} else if (loadingModels) {
+			CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+		}
+		FlowRowCompat {
+			ChoiceChip(
+				label = "provider default",
+				selected = draft.model == null,
+				onClick = { onChange { it.copy(model = null, reasoningEffort = null) } },
+			)
+			models.forEach { m ->
+				ChoiceChip(
+					label = m.displayName?.takeIf { it.isNotBlank() } ?: m.id,
+					selected = draft.model == m.id,
+					onClick = {
+						// Effort is cleared when the model changes: the levels
+						// are per-model, so carrying one across would send a
+						// value the new model may reject.
+						onChange { it.copy(model = m.id, reasoningEffort = null) }
 					},
-					style = MaterialTheme.typography.labelLarge,
-					color = MaterialTheme.colorScheme.outline,
 				)
+			}
+		}
 
-				ToolCatalog.all.forEach { tool ->
-					val on = ToolCatalog.permits(draft.tools, tool.name)
-					Row(
-						modifier = Modifier
-							.fillMaxWidth()
-							// `toggleable` rather than `clickable`, and that is
-							// not cosmetic.
-							//
-							// With a bare click plus `Checkbox(onCheckedChange =
-							// null)` the box is drawn but is not a node: it has
-							// no state for a screen reader to announce and
-							// nothing for `uiautomator` to read, so the row said
-							// nothing about being a checkbox or about whether it
-							// was on. Tapping worked and nothing else did.
-							//
-							// `toggleable` gives the row the checkbox role, the
-							// on/off state, and the standard toggle action --
-							// which is what makes it usable without sight.
-							.toggleable(
-								value = on,
-								role = Role.Checkbox,
-								onValueChange = {
-									// Toggling from "everything" has to mean
-									// something. It becomes the full list, so
-									// the next tap turns one thing off rather
-									// than silently turning everything else off.
-									val current = draft.tools ?: ToolCatalog.names
-									val next = if (on) current - tool.name else current + tool.name
-									onChange { it.copy(tools = next) }
-								},
-							)
-							.padding(vertical = 4.dp),
-						verticalAlignment = Alignment.CenterVertically,
-						horizontalArrangement = Arrangement.spacedBy(10.dp),
-					) {
-						// Merely drawn: the row owns the interaction, because
-						// two toggles for one value is one too many.
-						Checkbox(checked = on, onCheckedChange = null)
-						Column(modifier = Modifier.weight(1f)) {
-							Text(
-								text = tool.name,
-								style = MaterialTheme.typography.bodyMedium,
-								fontFamily = FontFamily.Monospace,
-								color = MaterialTheme.colorScheme.onSurface,
-							)
-							Text(
-								text = tool.blurb,
-								style = MaterialTheme.typography.labelLarge,
-								color = MaterialTheme.colorScheme.onSurfaceVariant,
-							)
-						}
-						// The cost, next to the choice that incurs it.
-						//
-						// Mutating tools are what stops a reply being
-						// regenerated, so choosing one is choosing to give that
-						// up for the turns that use it. Said here rather than
-						// only in the chat, where it arrives too late to inform
-						// anything.
-						if (tool.mutates) {
-							Text(
-								text = "changes files",
-								style = MaterialTheme.typography.labelLarge,
-								color = MaterialTheme.colorScheme.outline,
-							)
-						}
-					}
+		// --- thinking, as one row of levels ---------------------------------
+		//
+		// "Off" used to be a switch beside a separate row of effort chips, which
+		// made one question look like two: whether to think at all, and how
+		// hard. They are the same question with one more answer, so they are one
+		// control -- off, low, high, max.
+		//
+		// The switch also cost a whole row plus a dependent section that
+		// appeared and disappeared, which is part of what pushed the tool list
+		// below the fold.
+		Row(
+			modifier = Modifier.fillMaxWidth(),
+			horizontalArrangement = Arrangement.SpaceBetween,
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			SectionLabel("Thinking")
+			Text(
+				text = "off is the right default for chat",
+				style = MaterialTheme.typography.labelLarge,
+				color = MaterialTheme.colorScheme.outline,
+			)
+		}
+		FlowRowCompat {
+			ChoiceChip(
+				label = "off",
+				selected = !draft.thinking,
+				onClick = {
+					// Effort goes with it, because a level with thinking off is
+					// not a setting the API accepts -- it is one the app would
+					// silently drop, and keeping it would leave a chip row
+					// showing a value that is not being sent.
+					onChange { it.copy(thinking = false, reasoningEffort = null) }
+				},
+			)
+			// Exactly the levels the model advertises, in the order it
+			// advertises them. Nothing is invented: a hardcoded scale would let
+			// the app send a value the API does not accept.
+			levels.forEach { level ->
+				ChoiceChip(
+					label = level,
+					selected = draft.thinking && draft.reasoningEffort == level,
+					onClick = { onChange { it.copy(thinking = true, reasoningEffort = level) } },
+				)
+			}
+			// Only when the model advertises levels at all. A model with none
+			// would get a lone "off" beside nothing, which reads as a broken row
+			// rather than as a model without such a setting.
+			if (levels.isNotEmpty()) {
+				ChoiceChip(
+					label = "model default",
+					selected = draft.thinking && draft.reasoningEffort == null,
+					onClick = { onChange { it.copy(thinking = true, reasoningEffort = null) } },
+				)
+			}
+		}
+		if (draft.thinking && levels.isEmpty()) {
+			Text(
+				text = "This model reports no effort levels; the provider default will be used.",
+				style = MaterialTheme.typography.labelLarge,
+				color = MaterialTheme.colorScheme.outline,
+			)
+		}
+
+		HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+		// --- tools ----------------------------------------------------------
+		Row(
+			modifier = Modifier.fillMaxWidth(),
+			horizontalArrangement = Arrangement.SpaceBetween,
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			SectionLabel(
+				if (draft.tools == null) {
+					"Tools — all"
+				} else {
+					"Tools — ${draft.tools.size} of ${ToolCatalog.all.size}"
+				},
+			)
+			Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+				TextButton(onClick = { showToolHelp = !showToolHelp }) {
+					Text(
+						text = if (showToolHelp) "Hide help" else "Help",
+						style = MaterialTheme.typography.labelLarge,
+					)
+				}
+				TextButton(onClick = { onChange { it.copy(tools = ToolCatalog.allSelection()) } }) {
+					Text("All", style = MaterialTheme.typography.labelLarge)
+				}
+				TextButton(onClick = { onChange { it.copy(tools = emptyList()) } }) {
+					Text("None", style = MaterialTheme.typography.labelLarge)
 				}
 			}
-		},
-		confirmButton = {
-			TextButton(onClick = onSave, enabled = draft.canSave) { Text("Save") }
-		},
-		dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-		containerColor = MaterialTheme.colorScheme.surface,
-		titleContentColor = MaterialTheme.colorScheme.onSurface,
-		textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-	)
+		}
+
+		if (draft.tools == null) {
+			// Worth saying, because it is not what "All" does and the difference
+			// only shows up later.
+			Text(
+				text = "Includes tools added in future versions.",
+				style = MaterialTheme.typography.labelLarge,
+				color = MaterialTheme.colorScheme.outline,
+			)
+		}
+
+		ToolCatalog.all.forEach { tool ->
+			val on = ToolCatalog.permits(draft.tools, tool.name)
+			Row(
+				modifier = Modifier
+					.fillMaxWidth()
+					// `toggleable` rather than `clickable`, and that is not
+					// cosmetic.
+					//
+					// With a bare click plus `Checkbox(onCheckedChange = null)`
+					// the box is drawn but is not a node: no state for a screen
+					// reader to announce and nothing for `uiautomator` to read,
+					// so the row said nothing about being a checkbox or about
+					// whether it was on. Tapping worked and nothing else did.
+					.toggleable(
+						value = on,
+						role = Role.Checkbox,
+						onValueChange = {
+							// Toggling from "everything" has to mean something.
+							// It becomes the full list, so the next tap turns one
+							// thing off rather than silently turning everything
+							// else off.
+							val current = draft.tools ?: ToolCatalog.names
+							val next = if (on) current - tool.name else current + tool.name
+							onChange { it.copy(tools = next) }
+						},
+					)
+					.padding(vertical = 2.dp),
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.spacedBy(8.dp),
+			) {
+				// Merely drawn: the row owns the interaction, because two
+				// toggles for one value is one too many.
+				Checkbox(checked = on, onCheckedChange = null)
+
+				// The write marker, as ink rather than as a word.
+				//
+				// It used to say "changes files" on every mutating row -- five
+				// repetitions of the same three words down one side of the list,
+				// which is a lot of text to say one thing. A dot carries it in a
+				// fraction of the space, and the colour does the work the
+				// repetition was doing.
+				//
+				// Colour alone is not the whole signal, so the two groups also
+				// differ in word: the writes say "writes", which is one word
+				// rather than three.
+				Box(
+					modifier = Modifier
+						.size(5.dp)
+						.background(
+							if (tool.mutates) {
+								MaterialTheme.colorScheme.tertiary
+							} else {
+								MaterialTheme.colorScheme.outlineVariant
+							},
+							CircleShape,
+						),
+				)
+
+				Column(modifier = Modifier.weight(1f)) {
+					Text(
+						text = tool.name,
+						style = MaterialTheme.typography.bodyMedium,
+						fontFamily = FontFamily.Monospace,
+						color = MaterialTheme.colorScheme.onSurface,
+					)
+					// The description is opt-in.
+					//
+					// Ten blurbs double the length of this section, and the names
+					// are what a choice is made from -- someone who wants to know
+					// what `append_file` does can ask, and someone who does not
+					// should not scroll past nine answers to a question they did
+					// not have.
+					if (showToolHelp) {
+						Text(
+							text = tool.blurb,
+							style = MaterialTheme.typography.labelLarge,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+				}
+
+				if (tool.mutates) {
+					Text(
+						text = "writes",
+						style = MaterialTheme.typography.labelLarge,
+						color = MaterialTheme.colorScheme.tertiary,
+					)
+				}
+			}
+		}
+
+		if (showToolHelp) {
+			Text(
+				text = "Tools marked “writes” change files in the conversation's folder. " +
+					"A reply that used one cannot be regenerated, because replaying the " +
+					"turn would write a second time.",
+				style = MaterialTheme.typography.labelLarge,
+				color = MaterialTheme.colorScheme.outline,
+			)
+		}
+	}
 
 	if (showPreview) {
 		PromptPreview(
