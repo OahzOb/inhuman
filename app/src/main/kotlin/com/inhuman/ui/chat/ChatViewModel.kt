@@ -14,12 +14,17 @@ import com.inhuman.core.ai.ToolSpec
 import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
 import com.inhuman.core.ai.provider.demo.DemoProvider
 import com.inhuman.core.data.AgentRepository
+import com.inhuman.core.data.Branches
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.MessageEntity
 import com.inhuman.core.data.secret.SecureStore
+import com.inhuman.core.files.SessionWorkspace
+import com.inhuman.core.files.WorkspaceTransfer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.inhuman.core.files.tools.FileTools
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -131,6 +136,10 @@ class ChatViewModel(
 				// The resolved id, for looking anything up.
 				effectiveModel = id,
 				modelLabel = label,
+				// Whether the model accepts images, so the composer can refuse
+				// before staging one. The API does not refuse: it returns 200
+				// and the model answers about a placeholder.
+				modelSupportsVision = list.firstOrNull { it.id == id }?.supportsVision == true,
 				reasoningEffort = reasoningEffort,
 				thinking = thinking,
 			)
@@ -177,13 +186,171 @@ class ChatViewModel(
 		}
 	}
 
+	// --- attachments ---------------------------------------------------------
+
+	/**
+	 * Stage an image for the next message.
+	 *
+	 * Refused when the model cannot see, and the refusal is explicit rather than
+	 * deferred to the API -- because the API does not refuse. Verified against
+	 * the live service: sending an image to a text-only model returns **200**,
+	 * the model receives a literal `[Unsupported Image]` placeholder, and it
+	 * answers confidently about that instead. There is nothing to catch, so a
+	 * user would get a wrong answer with no indication why.
+	 */
+	fun attachImage(displayName: String, mimeType: String, open: () -> java.io.InputStream) {
+		viewModelScope.launch {
+			val modelId = model ?: agent?.model ?: DEFAULT_MODEL
+			val supports = agents.models().getOrNull()
+				?.firstOrNull { it.id == modelId }
+				?.supportsVision
+
+			// Unknown counts as unsupported: with no list loaded there is no
+			// evidence the model can see, and staging an attachment that will be
+			// silently mishandled is the outcome worth avoiding.
+			if (supports != true) {
+				_state.update {
+					it.copy(
+						error = "The model in use cannot read images. " +
+							"Pick one that does, from the title bar.",
+					)
+				}
+				return@launch
+			}
+
+			val entity = conversation
+			if (entity == null) {
+				_state.update { it.copy(error = "This conversation is not ready yet.") }
+				return@launch
+			}
+
+			val workspace = runCatching { repository.workspace(entity) }.getOrNull()
+			if (workspace == null) {
+				_state.update { it.copy(error = "This conversation has no workspace.") }
+				return@launch
+			}
+
+			// Into an attachments folder, so a picture the user chose is not
+			// confused with a file the assistant wrote. They appear in the same
+			// browser, and the distinction matters when deciding what to delete.
+			val transfer = WorkspaceTransfer(workspace)
+			val outcome = withContext(Dispatchers.IO) {
+				transfer.import("attachments/" + transfer.uniqueName(displayName)) { open() }
+			}
+
+			when (outcome) {
+				is WorkspaceTransfer.Outcome.Failed ->
+					_state.update { it.copy(error = outcome.reason) }
+
+				is WorkspaceTransfer.Outcome.Ok ->
+					_state.update {
+						it.copy(
+							pendingAttachments = it.pendingAttachments + PendingAttachment(
+								relativePath = outcome.relativePath,
+								mimeType = mimeType,
+								sizeBytes = outcome.bytes,
+							),
+							error = null,
+						)
+					}
+			}
+		}
+	}
+
+	/**
+	 * Drop a staged image, and the file behind it.
+	 *
+	 * The file goes too. It was copied in for this message, and leaving it would
+	 * fill the workspace with pictures the user removed before sending.
+	 */
+	fun removeAttachment(attachment: PendingAttachment) {
+		_state.update {
+			it.copy(pendingAttachments = it.pendingAttachments.filterNot { a ->
+				a.relativePath == attachment.relativePath
+			})
+		}
+		viewModelScope.launch {
+			val entity = conversation ?: return@launch
+			withContext(Dispatchers.IO) {
+				val workspace = runCatching { repository.workspace(entity) }.getOrNull()
+					?: return@withContext
+				(workspace.resolve(attachment.relativePath) as? SessionWorkspace.Resolution.Ok)
+					?.file?.delete()
+			}
+		}
+	}
+
 	private suspend fun reload() {
 		val loaded = repository.conversation(conversationId)
+		val entities = loaded?.messages.orEmpty()
+
+		// Which messages have alternatives, resolved once for the whole
+		// transcript rather than per row. A row asking the database for its own
+		// siblings would be one query per message per recomposition.
+		val branchInfo = entities.associate { it.id to repository.branches(it.parentId) }
+
 		_state.update { current ->
 			current.copy(
 				title = loaded?.entity?.title ?: current.title,
-				messages = loaded?.messages.orEmpty().map { it.toUi() },
+				messages = entities.map { it.toUi(branchInfo[it.id]) },
 			)
+		}
+	}
+
+	/**
+	 * Answer again, replacing the reply at the end of the conversation.
+	 *
+	 * The new answer becomes a sibling of the old one rather than overwriting
+	 * it. Regenerating is a request for another attempt, not a statement that
+	 * the first was wrong, and a comparison is only possible if both exist.
+	 *
+	 * The user's message is reused, not resent: the transcript is the tree, and
+	 * re-sending would append a duplicate question and change what the model
+	 * sees for every turn after it.
+	 */
+	fun regenerate() {
+		if (_state.value.isStreaming) return
+
+		val visible = _state.value.messages
+		val lastReply = visible.lastOrNull { !it.fromUser && !it.isToolResult } ?: return
+		// The question this reply answers. Null means it is the first message,
+		// which cannot happen for an assistant turn, but returning is safer
+		// than guessing a parent.
+		val questionId = lastReply.parentId ?: return
+
+		val demo = demoEnabled()
+		val apiKey = secure.get(SecureStore.KEY_DEEPSEEK_API_KEY)
+		if (!demo && apiKey.isNullOrBlank()) {
+			_state.update { it.copy(error = "Add a DeepSeek API key first, or switch on demo mode.") }
+			return
+		}
+
+		// Strip everything from the reply onward. runTurn appends the new answer
+		// as a child of questionId, so the old reply stops being on the active
+		// path without being touched.
+		val cut = visible.indexOfFirst { it.id == lastReply.id }
+		if (cut < 0) return
+
+		_state.update {
+			it.copy(messages = it.messages.take(cut), isStreaming = true, error = null)
+		}
+
+		viewModelScope.launch { runTurn(apiKey = apiKey, demo = demo) }
+	}
+
+	/**
+	 * Show a different reply at a branch point.
+	 *
+	 * Reloads afterwards rather than patching state locally: the selection
+	 * changes the active path from that point down, so everything below it may
+	 * differ, and computing that here would duplicate `activePath` badly.
+	 */
+	fun selectBranch(childId: String) {
+		viewModelScope.launch {
+			val target = _state.value.messages.firstOrNull { it.id == childId } ?: return@launch
+			val parentId = target.parentId ?: return@launch
+			repository.selectBranch(parentId, childId)
+			reload()
 		}
 	}
 
@@ -238,7 +405,10 @@ class ChatViewModel(
 
 	fun send() {
 		val text = _state.value.input.trim()
-		if (text.isEmpty() || _state.value.isStreaming) return
+		val attachments = _state.value.pendingAttachments
+		// Images alone are a complete message -- "what is this?" is often
+		// implied -- but an empty message with nothing attached is not.
+		if ((text.isEmpty() && attachments.isEmpty()) || _state.value.isStreaming) return
 
 		val demo = demoEnabled()
 		val apiKey = secure.get(SecureStore.KEY_DEEPSEEK_API_KEY)
@@ -255,12 +425,17 @@ class ChatViewModel(
 			role = "user",
 			content = text,
 			createdAt = System.currentTimeMillis(),
+			attachmentsJson = attachments.takeIf { it.isNotEmpty() }?.let(::encodeAttachments),
 		)
 
 		_state.update {
 			it.copy(
 				messages = it.messages + userMessage.toUi(),
 				input = "",
+				// Cleared only now, when the message that carries them is
+				// committed. Clearing earlier would lose them if the send were
+				// refused above.
+				pendingAttachments = emptyList(),
 				isStreaming = true,
 				error = null,
 			)
@@ -269,7 +444,12 @@ class ChatViewModel(
 		viewModelScope.launch {
 			repository.appendMessage(userMessage, parent)
 			if (_state.value.messages.count { it.fromUser } == 1) {
-				repository.autoTitle(conversationId, text)
+				// An image-only first message has no text to derive a title
+				// from, so it falls back rather than leaving the list blank.
+				repository.autoTitle(
+					conversationId,
+					text.ifBlank { attachments.firstOrNull()?.displayName ?: "Image" },
+				)
 				val stored = repository.conversation(conversationId)?.entity?.title
 				if (stored != null) _state.update { it.copy(title = stored) }
 			}
@@ -679,7 +859,15 @@ class ChatViewModel(
 					toolCallId = m.toolResultFor,
 				)
 
-				m.fromUser -> out += ChatMessage(Role.User, m.plainText)
+				m.fromUser -> out += ChatMessage(
+					role = Role.User,
+					content = m.plainText,
+					// Read here rather than at attachment time: a transcript is
+					// rebuilt on every turn and holding every image's bytes in
+					// memory for the conversation's lifetime would grow without
+					// bound. Through the sandbox, like every other file access.
+					images = loadImages(m.attachments),
+				)
 
 				else -> out += ChatMessage(
 					role = Role.Assistant,
@@ -694,6 +882,46 @@ class ChatViewModel(
 		}
 		return out
 	}
+
+	/**
+	 * Read attachment bytes for a message about to be sent.
+	 *
+	 * A file that has been deleted since it was attached is skipped rather than
+	 * failing the turn. It is the user's own workspace and they may have tidied
+	 * it; losing the message over a picture they removed would be the wrong
+	 * trade.
+	 */
+	private fun loadImages(attachments: List<PendingAttachment>): List<com.inhuman.core.ai.ChatImage> {
+		if (attachments.isEmpty()) return emptyList()
+		val entity = conversation ?: return emptyList()
+		val workspace = runCatching { repository.workspace(entity) }.getOrNull() ?: return emptyList()
+		return attachments.mapNotNull { attachment ->
+			val file = (workspace.resolve(attachment.relativePath) as? SessionWorkspace.Resolution.Ok)
+				?.file ?: return@mapNotNull null
+			if (!file.exists() || file.length() > workspace.limits.maxReadBytes) return@mapNotNull null
+			runCatching {
+				com.inhuman.core.ai.ChatImage(attachment.mimeType, file.readBytes())
+			}.getOrNull()
+		}
+	}
+
+	/**
+	 * Attachments as stored, so the transcript can rebuild them.
+	 *
+	 * Paths and MIME types only -- the bytes stay in the workspace, which is the
+	 * single source of truth for what an image contains and stays correct if the
+	 * user replaces the file.
+	 */
+	private fun encodeAttachments(attachments: List<PendingAttachment>): String =
+		attachments.joinToString(prefix = "[", postfix = "]") { a ->
+			buildJsonObject {
+				put("path", a.relativePath)
+				put("mime", a.mimeType)
+				put("size", a.sizeBytes)
+			}.toString()
+		}
+
+
 
 	private fun encodeCalls(calls: List<ToolCallUi>): String = buildJsonObject {
 		put("v", 1)
@@ -769,7 +997,7 @@ private fun roleFromWire(value: String): Role = when (value) {
 	else -> Role.User
 }
 
-private fun MessageEntity.toUi(): ChatMessageUi {
+private fun MessageEntity.toUi(branches: Branches? = null): ChatMessageUi {
 	val parts = buildList {
 		reasoning?.takeIf { it.isNotBlank() }?.let {
 			add(AssistantPart("r", AssistantPart.Kind.Reasoning, it))
@@ -803,7 +1031,36 @@ private fun MessageEntity.toUi(): ChatMessageUi {
 			null
 		},
 		toolCalls = toolCallsJson?.let(::decodeCalls).orEmpty(),
+		branches = branches,
+		attachments = decodeAttachments(attachmentsJson),
 	)
+}
+
+/**
+ * Attachments as stored, so a loaded transcript can rebuild them.
+ *
+ * Paths and MIME types only -- the bytes stay in the workspace, which is the
+ * single source of truth for what an image contains and stays correct if the
+ * user replaces the file.
+ *
+ * Top-level rather than a member of the view model because `toUi` is
+ * top-level and converts rows without one.
+ */
+private fun decodeAttachments(raw: String?): List<PendingAttachment> {
+	if (raw.isNullOrBlank()) return emptyList()
+	return runCatching {
+		(Json.parseToJsonElement(raw) as? kotlinx.serialization.json.JsonArray)
+			.orEmpty()
+			.mapNotNull { item ->
+				val obj = item as? JsonObject ?: return@mapNotNull null
+				val path = obj["path"]?.toString()?.trim('"') ?: return@mapNotNull null
+				PendingAttachment(
+					relativePath = path,
+					mimeType = obj["mime"]?.toString()?.trim('"') ?: "image/*",
+					sizeBytes = obj["size"]?.toString()?.trim('"')?.toLongOrNull() ?: 0L,
+				)
+			}
+	}.getOrDefault(emptyList())
 }
 
 /** Stored as a JSON array of small objects; a malformed value is ignored. */

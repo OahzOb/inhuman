@@ -2,15 +2,18 @@ package com.inhuman
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
@@ -68,6 +71,63 @@ private fun InhumanRoot() {
 	var showFiles by remember { mutableStateOf(false) }
 	var showAgents by remember { mutableStateOf(false) }
 
+	// Whether a screen has an internal dialog open, so Back closes that before
+	// it navigates. Without this, Back on a screen showing a dialog would leave
+	// the screen and discard whatever the dialog was asking about.
+	var chatDialogOpen by remember { mutableStateOf(false) }
+	var filesDialogOpen by remember { mutableStateOf(false) }
+
+	// The file browser's current directory, so Back steps up a level before it
+	// leaves the browser. Without it, Back from three folders deep would exit
+	// the screen entirely, which is not what "up" means anywhere else.
+	var filesAtRoot by remember { mutableStateOf(true) }
+
+	// Assigned by the Files branch, called by the Back handler. A var rather
+	// than passing the view model up, because the handler is composed before the
+	// branch that creates it and cannot close over it.
+	var filesUpOneLevel: () -> Unit by remember { mutableStateOf({}) }
+
+	/**
+	 * Make the system Back button walk the app's own history.
+	 *
+	 * ## Why this is needed at all
+	 *
+	 * The screens are chosen by a `when` over state, not by a navigation
+	 * library, so nothing has registered a back stack with the framework. With no
+	 * `OnBackPressedCallback` installed, the default applies and Back finishes
+	 * the Activity -- so from any screen, including four levels deep, one press
+	 * closed the app. That is what the user hit.
+	 *
+	 * ## Why the order is reversed
+	 *
+	 * Registered once, at the root, rather than one handler per screen. Several
+	 * enabled handlers all fire on a single press, so per-screen registration
+	 * would run two or three levels of navigation at once -- Back from a
+	 * conversation inside Files inside Settings would jump straight to the list.
+	 * One handler reading the whole state makes the order explicit.
+	 *
+	 * The ordering itself: a dialog first because it is the most recent thing the
+	 * user opened, then a directory level, then the overlays in the order they
+	 * can be stacked, and finally the conversation. Only when nothing is left
+	 * does the handler disable itself and let the press reach the framework,
+	 * which closes the app from the list screen -- the one place that is right.
+	 */
+	BackHandler(enabled = openConversationId != null || showSettings || showFiles || showAgents) {
+		when {
+			// AlertDialog handles its own dismissal through onDismissRequest and
+			// registers its handler later in the composition, so it runs first.
+			// Returning here only stops this handler from also navigating.
+			chatDialogOpen || filesDialogOpen -> Unit
+
+			showFiles && !filesAtRoot -> filesUpOneLevel()
+
+			showFiles -> showFiles = false
+			showAgents -> showAgents = false
+			showSettings -> showSettings = false
+			openConversationId != null -> openConversationId = null
+		}
+	}
+
 	when {
 		showSettings -> {
 			val factory = remember(secure, agents) { viewModelFactory { SettingsViewModel(secure, agents) } }
@@ -85,7 +145,20 @@ private fun InhumanRoot() {
 			val id = openConversationId!!
 			val factory = remember(id) { viewModelFactory { FilesViewModel(repository, id) } }
 			val vm: FilesViewModel = viewModel(key = "files-$id", factory = factory)
-			FilesScreen(viewModel = vm, onBack = { showFiles = false })
+			// An escape hatch for the one Back action that belongs to a screen
+			// rather than to the navigation state: stepping up a directory.
+			// Hoisted into a lambda the handler can call, because the handler
+			// runs outside this branch.
+			filesUpOneLevel = { vm.navigateUp() }
+			val filesState by vm.state.collectAsStateWithLifecycle()
+			LaunchedEffect(filesState.currentPath) {
+				filesAtRoot = filesState.currentPath.isEmpty()
+			}
+			FilesScreen(
+				viewModel = vm,
+				onBack = { showFiles = false },
+				onDialogVisibilityChange = { filesDialogOpen = it },
+			)
 		}
 
 		openConversationId != null -> {
@@ -102,6 +175,7 @@ private fun InhumanRoot() {
 				onBack = { openConversationId = null },
 				onOpenSettings = { showSettings = true },
 				onOpenFiles = { showFiles = true },
+				onDialogVisibilityChange = { chatDialogOpen = it },
 			)
 		}
 

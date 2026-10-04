@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Settings
@@ -39,7 +40,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +79,13 @@ fun ConversationsScreen(
 	onOpenAgents: () -> Unit,
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
+	var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
+
+	// Ask for the file count when the question is about to be shown, not when it
+	// is answered -- by then the folder is gone and there is nothing to count.
+	LaunchedEffect(pendingDelete?.id) {
+		pendingDelete?.let { viewModel.countFiles(it) }
+	}
 	val formFactor = currentFormFactor()
 	val useFab = prefersFabForPrimaryAction()
 
@@ -139,9 +151,56 @@ fun ConversationsScreen(
 					conversations = state.conversations,
 					onOpen = onOpenConversation,
 					onTogglePin = viewModel::setPinned,
+					onRequestDelete = { pendingDelete = it },
 				)
 			}
 		}
+	}
+
+	// Deleting a conversation destroys its folder too, so it asks first.
+	//
+	// The confirmation names what goes with it rather than only the title: the
+	// files in the workspace are not visible from this screen, and "delete this
+	// conversation?" reads like it removes a list entry.
+	pendingDelete?.let { conversation ->
+		val fileCount = state.deletePreviewCounts[conversation.id]
+		AlertDialog(
+			onDismissRequest = viewModel::cancelDelete,
+			title = { Text("Delete \"${conversation.title}\"?") },
+			text = {
+				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+					Text(
+						text = when {
+							fileCount == null -> "This deletes the conversation and its folder."
+							fileCount == 0 -> "This deletes the conversation. Its folder is empty."
+							fileCount == 1 -> "This deletes the conversation and 1 file in its folder."
+							else -> "This deletes the conversation and $fileCount files in its folder."
+						},
+					)
+					Text(
+						text = "This cannot be undone.",
+						color = MaterialTheme.colorScheme.error,
+					)
+				}
+			},
+			confirmButton = {
+				TextButton(onClick = { viewModel.delete(conversation) }) {
+					Text("Delete", color = MaterialTheme.colorScheme.error)
+				}
+			},
+			dismissButton = {
+				TextButton(onClick = {
+					// Local state, so it must be cleared here as well as in the
+					// view model -- cancelDelete only drops the cached file
+					// count, and the dialog is driven by pendingDelete.
+					viewModel.cancelDelete()
+					pendingDelete = null
+				}) { Text("Cancel") }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
 	}
 
 	// Which assistant to start with.
@@ -212,6 +271,7 @@ private fun ConversationList(
 	conversations: List<ConversationEntity>,
 	onOpen: (String) -> Unit,
 	onTogglePin: (ConversationEntity, Boolean) -> Unit,
+	onRequestDelete: (ConversationEntity) -> Unit,
 ) {
 	LazyColumn(
 		modifier = Modifier
@@ -228,6 +288,7 @@ private fun ConversationList(
 				conversation = conversation,
 				onClick = { onOpen(conversation.id) },
 				onTogglePin = { onTogglePin(conversation, !conversation.pinned) },
+				onDelete = { onRequestDelete(conversation) },
 			)
 		}
 	}
@@ -238,6 +299,7 @@ private fun ConversationRow(
 	conversation: ConversationEntity,
 	onClick: () -> Unit,
 	onTogglePin: () -> Unit,
+	onDelete: () -> Unit,
 ) {
 	Row(
 		modifier = Modifier
@@ -274,6 +336,15 @@ private fun ConversationRow(
 				} else {
 					MaterialTheme.colorScheme.outline
 				},
+				modifier = Modifier.size(18.dp),
+			)
+		}
+
+		IconButton(onClick = onDelete) {
+			Icon(
+				Icons.Outlined.Delete,
+				contentDescription = "Delete conversation",
+				tint = MaterialTheme.colorScheme.error,
 				modifier = Modifier.size(18.dp),
 			)
 		}

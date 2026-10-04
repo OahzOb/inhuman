@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
 data class ConversationsUiState(
@@ -26,6 +28,16 @@ data class ConversationsUiState(
 	 * and there is nothing to navigate away from yet.
 	 */
 	val choosingAgent: List<AgentEntity>? = null,
+	/**
+	 * File counts for conversations whose deletion is being confirmed.
+	 *
+	 * Fetched before the question is asked, because the number is part of the
+	 * question: "delete this conversation?" and "delete this conversation and
+	 * the 14 files in it?" are different decisions, and only one of them is
+	 * informed. Counting after the answer would be counting a folder that no
+	 * longer exists.
+	 */
+	val deletePreviewCounts: Map<String, Int> = emptyMap(),
 )
 
 class ConversationsViewModel(
@@ -86,7 +98,42 @@ class ConversationsViewModel(
 		}
 	}
 
+	/**
+	 * Count the files in a conversation's workspace, for the confirmation.
+	 *
+	 * Runs off the main thread: the count walks the directory, and a workspace
+	 * that the model has been filling can hold thousands of entries.
+	 */
+	fun countFiles(conversation: ConversationEntity) {
+		viewModelScope.launch {
+			val count = withContext(Dispatchers.IO) {
+				val workspace = runCatching { repository.workspace(conversation) }.getOrNull()
+					?: return@withContext null
+				runCatching { workspace.fileCount() }.getOrNull()
+			}
+			// A null count means the workspace could not be read. Left absent so
+			// the dialog says less rather than claiming zero files in a folder
+			// that might be full.
+			if (count != null) {
+				_state.update { it.copy(deletePreviewCounts = it.deletePreviewCounts + (conversation.id to count)) }
+			}
+		}
+	}
+
+	fun cancelDelete() {
+		// The count is dropped on cancel so a later confirmation cannot show a
+		// stale number for a folder that has changed in between.
+		_state.update { it.copy(deletePreviewCounts = emptyMap()) }
+	}
+
+	/**
+	 * Delete a conversation and everything in its folder.
+	 *
+	 * The count is cleared first: if the deletion fails, the next confirmation
+	 * should recount rather than reuse a number that was true a minute ago.
+	 */
 	fun delete(conversation: ConversationEntity) {
+		_state.update { it.copy(deletePreviewCounts = emptyMap()) }
 		viewModelScope.launch { repository.delete(conversation) }
 	}
 

@@ -91,6 +91,40 @@ internal object DeepSeekRequest {
 					})
 				}
 			})
+		} else if (m.images.isNotEmpty()) {
+			// Content parts, and only for a message that has images.
+			//
+			// A plain string stays a plain string everywhere else. Both forms
+			// are accepted, but the array form is the one that has been
+			// measured with an attachment and there is no reason to route text
+			// through a shape it does not need.
+			put("content", buildJsonArray {
+				if (m.content.isNotBlank()) {
+					add(buildJsonObject {
+						put("type", "text")
+						put("text", m.content)
+					})
+				}
+				m.images.forEach { image ->
+					// java.util.Base64 rather than android.util.Base64: this
+					// module is unit-tested on the JVM, where the Android one is
+					// an unimplemented stub. Available since API 26 against a
+					// minimum of 34.
+					val encoded = java.util.Base64.getEncoder().encodeToString(image.bytes)
+					add(buildJsonObject {
+						put("type", "image_url")
+						// `image_url` is an OBJECT with a `url` field, not a
+						// bare string. Verified against the live API: the string
+						// form returns 422 with
+						// "invalid type: string, expected struct
+						// OpenAIChatMessageContentPartImage". The field being
+						// named after a URL invites the wrong guess.
+						put("image_url", buildJsonObject {
+							put("url", "data:${image.mimeType};base64,$encoded")
+						})
+					})
+				}
+			})
 		} else {
 			put("content", m.content)
 		}

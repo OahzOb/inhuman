@@ -197,4 +197,16 @@ data class MessageEntity(
 
 	/** For a tool-result message: which tool produced it, for display. */
 	val toolName: String? = null,
+
+	/**
+	 * Images attached to this message, as a JSON array of
+	 * `{"path": ..., "mime": ...}`.
+	 *
+	 * Paths into the conversation's workspace rather than copies of the bytes: a
+	 * screenshot inside a row would be duplicated state that can disagree with
+	 * the file the user can see and delete, and a transcript is read on every
+	 * screen open. The bytes are loaded when a request is built, which is the
+	 * only time they are wanted.
+	 */
+	val attachmentsJson: String? = null,
 )

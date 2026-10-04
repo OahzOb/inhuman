@@ -41,6 +41,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,6 +72,8 @@ import kotlinx.coroutines.launch
 fun FilesScreen(
 	viewModel: FilesViewModel,
 	onBack: () -> Unit,
+	/** Raised while a dialog is up, so system Back closes it rather than leaving. */
+	onDialogVisibilityChange: (Boolean) -> Unit = {},
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	val context = LocalContext.current
@@ -78,6 +81,10 @@ fun FilesScreen(
 
 	var pendingDelete by remember { mutableStateOf<FileEntryUi?>(null) }
 	var importError by remember { mutableStateOf<String?>(null) }
+
+	val anyDialogOpen = pendingDelete != null || importError != null ||
+		state.error != null || state.preview != null
+	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
 	// Which file the export launcher was fired for.
 	//

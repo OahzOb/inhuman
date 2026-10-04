@@ -33,14 +33,61 @@ data class ToolCall(
 )
 
 /**
+ * An image attached to a message, with its bytes.
+ *
+ * ## Why the bytes and not a path
+ *
+ * The request builder is a pure function from a request to JSON. Giving it a
+ * path would make it do file IO, which would make it untestable without a
+ * filesystem and would put the reading inside the transport, where the
+ * workspace sandbox has not been consulted. The bytes are read at the moment
+ * history is assembled -- through the sandbox, like everything else -- and the
+ * builder only ever sees content.
+ *
+ * ## The wire format is measured, not assumed
+ *
+ * Two shapes are plausible and only one works. `image_url` as an **object**
+ * containing a `url` returns 200; as a bare string it returns
+ * `422 ... invalid type: string, expected struct OpenAIChatMessageContentPartImage`.
+ * The OpenAI-compatible name suggests the first, and the second is what a
+ * reasonable person writes if they assume a URL is a string.
+ *
+ * ## Why the model's capabilities are not checked here
+ *
+ * They are checked before this is ever built, because the failure is silent:
+ * sending an image to a text-only model returns 200, and the model answers
+ * about `[Unsupported Image]` -- a placeholder it can see -- while sounding
+ * like it looked. Nothing at this layer can detect that, so the guard has to
+ * happen where the model is known.
+ */
+data class ChatImage(
+	val mimeType: String,
+	val bytes: ByteArray,
+) {
+	// ByteArray needs these by hand; the generated ones compare identity, which
+	// would make two identical attachments unequal and defeat any skip logic.
+	override fun equals(other: Any?): Boolean {
+		if (this === other) return true
+		if (other !is ChatImage) return false
+		return mimeType == other.mimeType && bytes.contentEquals(other.bytes)
+	}
+
+	override fun hashCode(): Int = 31 * mimeType.hashCode() + bytes.contentHashCode()
+}
+
+/**
  * A message as sent to a provider.
  *
- * Text-only for now. Multimodal parts are an addition rather than a redesign:
- * [content] would become a list of parts.
+ * [content] is the text; [images] are attachments, in the order they were
+ * added. They are fields rather than one list of typed parts because a text
+ * part and an image part are consumed by different code -- the text goes through
+ * Markdown, the image through base64 -- and a sealed hierarchy would be
+ * unwrapped at every use site to recover what is already known here.
  */
 data class ChatMessage(
 	val role: Role,
 	val content: String,
+	val images: List<ChatImage> = emptyList(),
 	/**
 	 * Reasoning text produced alongside this message, when the provider
 	 * requires it back.

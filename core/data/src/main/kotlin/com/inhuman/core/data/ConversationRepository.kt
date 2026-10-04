@@ -24,6 +24,25 @@ data class Conversation(
 )
 
 /**
+ * Where one message sits among its alternatives.
+ *
+ * @param index zero-based position of the reply currently shown.
+ * @param total how many replies exist at this point.
+ * @param previousId the reply one step back, or null at the start. Null is what
+ *   disables the arrow rather than wrapping to the end: a switcher that cycles
+ *   makes it impossible to tell whether the list has been around once.
+ */
+data class Branches(
+	val index: Int,
+	val total: Int,
+	val previousId: String?,
+	val nextId: String?,
+) {
+	/** "2 of 3", for a control that has room for one line. */
+	val label: String get() = "${index + 1} of $total"
+}
+
+/**
  * The application's view of stored conversations.
  *
  * Owns three things that must stay consistent with each other:
@@ -117,6 +136,54 @@ class ConversationRepository(
 	suspend fun delete(conversation: ConversationEntity) {
 		Database.workspaceDir(context, conversation.workspaceId).deleteRecursively()
 		store.deleteConversation(conversation.id)
+	}
+
+	/**
+	 * Choose which reply to show under a message.
+	 *
+	 * The tree stores parent links plus a `selectedChildId` on each node, so
+	 * switching a branch is one column on one row -- nothing is copied and
+	 * nothing is deleted. The reply that was showing stays exactly where it was
+	 * and comes back if this is switched again.
+	 *
+	 * Switching the selection changes the active path below it, so a branch
+	 * chosen three replies up changes the whole tail of the conversation. That
+	 * is the intended meaning: the alternatives are different continuations of
+	 * the same point, not different annotations on one message.
+	 */
+	suspend fun selectBranch(parentId: String, childId: String) {
+		db.messages().setSelectedChild(parentId, childId)
+	}
+
+	/**
+	 * The replies to a message, oldest first, with the selected one marked.
+	 *
+	 * @return null when [parentId] is null, which is the first message in a
+	 *   conversation: it has no siblings by definition, and a switcher offering
+	 *   to move between them would be offering nothing.
+	 */
+	suspend fun branches(parentId: String?): Branches? {
+		if (parentId == null) return null
+		val children = db.messages().childrenOf(parentId)
+		if (children.size < 2) return null
+
+		// Which child is showing. A parent with no selection set yet falls back
+		// to the newest, matching ConversationStore.activePath -- if the two
+		// disagreed, the switcher would highlight a reply that is not on screen.
+		val parent = db.messages().byId(parentId)
+		val selectedId = parent?.selectedChildId
+			?.takeIf { id -> children.any { it.id == id } }
+			?: children.last().id
+
+		val index = children.indexOfFirst { it.id == selectedId }
+		if (index < 0) return null
+
+		return Branches(
+			index = index,
+			total = children.size,
+			previousId = children.getOrNull(index - 1)?.id,
+			nextId = children.getOrNull(index + 1)?.id,
+		)
 	}
 
 	/**

@@ -85,6 +85,17 @@ interface MessageDao {
 	@Query("UPDATE messages SET selectedChildId = :childId WHERE id = :parentId")
 	suspend fun setSelectedChild(parentId: String, childId: String?)
 
+	/**
+	 * Every reply to [parentId], oldest first.
+	 *
+	 * The siblings of one message, which is what a branch switcher counts and
+	 * indexes. Not a recursive walk: a switcher only ever needs one level,
+	 * because "1 of 3" is about the alternatives at this point in the
+	 * conversation rather than about the whole tree beneath them.
+	 */
+	@Query("SELECT * FROM messages WHERE parentId = :parentId ORDER BY createdAt ASC")
+	suspend fun childrenOf(parentId: String): List<MessageEntity>
+
 	@Query("DELETE FROM messages WHERE id = :id")
 	suspend fun delete(id: String)
 
@@ -128,7 +139,7 @@ interface AgentDao {
 	// caught: the app crashed on launch with "Looks like you've changed schema
 	// but forgot to update the version number" instead of quietly losing
 	// conversations.
-	version = 4,
+	version = 5,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -209,6 +220,19 @@ abstract class InhumanDatabase : RoomDatabase() {
 				connection.execSQL("ALTER TABLE conversations ADD COLUMN thinking INTEGER NOT NULL DEFAULT 0")
 				connection.execSQL("CREATE INDEX IF NOT EXISTS index_conversations_agentId ON conversations(agentId)")
 				seedDefaultAgent(connection)
+			}
+		}
+
+		/**
+		 * 4 -> 5: image attachments.
+		 *
+		 * Nullable text, so additive like the others. Stored as paths rather
+		 * than bytes, so this column stays small and the file remains the single
+		 * source of truth for what an image contains.
+		 */
+		val MIGRATION_4_5 = object : Migration(4, 5) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL("ALTER TABLE messages ADD COLUMN attachmentsJson TEXT")
 			}
 		}
 

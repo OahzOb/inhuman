@@ -1,5 +1,7 @@
 package com.inhuman.ui.chat
 
+import com.inhuman.core.data.Branches
+
 /**
  * One rendered region of an assistant reply.
  *
@@ -58,7 +60,35 @@ data class ChatUiState(
 	/** Reasoning effort for this conversation, as the provider spells it. */
 	val reasoningEffort: String? = null,
 	val thinking: Boolean = false,
+	/**
+	 * Images chosen but not yet sent, as workspace-relative paths.
+	 *
+	 * Staged into the workspace immediately rather than held as bytes: the file
+	 * has to live there anyway for the transcript to refer to it, and bytes kept
+	 * in the view model would be copied again by every recomposition that
+	 * touched the list.
+	 */
+	val pendingAttachments: List<PendingAttachment> = emptyList(),
+	/**
+	 * Whether the model in use accepts images, from `input_modalities`.
+	 *
+	 * The app has to check this itself. Sending an image to a text-only model
+	 * does **not** fail: verified against the live API it returns 200, and the
+	 * model then answers about a literal `[Unsupported Image]` placeholder as
+	 * though it had looked at something. There is no error to catch, so the
+	 * guard has to be here.
+	 */
+	val modelSupportsVision: Boolean = false,
 )
+
+/** An image staged for the next message. */
+data class PendingAttachment(
+	val relativePath: String,
+	val mimeType: String,
+	val sizeBytes: Long,
+) {
+	val displayName: String get() = relativePath.substringAfterLast('/')
+}
 
 data class ChatMessageUi(
 	val id: String,
@@ -85,6 +115,24 @@ data class ChatMessageUi(
 	val error: String? = null,
 	/** Tool calls this turn requested. */
 	val toolCalls: List<ToolCallUi> = emptyList(),
+	/**
+	 * Where this message sits among the alternatives at its point in the
+	 * conversation, or null when there is only one.
+	 *
+	 * Resolved once for the whole transcript when it loads, rather than asked
+	 * of the database per row: a row querying its own siblings would be one
+	 * query per message per recomposition.
+	 */
+	val branches: Branches? = null,
+	/**
+	 * Images on this message, as workspace paths.
+	 *
+	 * Paths rather than bytes: this is the transcript, read on every screen
+	 * open, and holding decoded images here would make that cost grow with the
+	 * conversation. The composer shows a name and size; nothing needs the pixels
+	 * except the request.
+	 */
+	val attachments: List<PendingAttachment> = emptyList(),
 )
 
 /**

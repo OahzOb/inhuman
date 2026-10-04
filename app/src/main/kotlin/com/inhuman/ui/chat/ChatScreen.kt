@@ -4,6 +4,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,6 +57,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.inhuman.core.data.Branches
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
 
@@ -70,10 +75,40 @@ fun ChatScreen(
 	onBack: () -> Unit,
 	onOpenSettings: () -> Unit,
 	onOpenFiles: () -> Unit = {},
+	/** Raised while a dialog is up, so system Back closes it rather than leaving. */
+	onDialogVisibilityChange: (Boolean) -> Unit = {},
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	val listState = rememberLazyListState()
 	var showModelPicker by remember { mutableStateOf(false) }
+
+	// Named `ctx`, not `context`: the bare name collides with the Kotlin
+	// stdlib's `context(...)` at every call site that has a lambda in scope, and
+	// the compiler then reports "function invocation expected" rather than
+	// anything about naming. The same trap caught the documents provider.
+	val ctx = LocalContext.current
+
+	// The image picker. ACTION_OPEN_DOCUMENT like the file browser's import,
+	// and for the same reasons: a real filename and a grant that survives long
+	// enough to copy the bytes through it.
+	val importer = rememberLauncherForActivityResult(
+		ActivityResultContracts.OpenDocument(),
+	) { uri ->
+		if (uri != null) {
+			val name = queryImageName(ctx, uri)
+			val mime = ctx.contentResolver.getType(uri) ?: "image/*"
+			viewModel.attachImage(name, mime) {
+				ctx.contentResolver.openInputStream(uri)
+					?: error("could not open the selected image")
+			}
+		}
+	}
+
+	// Reported upward so the app's single Back handler knows a dialog is up.
+	// Both this and the approval gate are transient questions that Back should
+	// answer by dismissing, not by navigating away from.
+	val anyDialogOpen = showModelPicker || state.pendingApproval != null
+	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
 	// Re-read the key and demo setting whenever this screen appears. The view
 	// model outlives the navigation trip to settings, so without this a key
@@ -94,6 +129,12 @@ fun ChatScreen(
 			val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()
 			last == null || last.index >= listState.layoutInfo.totalItemsCount - 2
 		}
+	}
+
+	// Which message the regenerate control belongs to. Computed here rather than
+	// compared per row, so the list does not scan itself once per message.
+	val lastAssistantId = remember(state.messages) {
+		state.messages.lastOrNull { !it.fromUser && !it.isToolResult }?.id
 	}
 	LaunchedEffect(state.messages.size) {
 		if (state.messages.isNotEmpty() && atBottom) {
@@ -172,7 +213,16 @@ fun ChatScreen(
 				verticalArrangement = Arrangement.spacedBy(14.dp),
 			) {
 				items(state.messages, key = { it.id }) { message ->
-					MessageBubble(message)
+					MessageBubble(
+						message = message,
+						// The newest assistant reply, which is the only one that
+						// can be regenerated without discarding what follows it.
+						isLastAssistantMessage = !message.fromUser && !message.isToolResult &&
+							message.id == lastAssistantId,
+						isStreaming = state.isStreaming,
+						onRegenerate = viewModel::regenerate,
+						onSelectBranch = viewModel::selectBranch,
+					)
 				}
 			}
 
@@ -200,6 +250,10 @@ fun ChatScreen(
 				onStop = viewModel::stop,
 				isStreaming = state.isStreaming,
 				enabled = state.configured,
+				attachments = state.pendingAttachments,
+				canAttachImages = state.modelSupportsVision,
+				onAttach = { importer.launch(arrayOf("image/*")) },
+				onRemoveAttachment = viewModel::removeAttachment,
 			)
 		}
 	}
@@ -266,8 +320,80 @@ fun ChatScreen(
 	}
 }
 
+/**
+ * Step between the alternatives at one point in the conversation.
+ *
+ * ## Why arrows and a count rather than a list
+ *
+ * The alternatives are answers to the same question, so they are ordered only by
+ * when they were produced -- there is nothing to choose between them by name.
+ * A count with arrows says "this is one of three" and lets someone flip through,
+ * which is what comparing two answers actually looks like.
+ *
+ * The arrows stop at the ends instead of wrapping. A control that cycles leaves
+ * no way to tell whether the list has been around once, and with three answers
+ * that matters: the reader is trying to be sure they have seen them all.
+ */
 @Composable
-private fun MessageBubble(message: ChatMessageUi) {
+private fun BranchSwitcher(
+	branches: Branches,
+	onSelect: (String) -> Unit,
+	enabled: Boolean,
+	modifier: Modifier = Modifier,
+) {
+	Row(
+		modifier = modifier,
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(2.dp),
+	) {
+		IconButton(
+			onClick = { branches.previousId?.let(onSelect) },
+			enabled = enabled && branches.previousId != null,
+			modifier = Modifier.size(28.dp),
+		) {
+			Text(
+				text = "‹",
+				style = MaterialTheme.typography.titleMedium,
+				color = if (enabled && branches.previousId != null) {
+					MaterialTheme.colorScheme.onSurfaceVariant
+				} else {
+					MaterialTheme.colorScheme.outlineVariant
+				},
+			)
+		}
+
+		Text(
+			text = branches.label,
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+
+		IconButton(
+			onClick = { branches.nextId?.let(onSelect) },
+			enabled = enabled && branches.nextId != null,
+			modifier = Modifier.size(28.dp),
+		) {
+			Text(
+				text = "›",
+				style = MaterialTheme.typography.titleMedium,
+				color = if (enabled && branches.nextId != null) {
+					MaterialTheme.colorScheme.onSurfaceVariant
+				} else {
+					MaterialTheme.colorScheme.outlineVariant
+				},
+			)
+		}
+	}
+}
+
+@Composable
+private fun MessageBubble(
+	message: ChatMessageUi,
+	isLastAssistantMessage: Boolean,
+	isStreaming: Boolean,
+	onRegenerate: () -> Unit,
+	onSelectBranch: (String) -> Unit,
+) {
 	val alignment = if (message.fromUser) Alignment.End else Alignment.Start
 	val bubbleColor = if (message.fromUser) {
 		MaterialTheme.colorScheme.primaryContainer
@@ -351,6 +477,40 @@ private fun MessageBubble(message: ChatMessageUi) {
 		message.usage?.let { u ->
 			UsageLine(usage = u, modifier = Modifier.padding(top = 4.dp))
 		}
+
+		// Alternatives, when this reply has any.
+		//
+		// Placed under the answer rather than beside it, because it belongs to
+		// the whole message: it says "this is one of three answers to the
+		// question above", which is a fact about the message and not about any
+		// part of its text.
+		message.branches?.let { branches ->
+			BranchSwitcher(
+				branches = branches,
+				onSelect = onSelectBranch,
+				enabled = !message.isStreaming,
+				modifier = Modifier.padding(top = 6.dp),
+			)
+		}
+
+		// Regenerate, on the newest reply only.
+		//
+		// Offered here rather than on every reply: regenerating mid-conversation
+		// would discard everything after it, and a control that silently deletes
+		// the rest of a transcript is not one to put within reach of a mis-tap.
+		if (isLastAssistantMessage && !message.isStreaming && !isStreaming) {
+			TextButton(
+				onClick = onRegenerate,
+				contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+				modifier = Modifier.padding(top = 2.dp),
+			) {
+				Text(
+					text = if (message.branches != null) "Answer again" else "Regenerate",
+					style = MaterialTheme.typography.labelLarge,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+		}
 	}
 }
 
@@ -362,15 +522,89 @@ private fun Composer(
 	onStop: () -> Unit,
 	isStreaming: Boolean,
 	enabled: Boolean,
+	attachments: List<PendingAttachment>,
+	canAttachImages: Boolean,
+	onAttach: () -> Unit,
+	onRemoveAttachment: (PendingAttachment) -> Unit,
 ) {
-	Row(
-		modifier = Modifier
-			.fillMaxWidth()
-			.padding(horizontal = comfortableGutter(), vertical = 8.dp),
-		verticalAlignment = Alignment.Bottom,
-		horizontalArrangement = Arrangement.spacedBy(8.dp),
-	) {
-		OutlinedTextField(
+	Column(modifier = Modifier.fillMaxWidth()) {
+		// Staged images sit above the field, so they read as part of the message
+		// being written rather than as a toolbar beside it.
+		if (attachments.isNotEmpty()) {
+			Row(
+				modifier = Modifier
+					.fillMaxWidth()
+					.padding(horizontal = comfortableGutter(), vertical = 4.dp),
+				horizontalArrangement = Arrangement.spacedBy(6.dp),
+			) {
+				attachments.forEach { attachment ->
+					Row(
+						modifier = Modifier
+							.background(
+								MaterialTheme.colorScheme.surfaceVariant,
+								RoundedCornerShape(8.dp),
+							)
+							.padding(start = 10.dp, end = 2.dp, top = 4.dp, bottom = 4.dp),
+						verticalAlignment = Alignment.CenterVertically,
+					) {
+						Text(
+							text = "${attachment.displayName}  ${humanSize(attachment.sizeBytes)}",
+							style = MaterialTheme.typography.labelLarge,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							maxLines = 1,
+							overflow = TextOverflow.Ellipsis,
+							modifier = Modifier.widthIn(max = 200.dp),
+						)
+						IconButton(
+							onClick = { onRemoveAttachment(attachment) },
+							modifier = Modifier.size(28.dp),
+						) {
+							Text(
+								text = "✕",
+								style = MaterialTheme.typography.labelLarge,
+								color = MaterialTheme.colorScheme.error,
+							)
+						}
+					}
+				}
+			}
+		}
+
+		Row(
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(horizontal = comfortableGutter(), vertical = 8.dp),
+			verticalAlignment = Alignment.Bottom,
+			horizontalArrangement = Arrangement.spacedBy(8.dp),
+		) {
+			// Present but disabled when the model cannot see, rather than hidden.
+			//
+			// A control that vanishes leaves someone wondering where it went; one
+			// that is there and greyed out can be tapped and answered. That answer
+			// matters here because sending an image to a text-only model does not
+			// fail -- it returns 200 and the model describes a placeholder -- so
+			// there is no other place the reason could surface.
+			IconButton(
+				onClick = onAttach,
+				enabled = enabled && canAttachImages,
+				modifier = Modifier.padding(bottom = 4.dp),
+			) {
+				Icon(
+					Icons.Outlined.Image,
+					contentDescription = if (canAttachImages) {
+						"Attach an image"
+					} else {
+						"This model cannot read images"
+					},
+					tint = if (enabled && canAttachImages) {
+						MaterialTheme.colorScheme.onSurfaceVariant
+					} else {
+						MaterialTheme.colorScheme.outlineVariant
+					},
+				)
+			}
+
+			OutlinedTextField(
 			value = value,
 			onValueChange = onValueChange,
 			modifier = Modifier.weight(1f),
@@ -394,7 +628,9 @@ private fun Composer(
 		} else {
 			FilledIconButton(
 				onClick = onSend,
-				enabled = enabled && value.isNotBlank(),
+				// An image alone is sendable: "what is this?" is implied, and
+				// requiring text would make attaching one a two-step job.
+				enabled = enabled && (value.isNotBlank() || attachments.isNotEmpty()),
 				colors = IconButtonDefaults.filledIconButtonColors(
 					containerColor = MaterialTheme.colorScheme.primary,
 					contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -403,5 +639,29 @@ private fun Composer(
 				Icon(Icons.Filled.ArrowUpward, contentDescription = "Send")
 			}
 		}
+		}
 	}
 }
+
+/** Sizes as a person reads them, not as a byte count. */
+private fun humanSize(bytes: Long): String = when {
+	bytes < 1024 -> "$bytes B"
+	bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+	else -> String.format("%.1f MB", bytes / 1024.0 / 1024.0)
+}
+
+/**
+ * The picked file's display name.
+ *
+ * Read while the grant is definitely alive rather than inside the async attach,
+ * where a revoked permission would race it -- and with a fallback, because a
+ * provider that does not expose DISPLAY_NAME is common enough that failing on it
+ * would make attachments look broken for one file source.
+ */
+private fun queryImageName(context: android.content.Context, uri: android.net.Uri): String =
+	runCatching {
+		context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+			val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+			if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
+		}
+	}.getOrNull()?.takeIf { it.isNotBlank() } ?: "image"
