@@ -31,12 +31,27 @@ data class ChatMessage(
 	 * Reasoning text produced alongside this message, when the provider
 	 * requires it back.
 	 *
-	 * DeepSeek's documentation is explicit: **when a request carries `tools`,
-	 * every previous assistant turn's `reasoning_content` must be echoed back,
-	 * including turns with no tool call, or the API answers HTTP 400.** When no
-	 * tools are present it is ignored. That asymmetry is why this is stored on
-	 * the message rather than dropped after display -- throwing it away works
-	 * right up until tools are enabled.
+	 * **Measured against the live API, and the rule is not the one the
+	 * documentation implies.** DeepSeek's docs tie this to `tools`, but testing
+	 * shows the deciding factor is thinking mode, not tool use:
+	 *
+	 * | request | result |
+	 * | --- | --- |
+	 * | thinking on, tools present, reasoning omitted | **HTTP 400** |
+	 * | thinking on, tools present, reasoning echoed | 200 |
+	 * | thinking off, tools present, reasoning omitted | 200 |
+	 * | **thinking on, NO tools, reasoning omitted** | **HTTP 400** |
+	 * | thinking on, no tools, reasoning echoed | 200 |
+	 *
+	 * The error is explicit: *"The `reasoning_content` in the thinking mode
+	 * must be passed back to the API."* So the requirement follows the previous
+	 * turn's thinking state, not the presence of tools -- which means a
+	 * transcript that drops reasoning works right up until a thinking turn is
+	 * replayed, and then fails with a 400 that points at the wrong thing.
+	 *
+	 * The consequence for storage: reasoning must be persisted with the message
+	 * whenever the turn used thinking, and included when that turn is sent
+	 * again. Sending it when thinking is off is harmless (also verified).
 	 */
 	val reasoning: String? = null,
 )

@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.design.Layout
@@ -83,7 +84,14 @@ fun ChatScreen(
 	Scaffold(
 		topBar = {
 			TopAppBar(
-				title = { Text("New conversation", style = MaterialTheme.typography.titleMedium) },
+				title = {
+					Text(
+						text = state.title,
+						style = MaterialTheme.typography.titleMedium,
+						maxLines = 1,
+						overflow = TextOverflow.Ellipsis,
+					)
+				},
 				navigationIcon = {
 					IconButton(onClick = onBack) { Text("‹", style = MaterialTheme.typography.titleLarge) }
 				},

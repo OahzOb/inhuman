@@ -25,6 +25,7 @@ data class AssistantPart(
  * need different affordances (a cursor versus a retry).
  */
 data class ChatUiState(
+	val title: String = "New conversation",
 	val messages: List<ChatMessageUi> = emptyList(),
 	val input: String = "",
 	val isStreaming: Boolean = false,
@@ -38,9 +39,18 @@ data class ChatUiState(
 
 data class ChatMessageUi(
 	val id: String,
+	/** The message this one answers. Kept so a branch can be extended later. */
+	val parentId: String? = null,
 	val fromUser: Boolean,
 	val parts: List<AssistantPart> = emptyList(),
 	val plainText: String = "",
+	/**
+	 * Reasoning, retained rather than discarded after rendering.
+	 *
+	 * Replaying a thinking turn without it is rejected by the API with a 400,
+	 * so this is request state, not just something that was shown once.
+	 */
+	val reasoningText: String = "",
 	val isStreaming: Boolean = false,
 	val finishReason: String? = null,
 	val usage: UsageUi? = null,

@@ -27,6 +27,10 @@ ksp {
 
 dependencies {
 	implementation project(':core:common')
+	// The repository owns each conversation's workspace, so it needs the
+	// sandbox that guards it -- creating the directory and handing out a
+	// SessionWorkspace for it are the same lifecycle.
+	api project(':core:files')
 
 	implementation libs.androidx.room.runtime
 	implementation libs.androidx.room.ktx

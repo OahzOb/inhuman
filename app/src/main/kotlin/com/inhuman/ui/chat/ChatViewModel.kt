@@ -4,11 +4,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.core.ai.ChatMessage
 import com.inhuman.core.ai.ChatRequest
+import com.inhuman.core.ai.ChatProvider
 import com.inhuman.core.ai.FinishReason
+import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.ai.Role
 import com.inhuman.core.ai.StreamChunk
 import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
 import com.inhuman.core.ai.provider.demo.DemoProvider
+import com.inhuman.core.data.ConversationRepository
+import com.inhuman.core.data.db.ConversationEntity
+import com.inhuman.core.data.db.MessageEntity
 import com.inhuman.core.data.secret.SecureStore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,111 +26,86 @@ import java.util.UUID
 /**
  * Drives one conversation.
  *
- * Holds the transcript in memory for now; Room persistence is the next phase.
- * The structure is already the one that survives persistence: the transcript is
- * a list of completed messages and the streaming reply is a separate in-flight
- * entry, so writing to a database later means flushing one entry rather than
- * rewriting the loop.
+ * ## How streaming meets persistence
+ *
+ * Text is accumulated in memory while a reply arrives and written **once**, at
+ * the end. Writing per token would put a database transaction behind every
+ * chunk: at the rate these models emit, that is thousands of writes for one
+ * answer, and SQLite's write-ahead log would spend the whole generation
+ * flushing. The visible cost is a transcript that is lost if the process dies
+ * mid-answer, which is an acceptable trade for a reply that arrives smoothly.
+ *
+ * Reasoning is accumulated alongside the answer rather than discarded after
+ * display, because replaying a thinking turn without it is rejected outright --
+ * measured against the live API, not inferred from documentation.
  */
 class ChatViewModel(
+	private val repository: ConversationRepository,
 	private val secure: SecureStore,
+	private val conversationId: String,
 ) : ViewModel() {
 
 	private val _state = MutableStateFlow(ChatUiState())
 	val state: StateFlow<ChatUiState> = _state.asStateFlow()
 
+	private var conversation: ConversationEntity? = null
+	private var streamJob: Job? = null
+
+	/** The model to use when the conversation has not chosen one. */
+	private var model: String = DEFAULT_MODEL
+
+	init {
+		viewModelScope.launch {
+			conversation = repository.conversation(conversationId)?.entity
+			conversation?.model?.let { model = it }
+			refreshConfiguration()
+			reload()
+		}
+	}
+
+	/** Reload the transcript from storage. */
+	private suspend fun reload() {
+		val loaded = repository.conversation(conversationId)
+		_state.update { current ->
+			current.copy(
+				title = loaded?.entity?.title ?: current.title,
+				messages = loaded?.messages.orEmpty().map { it.toUi() },
+			)
+		}
+	}
+
 	/**
-	 * Refresh the provider configuration from storage.
+	 * Re-read the provider configuration.
 	 *
-	 * Called by the chat screen every time it becomes visible, and that is not
-	 * belt-and-braces: this view model is scoped to the activity so its
-	 * transcript survives a trip to settings, which means `init` runs exactly
-	 * once and a key added on the settings screen would otherwise not be
-	 * noticed until the app was restarted. Re-reading on resume is the price of
-	 * keeping the transcript alive across navigation.
+	 * The view model is activity-scoped so a transcript survives a trip to
+	 * settings; the cost is that `init` runs once, and a key added there would
+	 * otherwise go unnoticed until the app restarted.
 	 */
 	fun refreshConfiguration() {
 		val demo = demoEnabled()
 		val hasKey = secure.hasUsable(SecureStore.KEY_DEEPSEEK_API_KEY)
-		_state.update {
-			it.copy(demoMode = demo, configured = demo || hasKey)
-		}
-	}
-
-	/**
-	 * The model to use.
-	 *
-	 * DeepSeek's current model names. These are defaults only -- the settings
-	 * screen replaces them with whatever `GET /models` reports, so a rename
-	 * upstream is a stale default rather than a broken app.
-	 */
-	private var model: String = DEFAULT_MODEL
-
-	/**
-	 * Per-conversation user id.
-	 *
-	 * DeepSeek uses this to isolate its KV cache, scheduling and content-safety
-	 * state. A stable value per conversation means one conversation's cached
-	 * prefix is not shared with another, which is both a privacy and a cost
-	 * property.
-	 */
-	private val userId: String = UUID.randomUUID().toString()
-
-	private var streamJob: Job? = null
-
-	init {
-		refreshConfiguration()
-	}
-
-	fun onInputChange(text: String) {
-		_state.update { it.copy(input = text) }
-	}
-
-	fun saveApiKey(key: String) {
-		val trimmed = key.trim()
-		if (trimmed.isEmpty()) {
-			secure.remove(SecureStore.KEY_DEEPSEEK_API_KEY)
-			_state.update { it.copy(configured = false) }
-			return
-		}
-		secure.put(SecureStore.KEY_DEEPSEEK_API_KEY, trimmed)
-		_state.update { it.copy(configured = true, error = null) }
-	}
-
-	fun currentApiKey(): String? = secure.get(SecureStore.KEY_DEEPSEEK_API_KEY)
-
-	/**
-	 * Whether the demo source is selected instead of DeepSeek.
-	 *
-	 * Persisted alongside the key so the choice survives a restart: a user who
-	 * switches to the demo to look at the UI should not find themselves back on
-	 * a paid endpoint the next time they open the app.
-	 */
-	fun setDemoMode(enabled: Boolean) {
-		secure.put(SecureStore.KEY_DEMO_MODE, if (enabled) "1" else "0")
-		refreshConfiguration()
+		_state.update { it.copy(demoMode = demo, configured = demo || hasKey) }
 	}
 
 	private fun demoEnabled(): Boolean = secure.get(SecureStore.KEY_DEMO_MODE) == "1"
 
+	fun onInputChange(text: String) = _state.update { it.copy(input = text) }
+
 	fun clearError() = _state.update { it.copy(error = null) }
 
-	/** Abandon an in-flight reply, keeping whatever text arrived. */
 	fun stop() {
 		streamJob?.cancel()
 		streamJob = null
 		_state.update { s ->
 			s.copy(
 				isStreaming = false,
-				messages = s.messages.map { m ->
-					if (m.isStreaming) m.copy(isStreaming = false) else m
-				},
+				messages = s.messages.map { if (it.isStreaming) it.copy(isStreaming = false) else it },
 			)
 		}
 	}
 
 	fun send() {
-		val text = _state.current().input.trim()
+		val text = _state.value.input.trim()
 		if (text.isEmpty() || _state.value.isStreaming) return
 
 		val demo = demoEnabled()
@@ -135,30 +115,55 @@ class ChatViewModel(
 			return
 		}
 
-		val userMessage = ChatMessageUi(
+		// The turn being answered is whatever is currently last and complete.
+		val parent = _state.value.messages.lastOrNull()?.id
+
+		val userMessage = MessageEntity(
 			id = UUID.randomUUID().toString(),
-			fromUser = true,
-			parts = listOf(AssistantPart("t", AssistantPart.Kind.Text, text)),
-			plainText = text,
+			conversationId = conversationId,
+			parentId = parent,
+			role = Role.User.wire,
+			content = text,
+			createdAt = System.currentTimeMillis(),
 		)
 		val replyId = UUID.randomUUID().toString()
-		val reply = ChatMessageUi(
-			id = replyId,
-			fromUser = false,
-			isStreaming = true,
-		)
 
+		// Shown immediately, not persisted until it has content. A row for an
+		// empty reply would survive a crash and read as a message the
+		// assistant never sent.
 		_state.update {
 			it.copy(
-				messages = it.messages + userMessage + reply,
+				messages = it.messages + userMessage.toUi() + ChatMessageUi(
+					id = replyId,
+					parentId = userMessage.id,
+					fromUser = false,
+					isStreaming = true,
+				),
 				input = "",
 				isStreaming = true,
 				error = null,
 			)
 		}
 
-		// Rebuild the wire transcript from completed messages only: the reply
-		// being streamed is not sent back to the model.
+		viewModelScope.launch {
+			repository.appendMessage(userMessage, parent)
+			// Name the conversation after its first user message. Done before
+			// the reply so the list is readable even if generation fails.
+			if (_state.value.messages.count { it.fromUser } == 1) {
+				repository.autoTitle(conversationId, text)
+				// Re-read from the repository rather than deriving the title
+				// here, so the truncation rule lives in exactly one place.
+				// Reading it *after* autoTitle matters: the earlier version
+				// read it before, so the bar kept saying "New conversation"
+				// while the list already showed the generated name.
+				val stored = repository.conversation(conversationId)?.entity?.title
+				if (stored != null) _state.update { it.copy(title = stored) }
+			}
+		}
+
+		// Build the wire transcript from the active branch, excluding the empty
+		// reply. Reasoning is included because a thinking turn replayed without
+		// it is rejected.
 		val history = _state.value.messages
 			.dropLast(1)
 			.filter { it.plainText.isNotBlank() }
@@ -166,24 +171,27 @@ class ChatViewModel(
 				ChatMessage(
 					role = if (it.fromUser) Role.User else Role.Assistant,
 					content = it.plainText,
+					reasoning = it.reasoningText.takeIf { r -> r.isNotBlank() },
 				)
 			}
 
-		val provider = if (demo) DemoProvider() else DeepSeekProvider(apiKey = apiKey!!)
+		val provider: ChatProvider =
+			if (demo) DemoProvider() else DeepSeekProvider(apiKey = apiKey!!)
 
 		streamJob = viewModelScope.launch {
-			var reasoning = StringBuilder()
-			var answer = StringBuilder()
+			val reasoning = StringBuilder()
+			val answer = StringBuilder()
+			var usage: UsageUi? = null
+			var finish: String? = null
+			var failure: String? = null
 
 			try {
 				provider.stream(
 					ChatRequest(
 						model = model,
 						messages = history,
-						// Off by default for a chat app: "hi" should not cost a
-						// paragraph of thinking.
 						thinking = false,
-						userId = userId,
+						userId = conversationId,
 					),
 				).collect { chunk ->
 					when (chunk) {
@@ -197,35 +205,25 @@ class ChatViewModel(
 							updateParts(replyId, reasoning.toString(), answer.toString())
 						}
 
-						is StreamChunk.Usage -> updateMessage(replyId) {
-							it.copy(
-								usage = UsageUi(
-									promptTokens = chunk.promptTokens,
-									completionTokens = chunk.completionTokens,
-									cachedPromptTokens = chunk.cachedPromptTokens,
-									reasoningTokens = chunk.reasoningTokens,
-								),
+						is StreamChunk.Usage -> {
+							usage = UsageUi(
+								promptTokens = chunk.promptTokens,
+								completionTokens = chunk.completionTokens,
+								cachedPromptTokens = chunk.cachedPromptTokens,
+								reasoningTokens = chunk.reasoningTokens,
 							)
+							val u = usage
+							updateMessage(replyId) { it.copy(usage = u) }
 						}
 
-						is StreamChunk.Finish -> updateMessage(replyId) {
-							it.copy(
-								isStreaming = false,
-								finishReason = chunk.reason.describe(),
-							)
-						}
+						is StreamChunk.Finish -> finish = chunk.reason.describe()
 
 						is StreamChunk.Failure -> {
-							updateMessage(replyId) {
-								it.copy(isStreaming = false, error = chunk.message)
-							}
+							failure = chunk.message
+							updateMessage(replyId) { it.copy(error = chunk.message) }
 							_state.update { it.copy(error = chunk.message) }
 						}
 
-						// Region boundaries and tool calls are not rendered yet.
-						// Ignoring them explicitly rather than with an else keeps
-						// the compiler able to warn when a new chunk type is
-						// added and left unhandled.
 						is StreamChunk.TextStart,
 						is StreamChunk.TextEnd,
 						is StreamChunk.ReasoningStart,
@@ -239,7 +237,37 @@ class ChatViewModel(
 				}
 			} finally {
 				_state.update { it.copy(isStreaming = false) }
-				updateMessage(replyId) { it.copy(isStreaming = false) }
+				updateMessage(replyId) { it.copy(isStreaming = false, finishReason = finish) }
+
+				// Persist once, now that the text has stopped changing. Only if
+				// something arrived: an empty reply is not a message.
+				if (answer.isNotEmpty() || reasoning.isNotEmpty()) {
+					repository.appendMessage(
+						MessageEntity(
+							id = replyId,
+							conversationId = conversationId,
+							parentId = userMessage.id,
+							role = Role.Assistant.wire,
+							content = answer.toString(),
+							reasoning = reasoning.toString().takeIf { it.isNotBlank() },
+							model = model,
+							finishReason = finish,
+							error = failure,
+							createdAt = System.currentTimeMillis(),
+							promptTokens = usage?.promptTokens,
+							completionTokens = usage?.completionTokens,
+							cachedPromptTokens = usage?.cachedPromptTokens,
+							reasoningTokens = usage?.reasoningTokens,
+						),
+						userMessage.id,
+					)
+				} else {
+					// Nothing to save. Drop the placeholder so a later reload
+					// does not resurrect it as an empty bubble.
+					_state.update { s ->
+						s.copy(messages = s.messages.filterNot { it.id == replyId })
+					}
+				}
 			}
 		}
 	}
@@ -254,7 +282,7 @@ class ChatViewModel(
 					add(AssistantPart("t", AssistantPart.Kind.Text, answer))
 				}
 			}
-			m.copy(parts = parts, plainText = answer)
+			m.copy(parts = parts, plainText = answer, reasoningText = reasoning)
 		}
 	}
 
@@ -273,15 +301,55 @@ class ChatViewModel(
 		FinishReason.Unknown -> "ended early"
 	}
 
-	private fun MutableStateFlow<ChatUiState>.current(): ChatUiState = value
-
 	companion object {
 		/**
 		 * A default, not the truth.
 		 *
-		 * The settings screen lists what `GET /models` actually reports; this is
-		 * only what to use before that has happened.
+		 * The settings screen lists what `GET /models` reports; this is only
+		 * what to use before that has happened.
 		 */
 		const val DEFAULT_MODEL = "deepseek-flash"
 	}
+}
+
+/** Role names as the wire format spells them. */
+private val Role.wire: String
+	get() = when (this) {
+		Role.System -> "system"
+		Role.User -> "user"
+		Role.Assistant -> "assistant"
+		Role.Tool -> "tool"
+	}
+
+private fun roleFromWire(value: String): Role = when (value) {
+	"system" -> Role.System
+	"assistant" -> Role.Assistant
+	"tool" -> Role.Tool
+	else -> Role.User
+}
+
+private fun MessageEntity.toUi(): ChatMessageUi {
+	val parts = buildList {
+		reasoning?.takeIf { it.isNotBlank() }?.let {
+			add(AssistantPart("r", AssistantPart.Kind.Reasoning, it))
+		}
+		if (content.isNotBlank()) {
+			add(AssistantPart("t", AssistantPart.Kind.Text, content))
+		}
+	}
+	return ChatMessageUi(
+		id = id,
+		parentId = parentId,
+		fromUser = roleFromWire(role) == Role.User,
+		parts = parts,
+		plainText = content,
+		reasoningText = reasoning.orEmpty(),
+		finishReason = finishReason,
+		error = error,
+		usage = if (promptTokens != null || completionTokens != null) {
+			UsageUi(promptTokens, completionTokens, cachedPromptTokens, reasoningTokens)
+		} else {
+			null
+		},
+	)
 }
