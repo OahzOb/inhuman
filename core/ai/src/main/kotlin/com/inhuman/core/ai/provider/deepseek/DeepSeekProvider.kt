@@ -1,0 +1,176 @@
+package com.inhuman.core.ai.provider.deepseek
+
+import com.inhuman.core.ai.ChatProvider
+import com.inhuman.core.ai.ChatRequest
+import com.inhuman.core.ai.RemoteModel
+import com.inhuman.core.ai.StreamChunk
+import com.inhuman.core.ai.stream.SseParser
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+
+/**
+ * DeepSeek over its OpenAI-compatible endpoint.
+ *
+ * ## Why the raw response body rather than `okhttp-sse`
+ *
+ * `okhttp-sse` is a fine EventSource client, but it buys little here and costs
+ * something. Little, because the provider-specific decoding has to be written
+ * regardless, and a generic emitter adds a callback layer to bridge into
+ * coroutines. Something, because its automatic reconnection is actively harmful
+ * for LLM streaming: a silent reconnect re-runs the completion and duplicates
+ * the answer, since these APIs offer no `Last-Event-ID` resume.
+ *
+ * Reading the body line by line keeps the socket lifecycle explicit, which is
+ * what makes cancellation immediate. Retrofit would be worse still -- its
+ * converter model fights incremental bodies.
+ */
+class DeepSeekProvider(
+	private val apiKey: String,
+	private val baseUrl: String = DEFAULT_BASE_URL,
+	private val client: OkHttpClient = defaultClient(),
+) : ChatProvider {
+
+	override val id: String = "deepseek"
+
+	override suspend fun listModels(): List<RemoteModel> =
+		DeepSeekModels.fetch(client, baseUrl, apiKey)
+
+	/**
+	 * Stream a completion.
+	 *
+	 * Cancelling the collector cancels the HTTP call. That is not automatic:
+	 * cancelling a coroutine does not by itself unblock a socket read, so the
+	 * call is cancelled explicitly on completion of the flow. Without it a
+	 * cancelled generation holds the connection until the read timeout, and the
+	 * server keeps generating tokens nobody will read.
+	 */
+	override fun stream(request: ChatRequest): Flow<StreamChunk> = callbackFlow {
+		val requestBody = DeepSeekRequest.build(request).toString()
+			.toRequestBody(JSON_MEDIA_TYPE)
+
+		val httpRequest = Request.Builder()
+			.url("$baseUrl/chat/completions")
+			.header("Authorization", "Bearer $apiKey")
+			.header("Accept", "text/event-stream")
+			.post(requestBody)
+			.build()
+
+		val call = client.newCall(httpRequest)
+		val parser = SseParser()
+		val decoder = DeepSeekStreamDecoder()
+
+		call.enqueue(object : Callback {
+			override fun onFailure(call: Call, e: IOException) {
+				// A cancel arrives here too, as an IOException on a closed
+				// socket. Reporting it as a stream failure would make every
+				// user-initiated stop look like an error in the transcript.
+				if (call.isCanceled()) {
+					close()
+					return
+				}
+				trySend(StreamChunk.Failure(e.message ?: "network error", e))
+				close()
+			}
+
+			override fun onResponse(call: Call, response: Response) {
+				response.use { res ->
+					if (!res.isSuccessful) {
+						// Read the body: DeepSeek returns a JSON error object
+						// with a usable message, and dropping it turns a
+						// diagnosable failure ("insufficient balance",
+						// "invalid api key") into a bare status code.
+						val detail = try {
+							res.body.string().take(600)
+						} catch (_: Exception) {
+							null
+						}
+						trySend(
+							StreamChunk.Failure(
+								"HTTP ${res.code} ${res.message}" +
+									if (detail.isNullOrBlank()) "" else ": $detail",
+							),
+						)
+						close()
+						return
+					}
+
+					// OkHttp 5 made ResponseBody non-null on Response, so this
+					// needs no safe call -- but source() can still throw for a
+					// body that is already consumed, which is why the read below
+					// stays inside the try.
+					val source = res.body.source()
+
+					try {
+						// readUtf8Line returns null at end of body. It strips
+						// the newline; a trailing CR is handled by the parser.
+						while (isActive) {
+							val line = source.readUtf8Line() ?: break
+							val frame = parser.accept(line) ?: continue
+							decoder.decode(frame).forEach { trySend(it) }
+						}
+						// Flush: a server that closes without its final blank
+						// line would otherwise lose the last chunk.
+						parser.endOfStream()?.let { frame ->
+							decoder.decode(frame).forEach { trySend(it) }
+						}
+						decoder.endOfStream().forEach { trySend(it) }
+					} catch (e: CancellationException) {
+						// Normal stop.
+					} catch (e: IOException) {
+						trySend(StreamChunk.Failure(e.message ?: "stream read failed", e))
+					} finally {
+						close()
+					}
+				}
+			}
+		})
+
+		awaitClose {
+			// The important line. Cancelling the collector must close the
+			// socket, not merely stop reading from it.
+			call.cancel()
+		}
+	}.flowOn(Dispatchers.IO)
+
+	companion object {
+		const val DEFAULT_BASE_URL = "https://api.deepseek.com"
+
+		private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+		internal val json = Json {
+			ignoreUnknownKeys = true
+			explicitNulls = false
+			encodeDefaults = false
+		}
+
+		fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+			// Long read timeout on purpose. DeepSeek documents that the server
+			// closes the connection if inference has not begun within 10
+			// minutes, and reasoning models routinely take a long time before
+			// the first token. A conventional 30-second read timeout kills
+			// legitimate slow responses while they are still thinking.
+			.readTimeout(11, TimeUnit.MINUTES)
+			.connectTimeout(30, TimeUnit.SECONDS)
+			// No automatic retries: a retried POST that already produced tokens
+			// would duplicate the answer, and the caller is better placed to
+			// decide whether re-running is safe.
+			.retryOnConnectionFailure(false)
+			.build()
+	}
+}

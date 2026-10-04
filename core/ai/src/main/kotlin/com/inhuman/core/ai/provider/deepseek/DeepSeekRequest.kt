@@ -1,0 +1,106 @@
+package com.inhuman.core.ai.provider.deepseek
+
+import com.inhuman.core.ai.ChatMessage
+import com.inhuman.core.ai.ChatRequest
+import com.inhuman.core.ai.Role
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+
+/**
+ * Builds the request body.
+ *
+ * Hand-built `JsonObject`s rather than `@Serializable` classes because
+ * [ChatRequest.tools] carries a raw JSON-Schema map, and the provider passes it
+ * through unexamined. Typing that would mean modelling all of JSON Schema to
+ * gain nothing.
+ */
+internal object DeepSeekRequest {
+
+	fun build(request: ChatRequest): JsonObject = buildJsonObject {
+		put("model", request.model)
+		put("stream", true)
+
+		put("messages", buildJsonArray {
+			request.messages.forEach { add(message(it)) }
+		})
+
+		// Ask for usage on a streamed response. Without this the final frame
+		// carries no token counts, and the counter has nothing to show.
+		put("stream_options", buildJsonObject { put("include_usage", true) })
+
+		request.temperature?.let { put("temperature", JsonPrimitive(it)) }
+		request.maxTokens?.let { put("max_tokens", JsonPrimitive(it)) }
+		request.userId?.let { put("user_id", JsonPrimitive(it)) }
+
+		// DeepSeek has thinking on by default, which is the wrong default for a
+		// chat app: "hi" should not cost a paragraph of reasoning. Sent
+		// explicitly rather than left to the server.
+		request.thinking?.let { enabled ->
+			put("thinking", buildJsonObject {
+				put("type", if (enabled) "enabled" else "disabled")
+			})
+		}
+		request.reasoningEffort?.let { put("reasoning_effort", JsonPrimitive(it)) }
+
+		if (request.tools.isNotEmpty()) {
+			put("tools", buildJsonArray {
+				request.tools.forEach { tool ->
+					add(buildJsonObject {
+						put("type", "function")
+						put("function", buildJsonObject {
+							put("name", tool.name)
+							put("description", tool.description)
+							put("parameters", toJson(tool.parameters))
+						})
+					})
+				}
+			})
+		}
+	}
+
+	private fun message(m: ChatMessage): JsonObject = buildJsonObject {
+		put("role", m.role.wireName)
+		put("content", m.content)
+		// DeepSeek requires prior reasoning back on the wire when tools are in
+		// play; without tools it ignores the field. See ChatMessage.reasoning.
+		m.reasoning?.let { put("reasoning_content", it) }
+	}
+
+	private val Role.wireName: String
+		get() = when (this) {
+			Role.System -> "system"
+			Role.User -> "user"
+			Role.Assistant -> "assistant"
+			Role.Tool -> "tool"
+		}
+
+	/** Convert a plain Kotlin structure into JSON, recursively. */
+	private fun toJson(value: Any?): JsonElement = when (value) {
+		null -> JsonNull
+		is JsonElement -> value
+		is String -> JsonPrimitive(value)
+		is Boolean -> JsonPrimitive(value)
+		is Int -> JsonPrimitive(value)
+		is Long -> JsonPrimitive(value)
+		is Double -> JsonPrimitive(value)
+		is Float -> JsonPrimitive(value)
+		is Number -> JsonPrimitive(value)
+		is Map<*, *> -> buildJsonObject {
+			value.forEach { (k, v) -> if (k is String) put(k, toJson(v)) }
+		}
+		is Iterable<*> -> buildJsonArray { value.forEach { add(toJson(it)) } }
+		is Array<*> -> buildJsonArray { value.forEach { add(toJson(it)) } }
+		// Anything else has no sane JSON representation; stringify rather than
+		// throw, so one odd value cannot fail the whole request.
+		else -> JsonPrimitive(value.toString())
+	}
+
+	/** Kept for readability at the one call site that needs an empty array. */
+	val EmptyArray: JsonArray = JsonArray(emptyList())
+}

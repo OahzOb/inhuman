@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
@@ -54,6 +55,7 @@ import com.inhuman.core.design.prefersFabForPrimaryAction
 @Composable
 fun ConversationsScreen(
 	onNewConversation: () -> Unit = {},
+	onOpenSettings: () -> Unit = {},
 ) {
 	val formFactor = currentFormFactor()
 	val useFab = prefersFabForPrimaryAction()
@@ -63,8 +65,11 @@ fun ConversationsScreen(
 			TopAppBar(
 				title = { Text(text = "inhuman", style = MaterialTheme.typography.titleMedium) },
 				actions = {
-					// On a phone the FAB carries this instead, so the top bar
-					// keeps only the title.
+					// On a phone the FAB carries the primary action instead, so
+					// the top bar keeps only the title and this.
+					IconButton(onClick = onOpenSettings) {
+						Icon(Icons.Outlined.Settings, contentDescription = "Settings")
+					}
 					if (!useFab) {
 						IconButton(onClick = onNewConversation) {
 							Icon(Icons.Filled.Add, contentDescription = "New conversation")
