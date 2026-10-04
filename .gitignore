@@ -21,3 +21,8 @@ local.properties
 # build output like any other. Two megabytes of binary in a history that cannot
 # shed it is a decision to make deliberately rather than by default.
 _research/android-sandbox/out/
+
+# The QuickJS checkout the sandbox probe builds against. A third-party tree
+# with its own history, kept out of this one; build-qjs.ps1 -Fetch obtains it.
+.sandbox-build/
+
