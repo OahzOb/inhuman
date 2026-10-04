@@ -76,6 +76,15 @@ dependencies {
 	implementation libs.koin.android
 	implementation libs.koin.androidx.compose
 
+	// Markdown. The -m3 module themes it to Material 3, and -code adds fenced
+	// code blocks with syntax highlighting. The renderer's streaming state is
+	// the reason it was chosen: it re-parses only the unstable tail of a
+	// document, so a half-written code fence does not force the whole reply to
+	// be re-parsed on every token.
+	implementation libs.markdown.renderer
+	implementation libs.markdown.renderer.m3
+	implementation libs.markdown.renderer.code
+
 	debugImplementation libs.androidx.compose.ui.tooling
 
 	testImplementation libs.junit

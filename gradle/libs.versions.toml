@@ -30,6 +30,11 @@ coroutines = "1.11.0"
 # DI.
 koin = "4.2.2"
 
+# Markdown. MIT-licensed, which matters: the only viable Android LaTeX renderer
+# (JLaTeXMath) is GPLv2, so maths is deliberately not rendered rather than
+# pulling a viral licence into a closed-source app.
+markdownRenderer = "0.45.0"
+
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
@@ -62,6 +67,10 @@ kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-t
 
 koin-android = { module = "io.insert-koin:koin-android", version.ref = "koin" }
 koin-androidx-compose = { module = "io.insert-koin:koin-androidx-compose", version.ref = "koin" }
+
+markdown-renderer = { module = "com.mikepenz:multiplatform-markdown-renderer", version.ref = "markdownRenderer" }
+markdown-renderer-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdownRenderer" }
+markdown-renderer-code = { module = "com.mikepenz:multiplatform-markdown-renderer-code", version.ref = "markdownRenderer" }
 
 junit = { module = "junit:junit", version = "4.13.2" }
 

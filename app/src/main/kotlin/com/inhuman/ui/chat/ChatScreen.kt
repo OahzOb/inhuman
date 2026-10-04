@@ -195,11 +195,18 @@ private fun MessageBubble(message: ChatMessageUi) {
 							fontFamily = FontFamily.Monospace,
 						)
 
-						AssistantPart.Kind.Text -> Text(
-							text = part.text,
-							style = MaterialTheme.typography.bodyLarge,
-							color = onColor,
-						)
+						AssistantPart.Kind.Text -> if (message.fromUser) {
+							// The user's own text is rendered literally. They
+							// typed it; interpreting their asterisks as
+							// formatting would silently change what they said.
+							Text(
+								text = part.text,
+								style = MaterialTheme.typography.bodyLarge,
+								color = onColor,
+							)
+						} else {
+							MarkdownText(text = part.text)
+						}
 
 						AssistantPart.Kind.ToolCall -> Text(
 							text = part.text,
