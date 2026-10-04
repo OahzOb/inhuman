@@ -26,6 +26,7 @@ import com.inhuman.core.files.WorkspaceTransfer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.inhuman.core.ai.tools.SearchProvider
+import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.ai.tools.TimeTool
 import com.inhuman.core.ai.tools.WebSearchTool
 import com.inhuman.core.files.tools.FileTools
@@ -898,18 +899,34 @@ class ChatViewModel(
 	/**
 	 * What the model can do.
 	 *
+	 * ## The selection is applied last, and to everything
+	 *
+	 * Every tool goes through the same filter, including the ones with no
+	 * dependency. It would be easy to let `read_time` through unasked because it
+	 * is harmless, and that is exactly the shape of hole this setting exists to
+	 * close: "harmless" is a judgement the app makes, and an assistant set up
+	 * for chat alone should have no tools because someone said so.
+	 *
 	 * ## Why a missing workspace is reported rather than swallowed
 	 *
 	 * The first version returned an empty list on failure, and for file tools
-	 * that was merely quiet: the agent simply had no hands and would say so. It
-	 * becomes a security question the moment any tool's availability is a
-	 * boundary, because then "the tools could not be built" and "the sandbox
-	 * failed to start" are the same code path, and failing open is the wrong
-	 * direction. It is reported now, and the turn does not run on a silent
-	 * failure.
+	 * that was merely quiet: the agent had no hands and would say so. It becomes
+	 * a security question the moment a tool's availability is a boundary,
+	 * because then "the tools could not be built" and "the sandbox failed to
+	 * start" are the same code path -- and failing open is the wrong direction.
+	 * It is reported now, and the turn does not run on a silent failure.
 	 */
 	private fun buildTools(): List<Tool> {
-		val entity = conversation ?: return listOf(TimeTool())
+		val entity = conversation
+
+		// The conversation's own copy wins, falling back to the assistant's.
+		// Copied at creation so that editing an assistant cannot change what a
+		// conversation already held is able to do.
+		val selected = entity?.tools ?: agent?.tools
+
+		if (entity == null) {
+			return listOf(TimeTool()).filter { ToolCatalog.permits(selected, it.name) }
+		}
 
 		val fileTools = runCatching { FileTools.all(repository.workspace(entity)) }
 			.getOrElse { failure ->
@@ -924,15 +941,13 @@ class ChatViewModel(
 
 		return buildList {
 			addAll(fileTools)
-			// Always available: reading the clock has no dependency and no
-			// failure mode worth hiding.
 			add(TimeTool())
-			// Search is registered only when something can answer it. A tool
-			// that is present and always fails teaches the model that the tool
-			// is broken and it keeps retrying; one that is absent teaches it
-			// that it cannot search, and it says so.
+			// Search is registered only when something can answer it. A tool that
+			// is present and always fails teaches the model that the tool is
+			// broken and it keeps retrying; one that is absent teaches it that it
+			// cannot search, and it says so.
 			searchProvider?.let { add(WebSearchTool(it)) }
-		}
+		}.filter { ToolCatalog.permits(selected, it.name) }
 	}
 
 	private fun spec(tool: Tool) = ToolSpec(

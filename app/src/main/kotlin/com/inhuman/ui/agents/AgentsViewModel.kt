@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.db.AgentEntity
+import com.inhuman.core.data.db.ToolsColumn
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,6 +39,15 @@ data class AgentDraft(
 	val reasoningEffort: String?,
 	val thinking: Boolean,
 	val createdAt: Long,
+	/**
+	 * Tools this assistant may use. Null means every tool.
+	 *
+	 * Null and empty are both reachable and mean different things: "everything,
+	 * including whatever is added later" against "nothing". The picker offers
+	 * both, labelled, because a chat-only assistant is a reasonable thing to
+	 * want and so is one that keeps up with new capabilities automatically.
+	 */
+	val tools: List<String>? = null,
 ) {
 	val canSave: Boolean get() = name.isNotBlank() && systemPrompt.isNotBlank()
 
@@ -48,6 +58,7 @@ data class AgentDraft(
 		model = model,
 		reasoningEffort = reasoningEffort,
 		thinking = thinking,
+		toolsJson = ToolsColumn.encode(tools),
 		createdAt = createdAt,
 		updatedAt = now,
 		isDefault = isDefault,
@@ -103,6 +114,7 @@ class AgentsViewModel(
 					model = agent.model,
 					reasoningEffort = agent.reasoningEffort,
 					thinking = agent.thinking,
+					tools = agent.tools,
 					createdAt = agent.createdAt,
 				),
 			)
@@ -122,6 +134,7 @@ class AgentsViewModel(
 					model = null,
 					reasoningEffort = null,
 					thinking = false,
+					tools = AgentRepository.DEFAULT_NEW_AGENT_TOOLS,
 					createdAt = agent.createdAt,
 				),
 			)

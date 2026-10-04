@@ -24,6 +24,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.Checkbox
+import com.inhuman.core.ai.tools.ToolCatalog
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -247,6 +252,9 @@ private fun AgentEditor(
 ) {
 	val levels = effortLevels(draft.model)
 
+	// Local, because it is a view of the draft rather than part of it.
+	var showPreview by remember { mutableStateOf(false) }
+
 	AlertDialog(
 		onDismissRequest = onDismiss,
 		title = { Text(if (draft.isNew) "New assistant" else "Edit assistant") },
@@ -269,11 +277,30 @@ private fun AgentEditor(
 				)
 
 				Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-					Text(
-						text = "System prompt",
-						style = MaterialTheme.typography.labelLarge,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-					)
+					Row(
+						modifier = Modifier.fillMaxWidth(),
+						horizontalArrangement = Arrangement.SpaceBetween,
+						verticalAlignment = Alignment.CenterVertically,
+					) {
+						Text(
+							text = "System prompt",
+							style = MaterialTheme.typography.labelLarge,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+						// Preview, next to the thing it previews.
+						//
+						// The field is scrollable and the prompt wraps, so the
+						// editor already shows all of it -- what it cannot show
+						// is the whole of it at once, wrapped to a readable
+						// width, together with what else goes in the request. On
+						// a long prompt those are different things.
+						TextButton(
+							onClick = { showPreview = true },
+							enabled = draft.systemPrompt.isNotBlank(),
+						) {
+							Text("Preview", style = MaterialTheme.typography.labelLarge)
+						}
+					}
 					OutlinedTextField(
 						value = draft.systemPrompt,
 						onValueChange = { v -> onChange { it.copy(systemPrompt = v) } },
@@ -389,12 +416,258 @@ private fun AgentEditor(
 						}
 					}
 				}
+
+				HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+				// --- tools ---------------------------------------------------
+				//
+				// The consequences are stated on the rows rather than in a note
+				// underneath, because a note under a list is read after the
+				// choice instead of before it.
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					horizontalArrangement = Arrangement.SpaceBetween,
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					SectionLabel("Tools")
+					Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+						TextButton(onClick = { onChange { it.copy(tools = ToolCatalog.allSelection()) } }) {
+							Text("All", style = MaterialTheme.typography.labelLarge)
+						}
+						TextButton(onClick = { onChange { it.copy(tools = emptyList()) } }) {
+							Text("None", style = MaterialTheme.typography.labelLarge)
+						}
+					}
+				}
+
+				Text(
+					text = if (draft.tools == null) {
+						// Worth saying out loud, because it is not what "All"
+						// does and the difference only shows up later.
+						"Everything, including tools added in future versions."
+					} else {
+						"${draft.tools.size} of ${ToolCatalog.all.size} selected."
+					},
+					style = MaterialTheme.typography.labelLarge,
+					color = MaterialTheme.colorScheme.outline,
+				)
+
+				ToolCatalog.all.forEach { tool ->
+					val on = ToolCatalog.permits(draft.tools, tool.name)
+					Row(
+						modifier = Modifier
+							.fillMaxWidth()
+							// `toggleable` rather than `clickable`, and that is
+							// not cosmetic.
+							//
+							// With a bare click plus `Checkbox(onCheckedChange =
+							// null)` the box is drawn but is not a node: it has
+							// no state for a screen reader to announce and
+							// nothing for `uiautomator` to read, so the row said
+							// nothing about being a checkbox or about whether it
+							// was on. Tapping worked and nothing else did.
+							//
+							// `toggleable` gives the row the checkbox role, the
+							// on/off state, and the standard toggle action --
+							// which is what makes it usable without sight.
+							.toggleable(
+								value = on,
+								role = Role.Checkbox,
+								onValueChange = {
+									// Toggling from "everything" has to mean
+									// something. It becomes the full list, so
+									// the next tap turns one thing off rather
+									// than silently turning everything else off.
+									val current = draft.tools ?: ToolCatalog.names
+									val next = if (on) current - tool.name else current + tool.name
+									onChange { it.copy(tools = next) }
+								},
+							)
+							.padding(vertical = 4.dp),
+						verticalAlignment = Alignment.CenterVertically,
+						horizontalArrangement = Arrangement.spacedBy(10.dp),
+					) {
+						// Merely drawn: the row owns the interaction, because
+						// two toggles for one value is one too many.
+						Checkbox(checked = on, onCheckedChange = null)
+						Column(modifier = Modifier.weight(1f)) {
+							Text(
+								text = tool.name,
+								style = MaterialTheme.typography.bodyMedium,
+								fontFamily = FontFamily.Monospace,
+								color = MaterialTheme.colorScheme.onSurface,
+							)
+							Text(
+								text = tool.blurb,
+								style = MaterialTheme.typography.labelLarge,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+							)
+						}
+						// The cost, next to the choice that incurs it.
+						//
+						// Mutating tools are what stops a reply being
+						// regenerated, so choosing one is choosing to give that
+						// up for the turns that use it. Said here rather than
+						// only in the chat, where it arrives too late to inform
+						// anything.
+						if (tool.mutates) {
+							Text(
+								text = "changes files",
+								style = MaterialTheme.typography.labelLarge,
+								color = MaterialTheme.colorScheme.outline,
+							)
+						}
+					}
+				}
 			}
 		},
 		confirmButton = {
 			TextButton(onClick = onSave, enabled = draft.canSave) { Text("Save") }
 		},
 		dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+		containerColor = MaterialTheme.colorScheme.surface,
+		titleContentColor = MaterialTheme.colorScheme.onSurface,
+		textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+	)
+
+	if (showPreview) {
+		PromptPreview(
+			draft = draft,
+			modelLabel = draft.model?.let { id ->
+				models.firstOrNull { it.id == id }?.displayName?.takeIf { it.isNotBlank() } ?: id
+			} ?: "provider default",
+			onDismiss = { showPreview = false },
+		)
+	}
+}
+
+/**
+ * The whole prompt, as the model receives it.
+ *
+ * ## Why this shows more than the system message
+ *
+ * The system prompt does not travel alone. It is one part of a request that also
+ * names a model, states whether thinking is on, and carries a tool list -- and
+ * the last of those is what this screen's other new control changes. Previewing
+ * only the text would leave the two features unconnected: a person would pick
+ * four tools and have no way to see that those four are now part of what gets
+ * sent.
+ *
+ * So the footer is not decoration. It is the answer to "what did my choices
+ * actually do".
+ *
+ * ## What it deliberately does not show
+ *
+ * The tool descriptions and parameter schemas. Those are prompt text and they
+ * are long, and repeating them here would bury the one part a person came to
+ * read. The names are enough to confirm a selection; the wording of a tool's
+ * description is a property of the tool, not of this assistant.
+ */
+@Composable
+private fun PromptPreview(
+	draft: AgentDraft,
+	modelLabel: String,
+	onDismiss: () -> Unit,
+) {
+	val selected = draft.tools
+	val on = ToolCatalog.all.map { it.name }.filter { ToolCatalog.permits(selected, it) }
+
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text("What the model receives") },
+		text = {
+			Column(
+				modifier = Modifier
+					.fillMaxWidth()
+					.heightIn(max = 460.dp)
+					.verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(12.dp),
+			) {
+				SectionLabel("System message")
+				// Selectable, so a prompt can be copied out and tried
+				// elsewhere -- which is the first thing anyone does with one.
+				//
+				// Bounded, and separately scrollable, because the prompt is the
+				// longest thing here and it was pushing everything after it out
+				// of view. Measured: a ten-line prompt took 990px of a 1208px
+				// content area, so the tools section rendered below the fold and
+				// the preview appeared to show a count with no list. The prompt
+				// is the first thing read, not the only one.
+				SelectionContainer {
+					Text(
+						text = draft.systemPrompt.ifBlank { "(empty)" },
+						style = MaterialTheme.typography.bodySmall,
+						fontFamily = FontFamily.Monospace,
+						color = MaterialTheme.colorScheme.onSurface,
+						modifier = Modifier
+							.fillMaxWidth()
+							.heightIn(max = 200.dp)
+							.verticalScroll(rememberScrollState()),
+					)
+				}
+
+				HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+				SectionLabel("Model")
+				Text(
+					text = buildString {
+						append(modelLabel)
+						append(if (draft.thinking) " · thinking on" else " · thinking off")
+						draft.reasoningEffort?.let { append(" · effort $it") }
+					},
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurface,
+				)
+
+				SectionLabel(if (selected == null) "Tools — everything" else "Tools — ${on.size} of ${ToolCatalog.all.size}")
+				if (on.isEmpty()) {
+					Text(
+						text = "None. This assistant can only talk.",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurface,
+					)
+				} else {
+					// One per line, all of them, with the unavailable ones
+					// dimmed rather than listed separately.
+					//
+					// The first version printed the enabled names as a
+					// comma-separated paragraph and the disabled ones as a
+					// second. On a selection of nine that wrapped to five lines
+					// and pushed itself below the dialog's scroll area -- the
+					// count showed and the names did not, which is a preview
+					// that previews nothing.
+					//
+					// A column of one-per-line is shorter because it does not
+					// wrap, and it answers the question directly: every tool is
+					// visible, and which ones are in the request is a matter of
+					// shade rather than of cross-referencing two lists.
+					Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+						ToolCatalog.all.forEach { tool ->
+							val available = ToolCatalog.permits(selected, tool.name)
+							Text(
+								text = if (available) tool.name else "· ${tool.name}",
+								style = MaterialTheme.typography.bodySmall,
+								fontFamily = FontFamily.Monospace,
+								color = if (available) {
+									MaterialTheme.colorScheme.onSurface
+								} else {
+									MaterialTheme.colorScheme.outline
+								},
+							)
+						}
+					}
+				}
+
+				if (selected == null) {
+					Text(
+						text = "Everything includes tools this app adds later.",
+						style = MaterialTheme.typography.labelLarge,
+						color = MaterialTheme.colorScheme.outline,
+					)
+				}
+			}
+		},
+		confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
 		containerColor = MaterialTheme.colorScheme.surface,
 		titleContentColor = MaterialTheme.colorScheme.onSurface,
 		textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,

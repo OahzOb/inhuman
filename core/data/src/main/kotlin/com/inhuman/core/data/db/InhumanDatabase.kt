@@ -149,7 +149,7 @@ interface AgentDao {
 	// caught: the app crashed on launch with "Looks like you've changed schema
 	// but forgot to update the version number" instead of quietly losing
 	// conversations.
-	version = 6,
+	version = 7,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -262,6 +262,33 @@ abstract class InhumanDatabase : RoomDatabase() {
 			override fun migrate(connection: SQLiteConnection) {
 				connection.execSQL(
 					"ALTER TABLE messages ADD COLUMN mutated INTEGER NOT NULL DEFAULT 0",
+				)
+			}
+		}
+
+		/**
+		 * 6 -> 7: per-assistant tool selection.
+		 *
+		 * Nullable, and **null means every tool** rather than none. That is the
+		 * safe default in the direction that matters: an assistant created
+		 * before this column existed keeps working exactly as it did, and a
+		 * mistake in the UI that fails to write a selection cannot silently
+		 * strip capabilities from every existing assistant.
+		 *
+		 * The opposite default -- null meaning no tools -- would have turned
+		 * every stored assistant into a text-only one on upgrade, with nothing
+		 * to indicate why.
+		 */
+		val MIGRATION_6_7 = object : Migration(6, 7) {
+			override fun migrate(connection: SQLiteConnection) {
+				// NOT NULL DEFAULT '' -- the empty string is "no selection",
+				// which decodes to null, which means every tool. So every
+				// assistant that predates this column keeps everything it had.
+				connection.execSQL(
+					"ALTER TABLE agents ADD COLUMN toolsJson TEXT NOT NULL DEFAULT ''",
+				)
+				connection.execSQL(
+					"ALTER TABLE conversations ADD COLUMN toolsJson TEXT NOT NULL DEFAULT ''",
 				)
 			}
 		}

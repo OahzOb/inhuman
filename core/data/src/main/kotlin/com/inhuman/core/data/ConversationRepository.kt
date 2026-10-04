@@ -6,6 +6,7 @@ import com.inhuman.core.data.db.ConversationStore
 import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.InhumanDatabase
 import com.inhuman.core.data.db.MessageEntity
+import com.inhuman.core.data.db.ToolsColumn
 import com.inhuman.core.files.SessionWorkspace
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -114,6 +115,10 @@ class ConversationRepository(
 			model = agent?.model,
 			reasoningEffort = agent?.reasoningEffort,
 			thinking = agent?.thinking ?: false,
+			// Copied, not read through the assistant later: editing an
+			// assistant's tools must not change what a conversation already
+			// held is able to do.
+			toolsJson = ToolsColumn.encode(agent?.tools),
 			createdAt = now,
 			updatedAt = now,
 		)

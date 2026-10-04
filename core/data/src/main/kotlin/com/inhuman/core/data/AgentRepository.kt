@@ -69,6 +69,26 @@ class AgentRepository(
 		)
 	}
 
+	companion object {
+		/**
+		 * What a newly created assistant starts with.
+		 *
+		 * An explicit list of today's tools, **not** `null`.
+		 *
+		 * `null` means "every tool, including ones added later", which is the
+		 * right default for an assistant that predates the setting -- it keeps
+		 * what it already had. It is the wrong default for a new one, because it
+		 * would silently grant every future capability to an assistant somebody
+		 * configured deliberately. New tools should arrive switched off and be
+		 * turned on, which is the same reasoning the allow-list itself rests on.
+		 */
+		val DEFAULT_NEW_AGENT_TOOLS: List<String> = listOf(
+			"list_files", "read_file", "file_info",
+			"read_time", "web_search",
+			"write_file", "append_file", "create_directory", "move_file", "delete_file",
+		)
+	}
+
 	/**
 	 * The provider, if one is configured.
 	 *

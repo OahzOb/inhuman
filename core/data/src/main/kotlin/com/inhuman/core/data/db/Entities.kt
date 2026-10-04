@@ -1,5 +1,10 @@
 package com.inhuman.core.data.db
 
+import androidx.room.ColumnInfo
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -46,11 +51,41 @@ data class AgentEntity(
 	val reasoningEffort: String? = null,
 	/** Whether thinking is on at all for this assistant. */
 	val thinking: Boolean = false,
+
+	/**
+	 * Which tools this assistant may use, as a JSON array of names.
+	 *
+	 * **Empty string means every tool; `"[]"` means none.** That is the same
+	 * distinction a nullable list would carry, kept as a string because Room's
+	 * converter lookup did not resolve for `List<String>` on this KSP.
+	 * [ToolsColumn] owns the encoding so nothing else has to know it.
+	 *
+	 * ## Why an allow-list rather than a deny-list
+	 *
+	 * A deny-list would mean a tool added in a future release becomes available
+	 * to every existing assistant the moment it ships. An allow-list means it
+	 * becomes available only when someone chooses it -- so the default for a new
+	 * capability is "not yet", which is the direction a security-relevant
+	 * setting should fail in.
+	 *
+	 * ## Why names rather than ids
+	 *
+	 * The name is what the model calls and what the tool registry is keyed by. A
+	 * name that no longer exists is ignored at load rather than treated as an
+	 * error: a release that renames a tool should leave an assistant slightly
+	 * less capable, not broken.
+	 */
+	@ColumnInfo(defaultValue = "")
+	val toolsJson: String = "",
+
 	val createdAt: Long,
 	val updatedAt: Long,
 	/** The one seeded on first launch. Cannot be deleted from the UI. */
 	val isDefault: Boolean = false,
-)
+) {
+	/** The selection, or null for every tool. */
+	val tools: List<String>? get() = ToolsColumn.decode(toolsJson)
+}
 
 /**
  * A conversation.
@@ -91,10 +126,60 @@ data class ConversationEntity(
 	/** Reasoning effort for this conversation. Null means the model default. */
 	val reasoningEffort: String? = null,
 	val thinking: Boolean = false,
+
+	/**
+	 * Tools available in this conversation, copied from the assistant at
+	 * creation. Empty string means every tool.
+	 *
+	 * Copied for the same reason as the model, and more besides. Editing an
+	 * assistant's tools must not silently change what a conversation already
+	 * held can do -- and here that is not only record-keeping: a transcript
+	 * contains tool calls that were permitted when they ran, and a later edit
+	 * that removed the tool would leave the record describing something the app
+	 * no longer allows.
+	 */
+	@ColumnInfo(defaultValue = "")
+	val toolsJson: String = "",
+
 	val createdAt: Long,
 	val updatedAt: Long,
 	val pinned: Boolean = false,
-)
+) {
+	/** The selection, or null for every tool. */
+	val tools: List<String>? get() = ToolsColumn.decode(toolsJson)
+}
+
+/**
+ * The encoding for a tool selection, in one place.
+ *
+ * The distinction it preserves is the point: **empty is "no selection" and
+ * means every tool**, while **`[]` is a selection of nothing**. Flattening the
+ * two would turn a deliberately text-only assistant into an all-tools one, or
+ * strip an assistant of everything, depending on which way it was flattened.
+ *
+ * A malformed value decodes to null -- absent -- rather than to an empty list,
+ * because absent is the reading that fails toward keeping the assistant usable.
+ */
+object ToolsColumn {
+
+	/** Every tool. What an assistant created before the column existed gets. */
+	const val ALL = ""
+
+	/** No tools at all. */
+	const val NONE = "[]"
+
+	fun encode(tools: List<String>?): String =
+		if (tools == null) ALL else JsonArray(tools.map { JsonPrimitive(it) }).toString()
+
+	fun decode(raw: String): List<String>? {
+		if (raw.isBlank()) return null
+		return runCatching {
+			(Json.parseToJsonElement(raw) as? JsonArray)
+				.orEmpty()
+				.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+		}.getOrNull()
+	}
+}
 
 /**
  * One message, as a node in a tree.
