@@ -33,6 +33,9 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -392,6 +395,77 @@ private fun BranchSwitcher(
 	}
 }
 
+/**
+ * One tool call, inside the collapsed section.
+ *
+ * Shows the name, the argument that identifies it, and what happened -- which is
+ * what someone opening this section is trying to find out. The raw JSON is not
+ * shown: `{"path":"notes.txt","content":"..."}` spends a screenful saying what
+ * `write_file notes.txt` says in a line, and the second is what a person reads.
+ */
+@Composable
+private fun ToolCallLine(call: ToolCallUi) {
+	val status = when (call.state) {
+		ToolCallUi.State.Streaming -> "…"
+		ToolCallUi.State.Ready -> "ready"
+		ToolCallUi.State.Running -> "running"
+		ToolCallUi.State.Done -> "done"
+		ToolCallUi.State.Declined -> "declined"
+		ToolCallUi.State.Failed -> "failed"
+	}
+	val statusColor = when (call.state) {
+		ToolCallUi.State.Failed -> MaterialTheme.colorScheme.error
+		ToolCallUi.State.Declined -> MaterialTheme.colorScheme.outline
+		else -> MaterialTheme.colorScheme.onSurfaceVariant
+	}
+
+	Row(
+		modifier = Modifier.fillMaxWidth(),
+		horizontalArrangement = Arrangement.spacedBy(8.dp),
+		verticalAlignment = Alignment.Top,
+	) {
+		Text(
+			text = call.displayName,
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.tertiary,
+			fontFamily = FontFamily.Monospace,
+		)
+		Text(
+			// The single most identifying argument, which for these tools is
+			// almost always the path or the query.
+			text = summariseArguments(call),
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			maxLines = 1,
+			overflow = TextOverflow.Ellipsis,
+			modifier = Modifier.weight(1f),
+		)
+		Text(
+			text = status,
+			style = MaterialTheme.typography.labelLarge,
+			color = statusColor,
+		)
+	}
+}
+
+/**
+ * The argument worth showing, or a fallback.
+ *
+ * Deliberately shallow: it reads the first of a few known keys rather than
+ * parsing properly, because the value here is a label in a collapsed list and
+ * a wrong-but-present argument name is better than a blank line. The real
+ * arguments are in the transcript and in the tool result.
+ */
+private fun summariseArguments(call: ToolCallUi): String {
+	val args = call.argumentsJson
+	if (args.isBlank()) return ""
+	for (key in listOf("path", "query", "pattern", "name")) {
+		val match = Regex("\"$key\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(args) ?: continue
+		return match.groupValues[1].replace("\\\"", "\"").take(60)
+	}
+	return args.take(60)
+}
+
 @Composable
 private fun MessageBubble(
 	message: ChatMessageUi,
@@ -413,6 +487,37 @@ private fun MessageBubble(
 		MaterialTheme.colorScheme.onSurface
 	}
 
+	// A tool result is machinery, not speech.
+	//
+	// It is rendered as one collapsed line rather than as a bubble, because it
+	// is not something anyone said -- it is what came back. An eight-search turn
+	// produces pages of it, and left expanded the transcript is mostly search
+	// results with the answer somewhere underneath.
+	//
+	// The first line is the header, since every tool result leads with what it
+	// did: "Created notes.txt (24 B, 1 lines)". That tells a reader whether it
+	// is worth opening.
+	if (message.isToolResult) {
+		val firstLine = message.plainText.lineSequence()
+			.firstOrNull { it.isNotBlank() }
+			?.trim()
+			.orEmpty()
+		CollapsibleSection(
+			summary = message.toolName?.let { "$it — $firstLine" } ?: firstLine.ifBlank { "Tool result" },
+			modifier = Modifier
+				.widthIn(max = Layout.ReadableMeasure)
+				.padding(vertical = 2.dp),
+		) {
+			Text(
+				text = message.plainText.ifBlank { "(empty)" },
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				fontFamily = FontFamily.Monospace,
+			)
+		}
+		return
+	}
+
 	Column(
 		modifier = Modifier.fillMaxWidth(),
 		horizontalAlignment = alignment,
@@ -424,18 +529,51 @@ private fun MessageBubble(
 				.padding(horizontal = 14.dp, vertical = 10.dp),
 		) {
 			Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-				message.parts.forEach { part ->
-					when (part.kind) {
-						AssistantPart.Kind.Reasoning -> Text(
-							text = part.text,
-							style = MaterialTheme.typography.bodyMedium,
-							// Dimmed and in a monospace face: it reads as an
-							// aside rather than as the answer.
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-							fontFamily = FontFamily.Monospace,
-						)
+				// Reasoning first, collapsed, and never in the way of the answer.
+				//
+				// It is shown when a model has thought and hidden otherwise, so
+				// a reply that used no thinking has no empty header above it. The
+				// character count is in the header because "Thought for a moment"
+				// and "Thought for four thousand characters" are different
+				// propositions and the second is worth opening.
+				val reasoning = message.parts
+					.filter { it.kind == AssistantPart.Kind.Reasoning }
+					.joinToString("\n\n") { it.text }
+				if (reasoning.isNotBlank() && !message.fromUser) {
+					CollapsibleSection(
+						summary = "Thinking",
+						trailing = "${reasoning.length} chars",
+					) {
+						ReasoningBody(reasoning)
+					}
+				}
 
-						AssistantPart.Kind.Text -> if (message.fromUser) {
+				// Tool calls, collapsed together.
+				//
+				// One section rather than one per call: a turn that searched
+				// eight times would otherwise produce eight headers, and the
+				// question a reader has is "what did it do", not "what did the
+				// fourth call do".
+				val calls = message.toolCalls
+				if (calls.isNotEmpty()) {
+					CollapsibleSection(
+						summary = if (calls.size == 1) "Used one tool" else "Used ${calls.size} tools",
+						trailing = calls.count { it.state == ToolCallUi.State.Failed }
+							.takeIf { it > 0 }?.let { "$it failed" },
+					) {
+						Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+							calls.forEach { ToolCallLine(it) }
+						}
+					}
+				}
+
+				// The answer. Everything above is working-out; this is the part
+				// that was asked for, and it is the only part that is always
+				// visible.
+				message.parts
+					.filter { it.kind == AssistantPart.Kind.Text }
+					.forEach { part ->
+						if (message.fromUser) {
 							// The user's own text is rendered literally. They
 							// typed it; interpreting their asterisks as
 							// formatting would silently change what they said.
@@ -447,11 +585,16 @@ private fun MessageBubble(
 						} else {
 							MarkdownText(text = part.text)
 						}
+					}
 
-						AssistantPart.Kind.ToolCall -> Text(
-							text = part.text,
-							style = MaterialTheme.typography.bodyMedium,
-							color = MaterialTheme.colorScheme.tertiary,
+				// Attachment names, so a message that was mostly a picture does
+				// not look like it had no content.
+				if (message.attachments.isNotEmpty()) {
+					message.attachments.forEach { attachment ->
+						Text(
+							text = "📎 ${attachment.displayName}",
+							style = MaterialTheme.typography.labelLarge,
+							color = onColor,
 						)
 					}
 				}
@@ -509,10 +652,10 @@ private fun MessageBubble(
 			if (currentTurnMutated) {
 				// Not offered at all, with the reason given.
 				//
-				// Regenerating re-runs the turn, tools included. For a reply
-				// that wrote or deleted files that means doing it a second time,
-				// and no amount of confirmation makes that the same request --
-				// the second write lands on a workspace the first one changed.
+				// Regenerating re-runs the turn, tools included. For a reply that
+				// wrote or deleted files that means doing it a second time, and no
+				// amount of confirmation makes that the same request -- the second
+				// write lands on a workspace the first one changed.
 				//
 				// A disabled button would invite pressing it; a line of text
 				// explains why the option is gone, and the file it changed is in
@@ -524,15 +667,21 @@ private fun MessageBubble(
 					modifier = Modifier.padding(top = 4.dp),
 				)
 			} else {
-				TextButton(
+				IconButton(
 					onClick = onRegenerate,
-					contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-					modifier = Modifier.padding(top = 2.dp),
+					modifier = Modifier
+						.padding(top = 2.dp)
+						.size(32.dp),
 				) {
-					Text(
-						text = if (message.branches != null) "Answer again" else "Regenerate",
-						style = MaterialTheme.typography.labelLarge,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					Icon(
+						// Refresh rather than a rerun arrow: the action produces
+						// another answer, not a replay of this one, and the
+						// existing answers stay reachable through the branch
+						// switcher beside it.
+						imageVector = Icons.Outlined.Refresh,
+						contentDescription = "Answer again",
+						tint = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.size(18.dp),
 					)
 				}
 			}
