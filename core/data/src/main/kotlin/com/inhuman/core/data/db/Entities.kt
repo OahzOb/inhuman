@@ -209,4 +209,26 @@ data class MessageEntity(
 	 * only time they are wanted.
 	 */
 	val attachmentsJson: String? = null,
+
+	/**
+	 * Whether this turn ran a tool that changed the workspace.
+	 *
+	 * ## Why this is stored rather than derived
+	 *
+	 * It could be recomputed by looking up each tool name from
+	 * [toolCallsJson] and asking that tool whether it mutates -- but only while
+	 * every tool still exists under the same name. A release that renames
+	 * `write_file`, or drops the tool a stored call refers to, would silently
+	 * reclassify history: an old reply that really did write a file would start
+	 * being offered for regeneration, and the write would happen again.
+	 *
+	 * Recording the fact at the moment it happened cannot be invalidated by a
+	 * later change to the tool list.
+	 *
+	 * ## What it guards
+	 *
+	 * Regenerating re-runs the whole turn, tools included. For a text answer
+	 * that is free; for one that wrote or deleted files it means doing it twice.
+	 */
+	val mutated: Boolean = false,
 )

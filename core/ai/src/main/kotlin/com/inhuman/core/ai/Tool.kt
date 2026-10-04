@@ -41,6 +41,41 @@ interface Tool {
 	val parameters: Map<String, Any?>
 
 	/**
+	 * Whether calling this changes anything that outlives the call.
+	 *
+	 * ## What this is for
+	 *
+	 * A reply that used a mutating tool cannot be regenerated, and the reason is
+	 * not that the transcript would be inconsistent -- it is that regenerating
+	 * **runs the tools again**. The model is asked the same question with the
+	 * same context and will very likely make the same calls, so a second attempt
+	 * is a second round of real writes: a file written twice, a directory moved
+	 * onto itself, a delete attempted against something already gone.
+	 *
+	 * Reading the time again costs nothing. Writing the same file again does
+	 * not.
+	 *
+	 * ## Why this is not `needsApproval`
+	 *
+	 * They answer different questions and neither implies the other. Approval
+	 * asks "may this happen?" *before* it happens. This asks "can the turn be
+	 * replayed?" *afterwards*. `write_file` mutates and needs no approval;
+	 * a future tool could reasonably need approval without mutating -- an
+	 * expensive search the user pays for, say -- and it could be offered for
+	 * regeneration freely, because running it twice only costs money, not
+	 * correctness.
+	 *
+	 * ## Why this is deliberately not defaulted
+	 *
+	 * A default would be wrong about half the tools that will ever exist, and
+	 * wrong in the dangerous direction: `false` on something that writes means
+	 * the regenerate control stays enabled and the write happens twice. There
+	 * are eight tools; making each one state its answer is cheap, and it puts
+	 * the question in front of whoever adds the ninth.
+	 */
+	val mutates: Boolean
+
+	/**
 	 * Whether this particular call needs the user's consent first.
 	 *
 	 * Default is no approval, which is right for reads. Anything that writes,

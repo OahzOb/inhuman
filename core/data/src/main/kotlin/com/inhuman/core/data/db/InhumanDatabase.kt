@@ -86,6 +86,16 @@ interface MessageDao {
 	suspend fun setSelectedChild(parentId: String, childId: String?)
 
 	/**
+	 * Mark a message as having changed the workspace.
+	 *
+	 * Its own statement because the fact is only known *after* the row is
+	 * written: a reply is persisted when the model finishes streaming, and its
+	 * tools run afterwards.
+	 */
+	@Query("UPDATE messages SET mutated = 1 WHERE id = :id")
+	suspend fun markMutated(id: String)
+
+	/**
 	 * Every reply to [parentId], oldest first.
 	 *
 	 * The siblings of one message, which is what a branch switcher counts and
@@ -139,7 +149,7 @@ interface AgentDao {
 	// caught: the app crashed on launch with "Looks like you've changed schema
 	// but forgot to update the version number" instead of quietly losing
 	// conversations.
-	version = 5,
+	version = 6,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -233,6 +243,26 @@ abstract class InhumanDatabase : RoomDatabase() {
 		val MIGRATION_4_5 = object : Migration(4, 5) {
 			override fun migrate(connection: SQLiteConnection) {
 				connection.execSQL("ALTER TABLE messages ADD COLUMN attachmentsJson TEXT")
+			}
+		}
+
+		/**
+		 * 5 -> 6: whether a turn changed the workspace.
+		 *
+		 * A not-null boolean with a default, so existing rows get `false`. That
+		 * is a judgement rather than a convenience: replies held before this
+		 * column existed cannot be classified either way, and treating them all
+		 * as mutating would disable regeneration on every old reply including
+		 * the text-only ones. The risk of `false` is bounded -- the files such a
+		 * reply wrote are still in the workspace, in front of the user before
+		 * they press regenerate -- whereas the other default would have removed
+		 * a working feature for everyone.
+		 */
+		val MIGRATION_5_6 = object : Migration(5, 6) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"ALTER TABLE messages ADD COLUMN mutated INTEGER NOT NULL DEFAULT 0",
+				)
 			}
 		}
 

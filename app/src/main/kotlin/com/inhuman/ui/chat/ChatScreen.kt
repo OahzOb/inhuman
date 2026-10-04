@@ -220,6 +220,7 @@ fun ChatScreen(
 						isLastAssistantMessage = !message.fromUser && !message.isToolResult &&
 							message.id == lastAssistantId,
 						isStreaming = state.isStreaming,
+						currentTurnMutated = state.currentTurnMutated,
 						onRegenerate = viewModel::regenerate,
 						// Both ids go up: the alternative being switched to is
 						// not on the active path, so the view model cannot find
@@ -396,6 +397,7 @@ private fun MessageBubble(
 	message: ChatMessageUi,
 	isLastAssistantMessage: Boolean,
 	isStreaming: Boolean,
+	currentTurnMutated: Boolean,
 	onRegenerate: () -> Unit,
 	onSelectBranch: (String?, String) -> Unit,
 ) {
@@ -504,16 +506,35 @@ private fun MessageBubble(
 		// would discard everything after it, and a control that silently deletes
 		// the rest of a transcript is not one to put within reach of a mis-tap.
 		if (isLastAssistantMessage && !message.isStreaming && !isStreaming) {
-			TextButton(
-				onClick = onRegenerate,
-				contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-				modifier = Modifier.padding(top = 2.dp),
-			) {
+			if (currentTurnMutated) {
+				// Not offered at all, with the reason given.
+				//
+				// Regenerating re-runs the turn, tools included. For a reply
+				// that wrote or deleted files that means doing it a second time,
+				// and no amount of confirmation makes that the same request --
+				// the second write lands on a workspace the first one changed.
+				//
+				// A disabled button would invite pressing it; a line of text
+				// explains why the option is gone, and the file it changed is in
+				// the workspace for anyone who wants to look.
 				Text(
-					text = if (message.branches != null) "Answer again" else "Regenerate",
+					text = "This reply changed files, so it cannot be regenerated.",
 					style = MaterialTheme.typography.labelLarge,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					color = MaterialTheme.colorScheme.outline,
+					modifier = Modifier.padding(top = 4.dp),
 				)
+			} else {
+				TextButton(
+					onClick = onRegenerate,
+					contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+					modifier = Modifier.padding(top = 2.dp),
+				) {
+					Text(
+						text = if (message.branches != null) "Answer again" else "Regenerate",
+						style = MaterialTheme.typography.labelLarge,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
 			}
 		}
 	}

@@ -73,6 +73,11 @@ private typealias FreeSpace = (() -> Long)?
 internal class ListFilesTool(workspace: SessionWorkspace, free: FreeSpace = null) :
 	WorkspaceTool(workspace, free), Tool {
 	override val name = "list_files"
+
+	/**
+	 * Reads only; replaying it changes nothing.
+	 */
+	override val mutates = false
 	override val description =
 		"List the files and directories in the conversation workspace. " +
 			"Paths are relative to the workspace root; use \".\" or \"\" for the root."
@@ -106,6 +111,11 @@ internal class ListFilesTool(workspace: SessionWorkspace, free: FreeSpace = null
 internal class ReadFileTool(workspace: SessionWorkspace, free: FreeSpace = null) :
 	WorkspaceTool(workspace, free), Tool {
 	override val name = "read_file"
+
+	/**
+	 * Reads only; replaying it changes nothing.
+	 */
+	override val mutates = false
 	override val description =
 		"Read a text file from the conversation workspace. " +
 			"Refuses files larger than the read limit rather than truncating them."
@@ -128,6 +138,11 @@ internal class ReadFileTool(workspace: SessionWorkspace, free: FreeSpace = null)
 internal class WriteFileTool(workspace: SessionWorkspace, free: FreeSpace = null) :
 	WorkspaceTool(workspace, free), Tool {
 	override val name = "write_file"
+
+	/**
+	 * Changes the workspace, so a turn that used it cannot be replayed.
+	 */
+	override val mutates = true
 	override val description =
 		"Write a text file in the conversation workspace, creating it if needed and " +
 			"replacing its contents if it exists. Parent directories are created."
@@ -154,6 +169,11 @@ internal class WriteFileTool(workspace: SessionWorkspace, free: FreeSpace = null
 internal class AppendFileTool(workspace: SessionWorkspace, free: FreeSpace = null) :
 	WorkspaceTool(workspace, free), Tool {
 	override val name = "append_file"
+
+	/**
+	 * Changes the workspace, so a turn that used it cannot be replayed.
+	 */
+	override val mutates = true
 	override val description =
 		"Append text to a file in the conversation workspace, creating it if needed."
 	override val parameters = mapOf(
@@ -177,6 +197,11 @@ internal class AppendFileTool(workspace: SessionWorkspace, free: FreeSpace = nul
 internal class CreateDirectoryTool(workspace: SessionWorkspace, free: FreeSpace = null) :
 	WorkspaceTool(workspace, free), Tool {
 	override val name = "create_directory"
+
+	/**
+	 * Changes the workspace, so a turn that used it cannot be replayed.
+	 */
+	override val mutates = true
 	override val description = "Create a directory in the conversation workspace."
 	override val parameters = mapOf(
 		"type" to "object",
@@ -198,6 +223,11 @@ internal class CreateDirectoryTool(workspace: SessionWorkspace, free: FreeSpace 
 internal class MoveFileTool(workspace: SessionWorkspace, free: FreeSpace = null) :
 	WorkspaceTool(workspace, free), Tool {
 	override val name = "move_file"
+
+	/**
+	 * Changes the workspace, so a turn that used it cannot be replayed.
+	 */
+	override val mutates = true
 	override val description = "Move or rename a file or directory inside the conversation workspace."
 	override val parameters = mapOf(
 		"type" to "object",
@@ -231,6 +261,11 @@ internal class MoveFileTool(workspace: SessionWorkspace, free: FreeSpace = null)
 internal class DeleteFileTool(workspace: SessionWorkspace, free: FreeSpace = null) :
 	WorkspaceTool(workspace, free), Tool {
 	override val name = "delete_file"
+
+	/**
+	 * Changes the workspace, so a turn that used it cannot be replayed.
+	 */
+	override val mutates = true
 	override val description =
 		"Delete a file or directory from the conversation workspace. " +
 			"A directory is deleted with everything inside it. This cannot be undone."
@@ -274,6 +309,11 @@ internal class DeleteFileTool(workspace: SessionWorkspace, free: FreeSpace = nul
 internal class FileInfoTool(workspace: SessionWorkspace, free: FreeSpace = null) :
 	WorkspaceTool(workspace, free), Tool {
 	override val name = "file_info"
+
+	/**
+	 * Reads only; replaying it changes nothing.
+	 */
+	override val mutates = false
 	override val description =
 		"Report size, type and modification time for a path in the conversation workspace, " +
 			"or for the whole workspace if no path is given."

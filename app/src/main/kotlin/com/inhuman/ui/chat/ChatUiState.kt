@@ -79,6 +79,16 @@ data class ChatUiState(
 	 * guard has to be here.
 	 */
 	val modelSupportsVision: Boolean = false,
+	/**
+	 * Whether the current turn changed the workspace.
+	 *
+	 * The answer to whether the reply can be regenerated, computed once for the
+	 * transcript rather than per row. It cannot be read off the last reply: a
+	 * mutation is recorded on the message that *asked* for the tool, and the
+	 * last reply is usually the model summarising afterwards -- so the obvious
+	 * check gives the wrong answer for the common case.
+	 */
+	val currentTurnMutated: Boolean = false,
 )
 
 /** An image staged for the next message. */
@@ -124,6 +134,14 @@ data class ChatMessageUi(
 	 * query per message per recomposition.
 	 */
 	val branches: Branches? = null,
+	/**
+	 * Whether this turn changed the workspace.
+	 *
+	 * Regenerating re-runs the tools, so a reply that wrote or deleted files
+	 * cannot be offered for regeneration -- a second attempt would write or
+	 * delete a second time. Reads are free to replay.
+	 */
+	val mutated: Boolean = false,
 	/**
 	 * The message this one is an alternative to, when it has alternatives.
 	 *

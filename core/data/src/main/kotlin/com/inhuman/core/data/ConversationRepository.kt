@@ -156,6 +156,15 @@ class ConversationRepository(
 	}
 
 	/**
+	 * Record that a reply changed the workspace.
+	 *
+	 * Called after its tools have run, which is after the row was written --
+	 * the reply is stored when the model stops streaming, and the tools it asked
+	 * for are executed once the stream is closed.
+	 */
+	suspend fun markMutated(messageId: String) = db.messages().markMutated(messageId)
+
+	/**
 	 * The replies to a message, oldest first, with the selected one marked.
 	 *
 	 * @return null when [parentId] is null, which is the first message in a
