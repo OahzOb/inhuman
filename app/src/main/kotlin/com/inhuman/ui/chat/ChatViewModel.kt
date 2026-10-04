@@ -25,6 +25,9 @@ import com.inhuman.core.files.SessionWorkspace
 import com.inhuman.core.files.WorkspaceTransfer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.inhuman.core.ai.tools.SearchProvider
+import com.inhuman.core.ai.tools.TimeTool
+import com.inhuman.core.ai.tools.WebSearchTool
 import com.inhuman.core.files.tools.FileTools
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -68,6 +71,24 @@ class ChatViewModel(
 	private val agents: AgentRepository,
 	private val secure: SecureStore,
 	private val conversationId: String,
+	/**
+	 * Where `web_search` gets its answers, or null when none is configured.
+	 *
+	 * ## Why this is a constructor parameter and not a field with a default
+	 *
+	 * The provider has not been chosen. A null here is not an oversight waiting
+	 * to be filled in with a hardcoded vendor -- it is the seam. Wiring a
+	 * concrete service directly into the view model is the thing that would have
+	 * to be unpicked to change it, so the view model takes the interface and
+	 * stays ignorant of who implements it.
+	 *
+	 * When nothing is passed the search tool is **not registered at all**, rather
+	 * than registered and always failing. The distinction matters: a model given
+	 * a tool that errors will retry it and end up telling the user that search is
+	 * broken, whereas a model without the tool will say it cannot search, which
+	 * is true.
+	 */
+	private val searchProvider: SearchProvider? = null,
 ) : ViewModel() {
 
 	private val _state = MutableStateFlow(ChatUiState())
@@ -82,6 +103,7 @@ class ChatViewModel(
 	private var model: String? = null
 	private var reasoningEffort: String? = null
 	private var thinking: Boolean = false
+
 
 	init {
 		viewModelScope.launch {
@@ -873,9 +895,44 @@ class ChatViewModel(
 
 	// --- helpers -------------------------------------------------------------
 
+	/**
+	 * What the model can do.
+	 *
+	 * ## Why a missing workspace is reported rather than swallowed
+	 *
+	 * The first version returned an empty list on failure, and for file tools
+	 * that was merely quiet: the agent simply had no hands and would say so. It
+	 * becomes a security question the moment any tool's availability is a
+	 * boundary, because then "the tools could not be built" and "the sandbox
+	 * failed to start" are the same code path, and failing open is the wrong
+	 * direction. It is reported now, and the turn does not run on a silent
+	 * failure.
+	 */
 	private fun buildTools(): List<Tool> {
-		val entity = conversation ?: return emptyList()
-		return runCatching { FileTools.all(repository.workspace(entity)) }.getOrDefault(emptyList())
+		val entity = conversation ?: return listOf(TimeTool())
+
+		val fileTools = runCatching { FileTools.all(repository.workspace(entity)) }
+			.getOrElse { failure ->
+				_state.update {
+					it.copy(
+						error = "The workspace for this conversation could not be opened, " +
+							"so file tools are unavailable: ${failure.message}",
+					)
+				}
+				emptyList()
+			}
+
+		return buildList {
+			addAll(fileTools)
+			// Always available: reading the clock has no dependency and no
+			// failure mode worth hiding.
+			add(TimeTool())
+			// Search is registered only when something can answer it. A tool
+			// that is present and always fails teaches the model that the tool
+			// is broken and it keeps retrying; one that is absent teaches it
+			// that it cannot search, and it says so.
+			searchProvider?.let { add(WebSearchTool(it)) }
+		}
 	}
 
 	private fun spec(tool: Tool) = ToolSpec(
