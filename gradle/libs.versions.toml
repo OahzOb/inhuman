@@ -32,9 +32,16 @@ okhttp = "5.5.0"
 serialization = "1.11.0"
 coroutines = "1.11.0"
 
-# Markdown. MIT-licensed, which matters: the only viable Android LaTeX renderer
-# (JLaTeXMath) is GPLv2, so maths is deliberately not rendered rather than
-# pulling a viral licence into a closed-source app.
+# Markdown. Apache-2.0, read from the published POM rather than assumed -- this
+# comment used to say MIT, which was wrong.
+#
+# The note that used to live here said LaTeX was skipped because the only viable
+# Android renderer is GPLv2. That reasoning was wrong: JLaTeXMath carries a
+# linking exception permitting use from independent modules "regardless of the
+# license terms of these independent modules", and this app now ships under
+# Apache-2.0 anyway. LaTeX is still not rendered, but the reason is the bundled
+# fonts -- some GPLv2, some OFL, some the Knuth Licence -- and the
+# THIRD-PARTY-NOTICES maintenance that follows from shipping them.
 markdownRenderer = "0.45.0"
 
 # Instrumented tests. Until now this project had only JVM unit tests, which is

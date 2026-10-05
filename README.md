@@ -287,16 +287,39 @@ which this setup does not use.
   per-conversation directory, which needs no shell. Skipping it also removes a
   real security problem: PRoot runs at the app's own UID, so "sandboxed" Linux
   code could read the conversation database and the stored API keys.
-- **No LaTeX rendering.** The only viable Android library is GPLv2 and this app
-  is not open source. Markdown and code highlighting are permissively licensed
-  and cover the common case.
+- **No LaTeX rendering.** Still true, but **not for the reason this file used to
+  give.** It claimed the only viable Android library is GPLv2 and this app is
+  not open source — that was wrong twice over: the app is going open source
+  (`LICENSE`), and JLaTeXMath carries a linking exception whose own text grants
+  permission to *"link this library with independent modules … regardless of the
+  license terms of these independent modules"*. So the licence was never the
+  obstacle. The real costs are the ones nobody had priced: its Greek fonts are
+  GPLv2, several others are OFL or the Knuth Licence, and shipping any of them
+  means maintaining a `THIRD-PARTY-NOTICES` file. Markdown and code highlighting
+  remain permissively licensed and cover the common case.
 - **No `MANAGE_EXTERNAL_STORAGE`,** and no `READ/WRITE_EXTERNAL_STORAGE`. Play
-  gates the former behind justifications a chat app cannot honestly make.
+  gates the former behind justifications a chat app cannot honestly make. The
+  user reaches a conversation's directory through the app's own `DocumentsProvider`
+  and its import/export, which needs no such permission.
 - **No multi-provider adapter layer.** DeepSeek only, for now. The streaming
   pipeline is transport-agnostic so a second provider is an addition rather than
   a rewrite, but no abstraction is written for a provider that does not exist.
 
 ## Licensing
 
+This app is **open source**, under **Apache-2.0** — see `LICENSE`. The reason is
+not convenience: the central claim here is that the fence around a conversation
+is real, and a security claim that cannot be audited is worth very little.
+
+Two separate facts that are easy to conflate:
+
+- **DeepSeek Harness is MIT**, so porting its agent design was never blocked by
+  licence. Its own bundled dependencies are 287 packages of MIT, MPL-2.0 and
+  BSD-3-Clause, with no GPL among them.
+- **Opening the source did not unlock anything that was previously forbidden.**
+  JLaTeXMath's linking exception already permitted closed-source linking, as
+  noted above. What opening changes is the *audit*, not the dependency menu.
+
 RikkaHub is AGPL-3.0 and was read for architecture only. No code was copied from
-it, and none from any GPL-licensed library. Dependencies are Apache-2.0 / MIT.
+it, and none from any GPL-licensed library. Dependencies are Apache-2.0 / MIT /
+BSD / MPL-2.0.
