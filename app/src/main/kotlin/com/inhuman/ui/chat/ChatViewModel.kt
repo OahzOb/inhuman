@@ -11,6 +11,8 @@ import com.inhuman.core.ai.Role
 import com.inhuman.core.ai.StreamChunk
 import com.inhuman.core.ai.Tool
 import com.inhuman.core.ai.ToolSpec
+import com.inhuman.core.ai.policy.PolicySet
+import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
 import com.inhuman.core.ai.provider.demo.DemoProvider
 import com.inhuman.core.data.AgentRepository
@@ -1158,6 +1160,11 @@ class ChatViewModel(
 	private suspend fun executeCalls(outcome: TurnOutcome, tools: List<Tool>): Boolean {
 		val byName = tools.associateBy { it.name }
 
+		// Read once per round rather than per call: the rules do not change
+		// while a turn is running, and reading them per call would be three
+		// queries times however many tools the model asked for.
+		val policies = loadPolicies()
+
 		// Guards the loop's `finally` so the normal path -- every call run and
 		// answered -- does not pay a second pass over the list. Only an early
 		// exit and a cancellation need the cleanup, and both of those set
@@ -1176,7 +1183,33 @@ class ChatViewModel(
 
 				val parsed = parseArguments(call, outcome.messageId) ?: continue
 
-				if (tool.needsApproval(parsed)) {
+				// The configured rules, before the tool's own opinion.
+				//
+				// `Deny` and `Blind` are refusals rather than questions, so they
+				// have to be answered here -- `needsApproval` can only say "ask",
+				// and asking about something the user has forbidden would be the
+				// wrong question with a confusing answer.
+				val policy = policies.effective(
+					tool = tool.name,
+					relativePath = resolvedPolicyPath(parsed),
+				)
+				if (policy == ToolPolicy.Deny || policy == ToolPolicy.Blind) {
+					markCall(outcome.messageId, call.index, ToolCallUi.State.Failed)
+					appendToolResult(
+						call,
+						// Deliberately the same sentence for both. `Blind` is a
+						// stronger *implementation* of the same decision -- the
+						// file is also hidden from `list_files` -- but telling
+						// the model "you cannot even see this" invites it to
+						// probe for the difference.
+						"${REFUSED_MARKER} This path or tool is not available in this conversation.",
+						isError = true,
+						messageId = outcome.messageId,
+					)
+					continue
+				}
+
+				if (policy == ToolPolicy.Ask || tool.needsApproval(parsed)) {
 					val summary = describeCall(call, parsed)
 					_state.update {
 						it.copy(pendingApproval = PendingApproval(outcome.messageId, call, summary))
@@ -1375,6 +1408,45 @@ class ChatViewModel(
 
 	private fun stringArg(args: JsonObject, name: String): String? =
 		args[name]?.let { runCatching { it.toString().trim('"') }.getOrNull() }
+
+	/**
+	 * The approval rules in force for this conversation.
+	 *
+	 * A failure here returns no rules rather than throwing. Failing to *read*
+	 * the configuration is not a reason to refuse every tool call -- the
+	 * unconfigured state is the default the app ships with, and a database that
+	 * cannot answer one query is about to fail the tool call anyway.
+	 */
+	private suspend fun loadPolicies(): PolicySet = runCatching {
+		val entity = repository.conversation(conversationId)?.entity
+		repository.policies().forConversation(conversationId, entity?.agentId)
+	}.getOrElse { PolicySet.None }
+
+	/**
+	 * The path a policy rule should be matched against, or null.
+	 *
+	 * Resolved through the workspace and then relativised, **never** used as the
+	 * model wrote it. A rule is stored under a normalised relative path, so
+	 * matching a raw argument would let `a/../private/x.md` -- or an absolute
+	 * path, or a leading `./` -- compare against a rule key that means something
+	 * else. This is the same reason `SessionWorkspace.resolve` exists, applied
+	 * to a table lookup instead of a file open.
+	 *
+	 * Returns null when the arguments name no path (`read_time`, `web_search`),
+	 * which is the signal that only a tool-keyed rule can apply.
+	 */
+	private fun resolvedPolicyPath(args: JsonObject): String? {
+		val raw = stringArg(args, "path") ?: return null
+		val entity = conversation ?: return null
+		val workspace = runCatching { repository.workspace(entity) }.getOrNull() ?: return null
+		return when (val r = workspace.resolve(raw)) {
+			is SessionWorkspace.Resolution.Ok -> workspace.relativize(r.file)
+			// A path the sandbox rejects is refused later by the tool itself.
+			// Reporting it as "no path" here means the file's own rule does not
+			// apply, which is correct: there is no file.
+			is SessionWorkspace.Resolution.Rejected -> null
+		}
+	}
 
 	/**
 	 * The call's arguments, or null after recording why they were unusable.
@@ -1645,6 +1717,16 @@ class ChatViewModel(
 		 * from a plain error too, because nothing was attempted.
 		 */
 		internal const val SKIPPED_MARKER = "[skipped]"
+
+		/**
+		 * Marks a result for a call the configured rules refused.
+		 *
+		 * Distinct from [DECLINED_MARKER], which is the user answering a
+		 * question. This is a rule the user configured earlier answering one for
+		 * them, and the transcript should not read as though they were asked
+		 * again and said no.
+		 */
+		internal const val REFUSED_MARKER = "[refused]"
 
 		/**
 		 * Written onto a reply the user stopped part-way.

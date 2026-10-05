@@ -95,6 +95,18 @@ class ConversationRepository(
 	fun workspace(conversation: ConversationEntity) =
 		SessionWorkspace.open(Database.workspaceDir(appContext, conversation.workspaceId))
 
+	/**
+	 * The approval rules.
+	 *
+	 * Reached through this repository rather than constructed by the view model
+	 * so that both share the one `InhumanDatabase` instance -- `Database.open`
+	 * is a singleton, but a second `PolicyRepository(context)` would rely on
+	 * that being true rather than being handed the same object.
+	 */
+	fun policies(): PolicyRepository = policyRepository
+
+	private val policyRepository by lazy { PolicyRepository(db) }
+
 	suspend fun rename(id: String, title: String) =
 		db.conversations().rename(id, title, System.currentTimeMillis())
 
