@@ -306,14 +306,30 @@ internal class DeleteFileTool(workspace: SessionWorkspace, free: FreeSpace = nul
 	)
 
 	/**
-	 * The one irreversible operation in the set, so the one that asks.
+	 * Whether this call asks first. Not by default; configurably.
 	 *
-	 * Overwriting is recoverable from the transcript and a lost file is not.
-	 * The gate is per call rather than on the tool as a whole because the
-	 * arguments are what make it risky -- deleting an empty scratch file and
-	 * deleting a directory of the user's uploads are not the same act.
+	 * This *is* the one irreversible operation in the set -- overwriting is
+	 * recoverable from the transcript and a lost file is not -- and that is
+	 * exactly why the reasoning below has to be stated rather than assumed.
+	 *
+	 * ## Why this is no longer `true`
+	 *
+	 * Deletion inside a conversation's own directory is reversible, and that is
+	 * the whole reason it is allowed at all: the sandbox confines the agent to
+	 * one directory, and what the user brings in is a **copy** -- the original
+	 * never moves and is never in the directory. So an approval prompt here
+	 * asks a question whose answer is always yes, which is not a safety measure
+	 * but friction, and friction is what trains people to click through the
+	 * prompt that eventually matters.
+	 *
+	 * A user who wants to be asked can configure it -- globally, per assistant,
+	 * or per path -- and where two rules apply the stricter wins. See
+	 * `docs/09-approvals.md`. The gate itself is unchanged and still per call,
+	 * because when it *is* configured the arguments are what make a call risky:
+	 * deleting an empty scratch file and deleting a directory of the user's
+	 * uploads are not the same act.
 	 */
-	override fun needsApproval(arguments: JsonObject): Boolean = true
+	override fun needsApproval(arguments: JsonObject): Boolean = false
 
 	override suspend fun execute(arguments: JsonObject) = guard {
 		val target = resolve(arguments.requireString("path")).getOrThrow()

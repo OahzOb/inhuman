@@ -58,7 +58,13 @@ object ToolCatalog {
 		Entry("append_file", "Add to the end of a file", mutates = true),
 		Entry("create_directory", "Make a folder inside the folder", mutates = true),
 		Entry("move_file", "Move or rename something in the folder", mutates = true),
-		Entry("delete_file", "Delete from the folder — asks first", mutates = true),
+		// Was "Delete from the folder -- asks first". It no longer does by
+		// default, and this string is what a user reads when choosing tools, so
+		// leaving it would have been a claim the code does not honour -- the
+		// exact failure `docs/07-gotchas.md` section C exists to catch. Whether
+		// a call asks is now configurable per tool, per assistant and per path;
+		// the default is not to.
+		Entry("delete_file", "Delete from the folder", mutates = true),
 	)
 
 	val names: List<String> = all.map { it.name }

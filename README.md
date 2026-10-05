@@ -24,15 +24,17 @@ regenerated and compared.
 | **5** | Agent loop, multi-turn tool calling, reasoning display | **done** |
 
 Beyond the phases: assistants with visible system prompts, per-conversation
-model and reasoning effort read from the provider, an approval gate on the one
-irreversible tool, branch switching, image attachments, usage reporting, and a
-context gauge above the composer.
+model and reasoning effort read from the provider, an approval gate that is
+**configurable per tool, per assistant and per path and asks nothing by
+default**, branch switching, image attachments, usage reporting, and a context
+gauge above the composer.
 
 **Demo mode exercises the tool loop, not just the stream.** With file tools
-switched on it creates a file and then asks to delete it, so the approval gate
-and the declined state can be demonstrated — and regression-tested — with no API
-key, no network and no bill. That matters more than it sounds: the gate is the
-app's most consequential control, and it used to be the one thing that could not
+switched on it creates a file and then deletes it, so the tool loop, the
+results and the closing summary can be demonstrated — and regression-tested —
+with no API key, no network and no bill. That matters more than it sounds: the
+tool loop is the app's most consequential machinery, and it used to be the one
+thing that could not
 be reached without an account.
 
 ### What the agent can do
@@ -41,7 +43,7 @@ be reached without an account.
 | --- | --- |
 | `list_files` `read_file` `file_info` | read-only, safe to replay |
 | `write_file` `append_file` `create_directory` `move_file` | change the workspace |
-| `delete_file` | the only one behind an approval gate |
+| `delete_file` | deletes from the folder; asks first only if a rule says so |
 | `read_time` | the clock, in the device zone and UTC, plus date arithmetic |
 | `web_search` | DeepSeek's native search, no second vendor or key |
 

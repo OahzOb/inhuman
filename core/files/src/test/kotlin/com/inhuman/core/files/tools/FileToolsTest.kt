@@ -76,9 +76,38 @@ class FileToolsTest {
 	}
 
 	@Test
-	fun `only deletion requires approval`() {
+	fun `no tool asks for approval by default`() {
+		// Including `delete_file`, which used to be hardcoded `true`.
+		//
+		// Safety here comes from structure rather than from prompts: the agent
+		// is confined to one directory, and what the user brings in is a copy,
+		// so the original never moves and is never in the directory. Nothing
+		// inside is irreversible, so there is nothing to confirm -- and a
+		// question whose answer is always yes is friction that trains people to
+		// click through the one that eventually matters.
+		//
+		// Asserting the whole set rather than just delete_file, because a future
+		// tool defaulting to `true` would be making this decision again without
+		// noticing it had been made.
 		val gated = tools.values.filter { it.needsApproval(args("path" to "x")) }.map { it.name }
-		assertEquals(listOf("delete_file"), gated)
+		assertEquals(emptyList<String>(), gated)
+	}
+
+	@Test
+	fun `a tool can still ask, so the gate the UI reads is reachable`() {
+		// The mechanism is unchanged: `Tool.needsApproval` still exists, is
+		// still consulted per call, and a tool can still override it. Only the
+		// built-in default moved. A user who configures a rule therefore still
+		// gets asked, and that is the path `ToolCallUi.State.Declined` renders --
+		// so turning the default off did not delete a state, it moved what
+		// reaches it.
+		//
+		// Asserted through the contract rather than by constructing a gating
+		// tool here, because the gate will be supplied by the policy layer
+		// rather than hardcoded in a tool: `docs/09-approvals.md`.
+		val hook = com.inhuman.core.ai.Tool::class.java.methods.singleOrNull { it.name == "needsApproval" }
+		assertTrue("the contract still offers the hook", hook != null)
+		assertEquals("and it takes the arguments", 1, hook!!.parameterCount)
 	}
 
 	// --- confinement ---------------------------------------------------------

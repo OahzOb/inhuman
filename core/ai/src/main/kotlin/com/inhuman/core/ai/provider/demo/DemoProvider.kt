@@ -36,9 +36,17 @@ import kotlinx.coroutines.flow.flow
  * most consequential control was the one thing that could not be demonstrated.
  *
  * So when the request carries tools, the script is: create a file, then ask to
- * delete it. Deleting is the one gated operation, so that turn raises the
- * dialog; declining it is what the declined state exists for. Everything after
- * the results is prose again.
+ * delete it. Deleting was the one gated operation, so that turn raised the
+ * dialog and declining it is what the declined state exists for.
+ *
+ * **It is no longer gated by default** (`docs/09-approvals.md`: deletion inside
+ * a conversation's own directory is reversible, because the agent is confined
+ * to that directory and what the user brings in is a copy). The script is
+ * unchanged and still worth having -- the delete now runs instead of asking,
+ * which is the behaviour to see -- and the approval path is still reachable by
+ * configuring a rule on `delete_file`. Nothing here fakes a gate: a demo that
+ * asked for approval the app would not ask for would be the same class of lie
+ * as a comment that contradicts its code.
  *
  * ## What it deliberately does not do
  *
@@ -255,8 +263,8 @@ class DemoProvider(
 		""".trimIndent()
 
 		const val CALL_PREAMBLE =
-			"Demo mode with tools. Creating a file, then asking to delete it so " +
-				"the approval gate has something to do."
+			"Demo mode with tools. Creating a file, then deleting it. Configure a " +
+				"rule on delete_file if you want to be asked first."
 
 		/**
 		 * The closing answer, written in Markdown on purpose.

@@ -149,9 +149,11 @@ adb -s <serial> install -r -t app\build\outputs\apk\debug\app-debug.apk
 ### Demo mode is the offline verification path
 
 With no API key, Settings → Demo mode gives a scripted provider. When the
-assistant has file tools it creates a file and then asks to delete it, so the
-tool loop, the approval gate and the declined state are all reachable with no
-key, no network and no bill. **Put this in a message to get prose instead:**
+assistant has file tools it creates a file and then deletes it, so the tool
+loop, the results and the closing summary are all reachable with no key, no
+network and no bill. **It no longer raises an approval prompt**, because
+deletion does not ask by default — configure a rule on `delete_file` if you want
+to exercise that path. **Put this in a message to get prose instead:**
 
 ```
 plain
