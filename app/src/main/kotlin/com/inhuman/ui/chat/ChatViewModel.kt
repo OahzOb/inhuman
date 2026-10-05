@@ -383,10 +383,17 @@ class ChatViewModel(
 	 */
 	fun attachImage(displayName: String, mimeType: String, open: () -> java.io.InputStream) {
 		viewModelScope.launch {
-			val modelId = model ?: agent?.model ?: DEFAULT_MODEL
-			val supports = agents.models().getOrNull()
-				?.firstOrNull { it.id == modelId }
-				?.supportsVision
+			// One source of truth, and the one the composer already read.
+			//
+			// This used to look the model up itself with `agents.models()` while
+			// `publishModelState` -- which is what enables or disables the attach
+			// button -- fell back to the demo model list when there is no key.
+			// Two answers to "can this model see", so in demo mode the button was
+			// enabled and every attempt was refused: the demo model advertises
+			// image input, and this lookup could not find it. Which one was
+			// authoritative is not a question worth answering twice; the
+			// published answer is the one the user was already shown.
+			val supports = _state.value.modelSupportsVision
 
 			// Unknown counts as unsupported: with no list loaded there is no
 			// evidence the model can see, and staging an attachment that will be

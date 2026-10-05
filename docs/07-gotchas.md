@@ -319,23 +319,32 @@ tree — no `MigrationTestHelper`, no `room-testing`, no `androidTest` source se
 `:core:data`; the only check is the device script
 `tools/seed-and-verify-migration.ps1`.
 
-### B9. `SecureStore.hasUsable` was not name-accurate — **PARTLY FIXED**
+### B9. Two sources of truth for "can this model see" — **FIXED**
 
-It was `get(key) != null`, so a stored-but-empty value read as configured while
-`send()` rejected it -- the composer enabled, the turn refused, and nothing on
-screen explaining the disagreement. It is now `!get(key).isNullOrBlank()`. The
-settings screen cannot produce that state (`SettingsViewModel.save()` removes
-the key when the field is blank), so nothing in the app reached it; it is fixed
-because `get` is public and the invariant is the one the callers already assume.
+Two defects under one heading, both the same shape.
 
-**Still open, and a separate defect underneath the same heading:** in demo mode
-the composer's attach button is **enabled** -- the demo model advertises image
-input and `publishModelState` falls back to the demo model list -- while
-`attachImage` consults only `agents.models()` and refuses without a key
-(`ChatViewModel.kt:386-402`). Picking an image therefore always yields "The model
-in use cannot read images." That is two sources of truth for one question, the
-shape behind most of this section, and it needs a decision about which one demo
-mode should consult rather than a patch.
+**`SecureStore.hasUsable` was not name-accurate.** It was `get(key) != null`, so
+a stored-but-empty value read as configured while `send()` rejected it -- the
+composer enabled, the turn refused, nothing on screen explaining the
+disagreement. It is now `!get(key).isNullOrBlank()`. The settings screen cannot
+produce that state (`SettingsViewModel.save()` removes the key when the field is
+blank), so nothing in the app reached it; it is fixed because `get` is public and
+the invariant is the one the callers already assume.
+
+**The vision check consulted a different source than the button did.** In demo
+mode the composer's attach button was **enabled** -- the demo model advertises
+image input and `publishModelState` falls back to the demo model list -- while
+`attachImage` called `agents.models()` itself and could not find that model, so
+every attempt was refused with "The model in use cannot read images."
+
+`publishModelState` already computed the answer and put it in state as
+`modelSupportsVision`; `attachImage` simply did not read it. It does now, so the
+button's enablement and the refusal come from one expression. Note which way the
+fix went: the demo model genuinely accepts images
+(`DemoProvider.listModels` declares `inputModalities = listOf("text", "image")`),
+so the button was right and the refusal was wrong -- the published answer was the
+authoritative one, which is why the fix is to read it rather than to make the
+button lie.
 
 ### B10. `FilesViewModel` blocked the main thread and walked twice — **FIXED**
 
