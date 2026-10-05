@@ -86,34 +86,102 @@
 
 ---
 
+## 3.5 会话事件词表（实测规格）
+
+**从 102 个真实会话、113,129 个事件里提取的**，不是从文档抄的。
+脚本：`.tmp/port-study/event-vocabulary.mjs` 与 `durable-vs-transient.mjs`。
+
+### 信封
+
+```jsonc
+{ "type": "tool/call", "seq": 1234, "time": 1790348406004, "data": { … } }
+```
+
+`seq` 是**单调序号**，也是"这个事件是持久的"的判据；`time` 是毫秒时间戳。
+只有 `session` 一个事件用另一套字段（`version`/`id`/`createdAt`/`cwd`/…）且**没有 `seq`**——
+它是文件头，不是日志的一部分。
+
+### 持久 vs 瞬时，判据是字段不是名字
+
+| | 种数 | 事件数 | 体积 |
+| --- | ---: | ---: | ---: |
+| **持久**（带 `seq`） | **43** | 89,019 | **242.7 MB** |
+| 瞬时（`seq0`，无 `seq`） | 3 + `session` | 24,122 | 6.3 MB |
+
+`reasoning-chunks`、`text-chunks`、`tool-call-chunks` 用的是 **`seq0`/`time0`**——
+**它们不是持久日志的一部分**，只是流式渲染的加速记录。移植时**可以先整个跳过**，
+代价是流式重放需要从 `assistant/message` 重新分块。
+
+### 按必要性分层（这才是要实现的规格）
+
+| 层 | 事件 | 说明 |
+| --- | --- | --- |
+| **核心，必须有** | `session` `turn/start` `turn/end` `step/start` `step/end` `user/message` `assistant/message` `tool/call` `tool/result` `agent/inbox/spliced` | 没有这些就没有对话、没有工具循环、没有 turn/step 边界 |
+| **交互，很快需要** | `approval/asked` `approval/decided` `session/title` | 审批门与标题——现有 app 已有对应行为 |
+| **策略，第 2 阶段** | `sandbox/mode` `permission/preset` `approval/policy` `model/selection` `workspace/changes` | 设置类事件，可在投影里给默认值 |
+| **压缩** | `compaction/start` `compaction/summary` `compaction/end` `compaction/prune` | 对应 assessment §6 的压缩层；`compaction/summary` 平均 **28.5 KB** |
+| **可选特性** | `todo/write` `goal/change` `subagent/*` `deliverables/presented` `command/*` `tool-workflow/*` | 各对应一个尚未移植的工具 |
+| **Vendor 专属，跳过** | `session-log-deepseek/delivery-accepted`（11,510 个）`web/deepseek-search-llm-request` `session/title-llm-request` `request/header` `request/context` | 遥测/账单/标题生成，与移植无关 |
+
+### 体积分布，对存储设计的影响
+
+最大的单个事件：
+
+```
+assistant/message   531,233 B   ← 比基准测试里的 130 KB 大 4 倍
+tool/result         149,833 B
+tool/call           125,778 B
+assistant/chunk      30,305 B
+compaction/summary   34,022 B
+```
+
+**这直接说明 assessment §5 的性能数字是下界**：基准 fixture 的"大事件"是 40–130 KB，
+真实日志里有 531 KB 的。而且 `assistant/message` **平均 13,370 B**——
+即每轮对话一个十几 KB 的行，43 种类型里它才是常态。
+
+对 §6 的 SQLite 建议有两条直接后果：
+
+1. **100 KB 不是上限，531 KB 才是。** BLOB 内外分界（250 KiB–1 MiB）**已经越过了**，
+   所以大 payload 应当**外置或压缩**，不能假设"小 BLOB 内联更快"。
+2. `assistant/message` 平均 13 KB、共 12,143 个 → 仅这一类就是 **约 160 MB**。
+   单会话最大 24 MB 的量级与实测吻合。
+
+---
+
 ## 4. 运行时：要对齐的四条语义
 
 DSH 的循环本身很简单（call model → run tools → repeat）。值得对齐的是它的**保证**：
 
-### 4.0 先回答一个前提：`Tool` 契约能不能不动
+### 4.0 先回答两个前提：`Tool` 契约与 Node 环境态
 
-**能。** 已核实，不是推断：
+**`Tool` 契约不用改。** 已核实，不是推断：
 
-- `Tool.execute` 是 **`suspend`** 函数，签名里**没有**超时/取消参数
-  （`Tool.kt:94`）。
+- `Tool.execute` 是 **`suspend`** 函数，签名里**没有**超时/取消参数（`Tool.kt:94`）。
 - 全仓共 **10 个实现**（`FileTools.kt` 里 8 个 + `TimeTool` + `WebSearchTool`）
   和 2 个调用点。都不需要改。
 - Kotlin 的 `withTimeout` **就是**取消机制，所以"每工具超时预算"是**调用方**的事，
   不必进契约。已在 `ToolTimeoutSemanticsTest` 里逐条钉住。
 
-**但有一条必须写下来的限制**（同一份测试实测）：
-`withTimeout` **只在挂起点取消**。一个阻塞线程的工具**完全无视 deadline**——
-实测里 `withTimeoutOrNull(60)` 包住 `Thread.sleep(400)`，超时**根本没有触发**，
-调用跑满 400ms 并返回了**成功结果**，没有任何迹象表明 60ms 的预算被超额六十倍。
-
-所以：
+**但有一条限制**（同一份测试实测）：`withTimeout` **只在挂起点取消**。
+一个阻塞线程的工具**完全无视 deadline**——实测 `withTimeoutOrNull(60)` 包住
+`Thread.sleep(400)`，超时**根本没有触发**，调用跑满 400ms 并返回了**成功结果**。
 
 > 超时策略能保证**调用方**按时拿回控制权，**不能**保证工具停下来。
-> 任何"预算"设计都必须假定底层工作可能仍在跑。
 
-现有文件工具走 `Dispatchers.IO` + 文件系统调用，其中 `SessionWorkspace.resolve()`
-是同步系统调用——**它不会在 deadline 处中断**。这是一个要在实现超时策略时
-正面处理的事实，不是可以忽略的细节。
+现有文件工具走 `Dispatchers.IO`，其中 `SessionWorkspace.resolve()` 是同步系统调用，
+**不会在 deadline 处中断**。这是实现超时策略时要正面处理的事实。
+
+**而且我一直在追的那个"Node 环境态"问题，前提是错的。** `AsyncLocalStorage`
+在 DSH 的发布代码里**零命中**——我 grep 了全部 `@deepseek-ai/*` 的 `lib/**/*.js`。
+Cordis 的 Context 是 `Reflect` + `Proxy` 上的**键控服务注册表**
+（`Reflect.get`/`ownKeys`/`getOwnPropertyDescriptor`），不是请求作用域环境态。
+
+所以映射清单收敛成：**没有环境态要映射**。DSH 显式地用 `TypertContext` 传递上下文，
+而在 Kotlin 里对应的就是构造参数 + 结构化并发的 `CoroutineContext`——
+两者都是显式的，没有"隐式传递"这一层需要移植。
+
+`Flow` 与异步迭代器的映射也已在现有代码里存在（`DeepSeekProvider.stream` 返回
+`Flow<StreamChunk>`，SSE 解析与取消都已工作），不需要新机制。
 
 ### 4.1 追加即提交（append-then-derive）
 
@@ -166,12 +234,13 @@ DSH 自己写着 *"No built-in turn budget"*。所以**不加轮次上限**是�
 
 | 不做 | 理由 |
 | --- | --- |
-| 移植 Cordis 插件宿主 | 那是桌面多宿主的产物；Android 是单 app 单进程，DI 用构造函数就够 |
+| 移植 Cordis 插件宿主 | **已核实不必**：Cordis 本体仅 1,842 行，但 DSH 用它做的事是"把折叠器注册进投影表"——而投影表本身是 `SessionProjectionStateMap` 的普通接口。Android 是单 app 单进程，工具注册用构造函数即可。**事件词表（§3.5）才是要实现的规格，插件图不是。** |
 | 移植 Web UI | 320,690 行，零收益 |
 | 文件格式照搬 per-line-zstd | assessment §6：seek table 让追加变成重写 |
+| 移植 vendor 遥测事件 | `session-log-deepseek/delivery-accepted` 等 5 类共 1.2 万事件，与运行时语义无关 |
 | 加轮次上限 | DSH 没有，实测也不需要 |
 | 换掉现有沙箱 | 接口级保证比 DSH 的 OS 级更适合 Android，且已通过对抗性审查 |
-| 自建 QuickJS 执行沙箱 | **前提已变**：`androidx.javascriptengine:1.1.1` 是稳定的官方方案（assessment §8）。待真机确认 `isSupported()`；若为 false 才回到自建路线 |
+| 自建 QuickJS 执行沙箱 | **前提已变**：`androidx.javascriptengine:1.1.1` 已在两台真机验证可用（assessment §8） |
 
 ---
 
@@ -197,12 +266,14 @@ DSH 自己写着 *"No built-in turn budget"*。所以**不加轮次上限**是�
 
 | # | 未知数 | 影响 | 状态 |
 | --- | --- | --- | --- |
-| 1 | **ARM64 上的真实耗时** | 冷启动预算 | **阻塞**：真机 `INSTALL_FAILED_USER_RESTRICTED` |
-| 2 | **`JavaScriptSandbox.isSupported()` 真机结果** | 决定 §5 最后一行走官方还是自建 | **未测**，需探针 |
-| 3 | Node 原语 → Kotlin 映射（`AbortSignal`/异步迭代/`AsyncLocalStorage`） | §4.2/§4.3 的写法 | 调研中 |
-| 4 | 100 KB 事件在 SQLite 里的行为 | 大 payload 是否外置 | 待实测（P0 副产品） |
-| 5 | 现有 7 个迁移的等价改写 | P4 的风险 | 待评估 |
-| 6 | 扩展 `Tool` 契约的成本 | §2 说"一行不改"，若取消/超时要进契约就不成立 | **已闭环**：契约可不动，但见 §4.0 的限制 |
+| 1 | **ARM64 上的真实耗时** | 冷启动预算 | **已闭环**：全量 0.44 s、尾读 61 ms（assessment §5） |
+| 2 | **`JavaScriptSandbox.isSupported()` 真机结果** | 决定 §5 最后一行走官方还是自建 | **已闭环**：两设备均 true（assessment §8） |
+| 3 | 扩展 `Tool` 契约的成本 | §2 的省力论证建立在它上面 | **已闭环**：契约可不动，限制见 §4.0 |
+| 4 | Node 原语 → Kotlin 映射 | §4.2/§4.3 的写法 | **已闭环**：`AsyncLocalStorage` 在 DSH 里零命中，没有环境态要映射；取消与流式见 §4.0 |
+| 5 | 100 KB 事件在 SQLite 里的行为 | 大 payload 是否外置 | 待实测（P0 副产品） |
+| 6 | 现有 7 个迁移的等价改写 | P4 的风险 | 待评估 |
+| 7 | 官方沙箱 vs 自建 QuickJS 的性能 | 若官方慢一个量级，考虑自建 | 未测 |
+| 8 | 隔离进程能否读宿主传入的 fd | 文件通道走 MessagePort 还是 fd | 未测 |
+| 9 | `provideNamedData` 的消费端函数名；WASM 能否编译 | 字节如何进出沙箱 | 未测 |
 
-第 1、2、6 项**都已闭环**。第 1 项（ARM64 实测）还推翻了我自己的预估——
-真机比模拟器快 2–8 倍，全量冷启动约 0.44 秒而非预估的 1.5–4 秒。
+**三项已闭环，其中第 1 项推翻了我自己的预估**（真机比模拟器快 2–8 倍）。
