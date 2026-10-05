@@ -117,21 +117,50 @@ internal class ReadFileTool(workspace: SessionWorkspace, free: FreeSpace = null)
 	 */
 	override val mutates = false
 	override val description =
-		"Read a text file from the conversation workspace. " +
-			"Refuses files larger than the read limit rather than truncating them."
+		"Read a text file from the conversation workspace, with line numbers. " +
+			"A file larger than the read limit is refused rather than truncated; " +
+			"for those, read it in pieces by passing offset and limit, which are " +
+			"line numbers and can be used together or separately."
 	override val parameters = mapOf(
 		"type" to "object",
-		"properties" to mapOf("path" to pathProperty("File to read, relative to the workspace root.")),
+		"properties" to mapOf(
+			"path" to pathProperty("File to read, relative to the workspace root."),
+			"offset" to mapOf(
+				"type" to "integer",
+				"description" to "First line to read, 1-based. Defaults to the start of the file.",
+			),
+			"limit" to mapOf(
+				"type" to "integer",
+				"description" to "How many lines to read from offset. Defaults to the rest of the file.",
+			),
+		),
 		"required" to listOf("path"),
 	)
 
 	override suspend fun execute(arguments: JsonObject) = guard {
 		val file = resolve(arguments.requireString("path")).getOrThrow()
-		val text = readText(file)
+		val offset = arguments.optionalInt("offset")
+		val limit = arguments.optionalInt("limit")
+		val text = readText(file, offset, limit)
+
 		// Line numbers, because a model asked to edit a file works far more
 		// reliably when it can refer to a line than when it has to count.
-		val numbered = text.lines().mapIndexed { i, line -> "${i + 1}\t$line" }.joinToString("\n")
-		"${workspace.relativize(file)} (${text.lines().size} lines):\n$numbered"
+		//
+		// They are the file's own numbers, not the slice's: a ranged read that
+		// restarted at 1 would invite the model to edit the wrong line, and the
+		// mistake would look like a successful edit.
+		val first = (offset ?: 1).coerceAtLeast(1)
+		val lines = text.lines()
+		val numbered = lines.mapIndexed { i, line -> "${first + i}\t$line" }.joinToString("\n")
+
+		val header = if (offset == null && limit == null) {
+			"${workspace.relativize(file)} (${lines.size} lines):"
+		} else {
+			// Said plainly, because a partial view that looks complete is how a
+			// model concludes a file ends where the slice did.
+			"${workspace.relativize(file)} (lines $first–${first + lines.size - 1}, of a larger file):"
+		}
+		"$header\n$numbered"
 	}
 }
 
@@ -328,8 +357,9 @@ internal class FileInfoTool(workspace: SessionWorkspace, free: FreeSpace = null)
 	override suspend fun execute(arguments: JsonObject) = guard {
 		val path = arguments.optionalString("path")
 		if (path.isNullOrBlank() || path == "." || path == "/") {
-			val used = workspace.usedBytes()
-			val files = workspace.fileCount()
+			val usage = workspace.usage()
+			val used = usage.bytes
+			val files = usage.files
 			buildString {
 				appendLine("Workspace totals:")
 				appendLine("  files: $files / ${workspace.limits.maxFileCount}")

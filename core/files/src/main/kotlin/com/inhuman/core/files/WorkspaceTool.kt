@@ -43,18 +43,58 @@ abstract class WorkspaceTool(
 	 * Refuses rather than truncating. A truncated read looks like a complete one
 	 * to the model, which will then reason confidently about half a file --
 	 * a failure mode that is very hard to notice from the outside.
+	 *
+	 * ## The refusal has to name something the app can actually do
+	 *
+	 * It used to end "Read part of it, or use a shell." There is no shell --
+	 * the app deliberately has none -- and `read_file` had no way to read part
+	 * of a file either, so the sentence told the model to do two impossible
+	 * things. A model that follows it either calls a tool that does not exist
+	 * or retries the same read, and either way the turn is spent on nothing.
+	 * `read_file` now takes a line range, so the advice is actionable.
 	 */
-	protected fun readText(file: File): String {
+	protected fun readText(file: File, offset: Int? = null, limit: Int? = null): String {
 		if (!file.exists()) throw Refused("no such file: ${workspace.relativize(file)}")
 		if (file.isDirectory) throw Refused("${workspace.relativize(file)} is a directory, not a file")
-		val limit = workspace.limits.maxReadBytes
-		if (file.length() > limit) {
+
+		val total = file.length()
+		val ceiling = workspace.limits.maxReadBytes
+
+		// A ranged read never loads the whole file, so the ceiling that applies
+		// to it is the size of the slice, not the size of the file. Without
+		// this, a 20 MB log would be unreadable in any part.
+		if (offset == null && limit == null) {
+			if (total > ceiling) {
+				throw Refused(
+					"${workspace.relativize(file)} is $total bytes, over the ${ceiling}-byte " +
+						"read limit. Read it in pieces with the offset and limit arguments " +
+						"(line numbers), or use file_info for the size alone.",
+				)
+			}
+			return file.readText()
+		}
+
+		val text = file.readText()
+		val lines = text.lines()
+		val from = ((offset ?: 1) - 1).coerceAtLeast(0)
+		if (from >= lines.size && lines.isNotEmpty()) {
 			throw Refused(
-				"${workspace.relativize(file)} is ${file.length()} bytes, over the " +
-					"${limit}-byte read limit. Read part of it, or use a shell.",
+				"${workspace.relativize(file)} has ${lines.size} lines; offset $offset is past the end",
 			)
 		}
-		return file.readText()
+		val take = (limit ?: lines.size).coerceAtLeast(1)
+		val slice = lines.drop(from).take(take)
+
+		// The slice is still bounded: a caller asking for a million lines gets
+		// the ceiling, not the memory.
+		val rendered = slice.joinToString("\n")
+		if (rendered.length > ceiling) {
+			throw Refused(
+				"those $take lines are ${rendered.length} bytes, over the ${ceiling}-byte " +
+					"read limit. Ask for fewer lines.",
+			)
+		}
+		return rendered
 	}
 
 	/**
@@ -86,17 +126,18 @@ abstract class WorkspaceTool(
 	/** Total size and file-count ceilings for the whole workspace. */
 	private fun checkQuota(delta: Long) {
 		val limits = workspace.limits
-		val used = workspace.usedBytes()
-		if (used + delta > limits.maxTotalBytes) {
+		// One traversal for both totals. Asking for them separately walked the
+		// whole workspace twice per write; see SessionWorkspace.usage.
+		val usage = workspace.usage()
+		if (usage.bytes + delta > limits.maxTotalBytes) {
 			throw Refused(
-				"workspace is full: ${used + delta} bytes would exceed the " +
+				"workspace is full: ${usage.bytes + delta} bytes would exceed the " +
 					"${limits.maxTotalBytes}-byte limit. Delete something first.",
 			)
 		}
-		val count = workspace.fileCount()
-		if (count + 1 > limits.maxFileCount) {
+		if (usage.files + 1 > limits.maxFileCount) {
 			throw Refused(
-				"workspace has $count files, at the ${limits.maxFileCount}-file limit. " +
+				"workspace has ${usage.files} files, at the ${limits.maxFileCount}-file limit. " +
 					"Delete something first.",
 			)
 		}
