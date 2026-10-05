@@ -239,15 +239,32 @@ Delete demo/notes.txt from this conversation's folder?
 
 至此审批层没有未验证的行为了。
 
-**仍未实现**：per-assistant 与 per-path 规则没有编辑器。两者在 `PolicySet` 与
-`PolicyRepository` 里都已实现并有测试（`assistant`/`paths`、`setAssistantRule`/
-`setPathRule`），但都够不到界面。
+**界面**：全局规则在设置页（"Before a tool runs"），按路径规则在文件浏览器
+（每行的锁按钮，四档按名字列出：Agent may change this / asks first / may look,
+not change / Hidden from the agent）。两者都写库后重读，不在内存里打补丁——
+行上显示什么，必须是工具调用真正会取到的值。
+
+**`Blind` 曾经名不符实，已修。** 它的文档承诺路径"不出现在 `list_files`"，
+而 `ListFilesTool` 从不查策略，所以它当时和 `Deny` 行为完全相同：按名拒绝，
+但**名字仍然可见**——而名字正是会泄漏的那部分。现在 `FileTools.all` 接一个
+`hidden` 判定，`ChatViewModel.buildTools` 从已解析的 `PolicySet` 供给它，
+`ListFilesBlindTest` 把这条承诺写成行为断言。
+
+**设备上验证了接线**（单元测试只测过滤器本身，接错线它照样形同虚设）：给
+`pol-conv` 的 `demo` 路径设 `Blind` 后，模型对 `demo/notes.txt` 的写入与删除
+**都被拒**——规则按祖先传播到了里面的文件，这是对的。
+
+**顺带确认了一件我一开始误判的事。** 看到 `[refused]` 出现在 `demo/notes.txt`
+上时，我以为拒绝消息泄漏了路径。**不是**：模型是先自己猜的路径（demo 脚本里
+硬编码的），拒绝消息**不含路径**——这正是当初把 `Deny` 与 `Blind` 写成同一句话
+的理由。模型知道路径，是因为它自己写的，不是因为被回了什么。
+
+**仍未实现**：per-assistant 规则的编辑器。`PolicySet.assistant` 与
+`PolicyRepository.setAssistantRule` 已实现并有测试，但够不到界面。
 
 **这同时补上了之前那个"demo 工具循环跑不起来"的欠账**：当时发不出消息的真正原因是
 `pm clear` 把 demo 模式开关也重置了，不是默认助手缺文件工具——`toolsJson = ''`
 其实**允许全部十个工具**。
-
-**仍未实现**：没有设置规则的界面。机制目前只能通过直接写数据库触达。
 
 ### 迁移已实测（这是有真实数据风险的一步）
 
