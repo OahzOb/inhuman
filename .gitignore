@@ -26,3 +26,9 @@ _research/android-sandbox/out/
 # with its own history, kept out of this one; build-qjs.ps1 -Fetch obtains it.
 .sandbox-build/
 
+# Scratch space, including database copies pulled off a device before an
+# install. Those hold the user's conversations and their encrypted API-key blob
+# -- ciphertext, useless without the device's Keystore key, but not something to
+# leave lying around in a repository either.
+.tmp/
+

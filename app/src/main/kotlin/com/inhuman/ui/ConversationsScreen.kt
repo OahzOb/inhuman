@@ -46,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -60,6 +61,7 @@ import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.core.design.currentFormFactor
 import com.inhuman.core.design.prefersFabForPrimaryAction
+import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
 
@@ -304,6 +306,10 @@ private fun ConversationList(
 	onTogglePin: (ConversationEntity, Boolean) -> Unit,
 	onRequestDelete: (ConversationEntity) -> Unit,
 ) {
+	// One clock reading for the whole list, re-read once a minute. Read per row
+	// it would be the same number computed N times and still frozen.
+	val now = rememberNowMillis()
+
 	LazyColumn(
 		modifier = Modifier
 			.fillMaxSize()
@@ -317,6 +323,7 @@ private fun ConversationList(
 		items(conversations, key = { it.id }) { conversation ->
 			ConversationRow(
 				conversation = conversation,
+				now = now,
 				onClick = { onOpen(conversation.id) },
 				onTogglePin = { onTogglePin(conversation, !conversation.pinned) },
 				onDelete = { onRequestDelete(conversation) },
@@ -328,6 +335,7 @@ private fun ConversationList(
 @Composable
 private fun ConversationRow(
 	conversation: ConversationEntity,
+	now: Long,
 	onClick: () -> Unit,
 	onTogglePin: () -> Unit,
 	onDelete: () -> Unit,
@@ -355,7 +363,7 @@ private fun ConversationRow(
 				overflow = TextOverflow.Ellipsis,
 			)
 			Text(
-				text = formatTimestamp(conversation.updatedAt),
+				text = formatTimestamp(conversation.updatedAt, now),
 				style = MaterialTheme.typography.labelLarge,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
@@ -385,15 +393,51 @@ private fun ConversationRow(
 	}
 }
 
-/** Relative for anything recent, absolute once that stops being useful. */
-private fun formatTimestamp(millis: Long): String {
-	val age = System.currentTimeMillis() - millis
+/**
+ * Relative for anything recent, absolute once that stops being useful.
+ *
+ * ## The two things that were wrong with the obvious version
+ *
+ * **It read the clock at composition time.** Nothing re-triggers composition
+ * when a minute passes, so "just now" stayed on screen for as long as the list
+ * was left open -- a row could read "just now" hours later. There is nothing to
+ * observe here, so the fix is to recompose on a timer: [rememberNowMillis]
+ * below ticks once a minute, which is the resolution the strings actually have.
+ *
+ * **It built a `SimpleDateFormat` per row.** `DateFormat.getDateInstance`
+ * returns a fresh instance every call, and it was called for every row on every
+ * composition. One instance is enough; it is not thread-safe, so it is confined
+ * to the main thread, which is where composition runs.
+ */
+private val absoluteDate: DateFormat = DateFormat.getDateInstance(DateFormat.MEDIUM)
+
+private fun formatTimestamp(millis: Long, now: Long): String {
+	val age = now - millis
 	return when {
 		age < 60_000 -> "just now"
 		age < 3_600_000 -> "${age / 60_000} min ago"
 		age < 86_400_000 -> "${age / 3_600_000} h ago"
-		else -> DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(millis))
+		else -> absoluteDate.format(Date(millis))
 	}
+}
+
+/**
+ * The current time, re-read once a minute so relative labels stay true.
+ *
+ * Deliberately the cheapest thing that works: one `Long` of state and a delay
+ * loop. A `derivedStateOf` over the clock would not recompose on its own,
+ * because nothing changes to invalidate it.
+ */
+@Composable
+private fun rememberNowMillis(): Long {
+	var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+	LaunchedEffect(Unit) {
+		while (true) {
+			delay(60_000)
+			now = System.currentTimeMillis()
+		}
+	}
+	return now
 }
 
 @Composable

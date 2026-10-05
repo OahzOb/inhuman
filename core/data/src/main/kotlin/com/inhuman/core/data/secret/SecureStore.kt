@@ -47,6 +47,58 @@ class SecureStore(
 	private val prefs = context.applicationContext
 		.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
 
+	/**
+	 * The Keystore key, held once per process.
+	 *
+	 * ## Why this is cached
+	 *
+	 * [secretKey] used to do `KeyStore.load(null)` and `getEntry` on **every**
+	 * access, and an access happens on the main thread at the points a user
+	 * actually waits on: opening a chat screen (`refreshConfiguration` asks
+	 * twice), and pressing Send, where the key is read before the spinner
+	 * appears. Each of those is a round trip into the keystore daemon.
+	 *
+	 * Holding the `SecretKey` handle does not weaken the reason the key can
+	 * become unusable. The ciphertext is still decrypted on every call, so a
+	 * key that has been invalidated -- device credential removed, app data
+	 * restored onto another device -- still fails inside `doFinal`, and [get]
+	 * still answers null so the caller can prompt again. What is cached is the
+	 * handle, not any plaintext.
+	 */
+	@Volatile
+	private var cachedKey: SecretKey? = null
+
+	/** The key, generated on first use and reused after. */
+	private fun secretKey(): SecretKey {
+		cachedKey?.let { return it }
+		return synchronized(this) {
+			cachedKey ?: loadOrCreateKey().also { cachedKey = it }
+		}
+	}
+
+	private fun loadOrCreateKey(): SecretKey {
+		val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+		(keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)
+			?.let { return it.secretKey }
+
+		val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+		generator.init(
+			KeyGenParameterSpec.Builder(
+				KEY_ALIAS,
+				KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+			)
+				.setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+				.setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+				// No setUserAuthenticationRequired: requiring a credential to
+				// read an API key would mean a prompt every time the app
+				// foregrounds, which is the wrong trade for this app. It also
+				// means the key survives a screen lock, which is what a user
+				// expects from "I entered it once".
+				.build(),
+		)
+		return generator.generateKey()
+	}
+
 	fun put(key: String, value: String) {
 		val cipher = Cipher.getInstance(TRANSFORMATION)
 		cipher.init(Cipher.ENCRYPT_MODE, secretKey())
@@ -91,29 +143,6 @@ class SecureStore(
 
 	/** Whether a secret is present *and* still decryptable. */
 	fun hasUsable(key: String): Boolean = get(key) != null
-
-	private fun secretKey(): SecretKey {
-		val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-		(keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)
-			?.let { return it.secretKey }
-
-		val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
-		generator.init(
-			KeyGenParameterSpec.Builder(
-				KEY_ALIAS,
-				KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-			)
-				.setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-				.setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-				// No setUserAuthenticationRequired: requiring a credential to
-				// read an API key would mean a prompt every time the app
-				// foregrounds, which is the wrong trade for this app. It also
-				// means the key survives a screen lock, which is what a user
-				// expects from "I entered it once".
-				.build(),
-		)
-		return generator.generateKey()
-	}
 
 	private fun b64(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.NO_WRAP)
 
