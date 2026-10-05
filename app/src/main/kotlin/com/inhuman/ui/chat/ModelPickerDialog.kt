@@ -70,8 +70,15 @@ fun ModelPickerDialog(
 	// ago is a list that may already be wrong.
 	LaunchedEffect(Unit) {
 		loading = true
-		val result = runCatching { chat.reloadModels() }
+		val result = chat.reloadModels()
 		models = result.getOrDefault(emptyList())
+		// The failure the view model used to swallow before returning. Without
+		// it a key-less user got an empty dialog and no reason for it.
+		//
+		// An **empty list is not a failure** and does not become one here:
+		// "the provider listed nothing" and "the request failed" are different
+		// answers, and collapsing them is what made this branch dead in the
+		// first place. The empty case gets its own sentence below.
 		error = result.exceptionOrNull()?.message
 		loading = false
 	}
@@ -108,8 +115,24 @@ fun ModelPickerDialog(
 							label = "Assistant's default",
 							detail = "Whatever the assistant was set up with.",
 							selected = currentModel == null,
-							onClick = { chat.setModel(null) },
+							onClick = {
+								chat.setModel(null)
+								onDismiss()
+							},
 						)
+						// Said rather than left as a blank space. An empty list
+						// is a real answer from the provider, and a dialog that
+						// simply has nothing under the default looks broken --
+						// which is how this presented before the failure branch
+						// above was made reachable.
+						if (models.isEmpty() && error == null) {
+							Text(
+								text = "The provider listed no models. Check the key in " +
+									"settings, or turn on demo mode there.",
+								style = MaterialTheme.typography.bodyMedium,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+							)
+						}
 						models.forEach { m ->
 							ModelOption(
 								// The display name, not the id: "DeepSeek-V4.1-Flash"
@@ -124,7 +147,10 @@ fun ModelPickerDialog(
 									m.defaultEffortLevel?.let { append(" · default effort $it") }
 								},
 								selected = currentModel == m.id,
-								onClick = { chat.setModel(m.id) },
+								onClick = {
+									chat.setModel(m.id)
+									onDismiss()
+								},
 							)
 						}
 					}

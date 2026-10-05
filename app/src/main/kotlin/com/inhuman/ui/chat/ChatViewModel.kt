@@ -145,25 +145,6 @@ class ChatViewModel(
 	 * shared flow with a small buffer would silently lose text the moment the
 	 * renderer fell behind.
 	 *
-	 * ## Why a channel, and why only the answer
-	 *
-	 * The Markdown renderer's incremental parser is fed text a piece at a time
-	 * and appends every piece verbatim -- it does not compare against what it
-	 * already holds. Feeding it the accumulated text would therefore duplicate
-	 * the whole reply on every tick, so it has to be given only the *new* text,
-	 * which is what lets it reparse from the last stable block rather than from
-	 * the start.
-	 *
-	 * Only the answer gets one. Reasoning is rendered as plain dimmed text in
-	 * its own collapsed section, never as Markdown, so a reasoning delta
-	 * appended here would be parsed as part of the answer and then vanish when
-	 * the reply completed.
-	 *
-	 * A `Channel` rather than a `MutableSharedFlow`: this must not drop values.
-	 * A reply is appended to at human speed so the buffer stays tiny, and a
-	 * shared flow with a small buffer would silently lose text the moment the
-	 * renderer fell behind.
-	 *
 	 * ## Why the consumer iterates the channel
 	 *
 	 * `receiveAsFlow` exists in the coroutines artifact but does not resolve
@@ -331,9 +312,18 @@ class ChatViewModel(
 		return ContextUsage(usedTokens = used, contextWindow = contextWindow)
 	}
 
-	/** Called after the model list is (re)loaded, so a picker can refresh. */
-	suspend fun reloadModels(): List<RemoteModel> =
-		agents.models(force = true).getOrNull().orEmpty()
+	/**
+	 * The provider's model list, for the picker.
+	 *
+	 * Returns a [Result] rather than an already-unwrapped list. It used to be
+	 * `agents.models(force = true).getOrNull().orEmpty()`, which collapsed two
+	 * different answers into one: a provider that lists nothing, and a fetch that
+	 * failed. The picker wrapped the call in `runCatching` and read
+	 * `exceptionOrNull()`, so it was reading a failure that could never arrive --
+	 * its error branch was unreachable and a user with no API key saw an empty
+	 * dialog with no explanation of why.
+	 */
+	suspend fun reloadModels(): Result<List<RemoteModel>> = agents.models(force = true)
 
 	/**
 	 * Switch the model for this conversation only.
@@ -525,17 +515,6 @@ class ChatViewModel(
 	 * re-sending would append a duplicate question and change what the model
 	 * sees for every turn after it.
 	 */
-	/**
-	 * Whether the current turn changed the workspace.
-	 *
-	 * Delegates to [ChatUiState.currentTurnMutated] rather than repeating its
-	 * arithmetic. This used to be a second implementation of the same predicate
-	 * next to a stored flag -- three expressions of one fact, which is why one
-	 * of them could be wrong without anyone noticing. The reasoning about why
-	 * the answer is not simply "the last reply" now lives with the property.
-	 */
-	private fun currentTurnMutated(): Boolean = _state.value.currentTurnMutated
-
 	fun regenerate() {
 		if (_state.value.isStreaming) return
 
@@ -548,7 +527,7 @@ class ChatViewModel(
 		// rule -- it is a habit, and the next entry point added would not inherit
 		// it. What is at stake is a second round of real writes, which is not
 		// something to guard with layout alone.
-		if (currentTurnMutated()) {
+		if (_state.value.currentTurnMutated) {
 			_state.update {
 				it.copy(
 					error = "This reply changed files, so it cannot be regenerated. " +
@@ -595,13 +574,6 @@ class ChatViewModel(
 		}
 	}
 
-	/**
-	 * Show a different reply at a branch point.
-	 *
-	 * Reloads afterwards rather than patching state locally: the selection
-	 * changes the active path from that point down, so everything below it may
-	 * differ, and computing that here would duplicate `activePath` badly.
-	 */
 	/**
 	 * Show a different reply at a branch point.
 	 *
@@ -1089,6 +1061,30 @@ class ChatViewModel(
 							timeToFirstTokenMs = finalUsage?.timeToFirstTokenMs,
 							generationMs = finalUsage?.generationMs,
 							toolCallsJson = finishedCalls.takeIf { it.isNotEmpty() }?.let { encodeCalls(it) },
+						),
+						parent,
+					)
+				} else if (failure != null) {
+					// A turn that failed before producing anything still gets a
+					// row, with the reason and no content.
+					//
+					// It used to be dropped: the condition above asks for text,
+					// reasoning or tool calls, and a first-request network
+					// failure has none of the three -- so the placeholder was
+					// removed and nothing was written. The only trace was the
+					// dismissible error row, which is gone by the next launch,
+					// leaving a question with no answer and no sign that one had
+					// been attempted.
+					repository.appendMessage(
+						MessageEntity(
+							id = replyId,
+							conversationId = conversationId,
+							parentId = parent,
+							role = "assistant",
+							content = "",
+							model = model,
+							error = failure,
+							createdAt = System.currentTimeMillis(),
 						),
 						parent,
 					)
