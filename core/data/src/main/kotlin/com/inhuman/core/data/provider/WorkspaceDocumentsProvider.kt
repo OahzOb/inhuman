@@ -154,12 +154,26 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
 	}
 
 	override fun deleteDocument(documentId: String) {
+		// Refused for a conversation directory: deleting it removes the user's
+		// files while the row survives, and the workspace is recreated empty on
+		// the next tool call, so nothing anywhere reports a loss.
+		//
+		// Deleting a conversation is a thing the app does, through the
+		// repository, which removes the files and the row together.
+		if (isConversationDirectory(documentId)) {
+			throw FileNotFoundException("a conversation's directory cannot be deleted here: $documentId")
+		}
 		val file = resolveFile(documentId) ?: throw FileNotFoundException(documentId)
 		if (!file.deleteRecursively()) throw FileNotFoundException("could not delete: $documentId")
 		notifyChange(parentOf(documentId))
 	}
 
 	override fun renameDocument(documentId: String, displayName: String): String {
+		// Refused for the same reason: the directory name is the `workspaceId`
+		// the row stores, so a rename silently separates the two.
+		if (isConversationDirectory(documentId)) {
+			throw FileNotFoundException("a conversation's directory cannot be renamed: $documentId")
+		}
 		val file = resolveFile(documentId) ?: throw FileNotFoundException(documentId)
 		val safeName = displayName.replace('/', '_').replace('\\', '_')
 		val target = File(file.parentFile, safeName)
@@ -187,7 +201,17 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
 			add(DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.MIME_TYPE_DIR)
 			add(DocumentsContract.Document.COLUMN_LAST_MODIFIED, conversation.updatedAt)
 			add(DocumentsContract.Document.COLUMN_SIZE, dir.length())
-			add(DocumentsContract.Document.COLUMN_FLAGS, directoryFlags())
+			// Not `directoryFlags()`: a conversation's directory name **is** its
+			// `workspaceId`, and the row keeps pointing at that name. Renaming
+			// the directory therefore orphans the row -- the next tool call
+			// recreates an empty workspace under the old id, and the renamed
+			// directory matches no row, so the orphan sweep eventually deletes
+			// the user's files. Deleting it leaves the inverse orphan: no
+			// directory, row intact, files gone and unrecoverable.
+			//
+			// Creating inside it is still offered, because that is the case this
+			// provider exists for.
+			add(DocumentsContract.Document.COLUMN_FLAGS, conversationFlags())
 		}
 	}
 
@@ -235,6 +259,32 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
 		DocumentsContract.Document.FLAG_DIR_SUPPORTS_CREATE or
 			DocumentsContract.Document.FLAG_SUPPORTS_DELETE or
 			DocumentsContract.Document.FLAG_SUPPORTS_RENAME
+
+	/**
+	 * What the Files app may offer on a conversation's directory.
+	 *
+	 * Create only. The other two operations are not refused because they are
+	 * dangerous in the abstract -- they are refused because this directory's
+	 * name **is** the conversation's `workspaceId`, so renaming or removing it
+	 * breaks the link between the row and the files rather than moving them.
+	 * The flags say so rather than relying on the user not trying.
+	 */
+	private fun conversationFlags(): Int =
+		DocumentsContract.Document.FLAG_DIR_SUPPORTS_CREATE
+
+	/**
+	 * Whether this id names a conversation directory rather than a file.
+	 *
+	 * A bare id with no separator is a conversation; anything with a separator
+	 * is a path inside one. The flags above should stop the Files app offering
+	 * rename or delete here at all, so this is the second line: a provider that
+	 * can be driven by an intent or a third-party file manager should not rely
+	 * on a UI honouring a flag.
+	 */
+	private fun isConversationDirectory(documentId: String): Boolean {
+		if (documentId == ROOT_ID || documentId.contains('/')) return false
+		return runBlocking { db.conversations().byId(documentId) } != null
+	}
 
 	private fun fileFlags(): Int =
 		DocumentsContract.Document.FLAG_SUPPORTS_WRITE or
