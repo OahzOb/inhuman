@@ -93,8 +93,17 @@ class FilesViewModel(
 
 	init { refresh() }
 
-	private fun workspace(): SessionWorkspace? {
-		val entity = kotlinx.coroutines.runBlocking { repository.conversation(conversation)?.entity }
+	/**
+	 * The workspace for this conversation, or null if the row is gone.
+	 *
+	 * `suspend` and off the main thread. It used to be a plain function wrapping
+	 * `runBlocking` around a database read, and every caller -- refresh, open,
+	 * delete, import -- reached it from `viewModelScope`, whose dispatcher is
+	 * `Dispatchers.Main.immediate`. So each of those parked the thread that draws
+	 * the UI while Room answered.
+	 */
+	private suspend fun workspace(): SessionWorkspace? {
+		val entity = withContext(Dispatchers.IO) { repository.conversation(conversation)?.entity }
 			?: return null
 		return repository.workspace(entity)
 	}
@@ -108,12 +117,16 @@ class FilesViewModel(
 				return@launch
 			}
 			val path = _state.value.currentPath
+			// One block, one walk. `usedBytes()` and `fileCount()` each call
+			// `usage()`, which traverses the whole tree, so asking for them
+			// separately walked the workspace twice per refresh -- the cost A6
+			// exists to remove, reintroduced here.
 			val result = withContext(Dispatchers.IO) {
 				val dir = when (val r = ws.resolve(path)) {
 					is SessionWorkspace.Resolution.Ok -> r.file
 					is SessionWorkspace.Resolution.Rejected -> null
 				}
-				if (dir == null || !dir.isDirectory) {
+				val entries = if (dir == null || !dir.isDirectory) {
 					null
 				} else {
 					dir.listFiles().orEmpty()
@@ -130,14 +143,16 @@ class FilesViewModel(
 							)
 						}
 				}
+				entries to ws.usage()
 			}
+			val (entries, usage) = result
 			_state.value = _state.value.copy(
 				loading = false,
-				entries = result.orEmpty(),
-				error = if (result == null) "cannot list that directory" else null,
-				usedBytes = withContext(Dispatchers.IO) { ws.usedBytes() },
+				entries = entries.orEmpty(),
+				error = if (entries == null) "cannot list that directory" else null,
+				usedBytes = usage.bytes,
 				totalBytes = ws.limits.maxTotalBytes,
-				fileCount = withContext(Dispatchers.IO) { ws.fileCount() },
+				fileCount = usage.files,
 				maxFiles = ws.limits.maxFileCount,
 			)
 		}

@@ -153,7 +153,17 @@ class DeepSeekSearchProvider(
 	}.toString()
 
 	companion object {
-		const val DEFAULT_MODEL = "deepseek-v4-flash"
+		/**
+		 * The model the search endpoint is asked for.
+		 *
+		 * Was `deepseek-v4-flash`, which nothing advertises: a live
+		 * `GET /models` returns `deepseek-flash` and `deepseek-v4-pro`, and
+		 * `DeepSeekModelsTest` pins that list. The search path is never handed
+		 * the conversation's model, so this default is what it always used --
+		 * which made a 400 naming the model the first thing to look for when
+		 * search broke.
+		 */
+		const val DEFAULT_MODEL = "deepseek-flash"
 		const val DEFAULT_BASE_URL = "https://api.deepseek.com/anthropic/v1"
 		const val DEFAULT_MAX_USES = 3
 

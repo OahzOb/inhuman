@@ -148,6 +148,13 @@ tall with an 18dp gap.
 
 These are real and current. None of them is a style opinion.
 
+**Status: eight of eleven are fixed** (B1-B7, B10), each entry below saying what
+the fix was and how far it was verified — which is not the same for all of them.
+Two are partly fixed (B9, B11) and one is untouched (B8). A "FIXED" with no test
+named means build and the full suite only; where a defect sits inside a stream or
+needs a fake that does not exist, saying so is better than a test that asserts
+nothing.
+
 ### B1. The regenerate control was disabled for the rest of the session after any mutating turn — **FIXED**
 
 Three expressions of one fact: a stored field on `ChatUiState`, a private method
@@ -312,26 +319,56 @@ tree — no `MigrationTestHelper`, no `room-testing`, no `androidTest` source se
 `:core:data`; the only check is the device script
 `tools/seed-and-verify-migration.ps1`.
 
-### B9. `SecureStore.hasUsable` is not name-accurate, and the demo vision check disagrees with the composer
+### B9. `SecureStore.hasUsable` was not name-accurate — **PARTLY FIXED**
 
-`SecureStore.kt:145` defines `hasUsable` as `get(key) != null`, so an empty stored
-value reads as configured while `send()` rejects it. The app's own settings screen
-never writes one — `SettingsViewModel.save()` removes the key when the field is
-blank — so reaching that state needs a value written outside the UI.
+It was `get(key) != null`, so a stored-but-empty value read as configured while
+`send()` rejected it -- the composer enabled, the turn refused, and nothing on
+screen explaining the disagreement. It is now `!get(key).isNullOrBlank()`. The
+settings screen cannot produce that state (`SettingsViewModel.save()` removes
+the key when the field is blank), so nothing in the app reached it; it is fixed
+because `get` is public and the invariant is the one the callers already assume.
+
+**Still open, and a separate defect underneath the same heading:** in demo mode
+the composer's attach button is **enabled** -- the demo model advertises image
+input and `publishModelState` falls back to the demo model list -- while
+`attachImage` consults only `agents.models()` and refuses without a key
+(`ChatViewModel.kt:386-402`). Picking an image therefore always yields "The model
+in use cannot read images." That is two sources of truth for one question, the
+shape behind most of this section, and it needs a decision about which one demo
+mode should consult rather than a patch.
+
+### B10. `FilesViewModel` blocked the main thread and walked twice — **FIXED**
+
+`workspace()` wrapped a database read in `runBlocking`, and every caller --
+refresh, open, delete, import -- reached it from `viewModelScope`, whose
+dispatcher is `Dispatchers.Main.immediate`, so each parked the thread that draws
+the UI. It is now `suspend` and reads on `Dispatchers.IO`.
+
+`refresh()` also called `usedBytes()` and `fileCount()` separately, and both call
+`usage()`, so every refresh traversed the whole workspace twice -- the cost A6
+exists to remove, reintroduced here. It now asks for `usage()` once and takes
+both numbers off the result.
+
+### B11. Smaller ones — **PARTLY FIXED**
+
+Fixed in this pass:
+
+- `DeepSeekSearchProvider.DEFAULT_MODEL` was `"deepseek-v4-flash"`, which nothing
+  advertises; a live `GET /models` returns `deepseek-flash`, and
+  `DeepSeekModelsTest` pins that list. Now `"deepseek-flash"`. The search path is
+  never handed the conversation's model, so this default was what it always used.
+- `ConversationDao.observeAll` and both `AgentDao` orderings gained `id ASC` as a
+  tie-break. Two rows saved in the same millisecond compare equal on `updatedAt`,
+  and SQLite may return them in either order, so an emission could reorder equal
+  keys and make the list appear to shuffle with nothing having changed.
+
+Still open below.
 
 Separately, in demo mode the composer's attach button is **enabled** (the demo
 model advertises image input, and `publishModelState` falls back to the demo model
 list) while `attachImage` consults only `agents.models()` and refuses without a
 key (`ChatViewModel.kt:386-402`) — so picking an image always yields "The model in
 use cannot read images."
-
-### B10. `FilesViewModel` blocks the main thread and walks twice
-
-`runBlocking` for a database read (`:96-100`) on every refresh/open/delete/import,
-and `refresh()` calls `usedBytes()` and `fileCount()` (`:138-141`), which is two
-tree walks — the exact cost A6 exists to remove.
-
-### B11. Smaller ones
 
 - `ModelPickerDialog`'s error branch is dead: `reloadModels()` swallows failure
   and returns an empty list (`ChatViewModel.kt:333-334`), so a key-less user sees

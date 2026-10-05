@@ -16,7 +16,13 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ConversationDao {
 
-	@Query("SELECT * FROM conversations ORDER BY pinned DESC, updatedAt DESC")
+	// `id` last, as a tie-break rather than for its own sake: two rows saved in
+	// the same millisecond -- a bulk import, a migration, a scripted test --
+	// compare equal on `updatedAt`, and SQLite is free to return them in either
+	// order. An emission that reorders equal keys makes the list appear to
+	// shuffle itself with nothing having changed. `SAID_ORDER` next to the
+	// message queries exists for the same reason.
+	@Query("SELECT * FROM conversations ORDER BY pinned DESC, updatedAt DESC, id ASC")
 	fun observeAll(): Flow<List<ConversationEntity>>
 
 	@Query("SELECT * FROM conversations WHERE id = :id")
@@ -156,10 +162,12 @@ interface MessageDao {
 @Dao
 interface AgentDao {
 
-	@Query("SELECT * FROM agents ORDER BY isDefault DESC, updatedAt DESC")
+	// `id` last, for the same reason as `ConversationDao.observeAll`: equal
+	// `updatedAt` values have no defined order without it.
+	@Query("SELECT * FROM agents ORDER BY isDefault DESC, updatedAt DESC, id ASC")
 	fun observeAll(): Flow<List<AgentEntity>>
 
-	@Query("SELECT * FROM agents ORDER BY isDefault DESC, updatedAt DESC")
+	@Query("SELECT * FROM agents ORDER BY isDefault DESC, updatedAt DESC, id ASC")
 	suspend fun all(): List<AgentEntity>
 
 	@Query("SELECT * FROM agents WHERE id = :id")

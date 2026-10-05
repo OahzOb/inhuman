@@ -141,8 +141,21 @@ class SecureStore(
 
 	fun has(key: String): Boolean = prefs.contains(key)
 
-	/** Whether a secret is present *and* still decryptable. */
-	fun hasUsable(key: String): Boolean = get(key) != null
+	/**
+	 * Whether a secret is present, decryptable, **and non-empty**.
+	 *
+	 * The name used to be the only thing accurate about it: it was
+	 * `get(key) != null`, so a stored-but-empty value read as configured while
+	 * `send()` rejected it -- the composer enabled, the turn refused, and
+	 * nothing on screen explaining the disagreement.
+	 *
+	 * The settings screen cannot produce that state (`SettingsViewModel.save()`
+	 * removes the key when the field is blank), so nothing in the app reaches it
+	 * today. It is fixed anyway because `get` is public and the invariant it
+	 * encodes is the one the callers already assume: `ChatViewModel` uses this
+	 * answer to decide whether the composer is usable.
+	 */
+	fun hasUsable(key: String): Boolean = !get(key).isNullOrBlank()
 
 	private fun b64(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.NO_WRAP)
 
