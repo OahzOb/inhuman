@@ -1096,6 +1096,48 @@ class ChatViewModel(
 	}
 
 	/**
+	 * Give every call of this round that was not run an answer of its own.
+	 *
+	 * ## Why a skipped call needs a result rather than nothing
+	 *
+	 * The round's calls were all recorded in `toolCallsJson` when the model
+	 * asked for them. A tool result is what answers one, and the API requires
+	 * every recorded call to be answered before the transcript can be sent
+	 * again -- this file says so itself further down, where a result landing
+	 * after a cancellation is described as producing "a request the API
+	 * rejects". So leaving calls unanswered does not merely lose a chip's
+	 * state: it makes the **next user message** a likely 400.
+	 *
+	 * The two ways to leave them unanswered were both real. Declining the
+	 * *first* of several calls returned immediately, so the calls after it were
+	 * never run and never answered. Pressing Stop during a tool had the same
+	 * shape, because cancellation unwound the loop from inside the body.
+	 *
+	 * Deliberately not `NonCancellable` in its own right: it is called from
+	 * [declinePendingCall]'s path while the turn is still live, and the stop
+	 * path wraps it, so one insert per skipped call is not interruptible
+	 * mid-round in the case that matters.
+	 *
+	 * @param after results at or below this index already exist; only the calls
+	 *   after it need answering.
+	 */
+	private suspend fun answerSkippedCalls(outcome: TurnOutcome, after: Int) {
+		for (skipped in outcome.toolCalls.filter { it.index > after }) {
+			// `Failed` rather than `Declined`: the user refused one specific
+			// call, and saying the others were refused too would be untrue.
+			// The marker on the result is what distinguishes "did not run"
+			// from "ran and broke".
+			markCall(outcome.messageId, skipped.index, ToolCallUi.State.Failed)
+			appendToolResult(
+				skipped,
+				"$SKIPPED_MARKER This call was not run, so it has no result.",
+				isError = true,
+				messageId = outcome.messageId,
+			)
+		}
+	}
+
+	/**
 	 * Run the calls a turn asked for.
 	 *
 	 * @param tools the registry the turn was already built with, passed in
@@ -1109,98 +1151,131 @@ class ChatViewModel(
 	private suspend fun executeCalls(outcome: TurnOutcome, tools: List<Tool>): Boolean {
 		val byName = tools.associateBy { it.name }
 
+		// Guards the loop's `finally` so the normal path -- every call run and
+		// answered -- does not pay a second pass over the list. Only an early
+		// exit and a cancellation need the cleanup, and both of those set
+		// `settled` or throw.
+		var settled = false
+		var reached = -1
+
+		try {
 		for (call in outcome.toolCalls) {
-			val tool = byName[call.displayName]
-			if (tool == null) {
-				appendToolResult(call, "no such tool: ${call.displayName}", isError = true, outcome.messageId)
-				continue
-			}
-
-			val parsed = parseArguments(call, outcome.messageId) ?: continue
-
-			if (tool.needsApproval(parsed)) {
-				val summary = describeCall(call, parsed)
-				_state.update {
-					it.copy(pendingApproval = PendingApproval(outcome.messageId, call, summary))
+				reached = call.index
+				val tool = byName[call.displayName]
+				if (tool == null) {
+					appendToolResult(call, "no such tool: ${call.displayName}", isError = true, outcome.messageId)
+					continue
 				}
-				// Suspend here until the user decides. The continuation is
-				// resumed by approvePendingCall/declinePendingCall, which is
-				// why the pending state is stored rather than a dialog shown.
-				val approved = awaitApproval()
-				if (!approved) {
-					// The chip is set before the result is appended, and it has
-					// to be: without this the call stayed `Ready` forever, so a
-					// refused delete rendered as a call that was merely waiting
-					// -- the one state a user is most likely to misread as "it
-					// is about to happen".
-					markCall(outcome.messageId, call.index, ToolCallUi.State.Declined)
-					appendToolResult(
-						call,
-						DECLINED_MARKER + " The user declined this call.",
-						isError = true,
-						messageId = outcome.messageId,
-					)
-					return false
+
+				val parsed = parseArguments(call, outcome.messageId) ?: continue
+
+				if (tool.needsApproval(parsed)) {
+					val summary = describeCall(call, parsed)
+					_state.update {
+						it.copy(pendingApproval = PendingApproval(outcome.messageId, call, summary))
+					}
+					// Suspend here until the user decides. The continuation is
+					// resumed by approvePendingCall/declinePendingCall, which is
+					// why the pending state is stored rather than a dialog shown.
+					val approved = awaitApproval()
+					if (!approved) {
+						// The chip is set before the result is appended, and it has
+						// to be: without this the call stayed `Ready` forever, so a
+						// refused delete rendered as a call that was merely waiting
+						// -- the one state a user is most likely to misread as "it
+						// is about to happen".
+						markCall(outcome.messageId, call.index, ToolCallUi.State.Declined)
+						appendToolResult(
+							call,
+							DECLINED_MARKER + " The user declined this call.",
+							isError = true,
+							messageId = outcome.messageId,
+						)
+						answerSkippedCalls(outcome, after = call.index)
+						settled = true
+						return false
+					}
 				}
-			}
 
-			markCall(outcome.messageId, call.index, ToolCallUi.State.Running)
-			// Off the main thread, which is where this used to run.
-			//
-			// (A timeout policy layered on top of this would have to reckon
-			// with the fact that `withTimeout` only interrupts at suspension
-			// points -- see `ToolTimeoutSemanticsTest`.)
-			//
-			// `runTurn` is launched into `viewModelScope`, whose dispatcher is
-			// `Dispatchers.Main.immediate`, and nothing between here and the
-			// filesystem switched threads -- so `read_file` read, `write_file`
-			// wrote, and every quota check walked the whole workspace tree on
-			// the thread that draws the UI. The walks are the sharp edge: a
-			// measured `write_file` costs about 106 ms in a 2,000-file
-			// workspace, and a turn that writes several files pays it several
-			// times over.
-			//
-			// Only the execution moves. Approval stays above, on the main
-			// thread, because it suspends on the user and the continuation is
-			// resumed from the UI.
-			val result = withContext(Dispatchers.IO) { tool.execute(parsed) }
-			markCall(
-				outcome.messageId,
-				call.index,
-				if (result.isError) ToolCallUi.State.Failed else ToolCallUi.State.Done,
-			)
-			appendToolResult(call, result.content, result.isError, outcome.messageId)
-
-			// Recorded whether it succeeded or not.
-			//
-			// A failed write still means the turn *tried* to change the
-			// workspace, and regenerating would try again. Marking only the
-			// successes would leave a reply that attempted a delete and was
-			// refused looking like plain text -- which is precisely the reply
-			// someone would be most inclined to re-run, and on a second attempt
-			// the refusal might go the other way.
-			if (tool.mutates) {
-				// Marking the message is the whole of the bookkeeping.
+				markCall(outcome.messageId, call.index, ToolCallUi.State.Running)
+				// Off the main thread, which is where this used to run.
 				//
-				// There used to be a `currentTurnMutated = true` here as well,
-				// because `ChatUiState` stored the flag. It stores nothing now
-				// (see the property's own note): the flag is read off the
-				// transcript, so recording the mutation *is* raising the flag,
-				// and there is no second copy to go stale. This line is
-				// therefore load-bearing and the removed one was the bug.
-				_state.update { s ->
-					s.copy(
-						messages = s.messages.map {
-							if (it.id == outcome.messageId) it.copy(mutated = true) else it
-						},
-					)
+				// (A timeout policy layered on top of this would have to reckon
+				// with the fact that `withTimeout` only interrupts at suspension
+				// points -- see `ToolTimeoutSemanticsTest`.)
+				//
+				// `runTurn` is launched into `viewModelScope`, whose dispatcher is
+				// `Dispatchers.Main.immediate`, and nothing between here and the
+				// filesystem switched threads -- so `read_file` read, `write_file`
+				// wrote, and every quota check walked the whole workspace tree on
+				// the thread that draws the UI. The walks are the sharp edge: a
+				// measured `write_file` costs about 106 ms in a 2,000-file
+				// workspace, and a turn that writes several files pays it several
+				// times over.
+				//
+				// Only the execution moves. Approval stays above, on the main
+				// thread, because it suspends on the user and the continuation is
+				// resumed from the UI.
+				val result = withContext(Dispatchers.IO) { tool.execute(parsed) }
+				markCall(
+					outcome.messageId,
+					call.index,
+					if (result.isError) ToolCallUi.State.Failed else ToolCallUi.State.Done,
+				)
+				appendToolResult(call, result.content, result.isError, outcome.messageId)
+
+				// Recorded whether it succeeded or not.
+				//
+				// A failed write still means the turn *tried* to change the
+				// workspace, and regenerating would try again. Marking only the
+				// successes would leave a reply that attempted a delete and was
+				// refused looking like plain text -- which is precisely the reply
+				// someone would be most inclined to re-run, and on a second attempt
+				// the refusal might go the other way.
+				if (tool.mutates) {
+					// Marking the message is the whole of the bookkeeping.
+					//
+					// There used to be a `currentTurnMutated = true` here as well,
+					// because `ChatUiState` stored the flag. It stores nothing now
+					// (see the property's own note): the flag is read off the
+					// transcript, so recording the mutation *is* raising the flag,
+					// and there is no second copy to go stale. This line is
+					// therefore load-bearing and the removed one was the bug.
+					_state.update { s ->
+						s.copy(
+							messages = s.messages.map {
+								if (it.id == outcome.messageId) it.copy(mutated = true) else it
+							},
+						)
+					}
+					// Written separately, and this is not optional: the reply was
+					// persisted when the model stopped streaming, and its tools run
+					// afterwards. Updating only the in-memory copy makes the guard
+					// vanish on the next launch, which is the worst version of it --
+					// the control would come back and the write would happen again.
+					repository.markMutated(outcome.messageId)
 				}
-				// Written separately, and this is not optional: the reply was
-				// persisted when the model stopped streaming, and its tools run
-				// afterwards. Updating only the in-memory copy makes the guard
-				// vanish on the next launch, which is the worst version of it --
-				// the control would come back and the write would happen again.
-				repository.markMutated(outcome.messageId)
+			}
+		} finally {
+			// The stop path, and the reason this is a `finally` rather than a
+			// statement after the loop.
+			//
+			// Pressing Stop cancels the turn, which unwinds this loop from
+			// inside the body -- so the calls after the one that was running
+			// were recorded in `toolCallsJson` and never answered. That is the
+			// same invalid transcript as declining the first call, reached a
+			// different way.
+			//
+			// `settled` keeps the normal path from paying a second pass: when
+			// every call ran, there is nothing to answer. `NonCancellable`
+			// because the cancellation has already happened by the time this
+			// runs and each appended result is an insert.
+			//
+			// Deliberately not around the whole `try`: that would make Stop
+			// unable to interrupt a tool, which is the one thing it exists to
+			// do. Only the bookkeeping is protected.
+			if (!settled) {
+				withContext(NonCancellable) { answerSkippedCalls(outcome, after = reached) }
 			}
 		}
 		return true
@@ -1554,6 +1629,15 @@ class ChatViewModel(
 		 * user declined, so nothing is lost, only the chip's word for it.
 		 */
 		internal const val DECLINED_MARKER = "[declined]"
+
+		/**
+		 * Marks a result for a call that was recorded but never run.
+		 *
+		 * Distinct from [DECLINED_MARKER] on purpose: the user declined one
+		 * call, and it would be wrong to report the rest as refused. Distinct
+		 * from a plain error too, because nothing was attempted.
+		 */
+		internal const val SKIPPED_MARKER = "[skipped]"
 
 		/**
 		 * Written onto a reply the user stopped part-way.
