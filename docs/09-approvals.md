@@ -206,6 +206,43 @@ delete_file — [refused] This path or tool is not available in this conversatio
 
 两条规则都命中，循环继续而没有中止，chip 显示 `failed`。
 
+**`Ask` 也验证过了，而且是唯一一个由用户决定的策略**，所以它最值得驱动一次。
+用设置界面设 `delete_file=Ask`，`write_file` 不动，让 demo 脚本能走到删除那一步。
+数据库里的时间线：
+
+```
+[refused] ×2                              早先 Blind/Deny 的测试
+Created demo/notes.txt (21 B, 1 lines)    write_file 无规则 → 跑了
+[declined] The user declined this call.   Ask → 拒绝
+Replaced demo/notes.txt (21 B, 1 lines)   第二次跑到写入
+Deleted demo/notes.txt                    Ask → 允许
+```
+
+**两个方向都是对着文件系统确认的，不是只看 transcript。** 拒绝之后
+`notes.txt` 仍在、21 字节；允许之后 `find` 无输出、workspace 目录为空。
+**一道只记录决定而动作照旧发生的门，在 transcript 上看起来一模一样**——
+所以要查文件，而不是看 chip。
+
+对话框本身读回的是：
+
+```
+Allow this action?
+Delete demo/notes.txt from this conversation's folder?
+{"path":"demo/notes.txt"}
+```
+
+**另外查了一件因为代码形状而值得怀疑的事。** `answerSkippedCalls` 在循环没有跑完时
+从 `finally` 里以 `NonCancellable` 执行，而一个挂起中的 `awaitApproval` 正是"恢复时
+可能重复回答同一个调用"的形状。实测没有：`demo-call-0` 一条结果、`demo-call-1`
+一条结果，没有多余的 `[skipped]` 行。**这是查出来的而不是推出来的**——重复的工具结果
+只会以"下一条消息 400"的形式暴露。
+
+至此审批层没有未验证的行为了。
+
+**仍未实现**：per-assistant 与 per-path 规则没有编辑器。两者在 `PolicySet` 与
+`PolicyRepository` 里都已实现并有测试（`assistant`/`paths`、`setAssistantRule`/
+`setPathRule`），但都够不到界面。
+
 **这同时补上了之前那个"demo 工具循环跑不起来"的欠账**：当时发不出消息的真正原因是
 `pm clear` 把 demo 模式开关也重置了，不是默认助手缺文件工具——`toolsJson = ''`
 其实**允许全部十个工具**。
