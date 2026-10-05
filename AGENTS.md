@@ -4,9 +4,10 @@ Notes for whoever picks this up next, human or agent. The README explains what
 the app is; this file explains how to change it without breaking what it
 already gets right.
 
-**Before reading the source, read `docs/`.** Seven files that describe what the
-code actually does, with a `file:line` for every claim, so a session can start
-work without re-deriving the architecture from scratch:
+**Before reading the source, read `docs/`.** Nine files that describe what the
+code actually does — or, for the last two, what it is intended to become — with
+a `file:line` for every claim, so a session can start work without re-deriving
+the architecture from scratch:
 
 | File | Answers |
 | --- | --- |
@@ -17,11 +18,41 @@ work without re-deriving the architecture from scratch:
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
+| `docs/08-port-philosophy.md` | **Why** the DeepSeek Harness runtime is being ported, which options the project refuses to have, and the seven design questions still open |
+| `docs/port-assessment.md`, `docs/port-design.md` | The measured feasibility and the plan |
 
 `docs/07-gotchas.md` is the one to read before changing anything in a hurry.
+`docs/08-port-philosophy.md` is the one to read before proposing a new setting,
+mode, or permission — it is where the project records which options it refuses.
 Keep the docs current: a commit that changes a documented behaviour changes the
 document in the same commit, or the doc becomes the next "comment that is the
 bug".
+
+---
+
+## What this app is for, and what it refuses
+
+The short version, stated once here so it is not re-litigated per feature: the
+agent design of DeepSeek Harness is worth having on a phone, so it is being
+ported — **with hard limits on what the agent can read, write, and run.** Those
+limits exist to borrow the device's compute while isolating the filesystem. They
+are **not** about disclaiming responsibility.
+
+Two consequences bind every future change, and neither is negotiable:
+
+- **There is no "full access" mode, and there will not be one.** Not "off by
+  default", not "behind an advanced toggle". A privilege level that can be
+  escalated is itself an attack surface, and a prompt injection does not need
+  the user to click wrong — it needs to talk the model into *asking* for more.
+  Capability is fixed when a conversation is created.
+- **The capability boundary must be statable in one sentence a person can
+  read**, and that sentence must stay true regardless of settings. The target is:
+  *code runs on your device, sees only what you hand it, cannot reach the
+  network, and cannot reach your files.*
+
+Full reasoning, plus the seven open design questions and what each one would
+change, is in `docs/08-port-philosophy.md`. Do not add a mode, a permission
+prompt, or a "pro" escape hatch without answering it there first.
 
 ---
 

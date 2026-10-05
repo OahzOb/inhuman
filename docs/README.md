@@ -45,9 +45,16 @@ citation.
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the 8 file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | The turn lifecycle, tool-call execution, the approval gate, cancellation, context gauge, Compose layout rules |
 | [07-gotchas.md](07-gotchas.md) | The load-bearing invariants, and the mistakes that already cost someone a day |
+| [08-port-philosophy.md](08-port-philosophy.md) | **Why** a port is wanted at all, the three constraints that rule out a "full access" option, and the seven design questions that are still open |
+| [port-assessment.md](port-assessment.md) | Feasibility of porting the DeepSeek Harness runtime, with device measurements |
+| [port-design.md](port-design.md) | How it would be built: layering, the 43-kind event vocabulary, phases |
 
 `07-gotchas.md` is the one to read when you are about to change something and do
 not have time to read the rest. Everything in it was a real bug.
+
+`08-port-philosophy.md` is the one to read before proposing anything that adds a
+setting, a mode, or a permission — it is where the project says which options it
+refuses to have.
 
 ## Conventions used here
 
@@ -75,21 +82,29 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 205 tests, 0 failures, 1 skipped** — the skip is
+**BUILD SUCCESSFUL, 210 tests, 0 failures, 1 skipped** — the skip is
 `DeepSeekSearchProviderLiveTest`, which talks to the real API and needs
 `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 
 | Module | Suites | Tests |
 | --- | --- | --- |
-| `:core:ai` | 11 | 123 (1 skipped) |
+| `:core:ai` | 13 | 135 (1 skipped) |
 | `:core:files` | 3 | 43 |
-| `:core:data` | 2 | 13 |
 | `:app` | 2 | 19 |
+| `:core:data` | 2 | 13 |
 
 All of it runs on the JVM, against temp directories rather than a device. That is
 why the pure-invariant tests (`DeltaCursor`, `ContextUsage`, `activePathOf`)
 carry arguments the device could not make — see
 [02-architecture.md](02-architecture.md).
+
+Two suites do **not** run on the JVM, and are not in the table above because
+they only run against a device: `app/src/androidTest/…/SessionLogReadBenchmark`
+and `…/JavaScriptSandboxProbe`, run with `:app:connectedDebugAndroidTest` or
+`adb shell am instrument`. They exist because the questions they answer —
+how long a session log takes to read on ARM64, whether the platform JavaScript
+sandbox is available — cannot be asked of a desktop. Their measured results are
+in [port-assessment.md](port-assessment.md).
 
 ## Which files own which behaviour
 
