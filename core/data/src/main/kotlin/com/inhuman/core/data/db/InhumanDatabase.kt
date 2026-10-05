@@ -189,21 +189,80 @@ interface AgentDao {
 	suspend fun delete(id: String)
 }
 
+/**
+ * Reading and writing the three approval-rule sources.
+ *
+ * No insert-with-replace for reads: [all] returns everything and the resolution
+ * happens in `PolicySet`, because composing is a pure function with tests and
+ * doing it in SQL would put the one rule that must not be got wrong somewhere
+ * it cannot be tested without a database.
+ */
+@Dao
+interface PolicyDao {
+
+	@Query("SELECT * FROM approval_defaults")
+	suspend fun defaults(): List<ApprovalDefaultEntity>
+
+	@Query("SELECT * FROM agent_approval WHERE agentId = :agentId")
+	suspend fun forAgent(agentId: String): List<AgentApprovalEntity>
+
+	@Query("SELECT * FROM path_policy WHERE conversationId = :conversationId")
+	suspend fun forConversation(conversationId: String): List<PathPolicyEntity>
+
+	@Insert(onConflict = OnConflictStrategy.REPLACE)
+	suspend fun setDefault(row: ApprovalDefaultEntity)
+
+	@Insert(onConflict = OnConflictStrategy.REPLACE)
+	suspend fun setAgentRule(row: AgentApprovalEntity)
+
+	@Insert(onConflict = OnConflictStrategy.REPLACE)
+	suspend fun setPathRule(row: PathPolicyEntity)
+
+	/**
+	 * Remove a rule rather than storing `Free` for it.
+	 *
+	 * Deleting and "configured to Free" are different states and the difference
+	 * is visible to the user: a rule that exists but says "no restriction" is
+	 * still a rule the settings screen has to show and explain. Absence is the
+	 * honest encoding of "not configured".
+	 */
+	@Query("DELETE FROM approval_defaults WHERE toolName = :toolName")
+	suspend fun clearDefault(toolName: String)
+
+	@Query("DELETE FROM agent_approval WHERE agentId = :agentId AND toolName = :toolName")
+	suspend fun clearAgentRule(agentId: String, toolName: String)
+
+	@Query("DELETE FROM path_policy WHERE conversationId = :conversationId AND relPath = :relPath")
+	suspend fun clearPathRule(conversationId: String, relPath: String)
+
+	/** Every rule of every kind, for screens that show what is configured. */
+	@Query("SELECT COUNT(*) FROM approval_defaults")
+	suspend fun defaultCount(): Int
+}
+
 @Database(
-	entities = [ConversationEntity::class, MessageEntity::class, AgentEntity::class],
+	entities = [
+		ConversationEntity::class,
+		MessageEntity::class,
+		AgentEntity::class,
+		ApprovalDefaultEntity::class,
+		AgentApprovalEntity::class,
+		PathPolicyEntity::class,
+	],
 	// Bumped when columns were added for tool calls, again for measured
-	// latency, and again for assistants. Room refuses to open a database whose
-	// schema hash does not match rather than guessing, which is how each was
-	// caught: the app crashed on launch with "Looks like you've changed schema
-	// but forgot to update the version number" instead of quietly losing
-	// conversations.
-	version = 7,
+	// latency, again for assistants, and again for the approval rules. Room
+	// refuses to open a database whose schema hash does not match rather than
+	// guessing, which is how each was caught: the app crashed on launch with
+	// "Looks like you've changed schema but forgot to update the version number"
+	// instead of quietly losing conversations.
+	version = 8,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
 	abstract fun conversations(): ConversationDao
 	abstract fun messages(): MessageDao
 	abstract fun agents(): AgentDao
+	abstract fun policies(): PolicyDao
 
 	companion object {
 		const val NAME = "inhuman.db"
@@ -337,6 +396,41 @@ abstract class InhumanDatabase : RoomDatabase() {
 				)
 				connection.execSQL(
 					"ALTER TABLE conversations ADD COLUMN toolsJson TEXT NOT NULL DEFAULT ''",
+				)
+			}
+		}
+
+		/**
+		 * 7 -> 8: the approval rules.
+		 *
+		 * Three new tables and no change to any existing one, so every
+		 * conversation, message and assistant survives untouched. The tables are
+		 * created empty, which is the correct migration *and* the correct
+		 * product default: absence of a rule means no restriction, so an
+		 * upgraded install behaves exactly as it did -- except that deletion no
+		 * longer asks, which is a change in `DeleteFileTool`, not here.
+		 *
+		 * Written as `CREATE TABLE` statements matching what Room generates.
+		 * Room verifies the resulting schema hash on open and will say so if
+		 * these do not match the entities -- which is the check that makes
+		 * writing them by hand safe rather than hopeful.
+		 */
+		val MIGRATION_7_8 = object : Migration(7, 8) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"CREATE TABLE IF NOT EXISTS `approval_defaults` " +
+						"(`toolName` TEXT NOT NULL, `policy` TEXT NOT NULL, " +
+						"PRIMARY KEY(`toolName`))",
+				)
+				connection.execSQL(
+					"CREATE TABLE IF NOT EXISTS `agent_approval` " +
+						"(`agentId` TEXT NOT NULL, `toolName` TEXT NOT NULL, " +
+						"`policy` TEXT NOT NULL, PRIMARY KEY(`agentId`, `toolName`))",
+				)
+				connection.execSQL(
+					"CREATE TABLE IF NOT EXISTS `path_policy` " +
+						"(`conversationId` TEXT NOT NULL, `relPath` TEXT NOT NULL, " +
+						"`policy` TEXT NOT NULL, PRIMARY KEY(`conversationId`, `relPath`))",
 				)
 			}
 		}
