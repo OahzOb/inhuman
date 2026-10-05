@@ -17,6 +17,10 @@ android {
 		targetSdk = 36
 		versionCode = 1
 		versionName = '0.1.0'
+
+		// Instrumented tests exist for questions a JVM test cannot answer --
+		// today, the cost of decompressing a session log on a real device.
+		testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
 	}
 
 	buildTypes {
@@ -85,4 +89,13 @@ dependencies {
 	debugImplementation libs.androidx.compose.ui.tooling
 
 	testImplementation libs.junit
+
+	androidTestImplementation libs.androidx.test.junit
+	androidTestImplementation libs.androidx.test.runner
+	// Only for the session-log benchmark; see docs/port-assessment.md.
+	// The `@aar` matters: the plain JAR's natives are desktop-only and fail at
+	// runtime on device. See the note in gradle/libs.versions.toml.
+	androidTestImplementation "${libs.zstd.jni.android.get()}@aar"
+	// The platform JavaScript/WebAssembly sandbox, probed on device.
+	androidTestImplementation libs.androidx.javascriptengine
 }

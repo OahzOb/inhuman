@@ -1132,6 +1132,10 @@ class ChatViewModel(
 			markCall(outcome.messageId, call.index, ToolCallUi.State.Running)
 			// Off the main thread, which is where this used to run.
 			//
+			// (A timeout policy layered on top of this would have to reckon
+			// with the fact that `withTimeout` only interrupts at suspension
+			// points -- see `ToolTimeoutSemanticsTest`.)
+			//
 			// `runTurn` is launched into `viewModelScope`, whose dispatcher is
 			// `Dispatchers.Main.immediate`, and nothing between here and the
 			// filesystem switched threads -- so `read_file` read, `write_file`

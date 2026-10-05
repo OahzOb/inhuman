@@ -4,6 +4,25 @@ Notes for whoever picks this up next, human or agent. The README explains what
 the app is; this file explains how to change it without breaking what it
 already gets right.
 
+**Before reading the source, read `docs/`.** Seven files that describe what the
+code actually does, with a `file:line` for every claim, so a session can start
+work without re-deriving the architecture from scratch:
+
+| File | Answers |
+| --- | --- |
+| `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
+| `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
+| `docs/03-ai-provider.md` | Provider and stream contracts, the DeepSeek adapter, SSE, demo mode, **how `web_search` really works** |
+| `docs/04-data-persistence.md` | Room schema v7, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider` |
+| `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
+| `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
+| `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
+
+`docs/07-gotchas.md` is the one to read before changing anything in a hurry.
+Keep the docs current: a commit that changes a documented behaviour changes the
+document in the same commit, or the doc becomes the next "comment that is the
+bug".
+
 ---
 
 ## Two screens, always
@@ -36,12 +55,22 @@ composer whose send button sits in a corner nobody looks at. That is worse than
 the phone layout, not better.
 
 The rule this project arrived at: **cap the measure, centre what is capped.**
-`Layout.ReadableMeasure` (640dp) is the cap, and the chat screen applies it to
-the transcript *and* to the composer strip underneath it, so the input sits on
-the same axis as the conversation it belongs to. On a phone the cap is inert —
+`Layout.ReadableMeasure` (640dp) is the cap. On a phone the cap is inert —
 `screenWidthDp` never reaches 640 — so the same code is correct at both sizes
 without a form-factor branch. Prefer that shape: a maximum that binds on the
 large screen and does nothing on the small one.
+
+Two corrections to what this file used to claim, both verified — see
+`docs/07-gotchas.md` B5:
+
+- The chat screen caps the **composer strip and the error row** on that axis,
+  not the transcript. Bubbles are capped at 640dp but aligned to the start/end
+  inside a full-width item, so on a tablet an assistant bubble begins at the
+  32dp gutter while the centred composer begins at 320dp.
+- The cap is **inert at seven call sites** in five files (the conversations
+  list, the agents list, files, settings, `WideDialog`), because they chain
+  `fillMaxWidth`/`fillMaxSize` *before* `widthIn`. Three of those carry a
+  comment claiming the cap is what makes the tablet layout readable.
 
 **A modifier-order trap, hit once already:** `Modifier.fillMaxWidth()` is
 greedy and consumes the incoming maximum, so `.fillMaxWidth().widthIn(max = …)`
@@ -119,9 +148,11 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
 - **A failure chunk must be `trySend`-ed *before* `close()`.** A chunk sent
   after the channel closes is dropped and the collector sees a clean end, so
   the failure becomes indistinguishable from "the model said nothing".
-- **`writeText` is wrapped in `NonCancellable` when a turn ends.** A cancelled
-  coroutine refuses to suspend, so without it, stopping a reply loses the part
-  already received — after the user was billed for it.
+- **The closing `appendMessage` is wrapped in `NonCancellable` when a turn ends.**
+  A cancelled coroutine refuses to suspend, so without it `appendMessage` throws
+  and stopping a reply loses the part already received — after the user was
+  billed for it. (It is the row insert at `ChatViewModel.kt:1040`, not the
+  tool-layer `writeText`.)
 - **Message order needs its tie-break.** `ORDER BY createdAt ASC, id ASC`, and
   `ConversationStore.SAID_ORDER` must agree with it; a tool result and the turn
   that asked for it routinely share a millisecond.
@@ -161,6 +192,8 @@ comment should say what the bug *was* and how it presented, not just what the
 code now does — several of the most useful paragraphs here exist because
 somebody wrote down a failure that would otherwise have been reintroduced.
 
-Where a doc comment and the code disagree, the comment is the bug: two were
+Where a doc comment and the code disagree, the comment is the bug. One was
 found making claims the implementation did not honour (the Markdown renderer's
-incrementality, and a sweep that had never been written).
+incrementality), and a sweep that had never been written was another;
+`docs/07-gotchas.md` section C carries the full list, which is now long enough
+that finding one is expected rather than remarkable.
