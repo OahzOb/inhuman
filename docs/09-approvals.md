@@ -170,17 +170,47 @@ path_policy(conversationId TEXT, relPath TEXT, policy TEXT NOT NULL,
 
 ## 7. 实现状态
 
-**已实现**（`41d4e5b`）：
+**已实现**：
 
 - `ToolPolicy` + `PolicySet`（`:core:ai/policy/`）—— 四档策略与"取最严"合成，**14 个测试**
 - 存储：schema **7 → 8**，三张新表（`approval_defaults`、`agent_approval`、`path_policy`），
   **未改动任何既有表**
-- `PolicyRepository` —— 只读装载；写入接口等有界面时再加
+- `PolicyRepository` —— 装载与写入
 - `DeleteFileTool.needsApproval` 默认 `false`（§4.1）
+- **执行循环里的裁决**（`ChatViewModel.executeCalls`）：`Deny` / `Blind` 是**拒绝**，
+  因此排在 `needsApproval` **之前**——那个钩子只会说"问"，而对一件用户已经禁止的事
+  发问，是答非所问。`Ask` 与钩子合入同一分支。
 
-**未实现，两端都缺**：没有界面设置规则，也**没有任何地方在工具调用前查询 `PolicySet`**。
-所以**当前配置一条规则不会有任何效果**。模型、存储、迁移都在且有测试，
-但两端没接线。
+三个不在 diff 里显眼的细节：
+
+- **路径先经 `SessionWorkspace` 解析再 `relativize`，绝不用模型写的原文。**
+  规则按规范化的相对路径存储，拿原始参数去比对，会让 `a/../private/x.md`、
+  前导 `./`、或绝对路径命中一个含义不同的键——和 `resolve()` 存在的理由相同，
+  只是这里用在查表而不是开文件。沙箱拒绝的路径返回 null，即该文件的规则不适用：
+  因为那个文件不存在。
+- **`Blind` 与 `Deny` 给模型的是同一句话。** 暴露差别等于邀请它去试探差别。
+- **每轮读一次规则**，不是每次调用；读失败返回空规则而不是抛异常——
+  读不到配置不是拒绝所有工具调用的理由，未配置本来就是出厂状态。
+
+### 已在设备上端到端验证
+
+在全新的 v8 库里直接插入 `delete_file=Deny` 与 `write_file=Blind`，开启 demo 模式、
+工具全开，发一条消息，transcript 读回：
+
+```
+Used 2 tools
+2 failed
+write_file — [refused] This path or tool is not available in this conversation.
+delete_file — [refused] This path or tool is not available in this conversation.
+```
+
+两条规则都命中，循环继续而没有中止，chip 显示 `failed`。
+
+**这同时补上了之前那个"demo 工具循环跑不起来"的欠账**：当时发不出消息的真正原因是
+`pm clear` 把 demo 模式开关也重置了，不是默认助手缺文件工具——`toolsJson = ''`
+其实**允许全部十个工具**。
+
+**仍未实现**：没有设置规则的界面。机制目前只能通过直接写数据库触达。
 
 ### 迁移已实测（这是有真实数据风险的一步）
 
