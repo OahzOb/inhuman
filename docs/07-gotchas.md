@@ -148,7 +148,20 @@ tall with an 18dp gap.
 
 These are real and current. None of them is a style opinion.
 
-### B1. The regenerate control is disabled for the rest of the session after any mutating turn
+### B1. The regenerate control was disabled for the rest of the session after any mutating turn — **FIXED**
+
+Three expressions of one fact: a stored field on `ChatUiState`, a private method
+on `ChatViewModel` with the same arithmetic, and the assignment in `reload()`.
+The field was raised in `executeCalls` and never cleared, so after one mutating
+turn every later reply claimed it could not be regenerated -- and reopening the
+conversation did not help, because the chat view model is keyed and
+activity-scoped, so the same instance came back without `reload()` running.
+
+The fix is not to clear the flag in `send()`, which would break again the next
+time a path starts a turn. It is to delete the field: `currentTurnMutated` is now
+derived from the transcript, so there is no second copy to go stale.
+`ChatUiStateTest` carries five tests, including "the turn after a mutating turn
+can be regenerated" -- the exact sequence that was broken.
 
 **The one most likely to be reported as a bug.**
 
@@ -166,7 +179,7 @@ the chat ViewModel is keyed and activity-scoped (`MainActivity.kt:233`) — the 
 instance comes back, `init` does not re-run and `reload()` is not called. Only a
 process restart or a branch switch recalculates it.
 
-### B2. The last ~40 ms of every reply is missing from the live transcript
+### B2. The last ~40 ms of every reply was missing from the live transcript — **FIXED**
 
 `ChatViewModel.kt:867-868` says "The `finally` block publishes regardless, so the
 last partial window is never lost." **The `finally` never calls
@@ -176,7 +189,7 @@ from `parts` and from the delta channel after the turn ends, while the database
 row (written from the `StringBuilder`s at `:1048`) is complete. The bubble stays
 short until something reloads the transcript.
 
-### B3. `MarkdownText`'s "switch to the plain renderer when the stream ends" is not implemented
+### B3. `MarkdownText` never switched to the plain renderer when the stream ended — **FIXED**
 
 `MarkdownText.kt:48-52` documents a switch. `updateParts` (`:1444-1466`) never
 sets `deltas` back to `null`, so the reply keeps rendering through the incremental
@@ -190,7 +203,17 @@ composition starts empty and only sees later deltas — and `text` is ignored wh
 this and is never called with an initial text in the app (`ChatViewModel.kt:875`
 builds a bare `DeltaCursor()`; only `DeltaCursorTest` passes one).
 
-### B4. Declining the first of several tool calls persists an unanswered call
+### B4. Declining the first of several tool calls persisted an unanswered call — **FIXED**
+
+One helper, `answerSkippedCalls`, now gives every unrun call an answer of its
+own, and it serves both paths: the early return on a decline, and `Stop`
+unwinding the loop from inside the body. The result is marked `[skipped]` and the
+chip goes to `Failed` rather than `Declined` -- the user refused one call, and
+reporting the others as refused too would be untrue.
+
+The stop path runs it from a `finally` under `NonCancellable`, because by then
+the coroutine is already cancelled and each answer is an insert. Deliberately not
+around the whole loop: that would make Stop unable to interrupt a tool.
 
 `executeCalls` returns immediately on the first decline (`:1128`), but all calls of
 the round are already in `toolCallsJson`. Calls after the declined one get no tool
@@ -226,7 +249,20 @@ text column    1152px = 576dp, centred at 1280px (the screen centre)
 the expected result and exactly what the cap was supposed to produce. Before the
 fix this text ran the full 2560px.
 
-### B6. The provider can rename or delete a conversation's folder, and lose the files
+### B6. The provider could rename or delete a conversation's folder — **FIXED**
+
+Conversation rows carried `directoryFlags()`, so the Files app offered both. A
+conversation directory's name *is* its `workspaceId`, so renaming it orphans the
+row -- the next tool call recreates an empty workspace under the old id, and the
+renamed directory matches no row, so the sweep eventually deletes the files --
+and deleting it leaves the inverse orphan the sweep cannot see.
+
+Conversation rows now carry `conversationFlags()`: create only, since creating
+files inside the directory is the case the provider exists for. `deleteDocument`
+and `renameDocument` also refuse a conversation id outright, because a flag is a
+request and a provider can be driven by an intent or a third-party file manager.
+Deleting a conversation is still something the app does, through the repository,
+which removes files and row together.
 
 `WorkspaceDocumentsProvider.directoryFlags()` (`:234-237`) is returned for
 conversation rows too (`:190`), so the system Files app offers rename and delete on
@@ -245,12 +281,24 @@ Also: the conversation-folder branch of `includeDocument` is **dead code**, beca
 which matches the conversation id — a different UUID. A re-queried conversation
 folder therefore reports its display name as a raw UUID rather than the title.
 
-### B7. `import` is a quota side door
+### B7. `import` was a quota side door — **FIXED**
 
-`WorkspaceTransfer.kt:38-80` enforces only `maxWriteBytes`. No `maxTotalBytes`, no
-`maxFileCount`, no free-space check. Its failure path deletes the target
-(`:74-79`), which for a destination resolving to an existing empty directory
-deletes that directory.
+It enforced only `maxWriteBytes` -- no `maxTotalBytes`, no `maxFileCount`, no
+free-space check -- and its failure path deleted the target, which for a
+destination resolving to an existing empty directory deleted that directory.
+
+Import now streams into a staging file in the same directory and renames it into
+place, so the destination is only replaced by a complete import and the cleanup
+cannot reach anything the user already had. The quota arithmetic moved to
+`SessionWorkspace.quotaRefusal`, shared with `WorkspaceTool`, because the rule
+existed in one place and not the other.
+
+`WorkspaceTransferTest` carries seven tests, two of them stated as behaviour
+rather than as implementation ("the original file still exists and still has its
+contents", "the directory is still there"). It also caught two bugs in the fix
+itself: `usage()` counts the staging file, so a 2 KB import into a 3 KB
+workspace was told 4 KB was over the limit, and the file count was wrong the
+same way. The caller now declares what it staged and what it replaces.
 
 ### B8. `schemas/…/1.json` is not a real v1
 
