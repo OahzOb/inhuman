@@ -205,11 +205,18 @@ fun SettingsScreen(
 							color = MaterialTheme.colorScheme.onBackground,
 						)
 						Text(
+							// This string was describing an approval prompt that
+							// no longer appears, and it is read by a user rather
+							// than by a compiler -- the kind of claim that goes
+							// stale silently. Deletion does not ask by default
+							// (docs/09-approvals.md); a rule can be configured to
+							// make it, and the sentence says so rather than
+							// promising a dialog nobody will see.
 							text = "Replies are scripted on the device, and the file " +
 								"tools run for real. Nothing is sent anywhere and no key " +
 								"is needed. With tools switched on it creates a file and " +
-								"then asks to delete it, so the approval gate can be " +
-								"seen without an account.",
+								"then deletes it, so the tool loop runs end to end " +
+								"without an account.",
 							style = MaterialTheme.typography.bodyMedium,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
