@@ -67,10 +67,23 @@ interface ConversationDao {
 @Dao
 interface MessageDao {
 
-	@Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt ASC")
+	/**
+	 * Every message in a conversation, in the order it was said.
+	 *
+	 * `id` is the tie-break, and it is load-bearing rather than tidiness.
+	 * `createdAt` is milliseconds, and a tool result is written immediately
+	 * after the assistant turn that asked for it -- routinely inside the same
+	 * millisecond. With `createdAt` alone the two rows come back in an order
+	 * SQLite is free to choose, and `ConversationStore.activePath` picks the
+	 * newest child by the same single key, so a transcript could render a tool
+	 * result above the message that requested it, or pick the wrong branch.
+	 * Ids are random UUIDs, so they decide nothing about meaning; they only
+	 * make an arbitrary choice the *same* arbitrary choice every time.
+	 */
+	@Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt ASC, id ASC")
 	fun observeAll(conversationId: String): Flow<List<MessageEntity>>
 
-	@Query("SELECT * FROM messages WHERE conversationId = :conversationId")
+	@Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt ASC, id ASC")
 	suspend fun all(conversationId: String): List<MessageEntity>
 
 	@Query("SELECT * FROM messages WHERE id = :id")
@@ -103,8 +116,35 @@ interface MessageDao {
 	 * because "1 of 3" is about the alternatives at this point in the
 	 * conversation rather than about the whole tree beneath them.
 	 */
-	@Query("SELECT * FROM messages WHERE parentId = :parentId ORDER BY createdAt ASC")
+	@Query("SELECT * FROM messages WHERE parentId = :parentId ORDER BY createdAt ASC, id ASC")
 	suspend fun childrenOf(parentId: String): List<MessageEntity>
+
+	/**
+	 * The parents that actually have alternatives, in one conversation.
+	 *
+	 * ## Why this exists
+	 *
+	 * The screen needs a `Branches` for every message that has two or more
+	 * replies under it, and almost no message does. Asking per message -- one
+	 * query for the children and, when there are several, a second for the
+	 * parent row -- meant roughly two queries per message on every transcript
+	 * load: four hundred round trips for a two-hundred-message conversation, to
+	 * answer "none" almost every time.
+	 *
+	 * This answers it for the whole conversation at once. The set is tiny (a
+	 * conversation with a few regenerated replies has a handful of entries), so
+	 * the caller then asks the detailed question only where there is something
+	 * to describe.
+	 */
+	@Query(
+		"""
+		SELECT parentId FROM messages
+		WHERE conversationId = :conversationId AND parentId IS NOT NULL
+		GROUP BY parentId
+		HAVING COUNT(*) > 1
+		""",
+	)
+	suspend fun branchParents(conversationId: String): List<String>
 
 	@Query("DELETE FROM messages WHERE id = :id")
 	suspend fun delete(id: String)
@@ -370,27 +410,72 @@ class ConversationStore(private val db: InhumanDatabase) {
 	 * would be a recursive CTE, and the number of messages in one conversation
 	 * is small enough that clarity wins.
 	 */
-	fun activePath(messages: List<MessageEntity>): List<MessageEntity> {
-		if (messages.isEmpty()) return emptyList()
+	fun activePath(messages: List<MessageEntity>): List<MessageEntity> = activePathOf(messages)
 
-		val byParent = messages.groupBy { it.parentId }
-		val roots = messages.filter { it.parentId == null }.sortedBy { it.createdAt }
-		if (roots.isEmpty()) return emptyList()
+	companion object {
+		/**
+		 * Creation order, with the id as a tie-break.
+		 *
+		 * The tie-break is what makes this a total order, and it has to match
+		 * the `ORDER BY createdAt ASC, id ASC` in [MessageDao] -- two rules
+		 * that disagree would put the transcript on screen in one order and let
+		 * the branch walk choose by another.
+		 */
+		private val SAID_ORDER: Comparator<MessageEntity> =
+			compareBy<MessageEntity> { it.createdAt }.thenBy { it.id }
 
-		// A conversation has one root in practice; if a branch ever produced
-		// several, the earliest wins so the choice is at least deterministic.
-		val path = mutableListOf<MessageEntity>()
-		var current: MessageEntity? = roots.first()
-		while (current != null) {
-			path += current
-			val children = byParent[current.id].orEmpty()
-			val selected = current.selectedChildId?.let { id -> children.firstOrNull { it.id == id } }
-			// Fall back to the newest child when nothing is marked selected:
-			// that is what a freshly appended reply is, and it keeps a
-			// transcript readable if a write was interrupted.
-			current = selected ?: children.maxByOrNull { it.createdAt }
+		/**
+		 * Walk the active branch of a conversation.
+		 *
+		 * The tree is stored as parent links plus a `selectedChildId` on each
+		 * node, so the visible transcript is the chain obtained by starting at
+		 * the root and repeatedly following the selected child. Returning the
+		 * whole table and filtering in Kotlin rather than doing this in SQL is
+		 * deliberate: the query would be a recursive CTE, and the number of
+		 * messages in one conversation is small enough that clarity wins.
+		 *
+		 * ## Why it lives in the companion
+		 *
+		 * It touches no database and no Android API -- it is a pure function
+		 * over rows -- so keeping it reachable without an open database is what
+		 * lets the walk be unit-tested on the JVM. A tree walk that decides
+		 * which messages are on screen is worth a test, and the alternative was
+		 * an instrumented test against a real Room instance for a function that
+		 * has no idea Room exists.
+		 */
+		fun activePathOf(messages: List<MessageEntity>): List<MessageEntity> {
+			if (messages.isEmpty()) return emptyList()
+
+			val byParent = messages.groupBy { it.parentId }
+			val roots = messages.filter { it.parentId == null }.sortedWith(SAID_ORDER)
+			if (roots.isEmpty()) return emptyList()
+
+			// A conversation has one root in practice; if a branch ever produced
+			// several, the earliest wins so the choice is at least
+			// deterministic.
+			val path = mutableListOf<MessageEntity>()
+			val seen = mutableSetOf<String>()
+			var current: MessageEntity? = roots.first()
+			while (current != null) {
+				// A row whose parent links form a cycle would otherwise loop
+				// forever. Nothing in the app writes one, but a walk that trusts
+				// its input to be a tree is one bad row away from a hang, and
+				// the check is one set lookup.
+				if (!seen.add(current.id)) break
+				path += current
+				val children = byParent[current.id].orEmpty()
+				val selected = current.selectedChildId?.let { id -> children.firstOrNull { it.id == id } }
+				// Fall back to the newest child when nothing is marked selected:
+				// that is what a freshly appended reply is, and it keeps a
+				// transcript readable if a write was interrupted.
+				//
+				// "Newest" uses the same comparator the queries sort by, so the
+				// walk and the row order cannot disagree about which child that
+				// is.
+				current = selected ?: children.maxWithOrNull(SAID_ORDER)
+			}
+			return path
 		}
-		return path
 	}
 
 	@Transaction

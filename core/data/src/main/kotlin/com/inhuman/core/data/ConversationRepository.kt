@@ -10,6 +10,7 @@ import com.inhuman.core.data.db.ToolsColumn
 import com.inhuman.core.files.SessionWorkspace
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.io.File
 import java.util.UUID
 
 /**
@@ -57,9 +58,22 @@ data class Branches(
  * one whose row outlived its directory would fail on the first file tool.
  */
 class ConversationRepository(
-	private val context: Context,
+	context: Context,
 	private val db: InhumanDatabase = Database.open(context),
 ) {
+
+	/**
+	 * The application context, never the one that was passed in.
+	 *
+	 * A caller inside a composable hands over `LocalContext.current`, which is
+	 * the **Activity**. This repository is held by a view model, which outlives
+	 * a configuration change, so storing the Activity meant a rotated screen
+	 * left the destroyed one -- and its whole view hierarchy -- reachable until
+	 * the process ended. `SecureStore` and `Database` already take the
+	 * application context; this makes the repositories do the same rather than
+	 * leaving the rule to whoever happens to call them.
+	 */
+	private val appContext: Context = context.applicationContext
 
 	private val store = ConversationStore(db)
 
@@ -79,7 +93,7 @@ class ConversationRepository(
 
 	/** The workspace for a conversation, opened and ready for tools. */
 	fun workspace(conversation: ConversationEntity) =
-		SessionWorkspace.open(Database.workspaceDir(context, conversation.workspaceId))
+		SessionWorkspace.open(Database.workspaceDir(appContext, conversation.workspaceId))
 
 	suspend fun rename(id: String, title: String) =
 		db.conversations().rename(id, title, System.currentTimeMillis())
@@ -122,7 +136,7 @@ class ConversationRepository(
 			createdAt = now,
 			updatedAt = now,
 		)
-		Database.workspaceDir(context, conversation.workspaceId).mkdirs()
+		Database.workspaceDir(appContext, conversation.workspaceId).mkdirs()
 		db.conversations().upsert(conversation)
 		return conversation
 	}
@@ -134,13 +148,65 @@ class ConversationRepository(
 	 * Delete a conversation, its messages and its files.
 	 *
 	 * Files are removed before the rows. If the process dies in between, the
-	 * result is an orphaned directory that a later sweep can find; the other
-	 * order would leave rows pointing at a directory that is already gone, and
-	 * a file tool would then fail on a conversation the user can still open.
+	 * result is an orphaned directory that [sweepOrphanedWorkspaces] finds; the
+	 * other order would leave rows pointing at a directory that is already
+	 * gone, and a file tool would then fail on a conversation the user can
+	 * still open.
 	 */
 	suspend fun delete(conversation: ConversationEntity) {
-		Database.workspaceDir(context, conversation.workspaceId).deleteRecursively()
+		Database.workspaceDir(appContext, conversation.workspaceId).deleteRecursively()
 		store.deleteConversation(conversation.id)
+	}
+
+	/**
+	 * Remove workspace directories that no conversation refers to.
+	 *
+	 * ## Why this is needed rather than merely tidy
+	 *
+	 * Deleting a conversation removes its directory first and its rows second,
+	 * deliberately -- see [delete]. If the process is killed in the window
+	 * between the two, the rows survive and the directory does not, which is
+	 * recoverable. But a delete can also be interrupted the other way by a
+	 * crash *after* the rows go and before the directory does, and the
+	 * workspace of a conversation that was abandoned mid-creation leaves one
+	 * too. Each of those is megabytes of the user's files sitting in
+	 * `filesDir/conversations` with nothing in the app that can see or delete
+	 * them: the UI lists conversations, and there is no conversation.
+	 *
+	 * ## Why it is safe to run at startup
+	 *
+	 * A directory is kept if **any** conversation row names its `workspaceId`,
+	 * and ids are UUIDs that are never reused. The only way to be wrong is to
+	 * run this while a conversation exists in memory but not yet in the
+	 * database -- which is why [ConversationRepository.create] writes the row
+	 * before returning, and why this does not run until the first screen has
+	 * loaded.
+	 *
+	 * @return the ids of the directories it removed, for a caller that wants to
+	 *   say so. Empty on a healthy install, which is the normal case.
+	 */
+	suspend fun sweepOrphanedWorkspaces(): List<String> {
+		val known = db.conversations().all().mapTo(mutableSetOf()) { it.workspaceId }
+		val doomed = orphanedWorkspaces(Database.workspacesRoot(appContext), known)
+
+		doomed.forEach { dir ->
+			runCatching { dir.deleteRecursively() }
+		}
+		return doomed.map { it.name }
+	}
+
+	companion object {
+		/**
+		 * Which directories have no conversation behind them.
+		 *
+		 * Split out from [sweepOrphanedWorkspaces] because this is the part that
+		 * decides what to delete, and it is the part that is wrong if the rule
+		 * about UUIDs ever stops holding. It touches no database and no Android
+		 * API, so it is unit-tested; the deleting is a one-liner on top.
+		 */
+		fun orphanedWorkspaces(root: File, knownWorkspaceIds: Set<String>): List<File> =
+			root.listFiles().orEmpty()
+				.filter { it.isDirectory && it.name !in knownWorkspaceIds }
 	}
 
 	/**
@@ -168,6 +234,29 @@ class ConversationRepository(
 	 * for are executed once the stream is closed.
 	 */
 	suspend fun markMutated(messageId: String) = db.messages().markMutated(messageId)
+
+	/**
+	 * Where every branch point in a conversation stands, keyed by the parent.
+	 *
+	 * ## Why this replaced a per-message lookup
+	 *
+	 * The screen wants a [Branches] for each message that has alternatives --
+	 * which is almost none of them. Asking [branches] once per message cost a
+	 * query for the children of every message plus a second for the parent row
+	 * whenever there happened to be more than one, so a two-hundred-message
+	 * conversation paid ~400 round trips to be told "no" 200 times.
+	 *
+	 * One query finds the parents that actually branch, and the detailed
+	 * question is asked only for those. The result is keyed by **parent** id
+	 * rather than by message id, which is also the more honest key: the
+	 * alternatives belong to the point in the conversation, not to any one of
+	 * the replies, and a row looks its own up by `parentId` -- so the switcher
+	 * lands under the message below the branch point, where it belongs.
+	 */
+	suspend fun branchesIn(conversationId: String): Map<String, Branches> =
+		db.messages().branchParents(conversationId)
+			.mapNotNull { parentId -> branches(parentId)?.let { parentId to it } }
+			.toMap()
 
 	/**
 	 * The replies to a message, oldest first, with the selected one marked.

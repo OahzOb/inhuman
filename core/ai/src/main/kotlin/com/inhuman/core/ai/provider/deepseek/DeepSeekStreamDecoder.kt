@@ -67,8 +67,17 @@ class DeepSeekStreamDecoder {
 			DeepSeekJson.asObjectOrNull(DeepSeekJson.parseToJsonElement(payload))
 		} catch (e: Exception) {
 			// A frame that is not JSON is either a provider-side notice or a
-			// truncated line. Surfacing it beats dropping it.
-			return listOf(StreamChunk.Failure("could not parse stream frame", e))
+			// truncated line. Surfacing it beats dropping it -- and the payload
+			// is included, because without it the message says only that
+			// something was wrong with something. Truncated to keep a runaway
+			// frame from filling the transcript, and it is the head of the
+			// frame that says what it was.
+			return listOf(
+				StreamChunk.Failure(
+					"could not parse stream frame: ${payload.take(200)}",
+					e,
+				),
+			)
 		} ?: return emptyList()
 
 		val out = mutableListOf<StreamChunk>()
@@ -129,11 +138,21 @@ class DeepSeekStreamDecoder {
 					if (call.name != null || call.arguments != null) {
 						out += StreamChunk.ToolCallDelta(
 							index = index,
-							// The name is repeated on the Start chunk, so it is
-							// not sent again as a delta: a renderer that
-							// concatenates deltas would otherwise show the tool
-							// name twice.
-							nameDelta = if (isNew) null else call.name,
+							// The name rides the Start chunk, so it is not
+							// repeated here.
+							//
+							// The limit of that, stated rather than implied: a
+							// provider that sends the *whole* name on every
+							// frame would have it echoed into a renderer that
+							// concatenates deltas, and a provider that splits
+							// the name while also echoing it in full on the
+							// opening frame would have the tail lost. Neither
+							// is a shape this app has met. What is supported,
+							// and was not before, is a name split across frames
+							// with nothing on the opener to duplicate it: the
+							// consumer now assembles the fragments instead of
+							// keeping only the first.
+							nameDelta = null,
 							// Passed through as a raw fragment. Parsing here
 							// would be wrong: it is very often not valid JSON.
 							inputDelta = call.arguments,

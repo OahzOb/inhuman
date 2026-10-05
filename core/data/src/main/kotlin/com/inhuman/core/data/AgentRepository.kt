@@ -31,10 +31,19 @@ import java.util.UUID
  * appearing in the picker.
  */
 class AgentRepository(
-	private val context: Context,
+	context: Context,
 	private val secure: SecureStore,
 	private val db: InhumanDatabase = Database.open(context),
 ) {
+
+	/**
+	 * The application context, never the one that was passed in.
+	 *
+	 * The caller is a composable, so the argument is the Activity, and this
+	 * object is reachable from a view model that survives a configuration
+	 * change. See the same note in `ConversationRepository`.
+	 */
+	private val appContext: Context = context.applicationContext
 
 	private val modelsLock = Mutex()
 	private var cachedModels: List<RemoteModel>? = null

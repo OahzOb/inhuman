@@ -43,7 +43,7 @@ import java.util.concurrent.TimeUnit
 class DeepSeekProvider(
 	private val apiKey: String,
 	private val baseUrl: String = DEFAULT_BASE_URL,
-	private val client: OkHttpClient = defaultClient(),
+	private val client: OkHttpClient = shared,
 ) : ChatProvider {
 
 	override val id: String = "deepseek"
@@ -84,6 +84,20 @@ class DeepSeekProvider(
 					close()
 					return
 				}
+				// ## The order here is the whole fix
+				//
+				// This read `close()` then `trySend(...)`, and a chunk sent
+				// after the channel is closed is **dropped** -- the collector
+				// sees the flow end normally and cannot tell "the network died"
+				// from "the model finished without saying anything". So every
+				// DNS failure, refused connection and TLS error arrived at the
+				// view model as an empty successful stream: no error, no
+				// transcript entry, and a reply bubble that got deleted for
+				// being empty. It looked like the model had nothing to say.
+				//
+				// Pinned by `CallbackFlowFailureDeliveryTest`, because the
+				// behaviour is a fact about the coroutines library rather than
+				// about this file.
 				trySend(StreamChunk.Failure(e.message ?: "network error", e))
 				close()
 			}
@@ -159,18 +173,41 @@ class DeepSeekProvider(
 			encodeDefaults = false
 		}
 
-		fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
-			// Long read timeout on purpose. DeepSeek documents that the server
-			// closes the connection if inference has not begun within 10
-			// minutes, and reasoning models routinely take a long time before
-			// the first token. A conventional 30-second read timeout kills
-			// legitimate slow responses while they are still thinking.
-			.readTimeout(11, TimeUnit.MINUTES)
-			.connectTimeout(30, TimeUnit.SECONDS)
-			// No automatic retries: a retried POST that already produced tokens
-			// would duplicate the answer, and the caller is better placed to
-			// decide whether re-running is safe.
-			.retryOnConnectionFailure(false)
-			.build()
+		/**
+		 * The one client the app makes requests with.
+		 *
+		 * ## Why it is shared rather than per provider
+		 *
+		 * This used to be a factory called for every `DeepSeekProvider`, and a
+		 * provider is constructed per turn -- so every round trip of every turn
+		 * got a **new connection pool, a new dispatcher and a new executor**.
+		 * Whatever the previous request had warmed, the next one threw away:
+		 * no keep-alive, no TLS session reuse, and a fresh handshake for a
+		 * conversation that had just been talking to the same host seconds
+		 * earlier. It also left each abandoned client's threads alive until
+		 * finalisation.
+		 *
+		 * Sharing one client is the arrangement OkHttp is designed around and
+		 * documents: "It is recommended to share a single instance". Nothing
+		 * here needs a per-turn client -- the timeouts are constant, and the
+		 * reasons route by `Call`, not by client.
+		 *
+		 * The settings below are unchanged, and they are all deliberate:
+		 */
+		val shared: OkHttpClient by lazy {
+			OkHttpClient.Builder()
+				// Long read timeout on purpose. DeepSeek documents that the
+				// server closes the connection if inference has not begun within
+				// 10 minutes, and reasoning models routinely take a long time
+				// before the first token. A conventional 30-second read timeout
+				// kills legitimate slow responses while they are still thinking.
+				.readTimeout(11, TimeUnit.MINUTES)
+				.connectTimeout(30, TimeUnit.SECONDS)
+				// No automatic retries: a retried POST that already produced
+				// tokens would duplicate the answer, and the caller is better
+				// placed to decide whether re-running is safe.
+				.retryOnConnectionFailure(false)
+				.build()
+		}
 	}
 }
