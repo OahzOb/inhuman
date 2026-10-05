@@ -96,6 +96,29 @@ class DeltaCursorTest {
 	}
 
 	@Test
+	fun `a shrink resends the whole document, not a slice from a lost position`() {
+		// The rewind path, and the reason it returns everything rather than the
+		// tail: `sent` indexes into a document that no longer exists, so a slice
+		// from it is meaningless. The renderer cannot be *told* what it should
+		// contain -- `StreamingMarkdownState` exposes only `append` -- so
+		// re-sending is the only way to make its content equal the reply again.
+		val cursor = DeltaCursor()
+		assertEquals("a fairly long first reply", cursor.next("a fairly long first reply"))
+
+		assertEquals("short", cursor.next("short"))
+		// And afterwards it tracks the new document, not the old length.
+		assertEquals("er", cursor.next("shorter"))
+	}
+
+	@Test
+	fun `a reply that becomes empty emits nothing rather than an empty append`() {
+		val cursor = DeltaCursor()
+		assertEquals("something", cursor.next("something"))
+
+		assertNull("an empty document has nothing to append", cursor.next(""))
+	}
+
+	@Test
 	fun `an empty reply emits nothing`() {
 		assertNull(DeltaCursor().next(""))
 	}

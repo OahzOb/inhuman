@@ -3,6 +3,7 @@ package com.inhuman.ui.chat
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import com.mikepenz.markdown.m3.Markdown
@@ -106,7 +107,30 @@ fun MarkdownText(
 		// is built from are both visible, so this is the same work done
 		// explicitly rather than a reimplementation.
 		val streaming = rememberStreamingMarkdownState()
+		// Tracks what *this* composition has appended, which is not the same
+		// question as what the reply contains.
+		val appended = remember(deltas) { DeltaCursor() }
 		LaunchedEffect(deltas) {
+			// Catch up first, then follow.
+			//
+			// The incremental state lives in the composition and its only write
+			// is `append` -- `StreamingMarkdownState` exposes no way to be told
+			// what it should contain, and `rememberStreamingMarkdownState` takes
+			// no initial content (both read off the 0.45.0 artifact with
+			// `javap`). So a composition rebuilt mid-reply -- a rotation, a
+			// configuration change -- starts empty while `text` already holds
+			// everything received so far.
+			//
+			// Appending `text` before the loop closes that gap, and it is safe
+			// in both directions: `DeltaCursor` only ever emits what the
+			// renderer does not already have, so text that has already been
+			// appended produces nothing, and text that has not produces exactly
+			// the missing part. Without it, everything received before the
+			// rebuild was permanently lost from the bubble -- the deltas still
+			// to arrive carry only the *new* text, and `text` was ignored
+			// entirely while `deltas != null`.
+			appended.next(text)?.let { streaming.append(it) }
+
 			// Sequential and lossless: `append` suspends, so the loop cannot
 			// run ahead of the parser, and `Channel` iteration delivers every
 			// value in order without dropping any.

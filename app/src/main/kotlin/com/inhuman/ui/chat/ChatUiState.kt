@@ -89,17 +89,38 @@ data class ChatUiState(
 	 * second implementation of the same arithmetic.
 	 */
 	val context: ContextUsage = ContextUsage(null, null),
+) {
+
 	/**
 	 * Whether the current turn changed the workspace.
 	 *
-	 * The answer to whether the reply can be regenerated, computed once for the
-	 * transcript rather than per row. It cannot be read off the last reply: a
-	 * mutation is recorded on the message that *asked* for the tool, and the
-	 * last reply is usually the model summarising afterwards -- so the obvious
-	 * check gives the wrong answer for the common case.
+	 * The answer to whether the reply can be regenerated. It cannot be read off
+	 * the *last reply*: a mutation is recorded on the message that **asked** for
+	 * the tool, and the last reply is usually the model summarising afterwards --
+	 * so the obvious check gives the wrong answer for the common case.
+	 *
+	 * ## Why this is derived rather than stored
+	 *
+	 * It used to be a stored field, assigned in `reload()` and set to `true` in
+	 * `executeCalls`. `send()` never cleared it, so after one mutating turn
+	 * every later reply in the session claimed it could not be regenerated --
+	 * and reopening the conversation did not help, because the chat view model
+	 * is keyed and activity-scoped, so the same instance came back without
+	 * `init` or `reload()` running again. Only a process restart or a branch
+	 * switch recalculated it.
+	 *
+	 * The bug was not a missing assignment. It was two expressions of one fact:
+	 * a stored flag, and the predicate that had to be kept in step with it by
+	 * hand. Reading it from the transcript makes them one expression, so there
+	 * is nothing left to forget to clear.
 	 */
-	val currentTurnMutated: Boolean = false,
-)
+	val currentTurnMutated: Boolean
+		get() {
+			val lastUser = messages.indexOfLast { it.fromUser }
+			if (lastUser < 0) return false
+			return messages.drop(lastUser).any { it.mutated }
+		}
+}
 
 /** An image staged for the next message. */
 data class PendingAttachment(

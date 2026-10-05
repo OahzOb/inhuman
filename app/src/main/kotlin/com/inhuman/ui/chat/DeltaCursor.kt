@@ -41,10 +41,23 @@ class DeltaCursor(initialText: String = "") {
 	fun next(current: CharSequence): String? {
 		// A shorter buffer means this is not the same document streamed
 		// further; start over so the renderer's content matches.
+		//
+		// Sending everything from the beginning rather than the tail is the
+		// point: `sent` indexes into a document that no longer exists, so a
+		// slice from it is meaningless. The renderer has no way to be *told*
+		// what it should contain -- `StreamingMarkdownState` exposes only
+		// `append` -- so re-sending is the only way to make its content equal
+		// the reply again.
 		if (current.length < sent) {
 			seen.setLength(0)
 			seen.append(current)
-			sent = 0
+			// `sent` has to end up equal to what was handed over, or the next
+			// call slices from a position this document does not have -- which
+			// re-sends a prefix and renders the reply twice. The first version
+			// of this branch reset `sent` to 0 and returned, so the following
+			// "shorter" call re-emitted "short" before "er".
+			sent = current.length
+			return if (current.isEmpty()) null else current.toString()
 		}
 
 		if (current.length <= sent) return null

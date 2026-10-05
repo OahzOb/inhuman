@@ -488,14 +488,15 @@ class ChatViewModel(
 
 		_state.update { current ->
 			val rebuilt = entities.map { it.toUi(it.parentId?.let(branchInfo::get), declined) }
-			val lastUser = rebuilt.indexOfLast { it.fromUser }
 			current.copy(
 				title = loaded?.entity?.title ?: current.title,
 				messages = rebuilt,
-				// Recomputed here rather than derived in the screen, so the flag
-				// the button reads and the flag the guard reads are the same
-				// expression.
-				currentTurnMutated = lastUser >= 0 && rebuilt.drop(lastUser).any { it.mutated },
+				// `currentTurnMutated` is deliberately not assigned here. It is
+				// derived from `messages`, so rebuilding the transcript *is*
+				// recomputing it -- and assigning it here as well is what used to
+				// leave a stale copy behind, because a plain `send()` never
+				// reloads and so never came past this line to clear it.
+				//
 				// Read off the rebuilt list, for the same reason the mutation
 				// flag is: the two controls that depend on the transcript have
 				// to be computed from the transcript that is on screen.
@@ -518,27 +519,13 @@ class ChatViewModel(
 	/**
 	 * Whether the current turn changed the workspace.
 	 *
-	 * ## Why this is not just the last reply
-	 *
-	 * A turn that uses a tool is usually two messages: the model asks for the
-	 * write, the tool answers, and then the model says "done". The mutation is
-	 * recorded on the first of those, and the last reply is the second -- so
-	 * asking the last reply gives the wrong answer for the common case, which is
-	 * exactly the case this guard exists for.
-	 *
-	 * ## Why it stops at the last user message
-	 *
-	 * Regenerating re-runs only the final turn. A file written three exchanges
-	 * ago is not rewritten by answering again, so it must not block anything.
-	 * Scoping to the current turn keeps the rule about what will actually happen
-	 * rather than about everything that ever happened.
+	 * Delegates to [ChatUiState.currentTurnMutated] rather than repeating its
+	 * arithmetic. This used to be a second implementation of the same predicate
+	 * next to a stored flag -- three expressions of one fact, which is why one
+	 * of them could be wrong without anyone noticing. The reasoning about why
+	 * the answer is not simply "the last reply" now lives with the property.
 	 */
-	private fun currentTurnMutated(): Boolean {
-		val messages = _state.value.messages
-		val lastUser = messages.indexOfLast { it.fromUser }
-		if (lastUser < 0) return false
-		return messages.drop(lastUser).any { it.mutated }
-	}
+	private fun currentTurnMutated(): Boolean = _state.value.currentTurnMutated
 
 	fun regenerate() {
 		if (_state.value.isStreaming) return
@@ -1033,7 +1020,19 @@ class ChatViewModel(
 			} else {
 				null
 			}
-			updateMessage(replyId) { it.copy(isStreaming = false, finishReason = finish, usage = usage) }
+			// `deltas = null` is the switch the renderer's documentation
+			// describes and nothing performed: while it is non-null the reply
+			// renders through the incremental parser, and `text` is ignored.
+			// Clearing it here hands the finished reply to the plain renderer,
+			// whose content is the same document -- so the swap is not visible,
+			// and the last parse is a real one rather than a stream that never
+			// ends. `replyDeltas.remove` below drops the channel, but the field
+			// was captured into the message when it was built, so removing the
+			// map entry alone left the reply on the streaming path for the rest
+			// of the session.
+			updateMessage(replyId) {
+				it.copy(isStreaming = false, finishReason = finish, usage = usage, deltas = null)
+			}
 			// The gauge moves here rather than at the end of the turn, because
 			// this is the moment the provider's count for this prompt exists --
 			// and because a turn can take several round trips, each of which
@@ -1181,20 +1180,19 @@ class ChatViewModel(
 			// someone would be most inclined to re-run, and on a second attempt
 			// the refusal might go the other way.
 			if (tool.mutates) {
+				// Marking the message is the whole of the bookkeeping.
+				//
+				// There used to be a `currentTurnMutated = true` here as well,
+				// because `ChatUiState` stored the flag. It stores nothing now
+				// (see the property's own note): the flag is read off the
+				// transcript, so recording the mutation *is* raising the flag,
+				// and there is no second copy to go stale. This line is
+				// therefore load-bearing and the removed one was the bug.
 				_state.update { s ->
 					s.copy(
 						messages = s.messages.map {
 							if (it.id == outcome.messageId) it.copy(mutated = true) else it
 						},
-						// Raised here as well as in `reload()`.
-						//
-						// An ordinary send never reloads -- the transcript is
-						// built up in memory as it streams -- so without this the
-						// flag would stay false for the session in which the
-						// write actually happened, and only become true after a
-						// restart. The guard would be absent exactly when it is
-						// most likely to be pressed.
-						currentTurnMutated = true,
 					)
 				}
 				// Written separately, and this is not optional: the reply was
