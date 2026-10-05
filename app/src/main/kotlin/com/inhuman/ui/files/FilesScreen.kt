@@ -203,8 +203,11 @@ fun FilesScreen(
 
 				else -> LazyColumn(
 					modifier = Modifier
-						.fillMaxSize()
-						.widthIn(max = Layout.ReadableMeasure),
+						// Constrain first, fill second: `fillMaxSize()` is greedy
+						// and consumes the incoming maximum, so swapping these two
+						// made the cap inert.
+						.widthIn(max = Layout.ReadableMeasure)
+						.fillMaxSize(),
 					contentPadding = PaddingValues(
 						horizontal = comfortableGutter(),
 						vertical = 8.dp,

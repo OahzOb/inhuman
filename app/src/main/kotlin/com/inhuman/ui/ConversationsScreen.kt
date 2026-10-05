@@ -312,8 +312,11 @@ private fun ConversationList(
 
 	LazyColumn(
 		modifier = Modifier
-			.fillMaxSize()
-			.widthIn(max = Layout.ReadableMeasure),
+			// Constrain first, fill second: `fillMaxSize()` is greedy and
+			// consumes the incoming maximum, so swapping these two made the cap
+			// inert and the list ran the full tablet width.
+			.widthIn(max = Layout.ReadableMeasure)
+			.fillMaxSize(),
 		contentPadding = PaddingValues(
 			horizontal = comfortableGutter(),
 			vertical = 8.dp,
@@ -447,11 +450,14 @@ private fun EmptyState(
 ) {
 	Column(
 		modifier = Modifier
+			// Constrain first, fill second. The cap is what makes the tablet
+			// layout readable rather than merely wide; on a phone it is inert.
+			// The order matters: `fillMaxWidth()` is greedy and consumes the
+			// incoming maximum, so with these swapped the comment described a
+			// behaviour the code did not have.
+			.widthIn(max = Layout.ReadableMeasure)
 			.fillMaxWidth()
-			.padding(horizontal = comfortableGutter())
-			// The measure cap is what makes the tablet layout readable rather
-			// than merely wide. On a phone this is inert.
-			.widthIn(max = Layout.ReadableMeasure),
+			.padding(horizontal = comfortableGutter()),
 		horizontalAlignment = Alignment.CenterHorizontally,
 		verticalArrangement = Arrangement.spacedBy(12.dp),
 	) {

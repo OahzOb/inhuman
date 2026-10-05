@@ -92,10 +92,11 @@ fun SettingsScreen(
 		) {
 			Column(
 				modifier = Modifier
-					.fillMaxWidth()
-					// Cap the measure on a tablet; a full-width text field across
-					// 1280dp is unusable to type into.
-					.widthIn(max = Layout.ReadableMeasure),
+					// Constrain first, fill second. `fillMaxWidth()` is greedy and
+					// consumes the incoming maximum, so with these swapped the cap
+					// was inert and the field stretched across 1280dp.
+					.widthIn(max = Layout.ReadableMeasure)
+					.fillMaxWidth(),
 				verticalArrangement = Arrangement.spacedBy(6.dp),
 			) {
 				Text(
@@ -186,8 +187,10 @@ fun SettingsScreen(
 			// network and no bill.
 			Column(
 				modifier = Modifier
-					.fillMaxWidth()
-					.widthIn(max = Layout.ReadableMeasure),
+					// Constrain first, fill second -- see the note on the field
+					// above; the order is the whole difference.
+					.widthIn(max = Layout.ReadableMeasure)
+					.fillMaxWidth(),
 				verticalArrangement = Arrangement.spacedBy(4.dp),
 			) {
 				Row(

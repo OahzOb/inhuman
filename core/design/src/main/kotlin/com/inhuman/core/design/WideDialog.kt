@@ -83,8 +83,11 @@ fun WideDialog(
 	) {
 		Surface(
 			modifier = Modifier
-				.fillMaxWidth()
+				// Constrain first, fill second. `fillMaxWidth()` is greedy and
+				// consumes the incoming maximum, so with the two swapped the cap
+				// was inert and a dialog stretched the full 1280dp of a tablet.
 				.widthIn(max = Layout.ReadableMeasure)
+				.fillMaxWidth()
 				// A margin rather than edge-to-edge: full-bleed would make the
 				// dialog indistinguishable from a new screen and lose the sense
 				// of returning to whatever is behind it.

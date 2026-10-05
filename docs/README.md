@@ -19,7 +19,7 @@ and a future session that trusts them will start from a false premise:
 
 | Claim | Where | Reality |
 | --- | --- | --- |
-| The cap makes a tablet layout readable | `WideDialog.kt:41-46`, `ConversationsScreen.kt:452-454`, `SettingsScreen.kt:96-97` | The cap is **inert** at those sites — the fill modifier comes first. See [07-gotchas.md](07-gotchas.md) B5. |
+| The cap makes a tablet layout readable | `WideDialog.kt:89-93`, `ConversationsScreen.kt:452-457`, `SettingsScreen.kt:96-100` | **Was** inert at those sites — the fill modifier came first. **Fixed**, and verified by measurement on the tablet AVD. See [07-gotchas.md](07-gotchas.md) B5. |
 | "the chat screen applies [the cap] to the transcript *and* to the composer strip" | `AGENTS.md:63-70` | True of the composer strip and the error row only. Bubbles are capped but aligned to the start/end inside a full-width item, so on a tablet they do not share the composer's axis. Carries an in-place correction. |
 | "`writeText` is wrapped in `NonCancellable`" | `AGENTS.md:151` (now corrected) | It is the row insert at `ChatViewModel.kt:1040`, not the tool-layer `writeText`. |
 

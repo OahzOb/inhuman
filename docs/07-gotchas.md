@@ -198,18 +198,33 @@ result. `Stop` during `tool.execute` leaves the same shape. The app's own commen
 says such a transcript is a request the API rejects (`:1282-1292`), so the next
 user message after either is likely a 400.
 
-### B5. The 640dp measure cap is inert at seven call sites
+### B5. The 640dp measure cap was inert at seven call sites — **FIXED**
 
 `fillMaxWidth()`/`fillMaxSize()` before `widthIn(max = 640.dp)` sets
 `minWidth = maxWidth = incoming max`, so the following `widthIn` clamps back and
-the cap does nothing. Verified sites: `WideDialog.kt:86-87`,
+the cap does nothing. The sites were: `WideDialog.kt:86-87`,
 `AgentsScreen.kt:123-124`, `FilesScreen.kt:206-207`,
 `ConversationsScreen.kt:315-316` and `:450-454`, `SettingsScreen.kt:95-98` and
-`:189-190`. Two of them (`WideDialog` and `ConversationsScreen`) have comments
-claiming the cap is what makes the tablet layout readable; see C.
+`:189-190`; two of them (`WideDialog` and `ConversationsScreen`) carried comments
+claiming the cap is what makes the tablet layout readable, which is section C's
+problem in its purest form — the comment described behaviour the code did not
+have.
 
-`ChatScreen.kt:349-351` and `:387-389` are the ones that get it right, with the
-measurement in the comment (2208px vs 1232px).
+All seven now constrain first and fill second, plus a check that no new site
+reintroduces the order. The chat screen's two sites (`ChatScreen.kt:349-351` and
+`:387-389`) were already correct and carry the original measurement in their
+comment (2208px vs 1232px).
+
+**Verified on the tablet AVD** (`emulator-5554`, 2560x1600 @ 320dpi = 1280dp),
+measuring the conversations empty state through `uiautomator`:
+
+```
+text column    1152px = 576dp, centred at 1280px (the screen centre)
+```
+
+576dp is `ReadableMeasure` (640dp) less the 32dp gutter on each side, which is
+the expected result and exactly what the cap was supposed to produce. Before the
+fix this text ran the full 2560px.
 
 ### B6. The provider can rename or delete a conversation's folder, and lose the files
 
