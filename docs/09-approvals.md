@@ -54,7 +54,7 @@ agent **根本够不到**，所以那里也不需要审批：没有可批准的�
 
 ---
 
-## 2.5 取最严：一条规则，不是三层特例
+## 3. 取最严：一条规则，不是三层特例
 
 用户与 agent 各自的规则**同时适用，取更严的那个**。这不是第三套逻辑，
 而是全部逻辑：
@@ -70,7 +70,7 @@ effective = strictest( 用户规则, agent 规则 )
 
 ---
 
-## 3. 默认值与配置
+## 4. 默认值与配置
 
 ### 3.1 默认：全部不问
 
@@ -83,7 +83,7 @@ effective = strictest( 用户规则, agent 规则 )
 
 ### 3.2 用户可收紧任何一项
 
-全局、每 agent、每路径三处都可配，合成规则只有一条：**取最严**（§2.5）。
+全局、每 agent、每路径三处都可配，合成规则只有一条：**取最严**（§3）。
 用户可以把 `delete_file` 配成要问，也可以把某个目录配成 `read-only`。
 
 ### 3.3 agent 自定义
@@ -110,12 +110,12 @@ effective = strictest( 用户规则, agent 规则 )
 
 ---
 
-## 4. 三个具体后果
+## 5. 三个具体后果
 
 ### 4.1 `delete_file` 的默认值要反过来
 
 现在的 `DeleteFileTool.needsApproval` 硬编码 `true`（`FileTools.kt:316`），
-按 §3.1 要改成 `false`。其余六个工具已经是 `false`。
+按 §4.1 要改成 `false`。其余六个工具已经是 `false`。
 
 这一改会让现有的一处测试与一处 UI 断言失效（`FileToolsTest.kt:80` 断言有工具需要审批、
 `ToolCallUi.State.Declined` 的可达性），要一并处理——**不是把测试删掉，
@@ -145,7 +145,7 @@ API 会拒绝的请求（`:1282-1292`）。事件化之后，"这次调用没有
 
 ---
 
-## 5. 存储
+## 6. 存储
 
 ```kotlin
 // 全局：每工具一个值。缺席 = 内置默认（全部不问）
@@ -168,7 +168,47 @@ path_policy(conversationId TEXT, relPath TEXT, policy TEXT NOT NULL,
 
 ---
 
-## 6. 待定
+## 7. 实现状态
+
+**已实现**（`41d4e5b`）：
+
+- `ToolPolicy` + `PolicySet`（`:core:ai/policy/`）—— 四档策略与"取最严"合成，**14 个测试**
+- 存储：schema **7 → 8**，三张新表（`approval_defaults`、`agent_approval`、`path_policy`），
+  **未改动任何既有表**
+- `PolicyRepository` —— 只读装载；写入接口等有界面时再加
+- `DeleteFileTool.needsApproval` 默认 `false`（§4.1）
+
+**未实现，两端都缺**：没有界面设置规则，也**没有任何地方在工具调用前查询 `PolicySet`**。
+所以**当前配置一条规则不会有任何效果**。模型、存储、迁移都在且有测试，
+但两端没接线。
+
+### 迁移已实测（这是有真实数据风险的一步）
+
+不是"Room 会校验所以应该没问题"，而是真跑了负载测试：
+用 `git worktree` 构建 v7 版本 → 装入模拟器 → 在 v7 库里种入 canary 会话与两条消息 →
+`VACUUM INTO` 导出已 checkpoint 的单文件 → 推回设备 → 升级到 v8 构建。结果：
+
+```
+version        8          （从 7 升上来）
+canary conv    1          MIGRATION CANARY
+canary msgs    2          the needle that must survive
+                          the reply that must survive
+new tables     3
+WAL            0 bytes    （已 checkpoint）
+错误/崩溃       无
+```
+
+数据完好，三张新表创建，无 schema 校验失败。
+
+**顺带学到的**：Android 上 `am force-stop` **不触发 WAL checkpoint**，所以
+`exec-out run-as cat databases/inhuman.db` 拉到的可能只是刚创建的空壳（4 KB、版本 0），
+真实数据在 `-wal` 里。判断 schema 版本必须读 **db + wal 合起来**——用 `sqlite3` 打开
+目录里的两个文件即可，或用 `VACUUM INTO` 导出合并后的单文件。
+我第一次读到"版本 0"就是这个原因，差点得出错误结论。
+
+---
+
+## 8. 待定
 
 1. **`agent-blind` 要不要现在就做。** 它是四档里唯一需要新增行为的，
    实现面也最大（要影响 `list_files` 的输出，不只是拦截一次调用）。
