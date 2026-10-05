@@ -1,14 +1,16 @@
 package com.inhuman.ui.chat
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.rememberMarkdownState
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.text.font.FontFamily
+import com.mikepenz.markdown.model.rememberStreamingMarkdownState
+import kotlinx.coroutines.channels.Channel
 
 /**
  * Renders assistant text as Markdown.
@@ -21,13 +23,33 @@ import androidx.compose.ui.text.font.FontFamily
  * difference between an app that looks finished and one that looks like a
  * prototype.
  *
- * ## The streaming case
+ * ## The two paths, and why there are two
  *
- * A half-written code fence or an unclosed table is the normal state of a reply
- * in progress, and re-parsing the whole document on every token is both
- * quadratic and visibly janky. The renderer's `rememberMarkdownState` parses
- * asynchronously off the composition and caches, so passing the accumulated
- * text on each recomposition does not mean reparsing it each time.
+ * A reply being streamed arrives a few characters at a time, and parsing the
+ * whole document on every arrival is quadratic: the parser re-reads the whole
+ * prefix once per token, and the AST it produces is replaced wholesale so the
+ * message re-renders from the top several times a second.
+ *
+ * The renderer ships a genuinely incremental path for exactly this --
+ * `StreamingMarkdownStateImpl`, which appends into an
+ * `org.intellij.markdown.parser.StreamingMarkdownFile` and only reparses from
+ * the last *stable* block boundary. It consumes a `Flow<String>` of **deltas**;
+ * `collectAsStreamingMarkdownState` appends every emission with no inspection,
+ * so feeding it the accumulated text would duplicate it. That is the whole
+ * reason the view model now publishes a delta flow alongside the text it keeps
+ * for persistence: the text is what gets stored, the deltas are what gets
+ * parsed.
+ *
+ * A message loaded from the database has no deltas and never will -- there is
+ * nothing to be incremental about, because it arrives complete and is parsed
+ * once. So the two cases take the two paths, and the choice is made by whether
+ * [deltas] is present.
+ *
+ * The switch happens once per reply, when the stream ends: the incremental
+ * state holds exactly the text that was appended, so the plain renderer
+ * produces the same document and the swap is not visible. That is a claim about
+ * two renderers agreeing, so it is one of the things to look at on a device
+ * rather than to assume.
  *
  * ## Deliberately absent
  *
@@ -42,7 +64,65 @@ import androidx.compose.ui.text.font.FontFamily
 fun MarkdownText(
 	text: String,
 	modifier: Modifier = Modifier,
+	/**
+	 * The deltas this message is still arriving in, or null once it is
+	 * complete. Non-null selects the incremental parser.
+	 */
+	deltas: Channel<String>? = null,
 ) {
+	val colors = markdownColor(
+		text = MaterialTheme.colorScheme.onSurface,
+		// Read from the library's own metadata rather than guessed: the
+		// function takes exactly these five colours plus `darkTheme` and
+		// `alert`, and an invented name does not compile.
+		codeBackground = MaterialTheme.colorScheme.surfaceVariant,
+		inlineCodeBackground = MaterialTheme.colorScheme.surfaceVariant,
+		dividerColor = MaterialTheme.colorScheme.outlineVariant,
+		tableBackground = MaterialTheme.colorScheme.surface,
+	)
+	val typography = markdownTypography(
+		// Body text has to come from the app's type scale rather than the
+		// renderer's default: replies are the thing people read, and the
+		// Material default line height is tuned for lists and labels.
+		text = MaterialTheme.typography.bodyLarge,
+		paragraph = MaterialTheme.typography.bodyLarge,
+		h1 = MaterialTheme.typography.headlineSmall,
+		h2 = MaterialTheme.typography.titleLarge,
+		h3 = MaterialTheme.typography.titleMedium,
+		code = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+		inlineCode = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+		quote = MaterialTheme.typography.bodyLarge,
+	)
+
+	if (deltas != null) {
+		// ## Why the app appends the deltas itself
+		//
+		// The library also ships `collectAsStreamingMarkdownState(flow)`, which
+		// does exactly this in one line -- and it is *not callable from Kotlin
+		// here*. Its JVM signature is public (verified with `javap` against the
+		// 0.45.0 artifact), but the Kotlin metadata the Android variant
+		// publishes does not expose it, so the compiler reports an unresolved
+		// reference to a function that demonstrably exists. The two functions it
+		// is built from are both visible, so this is the same work done
+		// explicitly rather than a reimplementation.
+		val streaming = rememberStreamingMarkdownState()
+		LaunchedEffect(deltas) {
+			// Sequential and lossless: `append` suspends, so the loop cannot
+			// run ahead of the parser, and `Channel` iteration delivers every
+			// value in order without dropping any.
+			for (delta in deltas) {
+				streaming.append(delta)
+			}
+		}
+		// Positional, not named: the m3 artifact carries four `Markdown`
+		// overloads (String, MarkdownState, State, StreamingMarkdownState) and
+		// naming parameters does not disambiguate them here -- the compiler
+		// picked the `MarkdownState` one and rejected the argument. The order
+		// is state, colors, typography, modifier.
+		Markdown(streaming, colors, typography, modifier)
+		return
+	}
+
 	// retainState is the fix for the flicker, and leaving it at its default was
 	// the bug.
 	//
@@ -63,28 +143,7 @@ fun MarkdownText(
 	Markdown(
 		markdownState = state,
 		modifier = modifier,
-		colors = markdownColor(
-			text = MaterialTheme.colorScheme.onSurface,
-			// Read from the library's own metadata rather than guessed: the
-			// function takes exactly these five colours plus `darkTheme` and
-			// `alert`, and an invented name does not compile.
-			codeBackground = MaterialTheme.colorScheme.surfaceVariant,
-			inlineCodeBackground = MaterialTheme.colorScheme.surfaceVariant,
-			dividerColor = MaterialTheme.colorScheme.outlineVariant,
-			tableBackground = MaterialTheme.colorScheme.surface,
-		),
-		typography = markdownTypography(
-			// Body text has to come from the app's type scale rather than the
-			// renderer's default: replies are the thing people read, and the
-			// Material default line height is tuned for lists and labels.
-			text = MaterialTheme.typography.bodyLarge,
-			paragraph = MaterialTheme.typography.bodyLarge,
-			h1 = MaterialTheme.typography.headlineSmall,
-			h2 = MaterialTheme.typography.titleLarge,
-			h3 = MaterialTheme.typography.titleMedium,
-			code = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-			inlineCode = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-			quote = MaterialTheme.typography.bodyLarge,
-		),
+		colors = colors,
+		typography = typography,
 	)
 }
