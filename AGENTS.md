@@ -18,7 +18,8 @@ the architecture from scratch:
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
-| `docs/08-port-philosophy.md` | **Why** the DeepSeek Harness runtime is being ported, which options the project refuses to have, and the seven design questions still open |
+| `docs/08-port-philosophy.md` | **Why** the runtime is being ported, which options the project refuses to have, and how the seven design questions were answered |
+| `docs/09-approvals.md` | The approval model: why the default is no prompts at all, and how per-tool, per-assistant and per-path rules compose |
 | `docs/port-assessment.md`, `docs/port-design.md` | The measured feasibility and the plan |
 
 `docs/07-gotchas.md` is the one to read before changing anything in a hurry.
@@ -50,9 +51,21 @@ Two consequences bind every future change, and neither is negotiable:
   *code runs on your device, sees only what you hand it, cannot reach the
   network, and cannot reach your files.*
 
-Full reasoning, plus the seven open design questions and what each one would
-change, is in `docs/08-port-philosophy.md`. Do not add a mode, a permission
-prompt, or a "pro" escape hatch without answering it there first.
+**Safety here comes from structure, not from prompts.** The agent can only see
+and change a conversation's own directory, and what the user brings in is a
+*copy* — the original never moves and is never in the directory. So everything
+inside is already reversible, and nothing inside needs an approval prompt by
+default. Asking "are you sure?" where the answer is always yes is not a safety
+measure, it is friction, and friction trains people to click through.
+
+That is why **no approval is required by default, including for deletion**. A
+user who wants to be asked can configure it, globally, per assistant, or per
+path, and where two rules apply the stricter one wins. `docs/09-approvals.md`
+has the model.
+
+Full reasoning, plus the design questions and how each was answered, is in
+`docs/08-port-philosophy.md`. Do not add a mode, a permission prompt, or a "pro"
+escape hatch without answering it there first.
 
 ---
 
@@ -98,10 +111,12 @@ Two corrections to what this file used to claim, both verified — see
   not the transcript. Bubbles are capped at 640dp but aligned to the start/end
   inside a full-width item, so on a tablet an assistant bubble begins at the
   32dp gutter while the centred composer begins at 320dp.
-- The cap is **inert at seven call sites** in five files (the conversations
-  list, the agents list, files, settings, `WideDialog`), because they chain
-  `fillMaxWidth`/`fillMaxSize` *before* `widthIn`. Three of those carry a
-  comment claiming the cap is what makes the tablet layout readable.
+- The cap **was inert at seven call sites** in five files (the conversations
+  list, the agents list, files, settings, `WideDialog`), because they chained
+  `fillMaxWidth`/`fillMaxSize` *before* `widthIn`. **Fixed**, and verified by
+  measuring the rendered column on the tablet AVD: 576dp, centred. Three of
+  those sites had carried a comment claiming the cap was what made the tablet
+  layout readable — the comment was describing behaviour the code did not have.
 
 **A modifier-order trap, hit once already:** `Modifier.fillMaxWidth()` is
 greedy and consumes the incoming maximum, so `.fillMaxWidth().widthIn(max = …)`

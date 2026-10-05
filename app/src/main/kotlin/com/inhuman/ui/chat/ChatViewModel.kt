@@ -848,6 +848,18 @@ class ChatViewModel(
 		var finishedCalls: List<ToolCallUi> = emptyList()
 		var wasStopped = false
 
+		// Tracks what the incremental parser already has. A cursor rather than
+		// an integer because "send the part that is new" has two ways to be
+		// wrong -- re-sending a prefix duplicates the reply, skipping a slice
+		// loses text -- and neither is visible after the stream has finished.
+		// The invariant is tested in DeltaCursorTest.
+		//
+		// Declared here, outside the `try`, because the `finally` flushes the
+		// last publish window through it. Inside the `try` it would be out of
+		// scope in the `finally`, which is exactly how the final partial window
+		// came to be dropped.
+		val cursor = DeltaCursor()
+
 		try {
 			// When the screen was last given a snapshot of the streaming reply.
 			//
@@ -864,28 +876,15 @@ class ChatViewModel(
 			//
 			// 40 ms is fast enough that the text still appears as it is
 			// produced -- 25 updates a second against a display that draws 60 --
-			// and it removes most of the copying. The `finally` block publishes
-			// regardless, so the last partial window is never lost.
+			// and it removes most of the copying. The last partial window is
+			// flushed by `publishIfDue(force = true)` in the `finally` block
+			// below, which is the only reason this throttle is not lossy.
 			var publishedAt = 0L
-			// Tracks what the incremental parser already has. A cursor rather
-			// than an integer because "send the part that is new" has two ways
-			// to be wrong -- re-sending a prefix duplicates the reply, skipping
-			// a slice loses text -- and neither is visible after the stream has
-			// finished. The invariant is tested in DeltaCursorTest.
-			val cursor = DeltaCursor()
 			fun publishIfDue(force: Boolean = false) {
 				val now = System.currentTimeMillis()
 				if (!force && now - publishedAt < STREAM_PUBLISH_INTERVAL_MS) return
 				publishedAt = now
-				updateParts(replyId, reasoning.toString(), answer.toString(), calls.values.toList())
-
-				// Hand the *new* answer text to the incremental parser. Only
-				// the answer: reasoning is rendered as plain dimmed text in its
-				// own collapsed section, so a reasoning delta appended here
-				// would be parsed as part of the answer and then vanish when
-				// the reply completed.
-				val channel = replyDeltas[replyId] ?: return
-				cursor.next(answer)?.let { channel.trySend(it) }
+				publishParts(replyId, reasoning, answer, calls, cursor)
 			}
 
 			provider.stream(
@@ -991,6 +990,23 @@ class ChatViewModel(
 				}
 			}
 		} finally {
+			// Flush the last, partial publish window.
+			//
+			// `publishIfDue` below throttles to one update per 40 ms and is a
+			// *local* function, which is precisely why this was missing: the
+			// comment at the throttle claimed "the `finally` block publishes
+			// regardless", but a local function declared inside the `try` is not
+			// in scope in the `finally`, so the finally only ever called
+			// `updateMessage`. Up to 40 ms of tokens were therefore absent from
+			// `plainText` and from `parts` while the database row -- written
+			// from these StringBuilders -- was complete. The symptom was a
+			// bubble that stayed a few words short until something reloaded the
+			// transcript, which reads as a rendering delay rather than as lost
+			// state.
+			//
+			// Hoisting the publish into a real method is the fix; calling it
+			// here is what makes the throttle non-lossy.
+			publishParts(replyId, reasoning, answer, calls, cursor)
 			finishedCalls = calls.values.toList()
 			// The reply is done arriving, so it stays parsed from the plain
 			// renderer from here on -- and the channel is dropped so an
@@ -1467,6 +1483,35 @@ class ChatViewModel(
 				toolCalls = calls,
 			)
 		}
+	}
+
+	/**
+	 * Publish the reply so far: the text, and the new part of it to the
+	 * incremental Markdown parser.
+	 *
+	 * A method rather than a lambda declared inside the streaming `try`, because
+	 * the `finally` has to be able to call it and a local function is not in
+	 * scope there. That scoping detail is the whole of the defect it fixes: the
+	 * throttle's comment promised the finally published the last window, and it
+	 * could not have.
+	 */
+	private fun publishParts(
+		id: String,
+		reasoning: StringBuilder,
+		answer: StringBuilder,
+		calls: Map<Int, ToolCallUi>,
+		cursor: DeltaCursor,
+	) {
+		updateParts(id, reasoning.toString(), answer.toString(), calls.values.toList())
+
+		// Hand the *new* answer text to the incremental parser. Only the
+		// answer: reasoning is rendered as plain dimmed text in its own
+		// collapsed section, so a reasoning delta appended here would be parsed
+		// as part of the answer. The cursor guarantees each character is
+		// delivered exactly once -- re-sending a prefix duplicates the reply and
+		// skipping a slice loses text, and neither is visible after the stream
+		// has ended.
+		cursor.next(answer.toString())?.let { delta -> replyDeltas[id]?.trySend(delta) }
 	}
 
 	private fun updateMessage(id: String, transform: (ChatMessageUi) -> ChatMessageUi) {
