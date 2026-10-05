@@ -58,11 +58,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.data.Branches
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
+import kotlinx.coroutines.flow.map
 
 /**
  * One conversation.
@@ -81,9 +83,48 @@ fun ChatScreen(
 	/** Raised while a dialog is up, so system Back closes it rather than leaving. */
 	onDialogVisibilityChange: (Boolean) -> Unit = {},
 ) {
-	val state by viewModel.state.collectAsStateWithLifecycle()
+	// ## Why nothing here reads the whole state
+	//
+	// This used to be `val state by viewModel.state.collectAsStateWithLifecycle()`
+	// and every field was read through it. A streaming reply publishes a new
+	// `ChatUiState` on each throttled tick, so that one line invalidated the
+	// entire screen: the `Scaffold` and both of its lambdas were rebuilt, the
+	// title `buildString` re-ran, and the `LazyColumn`'s content DSL was
+	// re-executed several times a second -- for a change that affects one row.
+	//
+	// Compose tracks reads, not fields, so the fix is to read narrowly. Each
+	// `by` below subscribes this scope to one field; a field that only the
+	// Composer needs is read where the Composer is composed, and the transcript
+	// is read inside the list's own lambda. What is left reading at the top is
+	// the handful of values the chrome genuinely depends on.
+	val title by viewModel.state.map { it.title }.collectAsStateWithLifecycle("New conversation")
+	val modelLabel by viewModel.state.map { it.modelLabel }.collectAsStateWithLifecycle("default model")
+	val thinking by viewModel.state.map { it.thinking }.collectAsStateWithLifecycle(false)
+	val reasoningEffort by viewModel.state
+		.map { it.reasoningEffort }
+		.collectAsStateWithLifecycle<String?>(null)
+	val error by viewModel.state.map { it.error }.collectAsStateWithLifecycle(null)
+	val pendingApproval by viewModel.state.map { it.pendingApproval }.collectAsStateWithLifecycle(null)
+
+	// The composer's own inputs. Separate reads for the same reason as the rest:
+	// typing changes one of these and must not invalidate the transcript, and a
+	// streamed token changes `isStreaming` at the start and end of a turn
+	// without touching the text in the field.
+	val input by viewModel.state.map { it.input }.collectAsStateWithLifecycle("")
+	val configured by viewModel.state.map { it.configured }.collectAsStateWithLifecycle(false)
+	val pendingAttachments by viewModel.state
+		.map { it.pendingAttachments }
+		.collectAsStateWithLifecycle(emptyList())
+	val modelSupportsVision by viewModel.state
+		.map { it.modelSupportsVision }
+		.collectAsStateWithLifecycle(false)
+
 	val listState = rememberLazyListState()
 	var showModelPicker by remember { mutableStateOf(false) }
+	// Whether the context figures are open. Screen state rather than view model
+	// state: it is about what this screen is showing, and a rotation that
+	// closed it is the correct outcome.
+	var showContextDetail by remember { mutableStateOf(false) }
 
 	// Named `ctx`, not `context`: the bare name collides with the Kotlin
 	// stdlib's `context(...)` at every call site that has a lambda in scope, and
@@ -107,10 +148,32 @@ fun ChatScreen(
 		}
 	}
 
+	// ## Why the transcript is read down there and not here
+	//
+	// The scaffold below wants six values that change on a human timescale: a
+	// title, a model label, a thinking flag, an effort level, an error, a
+	// pending approval. The transcript is the one thing that changes several
+	// times a second, and it is also the only heavy value in the state -- a new
+	// list, with a new object for the streaming row, on every throttled tick.
+	//
+	// Reading `messages` in this scope would mean every tick invalidates the
+	// whole screen: the top bar rebuilt, its title `buildString` re-run, and the
+	// `LazyColumn`'s content DSL re-executed. Asking for it inside the list's own
+	// lambda keeps the invalidation inside the list, which is where the change
+	// is, and leaves the chrome alone. Compose tracks reads rather than fields,
+	// so this is the whole of the fix.
+	val messageCount by viewModel.state.map { it.messages.size }.collectAsStateWithLifecycle(0)
+	val lastMessageId by viewModel.state.map { it.messages.lastOrNull()?.id }.collectAsStateWithLifecycle(null)
+	val lastMessageLength by viewModel.state
+		.map { it.messages.lastOrNull()?.plainText?.length ?: 0 }
+		.collectAsStateWithLifecycle(0)
+	val isStreaming by viewModel.state.map { it.isStreaming }.collectAsStateWithLifecycle(false)
+	val currentTurnMutated by viewModel.state.map { it.currentTurnMutated }.collectAsStateWithLifecycle(false)
+
 	// Reported upward so the app's single Back handler knows a dialog is up.
 	// Both this and the approval gate are transient questions that Back should
 	// answer by dismissing, not by navigating away from.
-	val anyDialogOpen = showModelPicker || state.pendingApproval != null
+	val anyDialogOpen = showModelPicker || pendingApproval != null
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
 	// Re-read the key and demo setting whenever this screen appears. The view
@@ -120,13 +183,22 @@ fun ChatScreen(
 
 	// Follow the newest content while a reply arrives, but never fight the user.
 	//
-	// Two things matter here. The effect keys on the *number* of messages, not
-	// on any content, so a token arriving does not restart it -- keying on
-	// something that changes per token would fire an animated scroll many times
-	// a second, which is its own kind of flicker. And it only scrolls when the
-	// user is already near the bottom: yanking the view down while someone is
-	// reading earlier in the conversation is the single most annoying thing a
-	// chat app can do.
+	// ## Why the key is not just the message count
+	//
+	// It was, and that made this effect nearly dead: a streaming reply does not
+	// change the number of messages, so nothing scrolled while one grew. Once
+	// the bubble passed the height of the screen the newest tokens landed below
+	// the fold and the reader had to chase them -- the opposite of what this is
+	// for.
+	//
+	// The key is the count plus the length of the last message's text, which
+	// changes as tokens arrive and changes *once* when a reply is appended. It
+	// deliberately is not the text itself: comparing a growing string on every
+	// chunk to decide whether to scroll would cost more than the scroll.
+	//
+	// And it only scrolls when the user is already near the bottom -- yanking
+	// the view down while someone is reading earlier in the conversation is the
+	// single most annoying thing a chat app can do.
 	val atBottom by remember {
 		derivedStateOf {
 			val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()
@@ -134,17 +206,20 @@ fun ChatScreen(
 		}
 	}
 
-	// Which message the regenerate control belongs to. Computed here rather than
-	// compared per row, so the list does not scan itself once per message.
-	val lastAssistantId = remember(state.messages) {
-		state.messages.lastOrNull { !it.fromUser && !it.isToolResult }?.id
+	// Which message the regenerate control belongs to. Computed from the tail
+	// key rather than the list, so the scan does not re-run several times a
+	// second while a reply streams.
+	var lastAssistantId by remember { mutableStateOf<String?>(null) }
+	LaunchedEffect(lastMessageId) {
+		lastAssistantId = viewModel.state.value.messages
+			.lastOrNull { !it.fromUser && !it.isToolResult }?.id
 	}
-	LaunchedEffect(state.messages.size) {
-		if (state.messages.isNotEmpty() && atBottom) {
+	LaunchedEffect(messageCount, lastMessageLength) {
+		if (messageCount > 0 && atBottom) {
 			// scrollToItem, not animateScrollToItem: the list is already growing
 			// under the user's eyes, and an animation racing the arrival of the
 			// next chunk is what makes streaming look unsteady.
-			listState.scrollToItem(state.messages.lastIndex)
+			listState.scrollToItem(messageCount - 1)
 		}
 	}
 
@@ -161,17 +236,17 @@ fun ChatScreen(
 						modifier = Modifier.clickable { showModelPicker = true },
 					) {
 						Text(
-							text = state.title,
+							text = title,
 							style = MaterialTheme.typography.titleMedium,
 							maxLines = 1,
 							overflow = TextOverflow.Ellipsis,
 						)
 						Text(
 							text = buildString {
-								append(state.modelLabel)
-								if (state.thinking) {
+								append(modelLabel)
+								if (thinking) {
 									append(" · thinking")
-									state.reasoningEffort?.let { append(" ($it)") }
+									reasoningEffort?.let { append(" ($it)") }
 								}
 							},
 							style = MaterialTheme.typography.labelLarge,
@@ -197,6 +272,21 @@ fun ChatScreen(
 		},
 		containerColor = MaterialTheme.colorScheme.background,
 	) { inner ->
+		// ## The measure, and why the bottom of the screen needed it too
+		//
+		// A message bubble is capped at [Layout.ReadableMeasure] so a paragraph
+		// does not run the width of a tablet. The composer underneath it was
+		// not, so on a tablet the input field, the attach button, the send
+		// button and the context ring stretched the full 1280dp while the
+		// conversation above them stopped at 640 -- one column of text with a
+		// control strip twice its width, and the send button parked in a corner
+		// nobody looks at.
+		//
+		// Capping and centring the strip puts it under the conversation it
+		// belongs to. On a phone the cap is inert: `screenWidthDp` is well under
+		// 640, so `widthIn` never binds and nothing moves. That is the point of
+		// expressing it as a maximum rather than as a form-factor branch -- one
+		// layout, correct at both sizes.
 		Column(
 			modifier = Modifier
 				.fillMaxSize()
@@ -206,6 +296,17 @@ fun ChatScreen(
 				// of being covered by it.
 				.imePadding(),
 		) {
+			// Read inside this lambda, so a new message or a streamed token
+			// invalidates the list rather than the whole screen. See the note
+			// above the state reads.
+			val messages by viewModel.state.map { it.messages }.collectAsStateWithLifecycle(emptyList())
+			// Structured so Compose can skip it: two stable fields beat a
+			// `ContextUsage` read through a state object that changes for
+			// unrelated reasons.
+			val usage by viewModel.state
+				.map { ContextUsage(it.context.usedTokens, it.context.contextWindow) }
+				.collectAsStateWithLifecycle(ContextUsage(null, null))
+
 			LazyColumn(
 				state = listState,
 				modifier = Modifier.weight(1f),
@@ -215,15 +316,15 @@ fun ChatScreen(
 				),
 				verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 			) {
-				items(state.messages, key = { it.id }) { message ->
+				items(messages, key = { it.id }) { message ->
 					MessageBubble(
 						message = message,
 						// The newest assistant reply, which is the only one that
 						// can be regenerated without discarding what follows it.
 						isLastAssistantMessage = !message.fromUser && !message.isToolResult &&
 							message.id == lastAssistantId,
-						isStreaming = state.isStreaming,
-						currentTurnMutated = state.currentTurnMutated,
+						isStreaming = isStreaming,
+						currentTurnMutated = currentTurnMutated,
 						onRegenerate = viewModel::regenerate,
 						// Both ids go up: the alternative being switched to is
 						// not on the active path, so the view model cannot find
@@ -235,35 +336,59 @@ fun ChatScreen(
 				}
 			}
 
-			state.error?.let { error ->
-				Row(
-					modifier = Modifier
-						.fillMaxWidth()
-						.padding(horizontal = comfortableGutter(), vertical = 4.dp),
-					verticalAlignment = Alignment.CenterVertically,
-				) {
-					Text(
-						text = error,
-						style = MaterialTheme.typography.bodyMedium,
-						color = MaterialTheme.colorScheme.error,
-						modifier = Modifier.weight(1f),
-					)
-					TextButton(onClick = viewModel::clearError) { Text("Dismiss") }
+			// The bottom strip, centred on the same measure as the bubbles
+			// above it. Both children fill the cap and the column centres them.
+			Column(
+				modifier = Modifier.fillMaxWidth(),
+				horizontalAlignment = Alignment.CenterHorizontally,
+			) {
+				error?.let { message ->
+					Row(
+						// Constrain first, fill second: see the note on the
+						// composer's modifier.
+						modifier = Modifier
+							.widthIn(max = Layout.ReadableMeasure)
+							.fillMaxWidth()
+							.padding(horizontal = comfortableGutter(), vertical = 4.dp),
+						verticalAlignment = Alignment.CenterVertically,
+					) {
+						Text(
+							text = message,
+							style = MaterialTheme.typography.bodyMedium,
+							color = MaterialTheme.colorScheme.error,
+							modifier = Modifier.weight(1f),
+						)
+						TextButton(onClick = viewModel::clearError) { Text("Dismiss") }
+					}
 				}
-			}
 
-			Composer(
-				value = state.input,
-				onValueChange = viewModel::onInputChange,
-				onSend = viewModel::send,
-				onStop = viewModel::stop,
-				isStreaming = state.isStreaming,
-				enabled = state.configured,
-				attachments = state.pendingAttachments,
-				canAttachImages = state.modelSupportsVision,
-				onAttach = { importer.launch(arrayOf("image/*")) },
-				onRemoveAttachment = viewModel::removeAttachment,
-			)
+				Composer(
+					value = input,
+					onValueChange = viewModel::onInputChange,
+					onSend = viewModel::send,
+					onStop = viewModel::stop,
+					isStreaming = isStreaming,
+					enabled = configured,
+					attachments = pendingAttachments,
+					canAttachImages = modelSupportsVision,
+					onAttach = { importer.launch(arrayOf("image/*")) },
+					onRemoveAttachment = viewModel::removeAttachment,
+					context = usage,
+					showContextDetail = showContextDetail,
+					onToggleContextDetail = { showContextDetail = !showContextDetail },
+					// ## The modifier order is load-bearing
+					//
+					// `fillMaxWidth()` is greedy: it takes the whole incoming
+					// maximum. Put it *before* `widthIn` and the cap never
+					// binds -- the field stretches to 2208px on a 1280dp tablet
+					// while the messages above it stop at 1232. Constraining
+					// first and filling second is what makes the maximum mean
+					// anything.
+					modifier = Modifier
+						.widthIn(max = Layout.ReadableMeasure)
+						.fillMaxWidth(),
+				)
+			}
 		}
 	}
 
@@ -273,12 +398,15 @@ fun ChatScreen(
 	// looked at occasionally and matters constantly, and a bar with Files, Key
 	// and Model in it is a bar with no room for the conversation's name.
 	if (showModelPicker) {
+		val chosenModel by viewModel.state.map { it.model }.collectAsStateWithLifecycle(null)
+		val resolvedModel by viewModel.state.map { it.effectiveModel }.collectAsStateWithLifecycle(null)
+
 		ModelPickerDialog(
 			chat = viewModel,
-			currentModel = state.model,
-			effectiveModel = state.effectiveModel,
-			currentEffort = state.reasoningEffort,
-			currentThinking = state.thinking,
+			currentModel = chosenModel,
+			effectiveModel = resolvedModel,
+			currentEffort = reasoningEffort,
+			currentThinking = thinking,
 			onDismiss = { showModelPicker = false },
 		)
 	}
@@ -292,8 +420,7 @@ fun ChatScreen(
 	// name and JSON arguments would be technically complete and practically
 	// useless -- the point of the gate is that someone reads it before saying
 	// yes, and nobody reads `{"path":"a.txt"}` carefully.
-	state.pendingApproval?.let { pending ->
-		AlertDialog(
+	pendingApproval?.let { pending ->		AlertDialog(
 			onDismissRequest = viewModel::declinePendingCall,
 			title = { Text("Allow this action?") },
 			text = {
@@ -459,12 +586,34 @@ private fun ToolCallLine(call: ToolCallUi) {
 private fun summariseArguments(call: ToolCallUi): String {
 	val args = call.argumentsJson
 	if (args.isBlank()) return ""
-	for (key in listOf("path", "query", "pattern", "name")) {
-		val match = Regex("\"$key\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(args) ?: continue
+	for (key in ARGUMENT_KEYS) {
+		val match = argumentPattern(key).find(args) ?: continue
 		return match.groupValues[1].replace("\\\"", "\"").take(60)
 	}
 	return args.take(60)
 }
+
+/** The keys worth showing, in the order worth trying. */
+private val ARGUMENT_KEYS = listOf("path", "query", "pattern", "name")
+
+/**
+ * One compiled pattern per key, built on first use.
+ *
+ * These were constructed inside the loop on every call, and a tool row
+ * summarises its arguments on every recomposition -- so scrolling a transcript
+ * of tool calls compiled the same four patterns again and again. `Regex`
+ * compiles eagerly, which makes this the expensive kind of allocation rather
+ * than the cheap kind.
+ */
+private val argumentPatterns = mutableMapOf<String, Regex>()
+
+private fun argumentPattern(key: String): Regex = synchronized(argumentPatterns) {
+	argumentPatterns.getOrPut(key) { Regex("\"$key\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"") }
+}
+
+/** Compiles once, for the same reason as [argumentPatterns]. */
+private val COUNTED_SUMMARY =
+	Regex("^(.*?)\\s+—\\s+(\\d+)\\s+(results?|files?|items?|matches?)$")
 
 /**
  * The one line that stands for a tool result.
@@ -496,8 +645,10 @@ private fun toolResultSummary(
 	if (firstLine.isBlank()) return (toolName ?: "Tool result") to null
 
 	// "… — 5 results", "… — 3 files", "… — 1 item".
-	val counted = Regex("^(.*?)\\s+—\\s+(\\d+)\\s+(results?|files?|items?|matches?)$")
-		.find(firstLine)
+	//
+	// A file-level pattern rather than one built per call: this runs on every
+	// recomposition of a tool-result row.
+	val counted = COUNTED_SUMMARY.find(firstLine)
 	val body = counted?.groupValues?.get(1)?.trim() ?: firstLine
 	val count = counted?.groupValues?.get(2)?.let { "$it ${counted.groupValues[3]}" }
 
@@ -632,7 +783,7 @@ private fun MessageBubble(
 								color = onColor,
 							)
 						} else {
-							MarkdownText(text = part.text)
+							MarkdownText(text = part.text, deltas = message.deltas)
 						}
 					}
 
@@ -750,8 +901,22 @@ private fun Composer(
 	canAttachImages: Boolean,
 	onAttach: () -> Unit,
 	onRemoveAttachment: (PendingAttachment) -> Unit,
+	context: ContextUsage,
+	showContextDetail: Boolean,
+	onToggleContextDetail: () -> Unit,
+	modifier: Modifier = Modifier,
 ) {
-	Column(modifier = Modifier.fillMaxWidth()) {
+	Column(modifier = modifier) {
+		// Above the field and right-aligned, so it reads as a status of the
+		// conversation rather than as a control on the message being written.
+		// It draws nothing at all when the provider reports nothing to draw.
+		ContextGauge(
+			usage = context,
+			expanded = showContextDetail,
+			onToggle = onToggleContextDetail,
+			modifier = Modifier.padding(horizontal = comfortableGutter(), vertical = 4.dp),
+		)
+
 		// Staged images sit above the field, so they read as part of the message
 		// being written rather than as a toolbar beside it.
 		if (attachments.isNotEmpty()) {
