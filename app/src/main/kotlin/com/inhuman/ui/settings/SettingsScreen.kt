@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +44,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.ui.chat.SettingsViewModel
@@ -227,6 +230,125 @@ fun SettingsScreen(
 					)
 				}
 			}
+
+			ApprovalRulesSection(
+				rules = state.approvalRules,
+				onRuleChange = viewModel::setApprovalRule,
+			)
 		}
 	}
+}
+
+/**
+ * Which tool calls ask first, by default.
+ *
+ * ## Why the default is "run it" and why this screen still exists
+ *
+ * The agent can only see and change a conversation's own directory, and what the
+ * user brings in is a **copy** -- the original never moves and is never in the
+ * directory. So nothing inside is irreversible and nothing needs confirming by
+ * default. But "by default" is not "always right for everyone": a user who wants
+ * a second look before a file is replaced should get one, and this is where they
+ * say so.
+ *
+ * The wording deliberately avoids "permission". Nothing here grants anything --
+ * every tool is already reachable, and the strictest setting only takes a
+ * capability away. Calling it a permission would suggest the opposite direction
+ * is available, and `docs/08-port-philosophy.md` is where that is ruled out.
+ */
+@Composable
+private fun ApprovalRulesSection(
+	rules: Map<String, ToolPolicy>,
+	onRuleChange: (String, ToolPolicy) -> Unit,
+) {
+	Column(
+		modifier = Modifier
+			.widthIn(max = Layout.ReadableMeasure)
+			.fillMaxWidth(),
+		verticalArrangement = Arrangement.spacedBy(6.dp),
+	) {
+		Text(
+			text = "Before a tool runs",
+			style = MaterialTheme.typography.titleMedium,
+			color = MaterialTheme.colorScheme.onBackground,
+		)
+		Text(
+			text = "Every tool runs without asking, because everything a tool can " +
+				"reach is a copy inside this conversation's own folder. Tighten any " +
+				"of them here if you would rather be asked.",
+			style = MaterialTheme.typography.bodyMedium,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+
+		for (entry in ToolCatalog.all) {
+			val current = rules[entry.name] ?: ToolPolicy.Free
+			ApprovalRuleRow(
+				name = entry.name,
+				blurb = entry.blurb,
+				changesFiles = entry.mutates,
+				policy = current,
+				onSelect = { onRuleChange(entry.name, it) },
+			)
+		}
+	}
+}
+
+/**
+ * One tool, and what it should do before running.
+ *
+ * A row of chips rather than a dropdown: there are four states and the whole set
+ * fits, so the user can see that `Deny` exists without opening anything. A
+ * dropdown would hide the two states they are least likely to think of --
+ * refusing outright, and hiding a file from the agent entirely.
+ *
+ * `changesFiles` is shown because it is what the decision is actually about. A
+ * read-only tool asking for approval protects nothing; the one that replaces a
+ * file is where a second look has a cost worth paying.
+ */
+@Composable
+private fun ApprovalRuleRow(
+	name: String,
+	blurb: String,
+	changesFiles: Boolean,
+	policy: ToolPolicy,
+	onSelect: (ToolPolicy) -> Unit,
+) {
+	Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+		Text(
+			text = name,
+			style = MaterialTheme.typography.bodyLarge,
+			color = MaterialTheme.colorScheme.onBackground,
+		)
+		Text(
+			text = if (changesFiles) "$blurb · changes files" else blurb,
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		Row(
+			horizontalArrangement = Arrangement.spacedBy(8.dp),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			for (option in ToolPolicy.entries) {
+				FilterChip(
+					selected = option == policy,
+					onClick = { onSelect(option) },
+					label = { Text(option.label()) },
+				)
+			}
+		}
+	}
+}
+
+/**
+ * The word a user reads, which is not the enum's name.
+ *
+ * Returns a `String` rather than wrapping `Text` so it stays an ordinary
+ * function: a `@Composable` helper that only chooses a word is one the caller
+ * cannot use anywhere else, for no benefit.
+ */
+private fun ToolPolicy.label(): String = when (this) {
+	ToolPolicy.Free -> "run it"
+	ToolPolicy.Ask -> "ask first"
+	ToolPolicy.Deny -> "refuse"
+	ToolPolicy.Blind -> "hide"
 }

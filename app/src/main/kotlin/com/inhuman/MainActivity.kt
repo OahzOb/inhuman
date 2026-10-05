@@ -170,7 +170,9 @@ private fun InhumanRoot() {
 
 	when {
 		showSettings -> {
-			val factory = remember(secure, agents) { viewModelFactory { SettingsViewModel(secure, agents) } }
+			val factory = remember(secure, agents, repository) {
+				viewModelFactory { SettingsViewModel(secure, agents, repository) }
+			}
 			val vm: SettingsViewModel = viewModel(factory = factory)
 			SettingsScreen(viewModel = vm, onBack = { showSettings = false })
 		}

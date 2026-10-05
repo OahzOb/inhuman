@@ -2,8 +2,10 @@ package com.inhuman.ui.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
 import com.inhuman.core.data.AgentRepository
+import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.secret.SecureStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +21,17 @@ data class SettingsUiState(
 	val statusIsError: Boolean = false,
 	/** Reply from the built-in scripted source instead of DeepSeek. */
 	val demoMode: Boolean = false,
+	/**
+	 * The global approval rules, by tool name.
+	 *
+	 * Absent means [ToolPolicy.Free], which is why this is a map rather than a
+	 * value per tool: a tool with no rule has no row in the table either, and
+	 * `ToolPolicy.Free` is stored by *deleting* rather than by writing "Free".
+	 * "Configured to run it" and "not configured" are different states and the
+	 * difference is worth keeping, so that a future default change reaches
+	 * everyone who never expressed an opinion.
+	 */
+	val approvalRules: Map<String, ToolPolicy> = emptyMap(),
 )
 
 /**
@@ -33,6 +46,7 @@ data class SettingsUiState(
 class SettingsViewModel(
 	private val secure: SecureStore,
 	private val agents: AgentRepository,
+	private val repository: ConversationRepository,
 ) : ViewModel() {
 
 	private val _state = MutableStateFlow(SettingsUiState())
@@ -48,6 +62,29 @@ class SettingsViewModel(
 			hasSavedKey = !existing.isNullOrBlank(),
 			demoMode = secure.get(SecureStore.KEY_DEMO_MODE) == "1",
 		)
+		loadRules()
+	}
+
+	private fun loadRules() {
+		viewModelScope.launch {
+			val rules = runCatching { repository.policies().globalRules() }.getOrDefault(emptyMap())
+			_state.value = _state.value.copy(approvalRules = rules)
+		}
+	}
+
+	/**
+	 * Set one tool's global rule.
+	 *
+	 * Written through to the database and then re-read rather than patched in
+	 * memory, so what the chips show is what a tool call would actually resolve.
+	 * A locally-updated map would be a second source of truth for the one thing
+	 * this screen exists to make trustworthy.
+	 */
+	fun setApprovalRule(toolName: String, policy: ToolPolicy) {
+		viewModelScope.launch {
+			runCatching { repository.policies().setGlobalRule(toolName, policy) }
+			loadRules()
+		}
 	}
 
 	fun setDemoMode(enabled: Boolean) {
