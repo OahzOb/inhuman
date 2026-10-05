@@ -3,7 +3,10 @@ package com.inhuman.ui.agents
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.core.ai.RemoteModel
+import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.data.AgentRepository
+import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ToolsColumn
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,6 +51,19 @@ data class AgentDraft(
 	 * want and so is one that keeps up with new capabilities automatically.
 	 */
 	val tools: List<String>? = null,
+	/**
+	 * What this assistant may do without asking, by tool name.
+	 *
+	 * Carried in the draft like [tools], and for the same reason: it belongs to
+	 * the assistant, so it is edited where the assistant is edited rather than in
+	 * a separate screen that would need its own picker to say *which* assistant.
+	 *
+	 * Absent means [ToolPolicy.Free], so this is empty for an assistant with no
+	 * rules. A rule can only ever tighten what the global setting allows --
+	 * `PolicySet` composes the two by taking the strictest -- so this screen
+	 * cannot be used to grant something settings has refused.
+	 */
+	val rules: Map<String, ToolPolicy> = emptyMap(),
 ) {
 	val canSave: Boolean get() = name.isNotBlank() && systemPrompt.isNotBlank()
 
@@ -67,6 +83,15 @@ data class AgentDraft(
 
 class AgentsViewModel(
 	private val repository: AgentRepository,
+	/**
+	 * Only for the approval rules, which are keyed by assistant.
+	 *
+	 * A second repository rather than a method on `AgentRepository` because the
+	 * rules and the assistant are different tables that happen to share a key --
+	 * and because `AgentRepository` is about the provider's model list as much as
+	 * about the assistant row.
+	 */
+	private val conversations: ConversationRepository,
 ) : ViewModel() {
 
 	private val _state = MutableStateFlow(AgentsUiState())
@@ -119,6 +144,16 @@ class AgentsViewModel(
 				),
 			)
 		}
+		// Loaded after the draft is shown rather than before it, so the editor
+		// opens immediately and the rules fill in. A blank rules map renders as
+		// "no rules", which is the default and therefore not a wrong answer in
+		// the meantime -- unlike an empty tools list, which would read as "none".
+		viewModelScope.launch {
+			val rules = runCatching {
+				conversations.policies().forConversation(conversationId = "", agentId = agent.id).assistant
+			}.getOrDefault(emptyMap())
+			updateDraft { it.copy(rules = rules) }
+		}
 	}
 
 	fun create() {
@@ -152,7 +187,31 @@ class AgentsViewModel(
 		if (!draft.canSave) return
 		viewModelScope.launch {
 			repository.save(draft.toEntity(System.currentTimeMillis()))
+			// Written after the assistant row exists, because `agent_approval`
+			// has no foreign key but a rule for an assistant that was never
+			// created would be invisible and impossible to remove.
+			//
+			// `Free` is written as a *deletion* inside `setAssistantRule`, so a
+			// rule the user cleared does not linger as a row saying "no
+			// restriction" -- see the note on `PolicyDao.clearAgentRule`.
+			for (entry in ToolCatalog.all) {
+				val policy = draft.rules[entry.name] ?: ToolPolicy.Free
+				runCatching { conversations.policies().setAssistantRule(draft.id, entry.name, policy) }
+			}
 			_state.update { it.copy(editing = null) }
+		}
+	}
+
+	/** Set one rule in the draft; nothing is written until [save]. */
+	fun setDraftRule(toolName: String, policy: ToolPolicy) {
+		updateDraft { draft ->
+			draft.copy(
+				rules = if (policy == ToolPolicy.Free) {
+					draft.rules - toolName
+				} else {
+					draft.rules + (toolName to policy)
+				},
+			)
 		}
 	}
 

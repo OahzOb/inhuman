@@ -178,7 +178,9 @@ private fun InhumanRoot() {
 		}
 
 		showAgents -> {
-			val factory = remember(agents) { viewModelFactory { AgentsViewModel(agents) } }
+			val factory = remember(agents, repository) {
+				viewModelFactory { AgentsViewModel(agents, repository) }
+			}
 			val vm: AgentsViewModel = viewModel(factory = factory)
 			AgentsScreen(viewModel = vm, onBack = { showAgents = false })
 		}

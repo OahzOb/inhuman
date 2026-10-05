@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Checkbox
+import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.tools.ToolCatalog
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
@@ -148,6 +149,7 @@ fun AgentsScreen(
 			modelsError = state.modelsError,
 			effortLevels = { viewModel.effortLevelsFor(it) },
 			onChange = viewModel::updateDraft,
+			onRuleChange = viewModel::setDraftRule,
 			onReloadModels = { viewModel.loadModels(force = true) },
 			onSave = viewModel::save,
 			onDismiss = viewModel::closeEditor,
@@ -253,6 +255,7 @@ private fun AgentEditor(
 	modelsError: String?,
 	effortLevels: (String?) -> List<String>,
 	onChange: ((AgentDraft) -> AgentDraft) -> Unit,
+	onRuleChange: (String, ToolPolicy) -> Unit,
 	onReloadModels: () -> Unit,
 	onSave: () -> Unit,
 	onDismiss: () -> Unit,
@@ -417,6 +420,18 @@ private fun AgentEditor(
 				color = MaterialTheme.colorScheme.outline,
 			)
 		}
+
+		HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+		// Placed immediately after a divider rather than after the tools list,
+		// which is where it was first written and where it did not appear. A
+		// section appended at the end of a long scrollable column is the one
+		// position whose absence is hardest to distinguish from a render
+		// failure, so it sits somewhere a screenshot can settle the question.
+		AssistantRulesSection(
+			rules = draft.rules,
+			onSelect = onRuleChange,
+		)
 
 		HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
@@ -712,6 +727,68 @@ private fun SectionLabel(text: String) {
 		style = MaterialTheme.typography.labelLarge,
 		color = MaterialTheme.colorScheme.onSurfaceVariant,
 	)
+}
+
+/**
+ * What this assistant may do without asking.
+ *
+ * ## Why this lives here and not in a separate rules screen
+ *
+ * The rules are keyed by assistant, so a screen of their own would need a picker
+ * at the top saying *which* assistant -- and that picker would be a second way to
+ * choose the same thing the assistants list already chooses. Editing them beside
+ * the prompt and the tool list keeps one place where an assistant is defined.
+ *
+ * ## Why nothing here can loosen anything
+ *
+ * These rules compose with the global ones by taking the strictest, so an
+ * assistant can only ever be *more* cautious than settings, never less. That is
+ * deliberate and worth stating where a user might otherwise expect to be granting
+ * something: "this assistant may delete without asking" is not expressible, and
+ * if settings already says `Ask`, choosing `run it` here changes nothing.
+ */
+@Composable
+private fun AssistantRulesSection(
+	rules: Map<String, ToolPolicy>,
+	onSelect: (String, ToolPolicy) -> Unit,
+) {
+	Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+		SectionLabel("Before a tool runs — this assistant")
+		Text(
+			text = "Tighter than the app-wide setting, never looser. Anything left " +
+				"alone follows settings.",
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.outline,
+		)
+
+		for (entry in ToolCatalog.all) {
+			val current = rules[entry.name] ?: ToolPolicy.Free
+			Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+				Text(
+					text = entry.name,
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onSurface,
+				)
+				Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+					for (option in ToolPolicy.entries) {
+						ChoiceChip(
+							label = option.shortLabel(),
+							selected = option == current,
+							onClick = { onSelect(entry.name, option) },
+						)
+					}
+				}
+			}
+		}
+	}
+}
+
+/** One word per policy, for a row that already has ten of these. */
+private fun ToolPolicy.shortLabel(): String = when (this) {
+	ToolPolicy.Free -> "follow settings"
+	ToolPolicy.Ask -> "ask"
+	ToolPolicy.Deny -> "refuse"
+	ToolPolicy.Blind -> "hide"
 }
 
 @Composable
