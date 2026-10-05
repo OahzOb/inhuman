@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.files.SessionWorkspace
 import com.inhuman.core.files.WorkspaceTransfer
@@ -25,6 +26,15 @@ data class FileEntryUi(
 	val sizeBytes: Long,
 	val modifiedAt: Long,
 	val mimeType: String,
+	/**
+	 * What the agent may do with this, from a rule on this exact path.
+	 *
+	 * The rule **on this path**, not the effective one: the effective policy for
+	 * a nested file also accounts for its ancestors, and showing that here would
+	 * make a folder's rule look like it had been copied onto everything inside
+	 * it. What the row offers to change is this path's own rule.
+	 */
+	val rule: ToolPolicy = ToolPolicy.Free,
 ) {
 	val readableSize: String
 		get() = when {
@@ -108,6 +118,22 @@ class FilesViewModel(
 		return repository.workspace(entity)
 	}
 
+	/**
+	 * Set the agent's rule for one path.
+	 *
+	 * Written through and then re-read, like the settings screen does and for the
+	 * same reason: what the row shows has to be what a tool call would resolve,
+	 * and a locally-patched list would be a second source of truth.
+	 */
+	fun setPathRule(relativePath: String, policy: ToolPolicy) {
+		viewModelScope.launch {
+			withContext(Dispatchers.IO) {
+				runCatching { repository.policies().setPathRule(conversation, relativePath, policy) }
+			}
+			refresh()
+		}
+	}
+
 	fun refresh() {
 		viewModelScope.launch {
 			_state.value = _state.value.copy(loading = true, error = null)
@@ -126,6 +152,12 @@ class FilesViewModel(
 					is SessionWorkspace.Resolution.Ok -> r.file
 					is SessionWorkspace.Resolution.Rejected -> null
 				}
+				// The rules for this conversation, read once. A per-entry query
+				// would be one round trip per row.
+				val rules = runCatching {
+					repository.policies().forConversation(conversation, agentId = null).paths
+				}.getOrDefault(emptyMap())
+
 				val entries = if (dir == null || !dir.isDirectory) {
 					null
 				} else {
@@ -133,13 +165,15 @@ class FilesViewModel(
 						.sortedWith(compareByDescending<File> { it.isDirectory }.thenBy { it.name.lowercase() })
 						.take(ws.limits.maxListEntries)
 						.map { f ->
+							val relative = ws.relativize(f)
 							FileEntryUi(
 								name = f.name,
-								relativePath = ws.relativize(f),
+								relativePath = relative,
 								isDirectory = f.isDirectory,
 								sizeBytes = if (f.isDirectory) 0 else f.length(),
 								modifiedAt = f.lastModified(),
 								mimeType = mimeTypeOf(f),
+								rule = rules[relative] ?: ToolPolicy.Free,
 							)
 						}
 				}

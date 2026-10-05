@@ -24,12 +24,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material.icons.outlined.SaveAlt
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -54,6 +58,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
 import kotlinx.coroutines.launch
@@ -225,6 +230,9 @@ fun FilesScreen(
 								}
 							},
 							onDelete = { pendingDelete = entry },
+							onRuleChange = { policy ->
+								viewModel.setPathRule(entry.relativePath, policy)
+							},
 						)
 					}
 				}
@@ -303,7 +311,10 @@ private fun FileRow(
 	onOpen: () -> Unit,
 	onExport: (() -> Unit)?,
 	onDelete: () -> Unit,
+	onRuleChange: (ToolPolicy) -> Unit,
 ) {
+	var ruleMenuOpen by remember { mutableStateOf(false) }
+
 	Row(
 		modifier = Modifier
 			.fillMaxWidth()
@@ -336,12 +347,23 @@ private fun FileRow(
 				maxLines = 1,
 				overflow = TextOverflow.Ellipsis,
 			)
-			Text(
-				text = if (entry.isDirectory) entry.readableDate
-				else "${entry.readableSize} · ${entry.readableDate}",
-				style = MaterialTheme.typography.labelLarge,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-			)
+			// The rule, when there is one, replaces the date rather than sitting
+			// beside it. A restricted file is the thing a user needs to notice,
+			// and a second line of small grey text would be read as metadata.
+			if (entry.rule != ToolPolicy.Free) {
+				Text(
+					text = entry.rule.label(),
+					style = MaterialTheme.typography.labelLarge,
+					color = MaterialTheme.colorScheme.primary,
+				)
+			} else {
+				Text(
+					text = if (entry.isDirectory) entry.readableDate
+					else "${entry.readableSize} · ${entry.readableDate}",
+					style = MaterialTheme.typography.labelLarge,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
 		}
 
 		if (onExport != null) {
@@ -353,6 +375,35 @@ private fun FileRow(
 				)
 			}
 		}
+
+		// What the agent may do with this file.
+		Box {
+			IconButton(onClick = { ruleMenuOpen = true }) {
+				Icon(
+					if (entry.rule == ToolPolicy.Free) Icons.Outlined.LockOpen
+					else Icons.Filled.Lock,
+					contentDescription = "What the agent may do with this",
+					tint = if (entry.rule == ToolPolicy.Free) {
+						MaterialTheme.colorScheme.onSurfaceVariant
+					} else {
+						MaterialTheme.colorScheme.primary
+					},
+					modifier = Modifier.size(18.dp),
+				)
+			}
+			DropdownMenu(expanded = ruleMenuOpen, onDismissRequest = { ruleMenuOpen = false }) {
+				for (option in ToolPolicy.entries) {
+					DropdownMenuItem(
+						text = { Text(option.label()) },
+						onClick = {
+							ruleMenuOpen = false
+							onRuleChange(option)
+						},
+					)
+				}
+			}
+		}
+
 		IconButton(onClick = onDelete) {
 			Icon(
 				Icons.Outlined.Delete,
@@ -367,6 +418,22 @@ private fun FileRow(
 			)
 		}
 	}
+}
+
+/**
+ * What a rule means, in the words a user would use.
+ *
+ * Duplicated from the settings screen deliberately, and the duplication is worth
+ * naming: the two screens show the same four states and a shared helper would
+ * have to live in `:core:design`, which is about layout rather than about
+ * policy. Two four-line `when`s are cheaper than the module edge -- but if a
+ * fifth policy is ever added, this is the second place that has to learn it.
+ */
+private fun ToolPolicy.label(): String = when (this) {
+	ToolPolicy.Free -> "Agent may change this"
+	ToolPolicy.Ask -> "Agent asks first"
+	ToolPolicy.Deny -> "Agent may look, not change"
+	ToolPolicy.Blind -> "Hidden from the agent"
 }
 
 private fun human(bytes: Long): String = when {
