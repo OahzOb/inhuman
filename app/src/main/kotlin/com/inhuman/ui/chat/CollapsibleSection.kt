@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -91,7 +91,14 @@ fun CollapsibleSection(
 			horizontalArrangement = Arrangement.spacedBy(4.dp),
 		) {
 			Icon(
-				imageVector = if (expanded) Icons.Filled.KeyboardArrowDown else Icons.Filled.KeyboardArrowRight,
+				imageVector = if (expanded) {
+					Icons.Filled.KeyboardArrowDown
+				} else {
+					// The AutoMirrored variant, so the arrow points the right
+					// way under an RTL layout: a disclosure triangle is one of
+					// the few glyphs whose meaning is directional.
+					Icons.AutoMirrored.Filled.KeyboardArrowRight
+				},
 				contentDescription = if (expanded) "Collapse" else "Expand",
 				tint = MaterialTheme.colorScheme.onSurfaceVariant,
 				modifier = Modifier.size(16.dp),

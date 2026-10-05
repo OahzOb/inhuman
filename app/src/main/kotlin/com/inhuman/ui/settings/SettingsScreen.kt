@@ -202,9 +202,11 @@ fun SettingsScreen(
 							color = MaterialTheme.colorScheme.onBackground,
 						)
 						Text(
-							text = "Replies are scripted on the device. Nothing is sent " +
-								"anywhere, and no key is needed. Useful for seeing how " +
-								"streaming renders.",
+							text = "Replies are scripted on the device, and the file " +
+								"tools run for real. Nothing is sent anywhere and no key " +
+								"is needed. With tools switched on it creates a file and " +
+								"then asks to delete it, so the approval gate can be " +
+								"seen without an account.",
 							style = MaterialTheme.typography.bodyMedium,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)

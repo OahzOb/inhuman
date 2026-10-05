@@ -10,6 +10,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -30,6 +31,8 @@ import com.inhuman.ui.chat.SettingsViewModel
 import com.inhuman.ui.files.FilesScreen
 import com.inhuman.ui.files.FilesViewModel
 import com.inhuman.ui.settings.SettingsScreen
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 	override fun onCreate(savedInstanceState: Bundle?) {
@@ -66,21 +69,57 @@ private fun InhumanRoot() {
 	val repository = remember { ConversationRepository(context) }
 	val agents = remember { AgentRepository(context, secure) }
 
+	// Clear out workspace directories that no conversation refers to.
+	//
+	// Deleting a conversation removes its files first and its rows second, and
+	// a crash in that window -- or a conversation abandoned part-way through
+	// creation -- leaves a folder of the user's files that nothing in the UI can
+	// see or delete. This is the sweep the delete path has always said would
+	// find them.
+	//
+	// Off the main thread and after the first frame: it lists a directory and
+	// runs one query, and nothing on screen depends on it. Silence is the
+	// expected outcome on a healthy install, which is why nothing is shown.
+	LaunchedEffect(Unit) {
+		withContext(Dispatchers.IO) {
+			runCatching { repository.sweepOrphanedWorkspaces() }
+		}
+	}
+
 	// Which conversation the chat screen is showing. Null means the list.
-	var openConversationId by remember { mutableStateOf<String?>(null) }
-	var showSettings by remember { mutableStateOf(false) }
-	var showFiles by remember { mutableStateOf(false) }
-	var showAgents by remember { mutableStateOf(false) }
+	//
+	// ## Why these are `rememberSaveable` and not `remember`
+	//
+	// The Activity declares no `android:configChanges`, so a rotation destroys
+	// and recreates it. Plain `remember` does not survive that, so turning a
+	// tablet on its side while reading a reply dropped the user back to the
+	// conversation list -- and because the view model is keyed and outlives the
+	// Activity, the turn they were reading kept running and billing with
+	// nothing on screen to show it.
+	//
+	// The same applies to the flags below: a rotation with the Files browser
+	// open should leave it open.
+	var openConversationId by rememberSaveable { mutableStateOf<String?>(null) }
+	var showSettings by rememberSaveable { mutableStateOf(false) }
+	var showFiles by rememberSaveable { mutableStateOf(false) }
+	var showAgents by rememberSaveable { mutableStateOf(false) }
 
 	// Whether a screen has an internal dialog open, so Back closes that before
 	// it navigates. Without this, Back on a screen showing a dialog would leave
 	// the screen and discard whatever the dialog was asking about.
+	//
+	// Dialog flags are deliberately *not* saved: a dialog is a question being
+	// asked right now, and restoring a screen into "a dialog is open" after a
+	// rotation would leave Back pointing at something that is not there.
 	var chatDialogOpen by remember { mutableStateOf(false) }
 	var filesDialogOpen by remember { mutableStateOf(false) }
 
 	// The file browser's current directory, so Back steps up a level before it
 	// leaves the browser. Without it, Back from three folders deep would exit
 	// the screen entirely, which is not what "up" means anywhere else.
+	//
+	// Transient for the same reason as the dialog flags: the browser's own
+	// view model is keyed by conversation and re-derives its path.
 	var filesAtRoot by remember { mutableStateOf(true) }
 
 	// Assigned by the Files branch, called by the Back handler. A var rather
@@ -219,9 +258,10 @@ private fun InhumanRoot() {
 /**
  * A [ViewModelProvider.Factory] for a view model with constructor arguments.
  *
- * Written by hand rather than pulled from a DI framework. The graph is still
- * small enough to read in one screen, and a container would be more
- * configuration than the thing it configures.
+ * Written by hand rather than pulled from a DI framework, which is why the
+ * app declares no DI dependency at all: the graph is small enough to read in
+ * one screen, and a container would be more configuration than the thing it
+ * configures.
  */
 private inline fun <reified VM : ViewModel> viewModelFactory(
 	crossinline create: () -> VM,

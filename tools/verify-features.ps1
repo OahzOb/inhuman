@@ -124,6 +124,18 @@ if ($dialog) {
     Save-Shot 'approval-declined'
     Write-Host '  after declining:'
     Labels | ForEach-Object { Write-Host "    '$_'" }
+
+    # The chip under the tool call must read "declined", not "ready".
+    #
+    # This is the assertion the screenshot cannot make: for as long as the state
+    # went unassigned the run looked identical, and the only visible difference
+    # was the word on one line. It appeared to be a call still waiting to happen.
+    Write-Host ''
+    if ((Labels) -contains 'declined') {
+        Write-Host '  >>> CHIP READS declined' -ForegroundColor Green
+    } else {
+        Write-Host '  >>> no declined chip on screen (scrolled off?)' -ForegroundColor Yellow
+    }
 } else {
     Write-Host ''
     Write-Host '  >>> NO APPROVAL DIALOG. On screen:'

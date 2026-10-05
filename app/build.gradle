@@ -73,9 +73,6 @@ dependencies {
 	// an outlined folder, a paperclip -- needs this artifact.
 	implementation libs.androidx.compose.material.icons.extended
 
-	implementation libs.koin.android
-	implementation libs.koin.androidx.compose
-
 	// Markdown. The -m3 module themes it to Material 3, and -code adds fenced
 	// code blocks with syntax highlighting. The renderer's streaming state is
 	// the reason it was chosen: it re-parses only the unstable tail of a

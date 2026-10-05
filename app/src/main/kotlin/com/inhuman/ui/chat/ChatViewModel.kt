@@ -24,6 +24,9 @@ import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.core.files.SessionWorkspace
 import com.inhuman.core.files.WorkspaceTransfer
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import com.inhuman.core.ai.tools.SearchProvider
 import com.inhuman.core.ai.tools.ToolCatalog
@@ -31,6 +34,7 @@ import com.inhuman.core.ai.tools.TimeTool
 import com.inhuman.core.ai.tools.WebSearchTool
 import com.inhuman.core.files.tools.FileTools
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -105,6 +109,70 @@ class ChatViewModel(
 	private var reasoningEffort: String? = null
 	private var thinking: Boolean = false
 
+	/**
+	 * The context window, cached from the last model fetch.
+	 *
+	 * Held rather than looked up on demand because the publish points are not
+	 * all suspend: [streamOneTurn] finishes a reply inside a `finally` and has
+	 * no business awaiting a network call to draw a gauge.
+	 *
+	 * Null means "the provider does not say", which the gauge reports as
+	 * unknown rather than filling in a plausible number.
+	 */
+	private var contextWindow: Int? = null
+
+	/**
+	 * Deltas for the answer currently arriving, keyed by message id.
+	 *
+	 * ## Why a channel, and why only the answer
+	 *
+	 * The Markdown renderer's incremental parser is fed a `Flow<String>` and
+	 * appends every emission verbatim -- it does not compare against what it
+	 * already holds. Feeding it the accumulated text would therefore duplicate
+	 * the whole reply on every tick, so it has to be given only the *new* text,
+	 * which is what lets it reparse from the last stable block rather than from
+	 * the start.
+	 *
+	 * Only the answer gets one. Reasoning is rendered as plain dimmed text in
+	 * its own collapsed section, never as Markdown, so a reasoning delta
+	 * appended to this stream would be parsed as part of the answer and then
+	 * vanish when the reply completed.
+	 *
+	 * A `Channel` rather than a `MutableSharedFlow`: this must not drop values.
+	 * A reply is appended to at human speed so the buffer stays tiny, and a
+	 * shared flow with a small buffer would silently lose text the moment the
+	 * renderer fell behind.
+	 *
+	 * ## Why a channel, and why only the answer
+	 *
+	 * The Markdown renderer's incremental parser is fed text a piece at a time
+	 * and appends every piece verbatim -- it does not compare against what it
+	 * already holds. Feeding it the accumulated text would therefore duplicate
+	 * the whole reply on every tick, so it has to be given only the *new* text,
+	 * which is what lets it reparse from the last stable block rather than from
+	 * the start.
+	 *
+	 * Only the answer gets one. Reasoning is rendered as plain dimmed text in
+	 * its own collapsed section, never as Markdown, so a reasoning delta
+	 * appended here would be parsed as part of the answer and then vanish when
+	 * the reply completed.
+	 *
+	 * A `Channel` rather than a `MutableSharedFlow`: this must not drop values.
+	 * A reply is appended to at human speed so the buffer stays tiny, and a
+	 * shared flow with a small buffer would silently lose text the moment the
+	 * renderer fell behind.
+	 *
+	 * ## Why the consumer iterates the channel
+	 *
+	 * `receiveAsFlow` exists in the coroutines artifact but does not resolve
+	 * from this module's Kotlin metadata -- the same gap that hides
+	 * `collectAsStreamingMarkdownState` in the Markdown library and makes
+	 * `Channel` look like it is not a `Flow`. `Channel` is iterable and
+	 * `receiveAsFlow` is a thin wrapper over exactly that iteration, so the
+	 * consumer loop is the same mechanism with one less layer.
+	 */
+	private val replyDeltas = mutableMapOf<String, Channel<String>>()
+
 
 	init {
 		viewModelScope.launch {
@@ -132,9 +200,18 @@ class ChatViewModel(
 	 * label needs the fetched model list -- and "DeepSeek-V4.1-Flash" is what
 	 * the provider calls it while "deepseek-flash" is what goes on the wire.
 	 * Showing the id would be showing an implementation detail.
+	 *
+	 * The same list carries the context window, which is why it is read here
+	 * too: it is per model, it changes when the model does, and the fetch has
+	 * already happened.
 	 */
 	private suspend fun publishModelState() {
-		val list = agents.models().getOrNull().orEmpty()
+		// Read once and pass it down rather than letting the helper ask again:
+		// this is a Keystore-backed read and the function is already on a path
+		// that runs at startup and on every configuration refresh.
+		val demo = demoEnabled()
+		val fetched = runCatching { agents.models() }.getOrNull()?.getOrNull()
+			?: demoModelsIfEnabled(demo)
 
 		// Resolve all the way to a concrete id.
 		//
@@ -147,26 +224,109 @@ class ChatViewModel(
 		//
 		// The API's own default is the honest fallback when the list has not
 		// arrived: it is what the provider will use if nothing else is chosen.
-		val id = model ?: agent?.model ?: list.firstOrNull()?.id ?: DEFAULT_MODEL
+		val id = model ?: agent?.model ?: fetched?.firstOrNull()?.id ?: DEFAULT_MODEL
 
-		val label = list.firstOrNull { it.id == id }?.displayName?.takeIf { it.isNotBlank() }
-			?: if (model == null && agent?.model == null) "${id} (default)" else id
+		// The entry for the model that will actually be sent: capabilities are
+		// per model, and looking them up by the choice rather than the resolved
+		// id is how the effort control came to report that a model with three
+		// levels had none.
+		//
+		// A **failed** fetch leaves the last known window standing rather than
+		// blanking it -- losing the network is not a reason to stop knowing how
+		// large the window is, and a null here would replace a real figure with
+		// "unknown" for as long as the outage lasted. A fetch that succeeds and
+		// does not list the model does clear it, because that is the provider
+		// genuinely not saying.
+		val fetchedModel = fetched?.firstOrNull { it.id == id }
+		if (fetched != null) contextWindow = fetchedModel?.contextWindow
+
+		if (fetched != null) {
+			val label = fetchedModel?.displayName?.takeIf { it.isNotBlank() }
+				?: if (model == null && agent?.model == null) "${id} (default)" else id
+
+			_state.update {
+				it.copy(
+					// The choice, so the picker can show what was picked.
+					model = model,
+					// The resolved id, for looking anything up.
+					effectiveModel = id,
+					modelLabel = label,
+					// Whether the model accepts images, so the composer can refuse
+					// before staging one. The API does not refuse: it returns 200
+					// and the model answers about a placeholder.
+					modelSupportsVision = fetchedModel?.supportsVision == true,
+				)
+			}
+		}
 
 		_state.update {
 			it.copy(
-				// The choice, so the picker can show what was picked.
-				model = model,
-				// The resolved id, for looking anything up.
-				effectiveModel = id,
-				modelLabel = label,
-				// Whether the model accepts images, so the composer can refuse
-				// before staging one. The API does not refuse: it returns 200
-				// and the model answers about a placeholder.
-				modelSupportsVision = list.firstOrNull { it.id == id }?.supportsVision == true,
 				reasoningEffort = reasoningEffort,
 				thinking = thinking,
+				context = contextOf(it.messages),
 			)
 		}
+	}
+
+	/**
+	 * Fold the measured prompt size into the state the gauge reads.
+	 *
+	 * For the moments when a transcript is already published and only the
+	 * measurement is new -- the end of a stream, where usage arrives. A reload
+	 * does not call this: it rebuilds the whole list, so it reads the gauge in
+	 * the same pass. Both go through [contextOf], which is where the arithmetic
+	 * lives, so the ring and its panel cannot disagree about it.
+	 */
+	private fun refreshContext() {
+		_state.update { it.copy(context = contextOf(it.messages)) }
+	}
+
+	/**
+	 * The demo provider's model list, or null when demo mode is off.
+	 *
+	 * ## Why the app has to ask for this itself
+	 *
+	 * `AgentRepository.models()` builds a DeepSeek provider, and with no key
+	 * stored it returns a failure without making a request. That is right for
+	 * everything it feeds -- you cannot pick a model you have no account for --
+	 * but it left the gauge with no window in demo mode, so a demo that had
+	 * plainly sent 128 tokens of a 64,000-token window reported "this model
+	 * does not report a context window". The measurement was there and the
+	 * denominator was missing, which is a worse state than either alone.
+	 *
+	 * The reply itself does not depend on this: [runTurn] constructs the demo
+	 * provider directly. Only the capability list was unreachable, so only the
+	 * capability list is supplied here.
+	 */
+	private suspend fun demoModelsIfEnabled(demo: Boolean): List<RemoteModel>? =
+		if (demo) runCatching { DemoProvider().listModels() }.getOrNull() else null
+
+	/**
+	 * The gauge reading for a transcript.
+	 *
+	 * ## Why the last reported figure rather than a sum of the visible messages
+	 *
+	 * `promptTokens` is what the provider actually counted for the whole
+	 * request: the system prompt, the tool schemas, the conversation and every
+	 * tool result. Summing the text on screen would miss the schemas -- a few
+	 * thousand tokens of them -- and would be an estimate dressed as a
+	 * measurement. The provider's own number is the only one that is true.
+	 *
+	 * ## Why scanning backwards is the right search
+	 *
+	 * The most recent reply that reported usage is the largest prompt so far,
+	 * because a transcript only grows within a turn. Rows are in creation
+	 * order, so the last match is the current reading; a reply that reported
+	 * nothing (a cancelled stream, a provider that omits usage) is skipped
+	 * rather than treated as zero.
+	 */
+	private fun contextOf(messages: List<ChatMessageUi>): ContextUsage {
+		val used = messages
+			.lastOrNull { it.usage?.promptTokens != null }
+			?.usage
+			?.promptTokens
+			?.toLong()
+		return ContextUsage(usedTokens = used, contextWindow = contextWindow)
 	}
 
 	/** Called after the model list is (re)loaded, so a picker can refresh. */
@@ -307,13 +467,27 @@ class ChatViewModel(
 		val loaded = repository.conversation(conversationId)
 		val entities = loaded?.messages.orEmpty()
 
-		// Which messages have alternatives, resolved once for the whole
-		// transcript rather than per row. A row asking the database for its own
-		// siblings would be one query per message per recomposition.
-		val branchInfo = entities.associate { it.id to repository.branches(it.parentId) }
+		// Only the points that actually branch, resolved for the whole
+		// transcript in one query. A row asking the database for its own
+		// siblings was one query per message plus another for every parent with
+		// more than one child -- hundreds of round trips to answer "no" almost
+		// every time.
+		//
+		// Keyed by parent id, because alternatives belong to the point in the
+		// conversation rather than to any one reply: a message looks its own up
+		// through `parentId`, which puts the switcher under the message below
+		// the branch point.
+		val branchInfo = repository.branchesIn(conversationId)
+
+		// Which calls were refused, resolved in the same pass and for the same
+		// reason: the outcome is a property of the tool result, and a row
+		// searching the transcript for its own would be a scan per call.
+		val declined = entities
+			.filter { it.role == "tool" && it.content.startsWith(DECLINED_MARKER) }
+			.mapNotNullTo(mutableSetOf()) { it.toolCallId }
 
 		_state.update { current ->
-			val rebuilt = entities.map { it.toUi(branchInfo[it.id]) }
+			val rebuilt = entities.map { it.toUi(it.parentId?.let(branchInfo::get), declined) }
 			val lastUser = rebuilt.indexOfLast { it.fromUser }
 			current.copy(
 				title = loaded?.entity?.title ?: current.title,
@@ -322,6 +496,10 @@ class ChatViewModel(
 				// the button reads and the flag the guard reads are the same
 				// expression.
 				currentTurnMutated = lastUser >= 0 && rebuilt.drop(lastUser).any { it.mutated },
+				// Read off the rebuilt list, for the same reason the mutation
+				// flag is: the two controls that depend on the transcript have
+				// to be computed from the transcript that is on screen.
+				context = contextOf(rebuilt),
 			)
 		}
 	}
@@ -406,7 +584,7 @@ class ChatViewModel(
 			it.copy(messages = it.messages.take(cut), isStreaming = true, error = null)
 		}
 
-		viewModelScope.launch {
+		streamJob = viewModelScope.launch {
 			runTurn(apiKey = apiKey, demo = demo)
 			// Reload after answering, so the new reply is recognised as a
 			// sibling of the one it replaced.
@@ -540,7 +718,15 @@ class ChatViewModel(
 			)
 		}
 
-		viewModelScope.launch {
+		// The job is kept, so Stop can actually stop it.
+		//
+		// `stop()` cancelled `streamJob` and this never assigned it, so the
+		// field was null for the life of the view model and the button did
+		// nothing at all: the answer went on growing after Stop, and because
+		// `isStreaming` was cleared the composer unlocked, so a second turn
+		// could be started while the first was still writing into the same
+		// message tree.
+		streamJob = viewModelScope.launch {
 			repository.appendMessage(userMessage, parent)
 			if (_state.value.messages.count { it.fromUser } == 1) {
 				// An image-only first message has no text to derive a title
@@ -581,7 +767,7 @@ class ChatViewModel(
 
 			// Execute them, in order. Approvals are collected first so a model
 			// asking for three writes does not stack three dialogs.
-			val executed = executeCalls(outcome)
+			val executed = executeCalls(outcome, tools)
 			if (!executed) {
 				// The user declined something, or the turn was cancelled. The
 				// transcript already holds the refusal, so the model can respond
@@ -621,6 +807,13 @@ class ChatViewModel(
 		val parent = _state.value.messages.lastOrNull()?.id
 		val replyId = UUID.randomUUID().toString()
 
+		// The delta stream this reply will be parsed from as it arrives.
+		// Registered before the row exists, because the row's first render
+		// already needs it: a reply that appeared with no deltas and gained
+		// them a moment later would parse its first slice twice.
+		val deltas = Channel<String>(Channel.UNLIMITED)
+		replyDeltas[replyId] = deltas
+
 		_state.update {
 			it.copy(
 				messages = it.messages + ChatMessageUi(
@@ -628,6 +821,7 @@ class ChatViewModel(
 					parentId = parent,
 					fromUser = false,
 					isStreaming = true,
+					deltas = deltas,
 				),
 			)
 		}
@@ -652,8 +846,48 @@ class ChatViewModel(
 
 		// Captured before the finally block so the closing work can see them.
 		var finishedCalls: List<ToolCallUi> = emptyList()
+		var wasStopped = false
 
 		try {
+			// When the screen was last given a snapshot of the streaming reply.
+			//
+			// ## Why the updates are throttled rather than per chunk
+			//
+			// Every chunk used to publish immediately, and each publish calls
+			// `reasoning.toString()` and `answer.toString()` -- a full copy of
+			// everything accumulated so far -- then rebuilds the whole message
+			// list. Over one reply that is quadratic: a two-thousand-token
+			// answer re-copies its own prefix hundreds of times, and the copies
+			// are garbage as soon as they are made. The text is *shown* at a
+			// frame rate regardless, so most of that work was thrown away
+			// before anyone could read it.
+			//
+			// 40 ms is fast enough that the text still appears as it is
+			// produced -- 25 updates a second against a display that draws 60 --
+			// and it removes most of the copying. The `finally` block publishes
+			// regardless, so the last partial window is never lost.
+			var publishedAt = 0L
+			// Tracks what the incremental parser already has. A cursor rather
+			// than an integer because "send the part that is new" has two ways
+			// to be wrong -- re-sending a prefix duplicates the reply, skipping
+			// a slice loses text -- and neither is visible after the stream has
+			// finished. The invariant is tested in DeltaCursorTest.
+			val cursor = DeltaCursor()
+			fun publishIfDue(force: Boolean = false) {
+				val now = System.currentTimeMillis()
+				if (!force && now - publishedAt < STREAM_PUBLISH_INTERVAL_MS) return
+				publishedAt = now
+				updateParts(replyId, reasoning.toString(), answer.toString(), calls.values.toList())
+
+				// Hand the *new* answer text to the incremental parser. Only
+				// the answer: reasoning is rendered as plain dimmed text in its
+				// own collapsed section, so a reasoning delta appended here
+				// would be parsed as part of the answer and then vanish when
+				// the reply completed.
+				val channel = replyDeltas[replyId] ?: return
+				cursor.next(answer)?.let { channel.trySend(it) }
+			}
+
 			provider.stream(
 				ChatRequest(
 					model = model ?: agent?.model ?: DEFAULT_MODEL,
@@ -672,12 +906,12 @@ class ChatViewModel(
 				when (chunk) {
 					is StreamChunk.ReasoningDelta -> {
 						reasoning.append(chunk.text)
-						updateParts(replyId, reasoning.toString(), answer.toString(), calls.values.toList())
+						publishIfDue()
 					}
 
 					is StreamChunk.TextDelta -> {
 						answer.append(chunk.text)
-						updateParts(replyId, reasoning.toString(), answer.toString(), calls.values.toList())
+						publishIfDue()
 					}
 
 					is StreamChunk.ToolCallStart -> {
@@ -687,25 +921,42 @@ class ChatViewModel(
 							name = chunk.name,
 							state = ToolCallUi.State.Streaming,
 						)
-						updateParts(replyId, reasoning.toString(), answer.toString(), calls.values.toList())
+						// A structural change, not a token: shown immediately,
+						// because the alternative is a tool card appearing late.
+						publishIfDue(force = true)
 					}
 
 					is StreamChunk.ToolCallDelta -> {
 						val existing = calls[chunk.index] ?: ToolCallUi(chunk.index, null, null)
 						calls[chunk.index] = existing.copy(
-							name = existing.name ?: chunk.nameDelta,
+							// Concatenated, not `?:`.
+							//
+							// The two halves of this used to disagree: the
+							// decoder sent the name only on the opening frame,
+							// while this line kept the *first* fragment and
+							// discarded the rest. Whichever of them was right,
+							// the other was silently wrong -- and the way it
+							// failed was a call named `read_` instead of
+							// `read_file`, which then matched no tool at all.
+							//
+							// Accumulating is the only reading that works for
+							// both shapes: a name delivered once concatenates to
+							// itself, and a name delivered in pieces assembles.
+							name = chunk.nameDelta?.let { delta -> (existing.name ?: "") + delta }
+								?: existing.name,
 							// Concatenated, never parsed here: a fragment is not
 							// valid JSON and parsing early is the classic bug.
 							argumentsJson = existing.argumentsJson + (chunk.inputDelta ?: ""),
 						)
-						updateParts(replyId, reasoning.toString(), answer.toString(), calls.values.toList())
+						publishIfDue()
 					}
 
 					is StreamChunk.ToolCallEnd -> {
 						calls[chunk.index]?.let { c ->
 							calls[chunk.index] = c.copy(state = ToolCallUi.State.Ready)
 						}
-						updateParts(replyId, reasoning.toString(), answer.toString(), calls.values.toList())
+						// A call becoming ready is a state a person waits for.
+						publishIfDue(force = true)
 					}
 
 					is StreamChunk.Usage -> {
@@ -741,6 +992,14 @@ class ChatViewModel(
 			}
 		} finally {
 			finishedCalls = calls.values.toList()
+			// The reply is done arriving, so it stays parsed from the plain
+			// renderer from here on -- and the channel is dropped so an
+			// abandoned collector cannot keep this reply's map entry alive.
+			replyDeltas.remove(replyId)?.close()
+			// Captured here, while the coroutine can still say whether it was
+			// cancelled: by the time the writes below have run, being inside
+			// NonCancellable means `isActive` no longer answers the question.
+			wasStopped = !currentCoroutineContext().isActive
 			// Assembled once, at the end, when every field is known.
 			val endedAt = finishedAt ?: System.currentTimeMillis()
 			val usage = if (
@@ -759,33 +1018,54 @@ class ChatViewModel(
 				null
 			}
 			updateMessage(replyId) { it.copy(isStreaming = false, finishReason = finish, usage = usage) }
+			// The gauge moves here rather than at the end of the turn, because
+			// this is the moment the provider's count for this prompt exists --
+			// and because a turn can take several round trips, each of which
+			// resends a larger transcript than the last.
+			refreshContext()
 
 			val finalUsage = usage
-			if (answer.isNotEmpty() || reasoning.isNotEmpty() || finishedCalls.isNotEmpty()) {
-				repository.appendMessage(
-					MessageEntity(
-						id = replyId,
-						conversationId = conversationId,
-						parentId = parent,
-						role = "assistant",
-						content = answer.toString(),
-						reasoning = reasoning.toString().takeIf { it.isNotBlank() },
-						model = model,
-						finishReason = finish,
-						error = failure,
-						createdAt = System.currentTimeMillis(),
-						promptTokens = finalUsage?.promptTokens,
-						completionTokens = finalUsage?.completionTokens,
-						cachedPromptTokens = finalUsage?.cachedPromptTokens,
-						reasoningTokens = finalUsage?.reasoningTokens,
-						timeToFirstTokenMs = finalUsage?.timeToFirstTokenMs,
-						generationMs = finalUsage?.generationMs,
-						toolCallsJson = finishedCalls.takeIf { it.isNotEmpty() }?.let { encodeCalls(it) },
-					),
-					parent,
-				)
-			} else {
-				_state.update { s -> s.copy(messages = s.messages.filterNot { it.id == replyId }) }
+			// ## Why the closing writes are NonCancellable
+			//
+			// This block runs when the turn ends *or* when it is stopped, and
+			// Stop is the case that matters: a cancelled coroutine refuses to
+			// suspend, so `appendMessage` would throw `CancellationException`
+			// and the part of the answer already received would never reach the
+			// database. The user would watch a paragraph appear, press Stop, and
+			// find it gone the next time the conversation was opened -- while
+			// still having been billed for it.
+			//
+			// Nothing here can hang: it is one insert, one state update and a
+			// list membership test.
+			withContext(NonCancellable) {
+				if (answer.isNotEmpty() || reasoning.isNotEmpty() || finishedCalls.isNotEmpty()) {
+					repository.appendMessage(
+						MessageEntity(
+							id = replyId,
+							conversationId = conversationId,
+							parentId = parent,
+							role = "assistant",
+							content = answer.toString(),
+							reasoning = reasoning.toString().takeIf { it.isNotBlank() },
+							model = model,
+							finishReason = finish,
+							// A turn that was stopped says so, rather than
+							// looking like a reply that ended by itself.
+							error = failure ?: if (wasStopped) STOPPED_MESSAGE else null,
+							createdAt = System.currentTimeMillis(),
+							promptTokens = finalUsage?.promptTokens,
+							completionTokens = finalUsage?.completionTokens,
+							cachedPromptTokens = finalUsage?.cachedPromptTokens,
+							reasoningTokens = finalUsage?.reasoningTokens,
+							timeToFirstTokenMs = finalUsage?.timeToFirstTokenMs,
+							generationMs = finalUsage?.generationMs,
+							toolCallsJson = finishedCalls.takeIf { it.isNotEmpty() }?.let { encodeCalls(it) },
+						),
+						parent,
+					)
+				} else {
+					_state.update { s -> s.copy(messages = s.messages.filterNot { it.id == replyId }) }
+				}
 			}
 		}
 
@@ -803,14 +1083,19 @@ class ChatViewModel(
 	/**
 	 * Run the calls a turn asked for.
 	 *
+	 * @param tools the registry the turn was already built with, passed in
+	 *   rather than rebuilt. `buildTools` constructs eight file tools, each
+	 *   carrying a `StatFs` over the workspace root, and rebuilding the same
+	 *   list to look up names the caller already holds is work with no
+	 *   purpose -- on every round of the loop.
 	 * @return false if the turn should stop -- the user declined, or the run was
 	 *   cancelled mid-way.
 	 */
-	private suspend fun executeCalls(outcome: TurnOutcome): Boolean {
-		val tools = buildTools().associateBy { it.name }
+	private suspend fun executeCalls(outcome: TurnOutcome, tools: List<Tool>): Boolean {
+		val byName = tools.associateBy { it.name }
 
 		for (call in outcome.toolCalls) {
-			val tool = tools[call.displayName]
+			val tool = byName[call.displayName]
 			if (tool == null) {
 				appendToolResult(call, "no such tool: ${call.displayName}", isError = true, outcome.messageId)
 				continue
@@ -828,13 +1113,38 @@ class ChatViewModel(
 				// why the pending state is stored rather than a dialog shown.
 				val approved = awaitApproval()
 				if (!approved) {
-					appendToolResult(call, "The user declined this call.", isError = true, outcome.messageId)
+					// The chip is set before the result is appended, and it has
+					// to be: without this the call stayed `Ready` forever, so a
+					// refused delete rendered as a call that was merely waiting
+					// -- the one state a user is most likely to misread as "it
+					// is about to happen".
+					markCall(outcome.messageId, call.index, ToolCallUi.State.Declined)
+					appendToolResult(
+						call,
+						DECLINED_MARKER + " The user declined this call.",
+						isError = true,
+						messageId = outcome.messageId,
+					)
 					return false
 				}
 			}
 
 			markCall(outcome.messageId, call.index, ToolCallUi.State.Running)
-			val result = tool.execute(parsed)
+			// Off the main thread, which is where this used to run.
+			//
+			// `runTurn` is launched into `viewModelScope`, whose dispatcher is
+			// `Dispatchers.Main.immediate`, and nothing between here and the
+			// filesystem switched threads -- so `read_file` read, `write_file`
+			// wrote, and every quota check walked the whole workspace tree on
+			// the thread that draws the UI. The walks are the sharp edge: a
+			// measured `write_file` costs about 106 ms in a 2,000-file
+			// workspace, and a turn that writes several files pays it several
+			// times over.
+			//
+			// Only the execution moves. Approval stays above, on the main
+			// thread, because it suspends on the user and the continuation is
+			// resumed from the UI.
+			val result = withContext(Dispatchers.IO) { tool.execute(parsed) }
 			markCall(
 				outcome.messageId,
 				call.index,
@@ -966,7 +1276,22 @@ class ChatViewModel(
 	private fun stringArg(args: JsonObject, name: String): String? =
 		args[name]?.let { runCatching { it.toString().trim('"') }.getOrNull() }
 
-	private fun parseArguments(call: ToolCallUi, messageId: String): JsonObject? =
+	/**
+	 * The call's arguments, or null after recording why they were unusable.
+	 *
+	 * ## Why this suspends instead of launching
+	 *
+	 * The failure was reported from a **detached** coroutine, so the caller
+	 * moved on before the tool result existed. The next thing the caller does
+	 * is loop back into `streamOneTurn`, which rebuilds the wire history from
+	 * the transcript -- and the transcript has to answer every `tool_call` the
+	 * assistant message declared. Sending a turn with a call and no result is a
+	 * request the API rejects, and the result then landed afterwards, out of
+	 * order, as a permanent unmatched tool message.
+	 *
+	 * Awaiting it costs one write and removes the race entirely.
+	 */
+	private suspend fun parseArguments(call: ToolCallUi, messageId: String): JsonObject? =
 		try {
 			Json.parseToJsonElement(call.argumentsJson.ifBlank { "{}" }) as? JsonObject
 				?: buildJsonObject { }
@@ -974,14 +1299,12 @@ class ChatViewModel(
 			// Arguments that never became valid JSON. Reported rather than
 			// retried: the model produced them, and it is the one that can fix
 			// them on the next turn.
-			viewModelScope.launch {
-				appendToolResult(
-					call,
-					"could not parse arguments: ${e.message}",
-					isError = true,
-					messageId = messageId,
-				)
-			}
+			appendToolResult(
+				call,
+				"could not parse arguments: ${e.message}",
+				isError = true,
+				messageId = messageId,
+			)
 			null
 		}
 
@@ -1161,6 +1484,40 @@ class ChatViewModel(
 		const val DEFAULT_MODEL = "deepseek-flash"
 
 		/**
+		 * Prefix on the tool result that records a refusal.
+		 *
+		 * ## Why a marker in the text rather than a column
+		 *
+		 * `ToolCallUi.State.Declined` existed from the start but was never
+		 * assigned, so a declined call drew as "ready" -- including after a
+		 * reload, because the tool-call list stored on the message carries no
+		 * per-call outcome and `decodeCalls` has only ever been able to say
+		 * "done". The two callers that render this need the same answer, and
+		 * only one of them has the live view model.
+		 *
+		 * The result text is where the outcome already lives, so it is where
+		 * the marker goes. A dedicated column would be a schema version and a
+		 * migration for one chip's label, and the information it would hold is
+		 * a strict subset of what is in this string.
+		 *
+		 * ## The cost, stated
+		 *
+		 * A transcript written before this change reads back as "done" for a
+		 * call that was refused; the tool result underneath it still says the
+		 * user declined, so nothing is lost, only the chip's word for it.
+		 */
+		internal const val DECLINED_MARKER = "[declined]"
+
+		/**
+		 * Written onto a reply the user stopped part-way.
+		 *
+		 * The row keeps whatever had arrived, so the transcript shows the
+		 * fragment that was actually produced and billed -- and says why it
+		 * stops there, rather than looking like a model that trailed off.
+		 */
+		const val STOPPED_MESSAGE = "Stopped before the reply finished."
+
+		/**
 		 * Ceiling on model round trips within one user message.
 		 *
 		 * A model that keeps calling tools would otherwise generate forever at
@@ -1168,6 +1525,16 @@ class ChatViewModel(
 		 * transcript the cost of a runaway loop grows quadratically.
 		 */
 		const val MAX_TOOL_ROUNDS = 8
+
+		/**
+		 * How often a streaming reply is copied into the visible state.
+		 *
+		 * 40 ms is 25 updates a second, against a display that draws 60, and it
+		 * is fast enough that text still reads as arriving. What it avoids is
+		 * re-copying the whole accumulated answer for every token; see the
+		 * comment at the top of the collect.
+		 */
+		const val STREAM_PUBLISH_INTERVAL_MS = 40L
 	}
 }
 
@@ -1178,7 +1545,18 @@ private fun roleFromWire(value: String): Role = when (value) {
 	else -> Role.User
 }
 
-private fun MessageEntity.toUi(branches: Branches? = null): ChatMessageUi {
+private fun MessageEntity.toUi(
+	branches: Branches? = null,
+	declined: Set<String> = emptySet(),
+	/**
+	 * The delta stream for this message, when it is the reply arriving now.
+	 *
+	 * Passed in rather than looked up: `toUi` is a row-to-UI conversion with no
+	 * access to the view model's live map, and a row that asked the map for
+	 * itself would be doing it on every recomposition of every row.
+	 */
+	deltas: kotlinx.coroutines.channels.Channel<String>? = null,
+): ChatMessageUi {
 	val parts = buildList {
 		reasoning?.takeIf { it.isNotBlank() }?.let {
 			add(AssistantPart("r", AssistantPart.Kind.Reasoning, it))
@@ -1197,6 +1575,8 @@ private fun MessageEntity.toUi(branches: Branches? = null): ChatMessageUi {
 		parts = parts,
 		plainText = content,
 		reasoningText = reasoning.orEmpty(),
+		// Present only while this reply is the one arriving; see replyDeltas.
+		deltas = deltas,
 		finishReason = finishReason,
 		error = error,
 		usage = if (promptTokens != null || completionTokens != null || timeToFirstTokenMs != null) {
@@ -1211,7 +1591,9 @@ private fun MessageEntity.toUi(branches: Branches? = null): ChatMessageUi {
 		} else {
 			null
 		},
-		toolCalls = toolCallsJson?.let(::decodeCalls).orEmpty(),
+		toolCalls = toolCallsJson?.let { raw ->
+			decodeCalls(raw) { call -> call.id != null && call.id in declined }
+		}.orEmpty(),
 		branches = branches,
 		branchParentId = parentId,
 		mutated = mutated,
@@ -1246,18 +1628,29 @@ private fun decodeAttachments(raw: String?): List<PendingAttachment> {
 	}.getOrDefault(emptyList())
 }
 
-/** Stored as a JSON array of small objects; a malformed value is ignored. */
-private fun decodeCalls(raw: String): List<ToolCallUi> = runCatching {
+/**
+ * Stored as a JSON array of small objects; a malformed value is ignored.
+ *
+ * @param wasDeclined which calls the transcript records as refused. A call's
+ *   outcome is not in this column -- the column holds what the model asked for,
+ *   not what came of it -- so the one state that is not "done" has to be
+ *   supplied from the tool results alongside it.
+ */
+private fun decodeCalls(
+	raw: String,
+	wasDeclined: (ToolCallUi) -> Boolean = { false },
+): List<ToolCallUi> = runCatching {
 	Json.parseToJsonElement(raw).let { el ->
 		(el as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { item ->
 			val obj = item as? JsonObject ?: return@mapNotNull null
-			ToolCallUi(
+			val call = ToolCallUi(
 				index = obj["index"]?.toString()?.toIntOrNull() ?: 0,
 				id = obj["id"]?.toString()?.trim('"'),
 				name = obj["name"]?.toString()?.trim('"'),
 				argumentsJson = obj["arguments"]?.toString()?.trim('"').orEmpty(),
 				state = ToolCallUi.State.Done,
 			)
+			if (wasDeclined(call)) call.copy(state = ToolCallUi.State.Declined) else call
 		}
 	}
 }.getOrDefault(emptyList())

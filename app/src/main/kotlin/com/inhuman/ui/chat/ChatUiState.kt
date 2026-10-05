@@ -80,6 +80,16 @@ data class ChatUiState(
 	 */
 	val modelSupportsVision: Boolean = false,
 	/**
+	 * How full the model's context window is.
+	 *
+	 * Computed by the view model rather than derived here, because the figure
+	 * that fills the gauge is the last request's `promptTokens` and only the
+	 * view model knows where in the transcript that was recorded -- the ring
+	 * and the panel have to agree, and a screen computing its own would be a
+	 * second implementation of the same arithmetic.
+	 */
+	val context: ContextUsage = ContextUsage(null, null),
+	/**
 	 * Whether the current turn changed the workspace.
 	 *
 	 * The answer to whether the reply can be regenerated, computed once for the
@@ -120,6 +130,19 @@ data class ChatMessageUi(
 	 */
 	val reasoningText: String = "",
 	val isStreaming: Boolean = false,
+	/**
+	 * The deltas this reply is still arriving in, or null once it is complete.
+	 *
+	 * Not part of the transcript and never persisted: it exists only so the
+	 * Markdown renderer can parse incrementally while text is arriving. A
+	 * message loaded from the database has none and never will, which is the
+	 * right answer rather than a gap -- a complete document is parsed once.
+	 *
+	 * A `Channel` in a data class is unusual and deliberate: this field
+	 * identifies a live stream rather than holding a value, equality on it is
+	 * never used, and the *same instance* is published for the whole turn.
+	 */
+	val deltas: kotlinx.coroutines.channels.Channel<String>? = null,
 	val finishReason: String? = null,
 	val usage: UsageUi? = null,
 	val error: String? = null,
@@ -210,10 +233,14 @@ data class UsageUi(
 
 	/** Whether the speed figure was withheld for being too small a sample. */
 	val speedWithheldForShortReply: Boolean
-		get() = completionTokens != null &&
-			completionTokens!! > 0 &&
-			generationMs != null &&
-			generationMs!! < MIN_SPEED_WINDOW_MS
+		get() {
+			// Held in locals so the null checks smart-cast: the `!!` this
+			// replaces was on a receiver the compiler had already narrowed,
+			// which is a warning rather than a safeguard.
+			val completion = completionTokens ?: return false
+			val ms = generationMs ?: return false
+			return completion > 0 && ms < MIN_SPEED_WINDOW_MS
+		}
 
 	/**
 	 * Share of the prompt served from cache, as a fraction.

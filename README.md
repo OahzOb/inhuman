@@ -25,7 +25,15 @@ regenerated and compared.
 
 Beyond the phases: assistants with visible system prompts, per-conversation
 model and reasoning effort read from the provider, an approval gate on the one
-irreversible tool, branch switching, image attachments, and usage reporting.
+irreversible tool, branch switching, image attachments, usage reporting, and a
+context gauge above the composer.
+
+**Demo mode exercises the tool loop, not just the stream.** With file tools
+switched on it creates a file and then asks to delete it, so the approval gate
+and the declined state can be demonstrated — and regression-tested — with no API
+key, no network and no bill. That matters more than it sounds: the gate is the
+app's most consequential control, and it used to be the one thing that could not
+be reached without an account.
 
 ### What the agent can do
 
@@ -52,6 +60,36 @@ Anthropic-compatible endpoint where the tool is understood.
 
 Search results are excerpts, not pages. The links are cleaned of campaign
 parameters before the model sees them, because it cites them back to the user.
+
+### The context gauge, and what is not there
+
+A ring sits above the composer showing how full the model's context window is;
+tapping it gives the percentage, the exact tokens used and the window size.
+The figure is the `promptTokens` the provider reported for the last request —
+not a count of visible text, because the prompt is the system prompt, the tool
+schemas, the conversation and every tool result, and the schemas alone are a few
+thousand tokens that no amount of scrolling would reveal. It is therefore one
+turn behind, and the panel says so.
+
+Two cases are drawn as what they are rather than filled in: a provider that
+reports no window gets no percentage at all, and a window with nothing measured
+yet gets an empty ring. `deepseek-flash` and `deepseek-v4-pro` both report
+**1,048,576 tokens**, so this is a long way off in an ordinary conversation —
+but a turn that reads two large files or searches eight times can move it, and
+before the gauge existed there was no way to see that happening.
+
+**There is still no compaction, and no trimming.** The whole active branch is
+sent every turn (`ChatViewModel.streamOneTurn`), `ChatRequest.maxTokens` is
+never set, and nothing is ever dropped. So when a conversation does reach the
+ceiling, the API rejects it with a 400, the app shows that error once, and the
+turn is not recorded — which means the next message rebuilds the same oversized
+history and fails the same way. The conversation is stuck, and the only exit is
+a new one.
+
+The gauge is the honest minimum: it makes the wall visible before it is hit. It
+does not remove the wall. Trimming and summarising are both real design
+decisions — one silently changes what the model was told, the other costs a
+model call and loses the original text — and neither is made by default here.
 
 ---
 
@@ -155,8 +193,8 @@ double hyphen (which is easy to write when explaining a flag like
 app/                 UI, theme application, entry point
 core/common/         small shared types
 core/design/         colour, typography, theme
-core/data/           Room + DataStore           (empty)
-core/ai/             provider + streaming       (empty)
+core/data/           Room, Keystore-backed secrets, DocumentsProvider
+core/ai/             provider + streaming       (no Compose, no Activity)
 core/files/          the workspace sandbox
 ```
 
