@@ -170,6 +170,64 @@ class SessionWorkspace private constructor(
 	data class Usage(val bytes: Long, val files: Int)
 
 	/**
+	 * Whether an operation that is *already partly on disk* stays inside the ceilings.
+	 *
+	 * Extracted rather than written twice, because it was written once and then
+	 * a second path -- import -- skipped it, which is exactly how a quota
+	 * becomes a suggestion. Returns a reason to refuse, or null to proceed.
+	 *
+	 * ## Why the caller states its own accounting
+	 *
+	 * An import cannot know a stream's size until it has read it, so it streams
+	 * into a staging file **inside the workspace** and then decides whether to
+	 * keep the result. By the time it can ask this question, `usage()` is
+	 * already counting that staging file -- and, when it is replacing something,
+	 * still counting the file it is about to replace. Both are the caller's
+	 * facts, not this class's, so the caller declares them rather than passing a
+	 * delta and hoping.
+	 *
+	 * The first version of this took only a delta, and the test that imports
+	 * 2 KB into a 3 KB workspace was told 4 KB was over the limit: the staging
+	 * file was charged twice, once by `usage` and once by the delta.
+	 *
+	 * @param stagingBytes bytes already on disk for this operation, excluded
+	 *   from the current total. The staging file itself.
+	 * @param stagingFiles file slots already on disk for this operation,
+	 *   excluded from the current count. One while staging, because the file
+	 *   count and the byte total are charged from the same walk and the staging
+	 *   file pollutes both -- a file it is about to replace is still counted
+	 *   too, so the count cannot simply be `usage.files`.
+	 * @param replacedBytes bytes of a file this operation will replace, also
+	 *   excluded -- it is going away, so charging both it and its successor
+	 *   counts the same slot twice.
+	 * @param addsFiles new file slots this operation needs. Zero when replacing.
+	 * @param newBytes what the operation will leave behind for those slots.
+	 */
+	fun quotaRefusal(
+		stagingBytes: Long,
+		stagingFiles: Int,
+		replacedBytes: Long,
+		addsFiles: Int,
+		newBytes: Long,
+	): String? {
+		val usage = usage()
+		// A staged replacement is still counted as the file it replaces, so the
+		// current total drops only by the part that is genuinely extra.
+		val currentBytes = usage.bytes - stagingBytes
+		val projected = currentBytes - replacedBytes + newBytes
+		if (projected > limits.maxTotalBytes) {
+			return "workspace is full: $projected bytes would exceed the " +
+				"${limits.maxTotalBytes}-byte limit. Delete something first."
+		}
+		val currentFiles = usage.files - stagingFiles
+		if (addsFiles > 0 && currentFiles + addsFiles > limits.maxFileCount) {
+			return "workspace has $currentFiles files, at the ${limits.maxFileCount}-file limit. " +
+				"Delete something first."
+		}
+		return null
+	}
+
+	/**
 	 * The root, for filesystem queries that need a path.
 	 *
 	 * Exposed as a narrow accessor rather than handing out the `File` itself:

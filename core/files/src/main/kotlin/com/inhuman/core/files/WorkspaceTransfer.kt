@@ -1,5 +1,6 @@
 package com.inhuman.core.files
 
+import android.os.StatFs
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
@@ -21,7 +22,22 @@ import java.io.OutputStream
  * so both are confined identically, but a user importing a file is not a tool
  * call and should not need approval -- they are the one being protected.
  */
-class WorkspaceTransfer(private val workspace: SessionWorkspace) {
+/**
+ * @param freeSpaceBytes space available on the volume holding the workspace, or
+ *   a provider that answers null to skip the check.
+ *
+ *   Injected for the same reason [WorkspaceTool] injects it: `StatFs` is a stub
+ *   under JVM unit tests and reports zero for everything, so calling it directly
+ *   would make every import fail with "not enough free space" in the one
+ *   environment where this class is testable. The default reads the real
+ *   filesystem, so production needs no wiring.
+ */
+class WorkspaceTransfer(
+	private val workspace: SessionWorkspace,
+	private val freeSpaceBytes: () -> Long? = {
+		runCatching { StatFs(workspace.rootPath().absolutePath).availableBytes }.getOrNull()
+	},
+) {
 
 	sealed interface Outcome {
 		data class Ok(val relativePath: String, val bytes: Long) : Outcome
@@ -43,12 +59,33 @@ class WorkspaceTransfer(private val workspace: SessionWorkspace) {
 			is SessionWorkspace.Resolution.Ok -> r.file
 			is SessionWorkspace.Resolution.Rejected -> return Outcome.Failed(r.reason)
 		}
+		if (target.isDirectory) {
+			return Outcome.Failed("$destinationPath is a directory")
+		}
+
+		// ## Why this writes to a temporary file and then moves it
+		//
+		// It used to stream straight into `target` and call `target.delete()`
+		// on every failure path. Two things were wrong with that, and the second
+		// is the one that loses data:
+		//
+		// 1. A failed import of an *existing* file deleted the original. The
+		//    user picks a file to import, the read fails halfway, and the file
+		//    that was already there is gone.
+		// 2. `resolve` happily returns an existing empty directory, whose
+		//    `outputStream()` throws -- and the catch then deleted that
+		//    directory. Importing into a freshly made folder removed the folder.
+		//
+		// A temp file in the same directory makes the move atomic on one volume,
+		// so the target is only ever replaced by a complete import, and the
+		// cleanup can never reach anything the user already had.
+		val staging = File(target.parentFile, ".${target.name}.importing")
+		staging.parentFile?.mkdirs()
 
 		return try {
-			target.parentFile?.mkdirs()
 			var total = 0L
 			open().use { input ->
-				target.outputStream().use { output ->
+				staging.outputStream().use { output ->
 					val buffer = ByteArray(64 * 1024)
 					while (true) {
 						val read = input.read(buffer)
@@ -59,8 +96,6 @@ class WorkspaceTransfer(private val workspace: SessionWorkspace) {
 						// only once the whole thing is on disk means the disk
 						// already paid for it.
 						if (total > workspace.limits.maxWriteBytes) {
-							output.close()
-							target.delete()
 							return Outcome.Failed(
 								"file is larger than the ${workspace.limits.maxWriteBytes}-byte limit",
 							)
@@ -70,12 +105,53 @@ class WorkspaceTransfer(private val workspace: SessionWorkspace) {
 					output.flush()
 				}
 			}
+
+			// Every quota, not just the per-file one. This is the side door the
+			// tools' own checks could not close: importing twenty files one at a
+			// time respected `maxWriteBytes` and nothing else, so the total and
+			// the count could be walked straight past.
+			//
+			// The staging file is inside the workspace, so `usage()` is already
+			// counting it, and an existing target is counted too even though it
+			// is about to go. Both are declared here; see the note on
+			// `quotaRefusal` for why the first version of this got it wrong.
+			val replacing = target.isFile
+			val existing = if (replacing) target.length() else 0L
+			workspace.quotaRefusal(
+				stagingBytes = total,
+				stagingFiles = 1,
+				replacedBytes = existing,
+				addsFiles = if (replacing) 0 else 1,
+				newBytes = total,
+			)?.let { return Outcome.Failed(it) }
+
+			val free = freeSpaceBytes()
+			if (free != null && free - total < workspace.limits.reservedFreeBytes) {
+				return Outcome.Failed(
+					"not enough free space: $free bytes available, and " +
+						"${workspace.limits.reservedFreeBytes} is reserved for the app itself.",
+				)
+			}
+
+			if (target.exists() && !target.delete()) {
+				return Outcome.Failed("could not replace $destinationPath")
+			}
+			if (!staging.renameTo(target)) {
+				return Outcome.Failed("could not finish importing $destinationPath")
+			}
 			Outcome.Ok(workspace.relativize(target), total)
 		} catch (e: Exception) {
-			// A partial file is worse than none: it looks like a successful
-			// import of a truncated document.
-			target.delete()
+			// Only ever the staging file. Whatever was at the destination is
+			// still there, which is the property the old version lacked.
+			staging.delete()
 			Outcome.Failed(e.message ?: "import failed")
+		} finally {
+			// Every exit path lands here -- including the refusals above, which
+			// `return` from inside the `try`. A `return` still runs `finally`,
+			// which is what makes "the staging file never survives" true rather
+			// than merely likely. It is removed on success too, where the rename
+			// has already moved it and the delete is a no-op.
+			staging.delete()
 		}
 	}
 

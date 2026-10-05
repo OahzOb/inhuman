@@ -123,24 +123,25 @@ abstract class WorkspaceTool(
 		return bytes.size
 	}
 
-	/** Total size and file-count ceilings for the whole workspace. */
+	/**
+	 * Total size and file-count ceilings for the whole workspace.
+	 *
+	 * The arithmetic lives on [SessionWorkspace.quotaRefusal] now, because
+	 * import needed the same check and did not have it -- a second copy of a
+	 * rule is how one of them comes to be missing.
+	 *
+	 * A write stages nothing: the text is already in memory, so there is no
+	 * file of its own to exclude, and `writeText` has already subtracted the
+	 * length of a file it is about to overwrite.
+	 */
 	private fun checkQuota(delta: Long) {
-		val limits = workspace.limits
-		// One traversal for both totals. Asking for them separately walked the
-		// whole workspace twice per write; see SessionWorkspace.usage.
-		val usage = workspace.usage()
-		if (usage.bytes + delta > limits.maxTotalBytes) {
-			throw Refused(
-				"workspace is full: ${usage.bytes + delta} bytes would exceed the " +
-					"${limits.maxTotalBytes}-byte limit. Delete something first.",
-			)
-		}
-		if (usage.files + 1 > limits.maxFileCount) {
-			throw Refused(
-				"workspace has ${usage.files} files, at the ${limits.maxFileCount}-file limit. " +
-					"Delete something first.",
-			)
-		}
+		workspace.quotaRefusal(
+			stagingBytes = 0,
+			stagingFiles = 0,
+			replacedBytes = 0,
+			addsFiles = 1,
+			newBytes = delta,
+		)?.let { throw Refused(it) }
 	}
 
 	private fun checkFreeSpace(delta: Long) {
