@@ -10,11 +10,24 @@ android {
 
 	defaultConfig {
 		minSdk = 34
+		// Named rather than left to a default: AndroidJUnitRunner is what runs an
+		// instrumented test, and without it the test APK installs and then dies
+		// with ClassNotFoundException before a single test starts.
+		testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
 	}
 
 	compileOptions {
 		sourceCompatibility = JavaVersion.VERSION_17
 		targetCompatibility = JavaVersion.VERSION_17
+	}
+
+	// `MigrationTestHelper` reads the exported schema JSONs as *assets* of the
+	// test APK, so the directory KSP writes has to be declared as one. Without
+	// this the files exist on disk, the helper cannot find them, and every
+	// migration test fails with "Cannot find the schema file" -- which reads
+	// like a missing migration rather than a missing asset.
+	sourceSets {
+		getByName('androidTest').assets.srcDir("$projectDir/schemas")
 	}
 }
 
@@ -37,6 +50,14 @@ dependencies {
 	implementation libs.androidx.room.runtime
 	implementation libs.androidx.room.ktx
 	ksp libs.androidx.room.compiler
+
+	// Migrations are the one thing here that can destroy a user's conversations,
+	// and they are the thing least likely to be exercised by hand: reaching the
+	// old schema means installing an old build. This runs them against a real
+	// database on a device.
+	androidTestImplementation libs.androidx.room.testing
+	androidTestImplementation libs.androidx.test.junit
+	androidTestImplementation libs.androidx.test.runner
 
 	implementation libs.androidx.datastore.preferences
 	implementation libs.kotlinx.coroutines.android
