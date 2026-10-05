@@ -262,6 +262,38 @@ class MigrationTest {
 
 	// --- tests ---------------------------------------------------------------
 
+	/**
+	 * Whether `1.json` is now a real v1.
+	 *
+	 * This is the experiment, not just a test. `createDatabase(1)` builds from
+	 * the exported schema, and the export used to declare the three columns
+	 * `MIGRATION_1_2` adds -- so this could not even start, failing with
+	 * `duplicate column name: toolCallsJson`. Those columns have been removed
+	 * from `1.json`.
+	 *
+	 * What is *not* known is whether `MigrationTestHelper` also verifies the
+	 * `identityHash` in that file. Room computes it and it cannot be hand-written
+	 * reliably, so if this test passes, the file is usable and only the hash is
+	 * stale; if it fails on a hash mismatch, the whole export needs regenerating
+	 * from historical entity classes and this test records exactly that.
+	 *
+	 * It is deliberately separate from the tests below, which build their own
+	 * DDL: those must keep working either way, and this one is allowed to be the
+	 * thing that reports the answer.
+	 */
+	@Test
+	fun `the exported v1 schema can build a database`() {
+		val db = helper.createDatabase("schema-check.db", 1)
+		val columns = db.columnNames("messages")
+		for (absent in listOf("toolCallsJson", "toolCallId", "toolName")) {
+			assertTrue(
+				"$absent belongs to v2 but the v1 export declares it, so 1 -> 2 cannot run",
+				absent !in columns,
+			)
+		}
+		db.close()
+	}
+
 	@Test
 	fun `1 to 2 adds the tool-call columns`() {
 		migrate(1, 2, InhumanDatabase.MIGRATION_1_2).use { db ->

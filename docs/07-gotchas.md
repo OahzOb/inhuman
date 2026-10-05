@@ -148,9 +148,8 @@ tall with an 18dp gap.
 
 These are real and current. None of them is a style opinion.
 
-**Status: nine of eleven are fixed** (B1-B7, B9, B10), and the two remaining are
-partly fixed (B8, B11) — B8's test coverage is in, its schema regeneration is
-not. Each entry below says what the fix was and how far it was verified, which is
+**Status: ten of eleven are fixed** (B1-B10), and B11 is partly fixed. Each entry
+below says what the fix was and how far it was verified, which is
 not the same for all of them. A "FIXED" with no test named means build and the
 full suite only; where a defect sits inside a stream or
 needs a fake that does not exist, saying so is better than a test that asserts
@@ -308,40 +307,50 @@ itself: `usage()` counts the staging file, so a 2 KB import into a 3 KB
 workspace was told 4 KB was over the limit, and the file count was wrong the
 same way. The caller now declares what it staged and what it replaces.
 
-### B8. The exported schemas are not historical, and `1.json` breaks 1 → 2 — **PARTLY FIXED**
+### B8. `1.json` was not a v1, and the fix was smaller than I claimed — **FIXED**
 
 `core/data/schemas/…/1.json` and `2.json` differed only in the `version` field,
 and `1.json` already declared `toolCallsJson`, `toolCallId` and `toolName` — the
-three columns `MIGRATION_1_2` adds. The exported v1 was v1's schema re-taken
-after the entities gained those fields.
+three columns `MIGRATION_1_2` adds. The exported v1 was v1's schema re-taken after
+the entities gained those fields.
 
-**It is worse than a cosmetic artefact.** `MigrationTestHelper.createDatabase`
-builds the starting database *from that file*, so a test that begins at v1 fails
-with `duplicate column name: toolCallsJson` — the migration cannot run against
-the schema the export claims. A test that cannot start is worse than no test,
+**It was functional, not cosmetic.** `MigrationTestHelper.createDatabase` builds
+the starting database *from that file*, so a test beginning at v1 failed with
+`duplicate column name: toolCallsJson` — the migration could not run against the
+schema the export claimed. A test that cannot start is worse than no test,
 because it looks like coverage.
 
-Two more deviations were found while writing the tests: `5.json` already
-contained `thinking`/`agentId` (added in 3 → 4), and `7.json` records
-`messages.mutated` as NOT NULL with **no default** where `MIGRATION_5_6`
-specifies `DEFAULT 0`. Each version's file disagrees with the migrations in a
-different place, which is the signature of files regenerated at different times
-rather than captured when each version was current.
+**Two things I got wrong along the way, both worth keeping.**
 
-**Fixed:** there are now eight device tests in
-`:core:data/src/androidTest/…/MigrationTest.kt` — one per step plus a rule round
-trip — and they build their starting databases from the DDL the migrations
-themselves assume, which is the authoritative statement of what each version
-looks like. Each asserts the migration runs, the columns it claims to add exist,
-and a seeded row survives. See the commit for the two of my own mistakes they
-caught: a hardcoded v8 column list, and `mutated` placed one version early.
+First, I claimed `5.json` also drifted because it "already contained
+`thinking`/`agentId`". It should: `MIGRATION_3_4` adds both, so v5 has them. That
+was a correct file read as a defect, and only an audit against what each migration
+adds — run for all eight versions at once — showed all of them clean on that
+axis.
 
-**Still open:** regenerating the eight schema JSONs from genuine per-version
-entity sets. It needs a derived entity class per historical version for KSP to
-export from, because the `identityHash` in each file is computed by Room and
-cannot be hand-written reliably. Until that is done, **treat the schema JSONs as
-documentation of intent rather than as a schema oracle** — which is why the tests
-build their own starting state instead of asking the helper to.
+Second, I said fixing this needed "a derived entity class per historical version,
+because the `identityHash` cannot be hand-written". The experiment says otherwise:
+`MigrationTestHelper` does **not** verify the stored hash when building a starting
+database. It reads the file's `version` and its DDL. Removing the three columns
+from `1.json`'s `createSql` and `fields` was enough — the v1 path now builds, and
+`the exported v1 schema can build a database` is the test that keeps it that way.
+
+So the entry cost two lines of JSON and a wrong estimate of a day's work. The
+`identityHash` is genuinely stale in that file (`26d8a4e9…`, identical to
+`2.json`'s, which cannot be right for two different schemas); it simply is not
+consulted on this path, and recomputing it would need Room to export the file
+itself.
+
+**Verified:** nine device tests in `:core:data/src/androidTest/…/MigrationTest.kt`,
+including the new schema check, plus an audit of all eight exports against the
+columns each migration adds. The other eight still build their own DDL rather than
+trusting the exports, which is the safer default even now that `1.json` is
+correct.
+
+**The one remaining caveat:** a schema file that is right about its columns and
+wrong about its hash is right by accident. Anything that later starts verifying
+hashes will reject `1.json` and `2.json`, and the fix then is to let Room re-export
+them from genuine per-version entities. Recorded rather than pre-empted.
 
 ### B9. Two sources of truth for "can this model see" — **FIXED**
 
