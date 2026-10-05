@@ -56,8 +56,22 @@ object FileTools {
 		freeSpaceBytes: (() -> Long)? = {
 			android.os.StatFs(workspace.rootPath().absolutePath).availableBytes
 		},
+		/**
+		 * Whether a workspace-relative path is hidden from the agent.
+		 *
+		 * Only `list_files` consults it, and that is the point: the other tools
+		 * are refused by `ToolPolicy.Deny` before they run, but a path the user
+		 * marked `Blind` must not appear in a listing either. **A filename can
+		 * leak on its own** -- a note called `divorce-lawyer.md` has already told
+		 * the model something -- so "cannot open it" and "cannot see it" are
+		 * different promises and this is the second one.
+		 *
+		 * Defaults to nothing hidden, so a caller that has no rules to apply
+		 * (every existing test, and any future one) behaves exactly as before.
+		 */
+		hidden: (String) -> Boolean = { false },
 	): List<Tool> = listOf(
-		ListFilesTool(workspace, freeSpaceBytes),
+		ListFilesTool(workspace, freeSpaceBytes, hidden),
 		ReadFileTool(workspace, freeSpaceBytes),
 		WriteFileTool(workspace, freeSpaceBytes),
 		AppendFileTool(workspace, freeSpaceBytes),
@@ -70,7 +84,12 @@ object FileTools {
 
 private typealias FreeSpace = (() -> Long)?
 
-internal class ListFilesTool(workspace: SessionWorkspace, free: FreeSpace = null) :
+internal class ListFilesTool(
+	workspace: SessionWorkspace,
+	free: FreeSpace = null,
+	/** Whether a workspace-relative path should be left out of the listing. */
+	private val hidden: (String) -> Boolean = { false },
+) :
 	WorkspaceTool(workspace, free), Tool {
 	override val name = "list_files"
 
@@ -89,7 +108,11 @@ internal class ListFilesTool(workspace: SessionWorkspace, free: FreeSpace = null
 
 	override suspend fun execute(arguments: JsonObject) = guard {
 		val dir = resolve(arguments.requireString("path")).getOrThrow()
-		val (entries, truncated) = listEntries(dir)
+		val (listed, truncated) = listEntries(dir)
+		// Filtered after `listEntries` rather than inside it, so the cap on how
+		// many entries are read is the same whether or not rules exist -- a rule
+		// must not change how far down a huge directory is walked.
+		val entries = listed.filterNot { hidden(workspace.relativize(it)) }
 		if (entries.isEmpty()) {
 			"${workspace.relativize(dir).ifEmpty { "." }} is empty"
 		} else {

@@ -748,7 +748,12 @@ class ChatViewModel(
 		val provider: ChatProvider =
 			if (demo) DemoProvider() else DeepSeekProvider(apiKey = apiKey!!)
 
-		val tools = buildTools()
+		// Read once, before the tools are built, because the rule set decides
+		// what `list_files` is even allowed to show. A path the user marked
+		// `Blind` has to be absent from the listing, not merely refused when
+		// named -- a filename leaks on its own.
+		val policies = loadPolicies()
+		val tools = buildTools(policies)
 		val toolSpecs = tools.map { spec(it) }
 
 		var rounds = 0
@@ -1359,7 +1364,7 @@ class ChatViewModel(
 	 * start" are the same code path -- and failing open is the wrong direction.
 	 * It is reported now, and the turn does not run on a silent failure.
 	 */
-	private fun buildTools(): List<Tool> {
+	private fun buildTools(policies: PolicySet = PolicySet.None): List<Tool> {
 		val entity = conversation
 
 		// The conversation's own copy wins, falling back to the assistant's.
@@ -1371,7 +1376,17 @@ class ChatViewModel(
 			return listOf(TimeTool()).filter { ToolCatalog.permits(selected, it.name) }
 		}
 
-		val fileTools = runCatching { FileTools.all(repository.workspace(entity)) }
+		val fileTools = runCatching {
+			FileTools.all(
+				workspace = repository.workspace(entity),
+				// `Blind` and nothing else. `Deny` also stops the agent reaching
+				// a path, but it does so by refusing the call, which leaves the
+				// name visible -- and the name is the part that leaks.
+				hidden = { path ->
+					policies.effective(tool = "list_files", relativePath = path) == ToolPolicy.Blind
+				},
+			)
+		}
 			.getOrElse { failure ->
 				_state.update {
 					it.copy(
