@@ -72,21 +72,28 @@ time the conversation was opened — while still having been billed for it
 
 ### `executeCalls` (`:1094-1189`)
 
-Per call, in order:
+Per call, in order (line numbers from `ChatViewModel.kt`, which has moved twice
+since this file was written — search the marker text if they are off):
 
-1. Unknown tool → an error result and `continue` (`:1099-1102`).
+1. Unknown tool → an error result and `continue`.
 2. Arguments are re-parsed (they were parsed once at `ToolCallEnd`); a parse
-   failure appends a result and `continue`s (`:1104`).
-3. `needsApproval(parsed)` → `pendingApproval` in state, then **`awaitApproval()`
-   suspends the turn** (`:1106-1114`).
-4. Declined → the `Declined` chip is set **before** the result is appended
-   (`:1121-1128`), the result body is `DECLINED_MARKER + …` (`:1509`), and the
-   function returns `false`. The ordering is deliberate: without it the call
-   stayed `Ready` forever, and a refused delete rendered as a call that was
-   merely waiting — the one state a user is most likely to misread as "it is
-   about to happen".
-5. Approved → `Running` → `tool.execute` on `Dispatchers.IO` (`:1147`) →
-   `Done`/`Failed` → result appended.
+   failure appends a result and `continue`s.
+3. **The configured rules are consulted first**, and `Deny`/`Blind` are answered
+   here as refusals rather than questions — `needsApproval` can only say "ask",
+   and asking about something the user forbade would be the wrong question with a
+   confusing answer. The result body is `REFUSED_MARKER + …` and the chip goes
+   `Failed`, not `Declined` (`:1193-1211`).
+4. `policy == Ask`, **or** the tool's own `needsApproval(parsed)` →
+   `pendingApproval` in state, then **`awaitApproval()` suspends the turn**
+   (`:1213-1221`). No tool currently returns true from `needsApproval`, so in
+   practice this step is reached only by a configured rule.
+5. Declined → the `Declined` chip is set **before** the result is appended, the
+   result body is `DECLINED_MARKER + …`, and the function returns `false`. The
+   ordering is deliberate: without it the call stayed `Ready` forever, and a
+   refused call rendered as one that was merely waiting — the one state a user is
+   most likely to misread as "it is about to happen".
+6. Approved → `Running` → `tool.execute` on `Dispatchers.IO` → `Done`/`Failed` →
+   result appended.
 
 **Only the execution moves off the main thread.** Approval stays on it, because
 it suspends on the user and the continuation is resumed from the UI (`:1133-1146`).
@@ -97,17 +104,17 @@ The measured reason for the move: one `write_file` costs about 106 ms in a
 (`:1155-1168`). A failed write still means the turn *tried* to change the
 workspace, and regenerating would try again.
 
-### The approval plumbing (`:1193-1205`)
+### The approval plumbing
 
-One `CancellableContinuation<Boolean>` field. `approvePendingCall` /
-`declinePendingCall` (`:669-679`) clear `pendingApproval` and resume the
-continuation only if it is still active.
+One `CancellableContinuation<Boolean>` field, set by `awaitApproval()`
+(`ChatViewModel.kt:1329`). `approvePendingCall` / `declinePendingCall` clear
+`pendingApproval` and resume the continuation only if it is still active.
 
-Two things to know: **the `pending: PendingApproval` parameter is never read**
-(`:1200-1205`), so approval is not matched against the call it names — and because
-`pendingApproval` is a single field, several approval-needing calls produce
-**sequential dialogs**, not a collected batch, which contradicts the comment at
-`:768-769`.
+Two things to know: **the `pending: PendingApproval` parameter of
+`continueAfterApproval` is never read** (`:1334`), so approval is not matched
+against the call it names — and because `pendingApproval` is a single field,
+several approval-needing calls produce **sequential dialogs**, not a collected
+batch.
 
 ## Regeneration, and the sticky-flag bug
 
@@ -283,13 +290,20 @@ behind a tap. "speed: too short to measure" is **shown rather than omitted**
 FAB on a phone and a top-bar "+" on a tablet, chosen by
 `prefersFabForPrimaryAction()` (`:110-111`, `:126-150`).
 
-Deleting asks first, and the **file count is fetched before the question is
-shown** (`:88-90`) so the dialog can name what goes with the conversation — the
-files are not visible from that screen, and "delete this conversation?" reads
-like it removes a list entry. One shared `closeDialog` serves all three dismissal
-paths (Cancel, outside tap, Back) because the first version handled them
-inconsistently (`:189-204`). The dialog self-dismisses if its conversation
-disappears (`:105-108`).
+Deleting a conversation asks first, and the **file count is fetched before the
+question is shown** (`ConversationsViewModel.kt:118`, read at
+`ConversationsScreen.kt:187`) so the dialog can name what goes with the
+conversation — the files are not visible from that screen, and "delete this
+conversation?" reads like it removes a list entry. One shared `closeDialog`
+serves all three dismissal paths (Cancel, outside tap, Back) because the first
+version handled them inconsistently. The dialog self-dismisses if its
+conversation disappears.
+
+**This confirmation is not the tool-approval gate and is not affected by the
+approval rules.** It is the user deleting their own conversation, so there is no
+question about who decided. Do not remove it on the grounds that "deletion no
+longer asks" — that sentence is about the model's `delete_file` call, not about
+a person pressing delete in a list.
 
 ### Agents — what an "assistant" is
 
@@ -346,12 +360,19 @@ walks the workspace tree **twice** (`usedBytes()` and `fileCount()`, `:138-141`)
 the key and calls `invalidateModels`), "Test connection" calling `GET /models`
 and reporting the models it sees, and the Demo-mode switch.
 
-**Demo mode is the offline verification path.** `secure.get("demo.mode") == "1"`
-(`ChatViewModel.kt:647`); `configured` is `demo || hasKey` (`:641-645`). With
-file tools on, the demo creates a file and then asks to delete it, so the tool
-loop, the approval gate and the declined state are all reachable with no key, no
-network and no bill. Send `plain` in a message to get prose instead of a tool
-turn.
+**Demo mode is the offline verification path.** `demoEnabled()` reads
+`secure.get(SecureStore.KEY_DEMO_MODE) == "1"` (`ChatViewModel.kt:615`), and
+`refreshConfiguration()` publishes `configured = demo || hasKey` (`:609-612`). With
+file tools on, the demo creates a file and then deletes it, so the tool loop, the
+tool results and the closing summary are all reachable with no key, no network
+and no bill.
+
+**It no longer reaches the approval gate on its own.** Deletion does not ask by
+default, so the demo's delete call runs. To exercise the dialog and the declined
+chip, configure a rule — `delete_file = Ask` — and the same script walks into it.
+That is a deliberate consequence of the approval model in
+[09-approvals.md](09-approvals.md), not a gap in the demo. Send `plain` in a
+message to get prose instead of a tool turn.
 
 ## No API key, and no demo mode
 

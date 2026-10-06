@@ -391,64 +391,70 @@ the UI. It is now `suspend` and reads on `Dispatchers.IO`.
 exists to remove, reintroduced here. It now asks for `usage()` once and takes
 both numbers off the result.
 
-### B11. Smaller ones — **PARTLY FIXED**
+### B11. Smaller ones — **MOSTLY FIXED**
 
-Fixed in this pass:
+Fixed in this pass, each verified by reading the code rather than by the commit
+message:
 
 - `DeepSeekSearchProvider.DEFAULT_MODEL` was `"deepseek-v4-flash"`, which nothing
   advertises; a live `GET /models` returns `deepseek-flash`, and
-  `DeepSeekModelsTest` pins that list. Now `"deepseek-flash"`. The search path is
-  never handed the conversation's model, so this default was what it always used.
+  `DeepSeekModelsTest` pins that list. Now `"deepseek-flash"`
+  (`DeepSeekSearchProvider.kt:166`). The search path is never handed the
+  conversation's model, so this default was what it always used.
 - `ConversationDao.observeAll` and both `AgentDao` orderings gained `id ASC` as a
-  tie-break. Two rows saved in the same millisecond compare equal on `updatedAt`,
-  and SQLite may return them in either order, so an emission could reorder equal
-  keys and make the list appear to shuffle with nothing having changed.
+  tie-break (`InhumanDatabase.kt:25`, `:167`, `:170`). Two rows saved in the same
+  millisecond compare equal on `updatedAt`, and SQLite may return them in either
+  order, so an emission could reorder equal keys and make the list appear to
+  shuffle with nothing having changed.
+- The model picker's error path is reachable: `reloadModels()` now returns a
+  `Result` (`ChatViewModel.kt:326`) and the dialog reads
+  `result.exceptionOrNull()?.message` into a visible error line
+  (`ModelPickerDialog.kt:82`, `:104-110`). Selecting a model also dismisses, in
+  both the default option and a listed one (`:118-121`, `:150-153`).
+- The two-sources-of-truth bug behind "cannot read images" in demo mode is gone:
+  `attachImage` reads `_state.value.modelSupportsVision`, the same published
+  answer the attach button was enabled from (`ChatViewModel.kt:376`, `:388`).
 
-Still open below.
+Still open, verified in the code as of this pass:
 
-Separately, in demo mode the composer's attach button is **enabled** (the demo
-model advertises image input, and `publishModelState` falls back to the demo model
-list) while `attachImage` consults only `agents.models()` and refuses without a
-key (`ChatViewModel.kt:386-402`) — so picking an image always yields "The model in
-use cannot read images."
-
-- `ModelPickerDialog`'s error branch is dead: `reloadModels()` swallows failure
-  and returns an empty list (`ChatViewModel.kt:333-334`), so a key-less user sees
-  an empty picker with no explanation. Selecting a model also does not dismiss the
-  dialog.
-- A failed turn with no content leaves no trace: the placeholder is removed and
-  nothing is persisted (`ChatViewModel.kt:1067`), so only the dismissible error row
-  shows it.
-- `pendingApproval` is a single field, so several approval-needing calls produce
-  **sequential** dialogs and the `pending` parameter is never read
-  (`:1200-1205`) — contradicting the comment at `:768-769`.
-- `DeepSeekSearchProvider.DEFAULT_MODEL` is `"deepseek-v4-flash"`
-  (`DeepSeekSearchProvider.kt:156`), which is **not** an id the provider
-  advertises; a live `GET /models` returns `deepseek-flash`
-  (`DeepSeekModelsTest.kt:33-53`). The search provider is never given the
-  conversation's model. Check here first if search starts failing with a 400 naming
-  the model.
-- `ConversationsScreen`/`AgentsScreen` list orderings have no `id` tie-break, so
-  rows with equal `updatedAt` can swap between emissions
-  (`InhumanDatabase.kt:19-20`, `:159-163`).
-- Dead code, verified repo-wide: `DeepSeekProvider.json`, `DeepSeekRequest.EmptyArray`,
-  `ReasoningType.Raw`, `RemoteModel.maxOutputTokens` (read only by
-  `DeepSeekModelsTest`), `ConversationRepository.observeConversation`,
-  `MessageDao.update`, `MessageDao.delete`, `ConversationDao.observe`,
-  `SecureStore.has`, `Database.DEFAULT_SYSTEM_PROMPT` (a duplicate of the
-  companion's), `DeltaCursor.seen`, `TurnOutcome.text/reasoning/finish/failure`,
+- **`pendingApproval` is a single field**, so several approval-needing calls
+  produce **sequential** dialogs rather than a collected batch
+  (`ChatViewModel.kt:1216`, `awaitApproval` at `:1329`). The `pending` parameter
+  of `continueAfterApproval` is accepted and never read (`:1334`).
+- **A failed turn with no content still leaves no trace**: the placeholder is
+  removed and nothing is persisted (`ChatViewModel.kt:1092`), so only the
+  dismissible error row shows it.
+- **Dead code, verified repo-wide** (`grep` over every `.kt`): five fields of
+  `TurnOutcome` are constructed and never read — `text`, `reasoning`, `usage`,
+  `finish`, `failure` (`ChatViewModel.kt:764-772`; the only construction site
+  passes `usage = null` at `:1102`). Also unreferenced: `DeepSeekProvider.json`,
+  `DeepSeekRequest.EmptyArray`, `ReasoningType.Raw`, `RemoteModel.maxOutputTokens`
+  (read only by `DeepSeekModelsTest`), `ConversationRepository.observeConversation`
+  (definition only — `:82`), `MessageDao.update`, `MessageDao.delete`,
+  `ConversationDao.observe`, `SecureStore.has`, `Database.DEFAULT_SYSTEM_PROMPT`
+  (a duplicate of the companion's, which is the one bound at
+  `InhumanDatabase.kt:468`; the copy at `Database.kt:69` is unreferenced),
   `FilePreview.truncated`. `SseFrame.id`/`retryMillis` are read only by
   `SseParserTest`, and `StreamChunk.Raw` is never emitted — its only reference is
-  the `when` branch that ignores it (`ChatViewModel.kt:989`).
-- `ChatViewModel`'s `replyDeltas` doc comment is copy-pasted twice (`:124-145` and
-  `:146-173`), and the KDoc for `regenerate` (`:507-517`) and `selectBranch`
-  (`:602-608`) are each followed by a second KDoc block, so neither documents
-  anything.
-- `DeltaCursor.seen` is written three times and never read
-  (`DeltaCursor.kt:30`, `:45-55`).
-- `TokenFormat` avoids `String.format` for the Turkish-locale reason
-  (`ContextUsage.kt:122-124`), but `UsageLine.kt:102,114,143-144` and
-  `ChatScreen.kt:1039` use it anyway.
+  the `when` branch that ignores it (`ChatViewModel.kt:961`).
+- **`TokenFormat` avoids `String.format` for a Turkish-locale reason**
+  (`ContextUsage.kt:122-124`) — `%` formatting is locale-sensitive and `"%.1f"`
+  renders a comma decimal separator in some locales. The rule is not followed
+  where a user actually reads the number: `UsageLine.kt:102`, `:105`, `:114`,
+  `:143-144` all use it, as does `ChatScreen.kt`.
+
+Three things that *were* on this list and are now clean, recorded because a
+stale entry is how this list loses its authority (each was re-read, not assumed):
+
+- the duplicated doc comments on `replyDeltas`, `regenerate` and `selectBranch`
+  are gone — each KDoc is now single and describes its own function;
+- the `attachImage` / composer disagreement about vision is gone with the
+  single-source fix;
+- `DeltaCursor`'s `seen`/`sent` pair looked like dead state in a diff, but it is
+  not: `seen` holds the text and `sent` is the index into it
+  (`DeltaCursor.kt:29-33`), and a grep for reads of `sent` finds the slice
+  computation. It is cited here because "written and never read" was a plausible
+  wrong conclusion.
 
 ---
 
@@ -469,7 +475,7 @@ By this repository's standard, the comment is the bug. These were all verified.
 | `WorkspaceDocumentsProvider.kt:207`: "A bare workspace id is a conversation" | The lookup underneath is `byId`, which matches the *conversation* id. See B6. |
 | `SearchProvider` in `WebSearchTool.kt:10`: "an interface with nothing behind it yet" | `DeepSeekSearchProvider` has been behind it since `b4e503f`. |
 | `Tool.kt:73`: "There are eight tools" | `ToolCatalog.all` has ten. |
-| `Tool.kt:81-82`: "Anything that writes, deletes or reaches outside the workspace should override this" | Only `delete_file` overrides `needsApproval` — which `Tool.kt:62` itself concedes. |
+| `Tool.kt:81-82`: "Anything that writes, deletes or reaches outside the workspace should override this" | **No tool overrides `needsApproval` to return true**, `delete_file` included — it returns `false` (`FileTools.kt:355`). The advice is now historical: approval is decided by the user's configured rules, and `needsApproval` survives as an unused "must always ask" hook. |
 | `AgentsScreen.kt:723-738`: "Hand-rolled rather than pulling in the FlowRow API" | It calls `androidx.compose.foundation.layout.FlowRow`. |
 | `ChatScreen.kt:419-422`: raw JSON is "practically useless" | The dialog prints the raw `argumentsJson` seven lines later (`:429-443`). |
 | `themes.xml:9`: "a bare Material3 parent" | It is the platform `android:Theme.Material.NoActionBar`, with a hard-coded dark `windowBackground` while a light scheme exists. |

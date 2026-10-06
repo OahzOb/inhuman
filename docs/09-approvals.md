@@ -239,6 +239,31 @@ Delete demo/notes.txt from this conversation's folder?
 
 至此审批层没有未验证的行为了。
 
+### 独立复验（新增，非原作者所做）
+
+**目的**：不靠前一节的叙述。一个断言在文档里写过一遍之后，第二个人读到的只是那句话，
+所以这里重新跑的是**默认值**这条路径——它是整个模型里最该被独立确认的一条。
+
+```
+设备    dsh_tablet AVD (2560x1600)，全新安装（pm clear）
+步骤    设置 → Demo mode 开 → 新建会话 → 发一条消息
+transcript 读回:
+
+  Used 2 tools
+  write_file — Created demo/notes.txt (21 B, 1 lines)
+  delete_file — Deleted demo/notes.txt
+  Demo mode with tools. Creating a file, then deleting it.
+  Configure a rule on delete_file if you want to be asked first.
+```
+
+**没有弹窗**，删除真的执行了，两条工具结果都在。这一条把"默认不问"从设计意图
+变成了设备上的观测。demo 提供者的文案也已随之更新（它自己就会告诉用户去哪儿配规则）。
+
+**这次的范围**：只跑了默认值。前面的记录里，三种规则源（`approval_defaults`、
+`agent_approval`、`path_policy`）各自都已通过自己的界面设置并在设备上核对过，
+本次没有重跑那三条路径，也没有重跑 `Blind` 的 `list_files` 断言——它们的状态以本文档
+前面的记录为准，而不是以这一节为准。
+
 **界面**：全局规则在设置页（"Before a tool runs"），按路径规则在文件浏览器
 （每行的锁按钮，四档按名字列出：Agent may change this / asks first / may look,
 not change / Hidden from the agent）。两者都写库后重读，不在内存里打补丁——

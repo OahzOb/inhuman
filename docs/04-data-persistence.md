@@ -4,16 +4,19 @@ Module: `:core:data`. It re-exports `:core:files` and `:core:ai` with `api`,
 because a conversation's lifecycle spans the sandbox that guards it and the
 provider that answers it.
 
-## The schema, version 7
+## The schema, version 8
 
-`InhumanDatabase` (`core/data/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt:192`):
-`version = 7`, `exportSchema = true`, database file `inhuman.db` (`:201`). Schemas
-are exported to `core/data/schemas/` by KSP — configured in
-`core/data/build.gradle` with the reason stated: without it the schemas exist
-only inside the build directory and are lost on clean, which makes a missed
-migration impossible to spot.
+`InhumanDatabase` (`core/data/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
+`version = 8`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+exported to `core/data/schemas/` by KSP — configured in `core/data/build.gradle`
+with the reason stated: without it the schemas exist only inside the build
+directory and are lost on clean, which makes a missed migration impossible to
+spot.
 
-Three entities, all in `core/data/src/main/kotlin/com/inhuman/core/data/db/Entities.kt`.
+Six entities in three files: `ConversationEntity`, `MessageEntity` and
+`AgentEntity` in `db/Entities.kt`, plus the three approval-policy tables
+(`ApprovalDefaultEntity`, `AgentApprovalEntity`, `PathPolicyEntity`) in
+`db/PolicyEntities.kt`, added by migration 7→8.
 
 ### `conversations` (`Entities.kt:103-150`)
 
@@ -144,28 +147,47 @@ the messages explicitly before the row **even though the FK cascades** — the
 comment says that keeps the behaviour obvious if the cascade is ever switched
 off (`:496-502`).
 
-## Migration history 1 → 7
+## Migration history 1 → 8
 
 All hand-written. There is **no `fallbackToDestructiveMigration` anywhere** and
 the reason is stated at `MIGRATION_1_2`: it would delete every conversation on
 upgrade — acceptable while nothing has shipped, a data-loss bug the moment
 something has.
 
+Line numbers are deliberately absent from this table: seven migrations' worth of
+edits have moved them twice, and a wrong line number is read as a wrong claim.
+Search for `MIGRATION_n_m` in `InhumanDatabase.kt`; the order in the file is the
+order below.
+
 | | What changed |
 | --- | --- |
-| 1→2 | `messages` gains `toolCallsJson`, `toolCallId`, `toolName` — all nullable, so the migration is additive and no existing row needs interpreting (`:203-218`). |
-| 2→3 | `messages` gains `timeToFirstTokenMs`, `generationMs`. Stored rather than recomputed, because a figure that only exists in memory vanishes on reload and comparing two models means wanting the older row as much as the newer (`:220-232`). |
-| 3→4 | `agents` table created; `conversations` gains `agentId`, `reasoningEffort`, `thinking INTEGER NOT NULL DEFAULT 0`; `index_conversations_agentId` created; **and the default assistant is seeded here as well as in `onCreate`** (`:234-274`). |
-| 4→5 | `messages` gains `attachmentsJson` (`:276-287`). |
-| 5→6 | `messages` gains `mutated INTEGER NOT NULL DEFAULT 0` (`:289-307`). |
-| 6→7 | `agents` and `conversations` gain `toolsJson TEXT NOT NULL DEFAULT ''`. `''` decodes to `null` = every tool, so pre-existing assistants keep everything (`:309-334`). |
+| 1→2 | `messages` gains `toolCallsJson`, `toolCallId`, `toolName` — all nullable, so the migration is additive and no existing row needs interpreting. |
+| 2→3 | `messages` gains `timeToFirstTokenMs`, `generationMs`. Stored rather than recomputed, because a figure that only exists in memory vanishes on reload and comparing two models means wanting the older row as much as the newer. |
+| 3→4 | `agents` table created; `conversations` gains `agentId`, `reasoningEffort`, `thinking INTEGER NOT NULL DEFAULT 0`; `index_conversations_agentId` created; **and the default assistant is seeded here as well as in `onCreate`**. |
+| 4→5 | `messages` gains `attachmentsJson`. |
+| 5→6 | `messages` gains `mutated INTEGER NOT NULL DEFAULT 0`. |
+| 6→7 | `agents` and `conversations` gain `toolsJson TEXT NOT NULL DEFAULT ''`. `''` decodes to `null` = every tool, so pre-existing assistants keep everything. |
+| 7→8 | Three new tables and **no change to any existing one**: `approval_defaults(toolName PK, policy)`, `agent_approval(agentId, toolName PK, policy)`, `path_policy(conversationId, relPath PK, policy)`. Created empty, which is both the correct migration and the correct product default — absence of a rule means no restriction. The statements are written by hand to match what Room generates, and the safety net is Room's own schema-hash check on open. |
+
+The 7→8 comment records a product change that is *not* in the migration:
+deletion no longer asks for approval, and that lives in `DeleteFileTool`, not
+here.
 
 The seeding in 3→4 is not redundancy and the comment says so: `onCreate` runs
 only when the database file is created, so an existing install migrating to that
 version would otherwise arrive with an empty assistant picker. It was found on a
-real device. `seedDefaultAgent` (`:350-373`) binds parameters — the prompt
-contains apostrophes — and `INSERT OR IGNORE`s `DEFAULT_AGENT_ID`, and it is
-called from both `onCreate` and `MIGRATION_3_4`.
+real device. `seedDefaultAgent` binds parameters — the prompt contains
+apostrophes — and `INSERT OR IGNORE`s `DEFAULT_AGENT_ID`, and it is called from
+both `onCreate` and `MIGRATION_3_4`.
+
+**These now have device tests.** `core/data/src/androidTest/…/MigrationTest` runs
+all seven upgrade steps against real SQLite, plus "the exported v1 schema can
+build a database" and a policy round-trip. Verified by running it:
+
+```
+.\gradlew.bat :core:data:connectedDebugAndroidTest
+→ dsh_tablet(AVD), 9 tests, 0 failures
+```
 
 ### Two migration risks worth knowing before touching this
 

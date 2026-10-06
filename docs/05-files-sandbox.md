@@ -61,7 +61,7 @@ The pipeline, in order (`:62-113`):
    where symlinks can be created. There is no CI configuration in the tree, so
    neither half is run for you.
 2. **`resolve()` never refuses the root.** Root protection is each tool's job,
-   and **only `delete_file` has it** (`FileTools.kt:324-326`).
+   and **only `delete_file` has it** (`FileTools.kt:363-364`).
 3. **The symlink tests are vacuous where symlinks cannot be created.** Both
    return silently when `createSymbolicLink` throws
    (`SessionWorkspaceTest.kt:151-154`, `:165-167`), which is the normal case on
@@ -141,7 +141,7 @@ The details that matter, all in `WorkspaceTool.kt`:
 `FileTools.all` (`core/files/src/main/kotlin/com/inhuman/core/files/tools/FileTools.kt:54-69`),
 in registry order:
 
-| Tool | `mutates` | Approval | Notes |
+| Tool | `mutates` | Asks by default | Notes |
 | --- | --- | --- | --- |
 | `list_files` | no | no | Sorted directories-first, then case-insensitively; announces truncation at `maxListEntries`. |
 | `read_file` | no | no | Line-numbered. The numbers are the **file's own**, not the slice's: a ranged read that restarted at 1 would invite the model to edit the wrong line, and the mistake would look like a successful edit (`:146-162`). |
@@ -149,8 +149,25 @@ in registry order:
 | `append_file` | yes | no | Reads the existing file and rewrites it whole, so it is bounded by the *combined* size and is O(existing). |
 | `create_directory` | yes | no | Idempotent, and says so when it already exists. |
 | `move_file` | yes | no | Refuses moving a directory inside itself (canonical prefix) and refuses an existing destination rather than clobbering. |
-| `delete_file` | yes | **yes** | The one irreversible operation, so the one that asks. |
+| `delete_file` | yes | **no** | The one irreversible operation — and it no longer asks. Structure is the argument, not permission: what is inside a workspace is a *copy* of what the user handed over, so deleting it is reversible at the level that matters. See [09-approvals.md](09-approvals.md). |
 | `file_info` | no | no | With no path, reports the workspace totals against their two ceilings plus the per-file read and write limits — four of the six, not all of them. |
+
+**"Asks by default" is not where approval is decided.** `Tool.needsApproval` is
+still evaluated per call against the arguments (`Tool.kt:84`), but it has become
+a **"must always ask" hook that no tool currently uses** — every file tool
+returns `false`, and `FileToolsTest` asserts the set of tools that ask is
+**empty**. The decision moved to the user's configured rules, which is what
+[09-approvals.md](09-approvals.md) describes and what
+`ChatViewModel.kt:1187-1213` implements in this order:
+
+| Effective policy | What happens |
+| --- | --- |
+| `Deny` or `Blind` | Refused immediately with `REFUSED_MARKER`, before any question. `needsApproval` can only say "ask", and asking about something the user forbade would be the wrong question with a confusing answer (`:1187-1192`). |
+| `Ask`, or a tool whose own `needsApproval` returns true | The approval dialog, and the turn suspends (`:1213-1221`). |
+| anything else | Runs. |
+
+So the declined state is still reachable — it is now reached by configuring a
+rule rather than by an irreversible operation existing.
 
 Every one takes **workspace-relative path arguments** — `path`, or `from`/`to`
 for `move_file` — and none is ever told where the workspace is: confinement is a
@@ -162,7 +179,7 @@ that every one does (`FileToolsTest.kt:62-76`).
 `delete_file` refuses the canonical workspace root, because a model that decides
 to "clean up" by deleting `"."` would remove every file in the conversation and
 there is no reading of that instruction where the user wanted it
-(`FileTools.kt:321-326`).
+(`FileTools.kt:363-364`).
 
 ### `guard`: the error boundary
 
@@ -295,5 +312,5 @@ real filesystem semantics rather than a device (`core/files/build.gradle`).
 | Test | Locks in |
 | --- | --- |
 | `SessionWorkspaceTest` | Paths inside the root; empty → root; `"."` and `"//"` normalised; backslash separators; `..` refused with a message containing `..`; absolute-looking paths confined; Windows drive paths rejected-or-confined; NUL refused; symlinks refused (conditionally — see above); `relativize` inverts `resolve`; `fileCount`/`usedBytes` exclude directories. |
-| `FileToolsTest` | The interface lock (no absolute location in any description, and `path` present among the declared properties); **approval is exactly `["delete_file"]`**; write→read round trip with line numbering; `../` refused with nothing written outside; `/etc/passwd` reinterpreted as relative; deleting `"."` refused and the root survives; move-into-itself refused; missing file names the path; missing required argument named; oversized read refused, not truncated; oversized write leaves nothing on disk; the file-count ceiling; truncation announced; free-space refusal at an injected 1024 bytes and success at 1 GiB; Created vs Replaced; append; move preserves content; `file_info` totals; empty listing says "empty". |
+| `FileToolsTest` | The interface lock (no absolute location in any description, and `path` present among the declared properties); **no tool asks for approval by default** — the gated set is asserted *empty*, and the `needsApproval` hook is pinned by reflection rather than by a tool using it; write→read round trip with line numbering; `../` refused with nothing written outside; `/etc/passwd` reinterpreted as relative; deleting `"."` refused and the root survives; move-into-itself refused; missing file names the path; missing required argument named; oversized read refused, not truncated; oversized write leaves nothing on disk; the file-count ceiling; truncation announced; free-space refusal at an injected 1024 bytes and success at 1 GiB; Created vs Replaced; append; move preserves content; `file_info` totals; empty listing says "empty". |
 | `ToolMutationClassificationTest` | The **exact tool-name set**, so a ninth tool fails loudly until it is classified; the three read tools are `mutates = false`; the five writes are `true`; and the flags are verified against the filesystem — `list_files` leaves `fileCount` unchanged, `write_file` increases it. |

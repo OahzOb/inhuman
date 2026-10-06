@@ -33,6 +33,17 @@ its rules are load-bearing and are argued at length in that file:
   wrong in the dangerous direction, leaving regenerate enabled on a turn that
   writes (`Tool.kt:68-74`).
 
+**Where approval is actually decided has since moved, and `needsApproval` is now
+a hook rather than the gate.** The interface still declares it per call
+(`Tool.kt:84`, defaulting to `false`), but **no tool overrides it to return
+true** — `FileToolsTest` asserts the set of tools that ask is empty. The decision
+belongs to the user's configured rules (`core/ai/…/policy/PolicySet.kt`), applied
+by the turn loop; `ChatViewModel.kt:1187-1213` consults `Deny`/`Blind` as
+refusals first, then `Ask`-or-`needsApproval` as the dialog. So read
+`needsApproval` as "this call must always be asked about, whatever the rules
+say" — a capability nothing currently needs, kept because a future tool might.
+[09-approvals.md](09-approvals.md) is the model.
+
 `execute` must not throw for an ordinary failure. A missing file, a quota
 exceeded and a refused path are normal outcomes that belong in the returned text
 where the model can read them; a thrown exception ends the turn and tells the
