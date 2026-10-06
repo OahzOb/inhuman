@@ -259,10 +259,32 @@ transcript 读回:
 **没有弹窗**，删除真的执行了，两条工具结果都在。这一条把"默认不问"从设计意图
 变成了设备上的观测。demo 提供者的文案也已随之更新（它自己就会告诉用户去哪儿配规则）。
 
-**这次的范围**：只跑了默认值。前面的记录里，三种规则源（`approval_defaults`、
-`agent_approval`、`path_policy`）各自都已通过自己的界面设置并在设备上核对过，
-本次没有重跑那三条路径，也没有重跑 `Blind` 的 `list_files` 断言——它们的状态以本文档
-前面的记录为准，而不是以这一节为准。
+**这次的范围**：默认值这条路径是新跑的。三种规则源（`approval_defaults`、
+`agent_approval`、`path_policy`）各自通过自己的界面设置并在设备上核对过，
+`Blind` 的 `list_files` 断言也在前文记录里——本次没有重跑那三条，它们的状态以前文为准。
+
+**`Ask` 一档后来补跑了**（同一台 `dsh_tablet` AVD，全新安装），而且两个方向都对着
+文件系统核对：
+
+```
+设置里把 delete_file 设成 ask first → 发消息
+  弹窗出现:
+      Allow this action?
+      Delete demo/notes.txt from this conversation's folder?
+      {"path":"demo/notes.txt"}
+
+点 Decline
+  磁盘   demo/notes.txt 仍在（21 B）
+  正文   delete_file — [declined] The user declined this call.
+
+再发一条，点 Allow
+  磁盘   workspace 目录为空
+  正文   write_file — Replaced demo/notes.txt (21 B, 1 lines)
+         delete_file — Deleted demo/notes.txt
+```
+
+**拒绝之后文件仍在、允许之后文件消失。** 这是补跑的重点：一道只记录决定、而动作照旧
+发生的门，在转录上看起来完全一样，所以必须查磁盘而不是看 chip。
 
 **界面**：全局规则在设置页（"Before a tool runs"），按路径规则在文件浏览器
 （每行的锁按钮，四档按名字列出：Agent may change this / asks first / may look,

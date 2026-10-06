@@ -144,16 +144,17 @@ tall with an 18dp gap.
 
 ---
 
-## B. Wrong today — verified defects
+## B. Defects that were found here — and where each one now stands
 
-These are real and current. None of them is a style opinion.
+Every entry below was a real defect when it was written. Most are fixed; each one
+says what the fix was and how far it was verified, which is **not** the same for
+all of them. A "FIXED" with no test named means build and the full suite only;
+where a defect sits inside a stream, or needs a fake that does not exist, saying
+so is better than a test that asserts nothing.
 
-**Status: ten of eleven are fixed** (B1-B10), and B11 is partly fixed. Each entry
-below says what the fix was and how far it was verified, which is
-not the same for all of them. A "FIXED" with no test named means build and the
-full suite only; where a defect sits inside a stream or
-needs a fake that does not exist, saying so is better than a test that asserts
-nothing.
+**Status: B1-B10 fixed, B11 mostly fixed.** The dates matter less than the method,
+so each fixed entry names what convinced it — a test, a device observation, or
+neither.
 
 ### B1. The regenerate control was disabled for the rest of the session after any mutating turn — **FIXED**
 
@@ -166,25 +167,29 @@ activity-scoped, so the same instance came back without `reload()` running.
 
 The fix is not to clear the flag in `send()`, which would break again the next
 time a path starts a turn. It is to delete the field: `currentTurnMutated` is now
-derived from the transcript, so there is no second copy to go stale.
-`ChatUiStateTest` carries five tests, including "the turn after a mutating turn
-can be regenerated" -- the exact sequence that was broken.
+a **derived property** on `ChatUiState` (`ChatUiState.kt:117-122`) computed from
+the transcript after the last user message, so there is no second copy to go
+stale. `reload()` deliberately does not assign it, and the comment there says
+why: rebuilding the transcript *is* recomputing it. `ChatUiStateTest` carries
+five tests, including "the turn after a mutating turn can be regenerated" -- the
+exact sequence that was broken.
 
-**The one most likely to be reported as a bug.**
+**Verified on the emulator, because this one had a trap in the verifying.**
+The demo script writes a file every turn, so *every* demo turn is legitimately
+mutation-gated and shows "This reply changed files, so it cannot be regenerated."
+That sentence appearing is therefore **not** evidence of the bug. The decisive
+case is a turn that changes nothing, which the demo's `plain` path provides:
 
-There are two things named `currentTurnMutated` and the UI reads the wrong one.
-The private **function** (`ChatViewModel.kt:536-541`) is correct — it scopes to
-the last user message, so "a file written three exchanges ago is not rewritten by
-answering again, and must not block anything". The **state flag**
-(`ChatUiState.kt:101`, read at `ChatScreen.kt:171`, used at `:852`) is assigned in
-`reload()` (`:498`) and set `true` in `executeCalls` (`:1177`), and **`send()`
-never clears it** (verified: `:708-719`).
+```
+after a mutating turn   'cannot be regenerated' present
+send "plain"            a turn with no tool calls
+after it                'cannot be regenerated' absent, "Answer again" offered
+```
 
-So after one mutating turn, every later reply says "This reply changed files, so
-it cannot be regenerated." Reopening the conversation does not fix it, because
-the chat ViewModel is keyed and activity-scoped (`MainActivity.kt:233`) — the same
-instance comes back, `init` does not re-run and `reload()` is not called. Only a
-process restart or a branch switch recalculates it.
+A version of this entry previously described the two-named-flags bug as still
+current, directly beneath the paragraph announcing the fix. Both halves were in
+the same file for a week; the lesson is that fixing an entry means replacing it,
+not appending to it.
 
 ### B2. The last ~40 ms of every reply was missing from the live transcript — **FIXED**
 
@@ -391,7 +396,7 @@ the UI. It is now `suspend` and reads on `Dispatchers.IO`.
 exists to remove, reintroduced here. It now asks for `usage()` once and takes
 both numbers off the result.
 
-### B11. Smaller ones — **MOSTLY FIXED**
+### B11. Smaller ones — **MOSTLY FIXED** (this entry corrected twice)
 
 Fixed in this pass, each verified by reading the code rather than by the commit
 message:
@@ -414,29 +419,33 @@ message:
 - The two-sources-of-truth bug behind "cannot read images" in demo mode is gone:
   `attachImage` reads `_state.value.modelSupportsVision`, the same published
   answer the attach button was enabled from (`ChatViewModel.kt:376`, `:388`).
+- The failed turn that left no trace is fixed: a turn that fails before
+  producing text, reasoning or tool calls now gets a row with the reason and
+  empty content (`ChatViewModel.kt:1067-1078`). **No test covers it** — nothing in
+  any test source mentions the case — so this one rests on the code comment and
+  the rendered path, not on a green suite. Recorded that way on purpose.
 
-Still open, verified in the code as of this pass:
+Still open, each re-verified in the code as of this pass:
 
-- **`pendingApproval` is a single field**, so several approval-needing calls
-  produce **sequential** dialogs rather than a collected batch
-  (`ChatViewModel.kt:1216`, `awaitApproval` at `:1329`). The `pending` parameter
-  of `continueAfterApproval` is accepted and never read (`:1334`).
-- **A failed turn with no content still leaves no trace**: the placeholder is
-  removed and nothing is persisted (`ChatViewModel.kt:1092`), so only the
-  dismissible error row shows it.
-- **Dead code, verified repo-wide** (`grep` over every `.kt`): five fields of
-  `TurnOutcome` are constructed and never read — `text`, `reasoning`, `usage`,
-  `finish`, `failure` (`ChatViewModel.kt:764-772`; the only construction site
-  passes `usage = null` at `:1102`). Also unreferenced: `DeepSeekProvider.json`,
-  `DeepSeekRequest.EmptyArray`, `ReasoningType.Raw`, `RemoteModel.maxOutputTokens`
-  (read only by `DeepSeekModelsTest`), `ConversationRepository.observeConversation`
+- **`pendingApproval` is a single field** (`ChatUiState.kt:40`), written at one
+  place (`ChatViewModel.kt:1216`) against a single `approvalContinuation`
+  (`:1327`), so several approval-needing calls produce **sequential** dialogs
+  rather than a collected batch. The `pending` parameter of
+  `continueAfterApproval` is accepted and never read (`:1334`).
+- **Dead code, verified repo-wide** (`grep` over every `.kt`, excluding `build/`
+  and `_research/`): five fields of `TurnOutcome` are constructed and never read
+  — `text`, `reasoning`, `usage`, `finish`, `failure` (`ChatViewModel.kt:764-772`;
+  the only construction site passes `usage = null`). Also unreferenced:
+  `DeepSeekProvider.json`, `DeepSeekRequest.EmptyArray` (a declaration and nothing
+  else, `:167`), `ReasoningType.Raw`, `ConversationRepository.observeConversation`
   (definition only — `:82`), `MessageDao.update`, `MessageDao.delete`,
   `ConversationDao.observe`, `SecureStore.has`, `Database.DEFAULT_SYSTEM_PROMPT`
   (a duplicate of the companion's, which is the one bound at
-  `InhumanDatabase.kt:468`; the copy at `Database.kt:69` is unreferenced),
-  `FilePreview.truncated`. `SseFrame.id`/`retryMillis` are read only by
-  `SseParserTest`, and `StreamChunk.Raw` is never emitted — its only reference is
-  the `when` branch that ignores it (`ChatViewModel.kt:961`).
+  `InhumanDatabase.kt:468`; the copy in `Database.kt` is unreferenced),
+  `FilePreview.truncated`. Two are **test-only reads** rather than dead:
+  `RemoteModel.maxOutputTokens` (read by `DeepSeekModelsTest`) and
+  `SseFrame.id`/`retryMillis` (read by `SseParserTest`). `StreamChunk.Raw` is
+  never emitted — its only reference is the `when` branch that ignores it.
 - **`TokenFormat` avoids `String.format` for a Turkish-locale reason**
   (`ContextUsage.kt:122-124`) — `%` formatting is locale-sensitive and `"%.1f"`
   renders a comma decimal separator in some locales. The rule is not followed
