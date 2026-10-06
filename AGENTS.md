@@ -4,10 +4,11 @@ Notes for whoever picks this up next, human or agent. The README explains what
 the app is; this file explains how to change it without breaking what it
 already gets right.
 
-**Before reading the source, read `docs/`.** Nine files that describe what the
-code actually does — or, for the last two, what it is intended to become — with
-a `file:line` for every claim, so a session can start work without re-deriving
-the architecture from scratch:
+**Before reading the source, read `docs/`.** The nine numbered files below — plus
+two port documents and an index, twelve in all — describe what the code actually
+does, or for `08`, `09` and `port-design` what it is intended to become, with a
+`file:line` for every claim, so a session can start work without re-deriving the
+architecture from scratch:
 
 | File | Answers |
 | --- | --- |

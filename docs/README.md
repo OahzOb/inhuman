@@ -5,6 +5,13 @@ project **without reading the source first**. Each one states what the code does
 and cites the file and line that says so, so a claim can be checked cheaply and
 a stale claim can be spotted quickly.
 
+Twelve files in total: nine numbered, two about the port, and this index. The
+numbered series describes **what the code does today**, with three exceptions
+that say so in their own first lines — `08-port-philosophy.md`,
+`09-approvals.md` and `port-design.md` describe what the project *intends*,
+because that part is not written yet. Keep the two kinds apart: a claim from the
+second group is a decision, not a description.
+
 They are not a replacement for the root `README.md`, and they are not a
 tutorial. The root README explains *what the app is* and what it deliberately is
 not; `AGENTS.md` states the non-negotiable working rules. These files explain
@@ -45,7 +52,8 @@ citation.
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the 8 file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | The turn lifecycle, tool-call execution, the approval gate, cancellation, context gauge, Compose layout rules |
 | [07-gotchas.md](07-gotchas.md) | The load-bearing invariants, and the mistakes that already cost someone a day |
-| [08-port-philosophy.md](08-port-philosophy.md) | **Why** a port is wanted at all, the three constraints that rule out a "full access" option, and the seven design questions that are still open |
+| [08-port-philosophy.md](08-port-philosophy.md) | **Why** a port is wanted at all, the three constraints that rule out a "full access" option, and the seven design questions with the answers that were settled |
+| [09-approvals.md](09-approvals.md) | The approval model: no prompt by default, and how per-tool, per-assistant and per-path rules compose |
 | [port-assessment.md](port-assessment.md) | Feasibility of porting the DeepSeek Harness runtime, with device measurements |
 | [port-design.md](port-design.md) | How it would be built: layering, the 43-kind event vocabulary, phases |
 
@@ -68,6 +76,20 @@ refuses to have.
 - The defect lists in `07-gotchas.md` were found by reading the code, **not** by
   running the app. They are claims about the source with citations, and each one
   is worth reproducing on a device before it is fixed.
+- **Line numbers are the weakest part of every citation, and they are treated as
+  such.** `ChatViewModel.kt` grew past 1,600 lines and *every* line number in
+  these docs went stale twice in one week of ordinary work — a fix in one place
+  moves citations in five others. So:
+
+  - When a citation points at a **file**, it is reliable.
+  - When it points at a **line**, read it as "near here, as of the last pass".
+  - Where a number would be fragile, the doc names a **searchable marker**
+    instead — `MIGRATION_n_m`, `REFUSED_MARKER`, `DECLINED_MARKER`, `ToolPolicy.Ask`,
+    `demoEnabled()`. Prefer adding markers over adding numbers.
+
+  Do not spend a session re-deriving line numbers by hand. If a citation is
+  wrong, the code it was describing is what to trust, and the fix is to make the
+  citation coarser rather than more precise.
 - Wording follows the repository's house style: say *why*, and name the failure
   that the code prevents when there is one.
 
@@ -82,29 +104,39 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 210 tests, 0 failures, 1 skipped** — the skip is
+**BUILD SUCCESSFUL, 244 tests in 24 suites, 0 failures, 1 skipped** — the skip is
 `DeepSeekSearchProviderLiveTest`, which talks to the real API and needs
 `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 
 | Module | Suites | Tests |
 | --- | --- | --- |
-| `:core:ai` | 13 | 135 (1 skipped) |
-| `:core:files` | 3 | 43 |
-| `:app` | 2 | 19 |
+| `:core:ai` | 14 | 149 (1 skipped) |
+| `:core:files` | 5 | 56 |
+| `:app` | 3 | 26 |
 | `:core:data` | 2 | 13 |
+
+The count grows with every fix that lands with a test, so treat the total as a
+baseline to re-measure rather than a fact to quote: the command above is the
+authority.
 
 All of it runs on the JVM, against temp directories rather than a device. That is
 why the pure-invariant tests (`DeltaCursor`, `ContextUsage`, `activePathOf`)
 carry arguments the device could not make — see
 [02-architecture.md](02-architecture.md).
 
-Two suites do **not** run on the JVM, and are not in the table above because
-they only run against a device: `app/src/androidTest/…/SessionLogReadBenchmark`
-and `…/JavaScriptSandboxProbe`, run with `:app:connectedDebugAndroidTest` or
-`adb shell am instrument`. They exist because the questions they answer —
-how long a session log takes to read on ARM64, whether the platform JavaScript
-sandbox is available — cannot be asked of a desktop. Their measured results are
-in [port-assessment.md](port-assessment.md).
+Three suites do **not** run on the JVM, and are not in the table above because
+they only run against a device:
+
+| Suite | Why it needs a device |
+| --- | --- |
+| `app/src/androidTest/…/SessionLogReadBenchmark` | How long a session log takes to read on ARM64 — the number a port's cold start depends on |
+| `app/src/androidTest/…/JavaScriptSandboxProbe` | Whether the platform JavaScript sandbox is available, and what it withholds (`fetch`, `require`, `process`) |
+| `core/data/src/androidTest/…/MigrationTest` | Room migrations against a real SQLite — the JVM tests cover the pure branch walk, not the schema |
+
+Run them with `:app:connectedDebugAndroidTest` / `:core:data:connectedDebugAndroidTest`,
+or `adb shell am instrument`. The first two have their measured results in
+[port-assessment.md](port-assessment.md); the third is the evidence behind
+[07-gotchas.md](07-gotchas.md) B8.
 
 ## Which files own which behaviour
 
