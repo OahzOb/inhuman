@@ -32,13 +32,14 @@ are declared:
   public surface is `Flow<StreamChunk>`, so consumers need both on their compile
   classpath regardless (`core/ai/build.gradle`).
 
-`:core:common` holds **no code** today. Its single file declares an opt-in
-annotation, `@Placeholder`, and nothing in the tree applies that annotation
-(`core/common/src/main/kotlin/com/inhuman/core/common/Placeholder.kt`). The
-annotation is the marker of choice over `TODO()`, because a `TODO()` would crash
-the app the first time the path is exercised while a warning-level opt-in
-requirement does not. `:core:common` is the shared leaf module and costs nothing
-to keep.
+`:core:common` is the shared leaf module. It holds the diagnostics facade and
+rolling log (`core/common/src/main/kotlin/com/inhuman/core/common/diag/`) and
+the opt-in `@Placeholder` annotation, which nothing applies. The diagnostics
+half belongs here rather than in `:app` because it has no Android dependency and
+is tested on the JVM; only the file sink, logcat mirror and crash handler live
+in `:app` (`docs/10-diagnostics.md`). `@Placeholder` is the marker of choice over
+`TODO()`: a `TODO()` would crash the app the first time the path is exercised,
+while a warning-level opt-in requirement does not.
 
 The rule the split enforces: **a module with no Android UI must not depend on
 one.** `:core:ai` knows nothing about Compose or Activities, which is what makes

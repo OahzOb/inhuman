@@ -5,7 +5,7 @@ project **without reading the source first**. Each one states what the code does
 and cites the file and line that says so, so a claim can be checked cheaply and
 a stale claim can be spotted quickly.
 
-Twelve files in total: nine numbered, two about the port, and this index. The
+Thirteen files in total: ten numbered, two about the port, and this index. The
 numbered series describes **what the code does today**, with two exceptions that
 say so in their own first lines — `08-port-philosophy.md` and `port-design.md`
 describe what the project *intends*, because the runtime part is not written yet.
@@ -55,6 +55,7 @@ citation.
 | [07-gotchas.md](07-gotchas.md) | The load-bearing invariants, and the mistakes that already cost someone a day |
 | [08-port-philosophy.md](08-port-philosophy.md) | **Why** a port is wanted at all, the three constraints that rule out a "full access" option, and the seven design questions with the answers that were settled |
 | [09-approvals.md](09-approvals.md) | The approval model: no prompt by default, how per-tool, per-assistant and per-path rules compose, and what of it is built and verified |
+| [10-diagnostics.md](10-diagnostics.md) | The flight recorder: what is logged, what is deliberately left out, where it lives and how to get it off the device |
 | [port-assessment.md](port-assessment.md) | Feasibility of porting the DeepSeek Harness runtime, with device measurements |
 | [port-design.md](port-design.md) | How it would be built: layering, the 43-kind event vocabulary, phases |
 
@@ -100,12 +101,12 @@ Measured by running it, not by counting files:
 
 ```powershell
 $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
-.\gradlew.bat :core:ai:testDebugUnitTest :core:files:testDebugUnitTest `
-  :core:data:testDebugUnitTest :app:testDebugUnitTest `
-  --console=plain --rerun-tasks
+.\gradlew.bat :core:common:testDebugUnitTest :core:ai:testDebugUnitTest `
+  :core:files:testDebugUnitTest :core:data:testDebugUnitTest `
+  :app:testDebugUnitTest --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 244 tests in 24 suites, 0 failures, 1 skipped** — the skip is
+**BUILD SUCCESSFUL, 260 tests in 26 suites, 0 failures, 1 skipped** — the skip is
 `DeepSeekSearchProviderLiveTest`, which talks to the real API and needs
 `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 
@@ -114,6 +115,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 | `:core:ai` | 14 | 149 (1 skipped) |
 | `:core:files` | 5 | 56 |
 | `:app` | 3 | 26 |
+| `:core:common` | 2 | 16 |
 | `:core:data` | 2 | 13 |
 
 The count grows with every fix that lands with a test, so treat the total as a
@@ -166,6 +168,7 @@ throughout.
 | HTTP, SSE, the decoder, model list, chat request shape | `core/ai/src/main/kotlin/com/inhuman/core/ai/provider/deepseek/` |
 | `web_search` — the server tool, the endpoint, URL cleaning | `provider/deepseek/DeepSeekSearchProvider.kt`, `DeepSeekSearchResponse.kt` |
 | Demo mode's script and its magic words | `provider/demo/DemoProvider.kt` |
+| What was recorded before a bug, and how to get the log | `core/common/src/main/kotlin/com/inhuman/core/common/diag/`, `app/src/main/kotlin/com/inhuman/diagnostics/AppDiagnostics.kt` |
 | Tables, queries, ordering, migrations | `core/data/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`, `db/Entities.kt` |
 | Creating/deleting conversations, the orphan sweep | `core/data/…/ConversationRepository.kt` |
 | Assistants' persistence and the model cache | `core/data/…/AgentRepository.kt` |

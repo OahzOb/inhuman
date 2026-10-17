@@ -4,9 +4,9 @@ Notes for whoever picks this up next, human or agent. The README explains what
 the app is; this file explains how to change it without breaking what it
 already gets right.
 
-**Before reading the source, read `docs/`.** The nine numbered files below — plus
-two port documents and an index, twelve in all — describe what the code actually
-does, or for `08`, `09` and `port-design` what it is intended to become, with a
+**Before reading the source, read `docs/`.** The ten numbered files below — plus
+two port documents and an index, thirteen in all — describe what the code actually
+does, or for `08` and `port-design` what it is intended to become, with a
 `file:line` for every claim, so a session can start work without re-deriving the
 architecture from scratch:
 
@@ -15,12 +15,13 @@ architecture from scratch:
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
 | `docs/03-ai-provider.md` | Provider and stream contracts, the DeepSeek adapter, SSE, demo mode, **how `web_search` really works** |
-| `docs/04-data-persistence.md` | Room schema v7, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider` |
+| `docs/04-data-persistence.md` | Room schema v8, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider` |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
 | `docs/08-port-philosophy.md` | **Why** the runtime is being ported, which options the project refuses to have, and how the seven design questions were answered |
-| `docs/09-approvals.md` | The approval model: why the default is no prompts at all, and how per-tool, per-assistant and per-path rules compose |
+| `docs/09-approvals.md` | The approval model: why the default is no prompts at all, how per-tool, per-assistant and per-path rules compose, and what of it is built |
+| `docs/10-diagnostics.md` | The flight recorder: what is logged, what is deliberately not, where the file lives and how to share it |
 | `docs/port-assessment.md`, `docs/port-design.md` | The measured feasibility and the plan |
 
 `docs/07-gotchas.md` is the one to read before changing anything in a hurry.
@@ -209,6 +210,10 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   whether a turn may be replayed; the second whether a call may happen.
 - **The quota check walks the tree once**, via `SessionWorkspace.usage()`.
   Asking for bytes and count separately traversed the workspace twice per write.
+- **Diagnostics never records a key, a prompt or file content, and never throws
+  into the call site.** A logger that can fail a turn is a second bug; one that
+  keeps the user's text is a leak with a retention policy. `docs/10-diagnostics.md`
+  is the contract.
 
 ---
 
@@ -220,6 +225,7 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   :core:data:testDebugUnitTest `
   :core:ai:testDebugUnitTest `
   :core:files:testDebugUnitTest `
+  :core:common:testDebugUnitTest `
   --console=plain --rerun-tasks
 ```
 

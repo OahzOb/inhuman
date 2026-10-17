@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
@@ -117,6 +118,9 @@ class AgentsViewModel(
 		viewModelScope.launch {
 			_state.update { it.copy(loadingModels = true, modelsError = null) }
 			val result = repository.models(force)
+			result.exceptionOrNull()?.let {
+				Diag.w("models", "agents fetch failed: ${it.javaClass.simpleName}: ${it.message}")
+			}
 			_state.update {
 				it.copy(
 					loadingModels = false,
@@ -151,7 +155,10 @@ class AgentsViewModel(
 		viewModelScope.launch {
 			val rules = runCatching {
 				conversations.policies().forConversation(conversationId = "", agentId = agent.id).assistant
-			}.getOrDefault(emptyMap())
+			}.getOrElse {
+				Diag.w("policy", "assistant rules read failed agent=${Diag.shortId(agent.id)}", it)
+				emptyMap()
+			}
 			updateDraft { it.copy(rules = rules) }
 		}
 	}
@@ -185,6 +192,11 @@ class AgentsViewModel(
 	fun save() {
 		val draft = _state.value.editing ?: return
 		if (!draft.canSave) return
+		Diag.i(
+			"agent",
+			"save id=${Diag.shortId(draft.id)} new=${draft.isNew} " +
+				"tools=${draft.tools?.size ?: "all"} rules=${draft.rules.size}",
+		)
 		viewModelScope.launch {
 			repository.save(draft.toEntity(System.currentTimeMillis()))
 			// Written after the assistant row exists, because `agent_approval`
@@ -197,8 +209,17 @@ class AgentsViewModel(
 			for (entry in ToolCatalog.all) {
 				val policy = draft.rules[entry.name] ?: ToolPolicy.Free
 				runCatching { conversations.policies().setAssistantRule(draft.id, entry.name, policy) }
+					.onFailure {
+						Diag.w(
+							"policy",
+							"assistant rule write failed agent=${Diag.shortId(draft.id)} " +
+								"tool=${entry.name} policy=$policy",
+							it,
+						)
+					}
 			}
 			_state.update { it.copy(editing = null) }
+			Diag.i("agent", "saved id=${Diag.shortId(draft.id)}")
 		}
 	}
 
@@ -216,7 +237,11 @@ class AgentsViewModel(
 	}
 
 	fun delete(agent: AgentEntity) {
-		viewModelScope.launch { repository.delete(agent) }
+		Diag.i("agent", "delete id=${Diag.shortId(agent.id)}")
+		viewModelScope.launch {
+			repository.delete(agent)
+			Diag.i("agent", "deleted id=${Diag.shortId(agent.id)}")
+		}
 	}
 
 	/** Effort levels for a model, as the provider reports them. */

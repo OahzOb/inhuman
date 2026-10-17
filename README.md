@@ -193,7 +193,7 @@ double hyphen (which is easy to write when explaining a flag like
 
 ```
 app/                 UI, theme application, entry point
-core/common/         small shared types
+core/common/         platform-free shared code (the diagnostics facade)
 core/design/         colour, typography, theme
 core/data/           Room, Keystore-backed secrets, DocumentsProvider
 core/ai/             provider + streaming       (no Compose, no Activity)

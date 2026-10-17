@@ -2,6 +2,7 @@ package com.inhuman.core.ai.provider.deepseek
 
 import com.inhuman.core.ai.tools.SearchProvider
 import com.inhuman.core.ai.tools.SearchResult
+import com.inhuman.core.common.diag.Diag
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -84,6 +85,13 @@ class DeepSeekSearchProvider(
 			val key = apiKey()?.takeIf { it.isNotBlank() }
 				?: throw IOException("no DeepSeek API key is configured")
 
+			// The query text is user content and is not written; its length and
+			// the model are what tell one request from another.
+			Diag.i(
+				"search",
+				"request model=$model maxResults=$maxResults queryChars=${query.length}",
+			)
+
 			val request = Request.Builder()
 				.url("${baseUrl.trimEnd('/')}/messages")
 				// Both headers. The endpoint is Anthropic-shaped, which reads
@@ -98,10 +106,15 @@ class DeepSeekSearchProvider(
 
 			client.newCall(request).execute().use { response ->
 				val text = response.body.string()
+				Diag.i("search", "response HTTP ${response.code} bytes=${text.length}")
 				if (!response.isSuccessful) {
 					// The body is included because DeepSeek's errors say what was
 					// wrong with the request, and that text is the difference
 					// between a diagnosable problem and "search failed".
+					Diag.w(
+						"search",
+						"HTTP ${response.code} ${response.message}: ${text.take(200)}",
+					)
 					throw IOException(
 						"search failed: HTTP ${response.code} ${response.message} — " +
 							text.take(300),
@@ -112,7 +125,9 @@ class DeepSeekSearchProvider(
 				// to cut the list. The caller is told the set was trimmed by
 				// `WebSearchTool`, which compares the count against what it asked
 				// for.
-				DeepSeekSearchResponse.parse(text).take(maxResults)
+				val results = DeepSeekSearchResponse.parse(text).take(maxResults)
+				Diag.i("search", "results=${results.size}")
+				results
 			}
 		}
 

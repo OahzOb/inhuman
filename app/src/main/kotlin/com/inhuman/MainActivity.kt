@@ -17,6 +17,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.inhuman.core.ai.provider.deepseek.DeepSeekSearchProvider
+import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.secret.SecureStore
@@ -83,6 +84,7 @@ private fun InhumanRoot() {
 	LaunchedEffect(Unit) {
 		withContext(Dispatchers.IO) {
 			runCatching { repository.sweepOrphanedWorkspaces() }
+				.onFailure { Diag.w("workspace", "orphan sweep failed", it) }
 		}
 	}
 
@@ -126,6 +128,20 @@ private fun InhumanRoot() {
 	// than passing the view model up, because the handler is composed before the
 	// branch that creates it and cannot close over it.
 	var filesUpOneLevel: () -> Unit by remember { mutableStateOf({}) }
+
+	// Which screen is on top, in the same terms the `when` below uses. A crash
+	// report without this cannot tell "the chat screen was open" from "the view
+	// model was running in the background"; one line per navigation is enough.
+	LaunchedEffect(openConversationId, showSettings, showFiles, showAgents) {
+		val screen = when {
+			showSettings -> "settings"
+			showAgents -> "agents"
+			showFiles && openConversationId != null -> "files"
+			openConversationId != null -> "chat"
+			else -> "conversations"
+		}
+		Diag.d("ui", "screen=$screen conv=${Diag.shortId(openConversationId)}")
+	}
 
 	/**
 	 * Make the system Back button walk the app's own history.

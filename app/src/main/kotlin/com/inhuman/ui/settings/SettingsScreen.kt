@@ -1,5 +1,7 @@
 package com.inhuman.ui.settings
 
+import android.content.Context
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,16 +41,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.tools.ToolCatalog
+import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.diagnostics.AppDiagnostics
 import com.inhuman.ui.chat.SettingsViewModel
 
 /**
@@ -235,8 +242,120 @@ fun SettingsScreen(
 				rules = state.approvalRules,
 				onRuleChange = viewModel::setApprovalRule,
 			)
+
+			DiagnosticsSection()
 		}
 	}
+}
+
+/**
+ * The flight recorder, and the two things to do with it.
+ *
+ * Sharing is the point: a bug report is only diagnosable if the record can get
+ * from this device to whoever reads it, and asking a user to run `adb` is not
+ * that. Clearing is offered because the log is not immutable and a user may
+ * want it gone -- but it is confirmed, because the one moment the record is
+ * valuable is the moment just before someone decides it is in the way.
+ */
+@Composable
+private fun DiagnosticsSection() {
+	val context = LocalContext.current
+	var bytes by remember { mutableStateOf(AppDiagnostics.sizeBytes()) }
+	var confirmingClear by remember { mutableStateOf(false) }
+
+	Column(
+		modifier = Modifier
+			.widthIn(max = Layout.ReadableMeasure)
+			.fillMaxWidth(),
+		verticalArrangement = Arrangement.spacedBy(6.dp),
+	) {
+		Text(
+			text = "Diagnostics",
+			style = MaterialTheme.typography.titleMedium,
+			color = MaterialTheme.colorScheme.onBackground,
+		)
+		Text(
+			// The promise matters as much as the feature: this is the
+			// user's data, and a log is exactly where content leaks by
+			// accident. The implementation keeps it to shapes, lengths and
+			// identifiers; the sentence tells the user that.
+			text = "A local log records turns, tool calls, HTTP failures and " +
+				"crashes, so a problem can be explained without reproducing it. " +
+				"It stays on this device unless you share it. Message text, file " +
+				"contents and the API key are not written to it.",
+			style = MaterialTheme.typography.bodyMedium,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		Text(
+			text = "${formatLogSize(bytes)} — ${AppDiagnostics.currentFile()?.name ?: "no file yet"}",
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+
+		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+			Button(
+				onClick = { shareDiagnostics(context, bytes) },
+				enabled = bytes > 0,
+			) {
+				Text("Share log")
+			}
+			TextButton(
+				onClick = { confirmingClear = true },
+				enabled = bytes > 0,
+			) {
+				Text("Clear")
+			}
+		}
+	}
+
+	if (confirmingClear) {
+		AlertDialog(
+			onDismissRequest = { confirmingClear = false },
+			title = { Text("Clear the diagnostic log?") },
+			text = {
+				Text(
+					"The record of what happened will be deleted. Share it first " +
+						"if you are about to report a problem.",
+				)
+			},
+			confirmButton = {
+				TextButton(
+					onClick = {
+						AppDiagnostics.clear()
+						bytes = AppDiagnostics.sizeBytes()
+						confirmingClear = false
+					},
+				) {
+					Text("Clear")
+				}
+			},
+			dismissButton = {
+				TextButton(onClick = { confirmingClear = false }) {
+					Text("Cancel")
+				}
+			},
+		)
+	}
+}
+
+private fun shareDiagnostics(context: Context, bytes: Long) {
+	val file = AppDiagnostics.currentFile() ?: return
+	Diag.i("diag", "share requested bytes=$bytes file=${file.name}")
+	val uri = FileProvider.getUriForFile(context, "${context.packageName}.diagnostics", file)
+	val send = Intent(Intent.ACTION_SEND).apply {
+		type = "text/plain"
+		putExtra(Intent.EXTRA_STREAM, uri)
+		putExtra(Intent.EXTRA_SUBJECT, "inhuman diagnostics")
+		addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+	}
+	context.startActivity(Intent.createChooser(send, "Share log"))
+}
+
+private fun formatLogSize(bytes: Long): String = when {
+	bytes <= 0L -> "no log yet"
+	bytes < 1024L -> "$bytes B"
+	bytes < 1024L * 1024L -> "${bytes / 1024L} KB"
+	else -> "${bytes / (1024L * 1024L)} MB"
 }
 
 /**

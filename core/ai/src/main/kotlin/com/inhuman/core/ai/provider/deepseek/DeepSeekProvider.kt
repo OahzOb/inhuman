@@ -5,6 +5,7 @@ import com.inhuman.core.ai.ChatRequest
 import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.ai.StreamChunk
 import com.inhuman.core.ai.stream.SseParser
+import com.inhuman.core.common.diag.Diag
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -61,8 +62,23 @@ class DeepSeekProvider(
 	 * server keeps generating tokens nobody will read.
 	 */
 	override fun stream(request: ChatRequest): Flow<StreamChunk> = callbackFlow {
-		val requestBody = DeepSeekRequest.build(request).toString()
-			.toRequestBody(JSON_MEDIA_TYPE)
+		val startedAt = System.currentTimeMillis()
+		val payload = try {
+			DeepSeekRequest.build(request).toString()
+		} catch (e: Exception) {
+			// A request that cannot be serialised never reaches the network, so
+			// there is no HTTP status to explain it. This line is the only
+			// record of what was asked for.
+			Diag.e("http", "request build failed model=${request.model}", e)
+			throw e
+		}
+		Diag.i(
+			"http",
+			"chat request model=${request.model} messages=${request.messages.size} " +
+				"tools=${request.tools.size} thinking=${request.thinking ?: "default"} " +
+				"effort=${request.reasoningEffort ?: "-"} bytes=${payload.length}",
+		)
+		val requestBody = payload.toRequestBody(JSON_MEDIA_TYPE)
 
 		val httpRequest = Request.Builder()
 			.url("$baseUrl/chat/completions")
@@ -81,9 +97,16 @@ class DeepSeekProvider(
 				// socket. Reporting it as a stream failure would make every
 				// user-initiated stop look like an error in the transcript.
 				if (call.isCanceled()) {
+					Diag.d("http", "call cancelled by collector")
 					close()
 					return
 				}
+				Diag.w(
+					"http",
+					"call failed ${e.javaClass.simpleName}: ${e.message} " +
+						"ms=${System.currentTimeMillis() - startedAt}",
+					e,
+				)
 				// ## The order here is the whole fix
 				//
 				// This read `close()` then `trySend(...)`, and a chunk sent
@@ -104,6 +127,7 @@ class DeepSeekProvider(
 
 			override fun onResponse(call: Call, response: Response) {
 				response.use { res ->
+					Diag.i("http", "response HTTP ${res.code} ${res.message}")
 					if (!res.isSuccessful) {
 						// Read the body: DeepSeek returns a JSON error object
 						// with a usable message, and dropping it turns a
@@ -114,6 +138,10 @@ class DeepSeekProvider(
 						} catch (_: Exception) {
 							null
 						}
+						Diag.w(
+							"http",
+							"request failed HTTP ${res.code}: ${detail?.take(300) ?: "-"}",
+						)
 						trySend(
 							StreamChunk.Failure(
 								"HTTP ${res.code} ${res.message}" +
@@ -129,26 +157,52 @@ class DeepSeekProvider(
 					// body that is already consumed, which is why the read below
 					// stays inside the try.
 					val source = res.body.source()
+					var lines = 0
+					var frames = 0
+					var chunks = 0
 
 					try {
 						// readUtf8Line returns null at end of body. It strips
 						// the newline; a trailing CR is handled by the parser.
 						while (isActive) {
 							val line = source.readUtf8Line() ?: break
+							lines++
 							val frame = parser.accept(line) ?: continue
-							decoder.decode(frame).forEach { trySend(it) }
+							frames++
+							decoder.decode(frame).forEach { chunk ->
+								chunks++
+								trySend(chunk)
+							}
 						}
 						// Flush: a server that closes without its final blank
 						// line would otherwise lose the last chunk.
 						parser.endOfStream()?.let { frame ->
-							decoder.decode(frame).forEach { trySend(it) }
+							frames++
+							decoder.decode(frame).forEach { chunk ->
+								chunks++
+								trySend(chunk)
+							}
 						}
-						decoder.endOfStream().forEach { trySend(it) }
+						decoder.endOfStream().forEach { chunk ->
+							chunks++
+							trySend(chunk)
+						}
 					} catch (e: CancellationException) {
 						// Normal stop.
+						Diag.d("http", "stream cancelled")
 					} catch (e: IOException) {
+						Diag.e("http", "stream read failed", e)
 						trySend(StreamChunk.Failure(e.message ?: "stream read failed", e))
 					} finally {
+						// One line per request, with the shape of what arrived.
+						// A stream that ended with frames=0 is a different bug
+						// from one that delivered text and then failed, and the
+						// failure chunk alone cannot tell them apart.
+						Diag.i(
+							"http",
+							"stream end lines=$lines frames=$frames chunks=$chunks " +
+								"ms=${System.currentTimeMillis() - startedAt}",
+						)
 						close()
 					}
 				}
@@ -158,6 +212,7 @@ class DeepSeekProvider(
 		awaitClose {
 			// The important line. Cancelling the collector must close the
 			// socket, not merely stop reading from it.
+			Diag.d("http", "collector closed; cancelling call")
 			call.cancel()
 		}
 	}.flowOn(Dispatchers.IO)

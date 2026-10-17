@@ -15,6 +15,7 @@ import com.inhuman.core.ai.policy.PolicySet
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
 import com.inhuman.core.ai.provider.demo.DemoProvider
+import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.Branches
 import com.inhuman.core.data.ConversationRepository
@@ -173,6 +174,12 @@ class ChatViewModel(
 			refreshConfiguration()
 			reload()
 			publishModelState()
+			Diag.i(
+				"chat",
+				"open conv=${Diag.shortId(conversationId)} " +
+					"model=${model ?: "provider-default"} agent=${Diag.shortId(agent?.id)} " +
+					"messages=${_state.value.messages.size} demo=${demoEnabled()}",
+			)
 		}
 	}
 
@@ -193,7 +200,15 @@ class ChatViewModel(
 		// this is a Keystore-backed read and the function is already on a path
 		// that runs at startup and on every configuration refresh.
 		val demo = demoEnabled()
-		val fetched = runCatching { agents.models() }.getOrNull()?.getOrNull()
+		val fetchedResult = runCatching { agents.models() }
+		fetchedResult.exceptionOrNull()?.let {
+			// The failure used to be swallowed into the fallback with no trace:
+			// a model list that never loads looks exactly like one that loaded
+			// and listed nothing. The message is the one the user sees in the
+			// picker, so it belongs in the record too.
+			Diag.w("models", "fetch failed: ${it.javaClass.simpleName}: ${it.message}")
+		}
+		val fetched = fetchedResult.getOrNull()?.getOrNull()
 			?: demoModelsIfEnabled(demo)
 
 		// Resolve all the way to a concrete id.
@@ -249,6 +264,11 @@ class ChatViewModel(
 				context = contextOf(it.messages),
 			)
 		}
+		Diag.d(
+			"models",
+			"resolved id=$id window=${contextWindow ?: "-"} " +
+				"label=${_state.value.modelLabel}",
+		)
 	}
 
 	/**
@@ -334,6 +354,7 @@ class ChatViewModel(
 	 */
 	fun setModel(modelId: String?) {
 		model = modelId
+		Diag.i("config", "model conv=${Diag.shortId(conversationId)} -> ${modelId ?: "provider-default"}")
 		// Cleared rather than carried: effort levels are per-model, so keeping
 		// one across a switch can send a value the new model rejects.
 		reasoningEffort = null
@@ -346,6 +367,7 @@ class ChatViewModel(
 
 	fun setThinking(enabled: Boolean) {
 		thinking = enabled
+		Diag.i("config", "thinking conv=${Diag.shortId(conversationId)} -> $enabled")
 		if (!enabled) reasoningEffort = null
 		viewModelScope.launch {
 			repository.setReasoning(conversationId, reasoningEffort, thinking)
@@ -355,6 +377,7 @@ class ChatViewModel(
 
 	fun setReasoningEffort(level: String?) {
 		reasoningEffort = level
+		Diag.i("config", "effort conv=${Diag.shortId(conversationId)} -> ${level ?: "-"}")
 		viewModelScope.launch {
 			repository.setReasoning(conversationId, reasoningEffort, thinking)
 			publishModelState()
@@ -391,6 +414,10 @@ class ChatViewModel(
 			// evidence the model can see, and staging an attachment that will be
 			// silently mishandled is the outcome worth avoiding.
 			if (supports != true) {
+				Diag.w(
+					"attach",
+					"refused: model=${_state.value.effectiveModel ?: "-"} reports no image input",
+				)
 				_state.update {
 					it.copy(
 						error = "The model in use cannot read images. " +
@@ -408,6 +435,7 @@ class ChatViewModel(
 
 			val workspace = runCatching { repository.workspace(entity) }.getOrNull()
 			if (workspace == null) {
+				Diag.w("attach", "refused: workspace did not open conv=${Diag.shortId(entity.id)}")
 				_state.update { it.copy(error = "This conversation has no workspace.") }
 				return@launch
 			}
@@ -421,10 +449,20 @@ class ChatViewModel(
 			}
 
 			when (outcome) {
-				is WorkspaceTransfer.Outcome.Failed ->
+				is WorkspaceTransfer.Outcome.Failed -> {
+					Diag.w(
+						"attach",
+						"import failed name=$displayName bytes=? reason=${outcome.reason}",
+					)
 					_state.update { it.copy(error = outcome.reason) }
+				}
 
-				is WorkspaceTransfer.Outcome.Ok ->
+				is WorkspaceTransfer.Outcome.Ok -> {
+					Diag.d(
+						"attach",
+						"imported path=${outcome.relativePath} bytes=${outcome.bytes} " +
+							"mime=$mimeType",
+					)
 					_state.update {
 						it.copy(
 							pendingAttachments = it.pendingAttachments + PendingAttachment(
@@ -435,6 +473,7 @@ class ChatViewModel(
 							error = null,
 						)
 					}
+				}
 			}
 		}
 	}
@@ -516,10 +555,17 @@ class ChatViewModel(
 	 * sees for every turn after it.
 	 */
 	fun regenerate() {
-		if (_state.value.isStreaming) return
+		if (_state.value.isStreaming) {
+			Diag.d("turn", "regenerate ignored: streaming")
+			return
+		}
 
 		val visible = _state.value.messages
-		val lastReply = visible.lastOrNull { !it.fromUser && !it.isToolResult } ?: return
+		val lastReply = visible.lastOrNull { !it.fromUser && !it.isToolResult }
+		if (lastReply == null) {
+			Diag.d("turn", "regenerate ignored: no reply")
+			return
+		}
 
 		// Refused here as well as in the UI.
 		//
@@ -528,6 +574,7 @@ class ChatViewModel(
 		// it. What is at stake is a second round of real writes, which is not
 		// something to guard with layout alone.
 		if (_state.value.currentTurnMutated) {
+			Diag.i("turn", "regenerate refused: last turn mutated")
 			_state.update {
 				it.copy(
 					error = "This reply changed files, so it cannot be regenerated. " +
@@ -540,11 +587,16 @@ class ChatViewModel(
 		// The question this reply answers. Null means it is the first message,
 		// which cannot happen for an assistant turn, but returning is safer
 		// than guessing a parent.
-		val questionId = lastReply.parentId ?: return
+		val questionId = lastReply.parentId
+		if (questionId == null) {
+			Diag.d("turn", "regenerate ignored: reply has no parent")
+			return
+		}
 
 		val demo = demoEnabled()
 		val apiKey = secure.get(SecureStore.KEY_DEEPSEEK_API_KEY)
 		if (!demo && apiKey.isNullOrBlank()) {
+			Diag.w("turn", "regenerate refused: no API key and demo mode off")
 			_state.update { it.copy(error = "Add a DeepSeek API key first, or switch on demo mode.") }
 			return
 		}
@@ -553,8 +605,16 @@ class ChatViewModel(
 		// as a child of questionId, so the old reply stops being on the active
 		// path without being touched.
 		val cut = visible.indexOfFirst { it.id == lastReply.id }
-		if (cut < 0) return
+		if (cut < 0) {
+			Diag.w("turn", "regenerate ignored: reply is not in the transcript")
+			return
+		}
 
+		Diag.i(
+			"turn",
+			"regenerate conv=${Diag.shortId(conversationId)} " +
+				"reply=${Diag.shortId(lastReply.id)} messages=${visible.size}",
+		)
 		_state.update {
 			it.copy(messages = it.messages.take(cut), isStreaming = true, error = null)
 		}
@@ -593,6 +653,10 @@ class ChatViewModel(
 	 * differ, and computing that here would duplicate `activePath` badly.
 	 */
 	fun selectBranch(parentId: String, childId: String) {
+		Diag.i(
+			"branch",
+			"select parent=${Diag.shortId(parentId)} child=${Diag.shortId(childId)}",
+		)
 		viewModelScope.launch {
 			repository.selectBranch(parentId, childId)
 			reload()
@@ -609,6 +673,7 @@ class ChatViewModel(
 	fun refreshConfiguration() {
 		val demo = demoEnabled()
 		val hasKey = secure.hasUsable(SecureStore.KEY_DEEPSEEK_API_KEY)
+		Diag.d("config", "demo=$demo hasKey=$hasKey")
 		_state.update { it.copy(demoMode = demo, configured = demo || hasKey) }
 	}
 
@@ -619,6 +684,7 @@ class ChatViewModel(
 	fun clearError() = _state.update { it.copy(error = null) }
 
 	fun stop() {
+		Diag.i("turn", "stop requested streaming=${_state.value.isStreaming}")
 		streamJob?.cancel()
 		streamJob = null
 		_state.update { s ->
@@ -636,12 +702,14 @@ class ChatViewModel(
 
 	fun approvePendingCall() {
 		val pending = _state.value.pendingApproval ?: return
+		Diag.i("approval", "allow tool=${pending.call.displayName} summary=${pending.summary}")
 		_state.update { it.copy(pendingApproval = null) }
 		viewModelScope.launch { continueAfterApproval(pending, approved = true) }
 	}
 
 	fun declinePendingCall() {
 		val pending = _state.value.pendingApproval ?: return
+		Diag.i("approval", "decline tool=${pending.call.displayName} summary=${pending.summary}")
 		_state.update { it.copy(pendingApproval = null) }
 		viewModelScope.launch { continueAfterApproval(pending, approved = false) }
 	}
@@ -653,11 +721,19 @@ class ChatViewModel(
 		val attachments = _state.value.pendingAttachments
 		// Images alone are a complete message -- "what is this?" is often
 		// implied -- but an empty message with nothing attached is not.
-		if ((text.isEmpty() && attachments.isEmpty()) || _state.value.isStreaming) return
+		if ((text.isEmpty() && attachments.isEmpty()) || _state.value.isStreaming) {
+			Diag.d(
+				"turn",
+				"send ignored chars=${text.length} attachments=${attachments.size} " +
+					"streaming=${_state.value.isStreaming}",
+			)
+			return
+		}
 
 		val demo = demoEnabled()
 		val apiKey = secure.get(SecureStore.KEY_DEEPSEEK_API_KEY)
 		if (!demo && apiKey.isNullOrBlank()) {
+			Diag.w("turn", "send refused: no API key and demo mode off")
 			_state.update { it.copy(error = "Add a DeepSeek API key first, or switch on demo mode.") }
 			return
 		}
@@ -694,6 +770,12 @@ class ChatViewModel(
 		// `isStreaming` was cleared the composer unlocked, so a second turn
 		// could be started while the first was still writing into the same
 		// message tree.
+		Diag.i(
+			"turn",
+			"send conv=${Diag.shortId(conversationId)} chars=${text.length} " +
+				"attachments=${attachments.size} demo=$demo " +
+				"messages=${_state.value.messages.size}",
+		)
 		streamJob = viewModelScope.launch {
 			repository.appendMessage(userMessage, parent)
 			if (_state.value.messages.count { it.fromUser } == 1) {
@@ -727,6 +809,13 @@ class ChatViewModel(
 		val policies = loadPolicies()
 		val tools = buildTools(policies)
 		val toolSpecs = tools.map { spec(it) }
+		Diag.i(
+			"turn",
+			"run start provider=${provider.id} " +
+				"model=${model ?: agent?.model ?: DEFAULT_MODEL} thinking=$thinking " +
+				"effort=${reasoningEffort ?: "-"} tools=${tools.size} " +
+				"maxRounds=$MAX_TOOL_ROUNDS demo=$demo",
+		)
 
 		var rounds = 0
 		while (rounds < MAX_TOOL_ROUNDS) {
@@ -734,6 +823,11 @@ class ChatViewModel(
 			val outcome = streamOneTurn(provider, tools, toolSpecs)
 
 			if (outcome.toolCalls.isEmpty()) {
+				Diag.i(
+					"turn",
+					"run end rounds=$rounds reply=${Diag.shortId(outcome.messageId)} " +
+						"failure=${outcome.failure != null}",
+				)
 				_state.update { it.copy(isStreaming = false) }
 				return
 			}
@@ -742,6 +836,7 @@ class ChatViewModel(
 			// asking for three writes does not stack three dialogs.
 			val executed = executeCalls(outcome, tools)
 			if (!executed) {
+				Diag.i("turn", "run end declined rounds=$rounds")
 				// The user declined something, or the turn was cancelled. The
 				// transcript already holds the refusal, so the model can respond
 				// to it on the next user message rather than being re-run now.
@@ -752,6 +847,7 @@ class ChatViewModel(
 
 		// Hit the ceiling. Said plainly, because a silent stop looks like the
 		// model simply had nothing more to say.
+		Diag.w("turn", "round limit reached rounds=$rounds")
 		_state.update {
 			it.copy(
 				isStreaming = false,
@@ -800,6 +896,11 @@ class ChatViewModel(
 		}
 
 		val history = buildWireHistory()
+		Diag.i(
+			"stream",
+			"request history=${history.size} tools=${toolSpecs.size} " +
+				"reply=${Diag.shortId(replyId)}",
+		)
 		val reasoning = StringBuilder()
 		val answer = StringBuilder()
 		val calls = linkedMapOf<Int, ToolCallUi>()
@@ -809,6 +910,7 @@ class ChatViewModel(
 		var reasoningTokens: Int? = null
 		var finish: String? = null
 		var failure: String? = null
+		var chunks = 0
 
 		// Timed here rather than in the provider: what a user perceives as
 		// latency is measured from the moment they see the spinner, which is
@@ -872,8 +974,10 @@ class ChatViewModel(
 					userId = conversationId,
 				),
 			).collect { chunk ->
+				chunks++
 				if (firstTokenAt == null && chunk is StreamChunk.TextDelta) {
 					firstTokenAt = System.currentTimeMillis()
+					Diag.d("stream", "first text after ${firstTokenAt - startedAt}ms")
 				}
 				when (chunk) {
 					is StreamChunk.ReasoningDelta -> {
@@ -950,6 +1054,7 @@ class ChatViewModel(
 
 					is StreamChunk.Failure -> {
 						failure = chunk.message
+						Diag.e("stream", "failure chunk: ${chunk.message}")
 						updateMessage(replyId) { it.copy(error = chunk.message) }
 						_state.update { it.copy(error = chunk.message) }
 					}
@@ -1026,6 +1131,18 @@ class ChatViewModel(
 			refreshContext()
 
 			val finalUsage = usage
+			Diag.i(
+				"stream",
+				"end finish=${finish ?: "-"} failure=${failure != null} stopped=$wasStopped " +
+					"chunks=$chunks textChars=${answer.length} " +
+					"reasoningChars=${reasoning.length} calls=${finishedCalls.size} " +
+					"prompt=${finalUsage?.promptTokens ?: "-"} " +
+					"completion=${finalUsage?.completionTokens ?: "-"} " +
+					"cache=${finalUsage?.cachedPromptTokens ?: "-"} " +
+					"ttft=${finalUsage?.timeToFirstTokenMs ?: "-"} " +
+					"gen=${finalUsage?.generationMs ?: "-"} " +
+					"ms=${System.currentTimeMillis() - startedAt}",
+			)
 			// ## Why the closing writes are NonCancellable
 			//
 			// This block runs when the turn ends *or* when it is stopped, and
@@ -1133,6 +1250,7 @@ class ChatViewModel(
 	 */
 	private suspend fun answerSkippedCalls(outcome: TurnOutcome, after: Int) {
 		for (skipped in outcome.toolCalls.filter { it.index > after }) {
+			Diag.d("tool", "skip name=${skipped.displayName} index=${skipped.index}")
 			// `Failed` rather than `Declined`: the user refused one specific
 			// call, and saying the others were refused too would be untrue.
 			// The marker on the result is what distinguishes "did not run"
@@ -1178,6 +1296,7 @@ class ChatViewModel(
 				reached = call.index
 				val tool = byName[call.displayName]
 				if (tool == null) {
+					Diag.w("tool", "unknown name=${call.displayName} index=${call.index}")
 					appendToolResult(call, "no such tool: ${call.displayName}", isError = true, outcome.messageId)
 					continue
 				}
@@ -1190,11 +1309,16 @@ class ChatViewModel(
 				// have to be answered here -- `needsApproval` can only say "ask",
 				// and asking about something the user has forbidden would be the
 				// wrong question with a confusing answer.
+				val policyPath = resolvedPolicyPath(parsed)
 				val policy = policies.effective(
 					tool = tool.name,
-					relativePath = resolvedPolicyPath(parsed),
+					relativePath = policyPath,
 				)
 				if (policy == ToolPolicy.Deny || policy == ToolPolicy.Blind) {
+					Diag.i(
+						"policy",
+						"refused tool=${tool.name} path=${policyPath ?: "-"} policy=$policy",
+					)
 					markCall(outcome.messageId, call.index, ToolCallUi.State.Failed)
 					appendToolResult(
 						call,
@@ -1212,6 +1336,12 @@ class ChatViewModel(
 
 				if (policy == ToolPolicy.Ask || tool.needsApproval(parsed)) {
 					val summary = describeCall(call, parsed)
+					Diag.i(
+						"approval",
+						"ask tool=${tool.name} path=${policyPath ?: "-"} " +
+							"rule=${if (policy == ToolPolicy.Ask) "policy" else "tool"} " +
+							"args=${parsed.toString().length}B",
+					)
 					_state.update {
 						it.copy(pendingApproval = PendingApproval(outcome.messageId, call, summary))
 					}
@@ -1257,7 +1387,25 @@ class ChatViewModel(
 				// Only the execution moves. Approval stays above, on the main
 				// thread, because it suspends on the user and the continuation is
 				// resumed from the UI.
+				Diag.i(
+					"tool",
+					"run name=${tool.name} path=${policyPath ?: "-"} " +
+						"args=${parsed.toString().length}B",
+				)
+				val startedToolAt = System.currentTimeMillis()
 				val result = withContext(Dispatchers.IO) { tool.execute(parsed) }
+				val elapsed = System.currentTimeMillis() - startedToolAt
+				Diag.i(
+					"tool",
+					"done name=${tool.name} ok=${!result.isError} " +
+						"bytes=${result.content.length} ms=$elapsed",
+				)
+				if (result.isError) {
+					// The message is the tool's own explanation ("not found",
+					// "quota exceeded"), not file content; 240 chars keeps the
+					// line readable without dropping the useful half.
+					Diag.w("tool", "error name=${tool.name} ${result.content.take(240)}")
+				}
 				markCall(
 					outcome.messageId,
 					call.index,
@@ -1384,6 +1532,7 @@ class ChatViewModel(
 			)
 		}
 			.getOrElse { failure ->
+				Diag.e("tools", "workspace could not be opened; file tools unavailable", failure)
 				_state.update {
 					it.copy(
 						error = "The workspace for this conversation could not be opened, " +
@@ -1431,7 +1580,10 @@ class ChatViewModel(
 	private suspend fun loadPolicies(): PolicySet = runCatching {
 		val entity = repository.conversation(conversationId)?.entity
 		repository.policies().forConversation(conversationId, entity?.agentId)
-	}.getOrElse { PolicySet.None }
+	}.getOrElse { failure ->
+		Diag.w("policy", "load failed; continuing with no rules", failure)
+		PolicySet.None
+	}
 
 	/**
 	 * The path a policy rule should be matched against, or null.
@@ -1482,6 +1634,7 @@ class ChatViewModel(
 			// Arguments that never became valid JSON. Reported rather than
 			// retried: the model produced them, and it is the one that can fix
 			// them on the next turn.
+			Diag.w("tool", "unparsable arguments name=${call.displayName}: ${e.message}")
 			appendToolResult(
 				call,
 				"could not parse arguments: ${e.message}",

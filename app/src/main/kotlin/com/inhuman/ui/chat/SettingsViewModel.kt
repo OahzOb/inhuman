@@ -3,6 +3,7 @@ package com.inhuman.ui.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
@@ -67,7 +68,10 @@ class SettingsViewModel(
 
 	private fun loadRules() {
 		viewModelScope.launch {
-			val rules = runCatching { repository.policies().globalRules() }.getOrDefault(emptyMap())
+			val rules = runCatching { repository.policies().globalRules() }.getOrElse {
+				Diag.w("policy", "global rules read failed; showing none", it)
+				emptyMap()
+			}
 			_state.value = _state.value.copy(approvalRules = rules)
 		}
 	}
@@ -83,6 +87,9 @@ class SettingsViewModel(
 	fun setApprovalRule(toolName: String, policy: ToolPolicy) {
 		viewModelScope.launch {
 			runCatching { repository.policies().setGlobalRule(toolName, policy) }
+				.onFailure {
+					Diag.w("policy", "global rule write failed tool=$toolName policy=$policy", it)
+				}
 			loadRules()
 		}
 	}
@@ -107,6 +114,7 @@ class SettingsViewModel(
 	fun save() {
 		val key = _state.value.apiKeyInput.trim()
 		if (key.isEmpty()) {
+			Diag.i("settings", "API key removed")
 			secure.remove(SecureStore.KEY_DEEPSEEK_API_KEY)
 			// The model list was fetched with the old key and is now either
 			// stale or was fetched with a key that no longer exists. Dropping it
@@ -121,6 +129,7 @@ class SettingsViewModel(
 			return
 		}
 		secure.put(SecureStore.KEY_DEEPSEEK_API_KEY, key)
+		Diag.i("settings", "API key saved (encrypted)")
 		viewModelScope.launch { agents.invalidateModels() }
 		_state.value = _state.value.copy(
 			hasSavedKey = true,
@@ -150,6 +159,10 @@ class SettingsViewModel(
 
 		viewModelScope.launch {
 			val result = runCatching { DeepSeekProvider(apiKey = key).listModels() }
+			result.onSuccess { Diag.i("models", "connection check ok models=${it.size}") }
+				.onFailure {
+					Diag.w("models", "connection check failed: ${it.message}")
+				}
 			_state.value = result.fold(
 				onSuccess = { models ->
 					_state.value.copy(

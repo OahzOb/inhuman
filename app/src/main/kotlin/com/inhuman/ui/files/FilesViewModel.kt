@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.files.SessionWorkspace
 import com.inhuman.core.files.WorkspaceTransfer
@@ -129,6 +130,13 @@ class FilesViewModel(
 		viewModelScope.launch {
 			withContext(Dispatchers.IO) {
 				runCatching { repository.policies().setPathRule(conversation, relativePath, policy) }
+					.onFailure {
+						Diag.w(
+							"policy",
+							"path rule write failed path=$relativePath policy=$policy",
+							it,
+						)
+					}
 			}
 			refresh()
 		}
@@ -139,6 +147,7 @@ class FilesViewModel(
 			_state.value = _state.value.copy(loading = true, error = null)
 			val ws = workspace()
 			if (ws == null) {
+				Diag.w("files", "refresh: conversation not found id=${Diag.shortId(conversation)}")
 				_state.value = _state.value.copy(loading = false, error = "conversation not found")
 				return@launch
 			}
@@ -156,9 +165,16 @@ class FilesViewModel(
 				// would be one round trip per row.
 				val rules = runCatching {
 					repository.policies().forConversation(conversation, agentId = null).paths
-				}.getOrDefault(emptyMap())
+				}.getOrElse {
+					Diag.w("policy", "path rules read failed; showing no rules", it)
+					emptyMap()
+				}
 
 				val entries = if (dir == null || !dir.isDirectory) {
+					Diag.w(
+						"files",
+						"list failed path=${path.ifBlank { "/" }} dir=${dir != null}",
+					)
 					null
 				} else {
 					dir.listFiles().orEmpty()
@@ -202,7 +218,9 @@ class FilesViewModel(
 				val text = withContext(Dispatchers.IO) {
 					val f = (ws.resolve(path) as? SessionWorkspace.Resolution.Ok)?.file ?: return@withContext null
 					if (f.length() > ws.limits.maxReadBytes) return@withContext null
-					runCatching { f.readText() }.getOrNull()
+					runCatching { f.readText() }
+						.onFailure { Diag.w("files", "preview read failed path=$path", it) }
+						.getOrNull()
 				}
 				_state.value = _state.value.copy(
 					preview = if (text != null) {
@@ -236,11 +254,19 @@ class FilesViewModel(
 
 	/** Remove a file, from the app rather than through the model. */
 	fun delete(entry: FileEntryUi) {
+		Diag.i(
+			"files",
+			"delete path=${entry.relativePath} dir=${entry.isDirectory}",
+		)
 		viewModelScope.launch {
 			val ws = workspace() ?: return@launch
 			withContext(Dispatchers.IO) {
-				(ws.resolve(entry.relativePath) as? SessionWorkspace.Resolution.Ok)?.file
-					?.deleteRecursively()
+				val file = (ws.resolve(entry.relativePath) as? SessionWorkspace.Resolution.Ok)?.file
+				if (file == null) {
+					Diag.w("files", "delete refused by sandbox path=${entry.relativePath}")
+				} else {
+					Diag.i("files", "delete done path=${entry.relativePath} ok=${file.deleteRecursively()}")
+				}
 			}
 			refresh()
 		}
@@ -263,9 +289,20 @@ class FilesViewModel(
 				"${_state.value.currentPath}/$name"
 			}
 			val outcome = withContext(Dispatchers.IO) { transfer.import(target) { open() } }
-			_state.value = _state.value.copy(
-				error = (outcome as? WorkspaceTransfer.Outcome.Failed)?.reason,
-			)
+			when (outcome) {
+				is WorkspaceTransfer.Outcome.Failed -> {
+					Diag.w("files", "import failed target=$target reason=${outcome.reason}")
+					_state.value = _state.value.copy(error = outcome.reason)
+				}
+
+				is WorkspaceTransfer.Outcome.Ok -> {
+					Diag.i(
+						"files",
+						"imported path=${outcome.relativePath} bytes=${outcome.bytes}",
+					)
+					_state.value = _state.value.copy(error = null)
+				}
+			}
 			refresh()
 		}
 	}
@@ -280,7 +317,17 @@ class FilesViewModel(
 		val outcome = withContext(Dispatchers.IO) {
 			WorkspaceTransfer(ws).export(relativePath) { open() }
 		}
-		return (outcome as? WorkspaceTransfer.Outcome.Failed)?.reason
+		return when (outcome) {
+			is WorkspaceTransfer.Outcome.Failed -> {
+				Diag.w("files", "export failed path=$relativePath reason=${outcome.reason}")
+				outcome.reason
+			}
+
+			is WorkspaceTransfer.Outcome.Ok -> {
+				Diag.i("files", "exported path=${outcome.relativePath} bytes=${outcome.bytes}")
+				null
+			}
+		}
 	}
 
 	fun suggestedName(relativePath: String): String =

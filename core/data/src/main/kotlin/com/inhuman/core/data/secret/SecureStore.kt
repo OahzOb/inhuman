@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import com.inhuman.core.common.diag.Diag
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -131,6 +132,11 @@ class SecureStore(
 			// the caller re-prompt, which is the only recovery there is. The
 			// alternative -- throwing -- turns a recovered-from backup into an
 			// app that will not start.
+			//
+			// Logged because the visible symptom is "the app forgot my key",
+			// which is otherwise indistinguishable from never having saved it.
+			// The value is not logged; only the name of the entry.
+			Diag.w("secret", "cannot decrypt stored entry '$key'", e)
 			null
 		}
 	}

@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.execSQL
+import com.inhuman.core.common.diag.Diag
 import java.io.File
 
 /**
@@ -21,7 +22,13 @@ object Database {
 
 	fun open(context: Context): InhumanDatabase =
 		instance ?: synchronized(this) {
-			instance ?: Room.databaseBuilder(
+			instance ?: build(context).also { instance = it }
+		}
+
+	private fun build(context: Context): InhumanDatabase {
+		Diag.i("db", "opening ${InhumanDatabase.NAME}")
+		return try {
+			Room.databaseBuilder(
 				context.applicationContext,
 				InhumanDatabase::class.java,
 				InhumanDatabase.NAME,
@@ -48,11 +55,24 @@ object Database {
 						// first conversation has none, which is exactly the case
 						// the default exists for.
 						InhumanDatabase.seedDefaultAgent(connection)
+						Diag.i("db", "created ${InhumanDatabase.NAME}")
+					}
+
+					override fun onOpen(connection: SQLiteConnection) {
+						super.onOpen(connection)
+						Diag.i("db", "opened ${InhumanDatabase.NAME}")
 					}
 				})
 				.build()
-				.also { instance = it }
+		} catch (e: Exception) {
+			// A schema that will not open takes the app with it. The crash
+			// handler would record the stack, but not that it was the database
+			// path and which name -- this line supplies both, before the
+			// rethrow.
+			Diag.e("db", "open failed ${InhumanDatabase.NAME}", e)
+			throw e
 		}
+	}
 
 	/**
 	 * The assistant every install starts with.

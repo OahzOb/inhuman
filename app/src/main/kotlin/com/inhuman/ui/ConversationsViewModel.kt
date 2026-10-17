@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
+import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -92,8 +93,14 @@ class ConversationsViewModel(
 	}
 
 	private fun create(agent: AgentEntity?, onCreated: ((String) -> Unit)? = null) {
+		Diag.i("conv", "create agent=${Diag.shortId(agent?.id)}")
 		viewModelScope.launch {
 			val conversation = repository.create(agent = agent)
+			Diag.i(
+				"conv",
+				"created id=${Diag.shortId(conversation.id)} " +
+					"agent=${Diag.shortId(conversation.agentId)}",
+			)
 			onCreated?.invoke(conversation.id)
 		}
 	}
@@ -107,9 +114,25 @@ class ConversationsViewModel(
 	fun countFiles(conversation: ConversationEntity) {
 		viewModelScope.launch {
 			val count = withContext(Dispatchers.IO) {
-				val workspace = runCatching { repository.workspace(conversation) }.getOrNull()
-					?: return@withContext null
-				runCatching { workspace.fileCount() }.getOrNull()
+				val workspace = runCatching { repository.workspace(conversation) }
+					.onFailure {
+						Diag.w(
+							"workspace",
+							"delete preview: workspace did not open " +
+								"conv=${Diag.shortId(conversation.id)}",
+							it,
+						)
+					}
+					.getOrNull() ?: return@withContext null
+				runCatching { workspace.fileCount() }
+					.onFailure {
+						Diag.w(
+							"workspace",
+							"delete preview: count failed conv=${Diag.shortId(conversation.id)}",
+							it,
+						)
+					}
+					.getOrNull()
 			}
 			// A null count means the workspace could not be read. Left absent so
 			// the dialog says less rather than claiming zero files in a folder
@@ -133,11 +156,16 @@ class ConversationsViewModel(
 	 * should recount rather than reuse a number that was true a minute ago.
 	 */
 	fun delete(conversation: ConversationEntity) {
+		Diag.i("conv", "delete id=${Diag.shortId(conversation.id)}")
 		_state.update { it.copy(deletePreviewCounts = emptyMap()) }
-		viewModelScope.launch { repository.delete(conversation) }
+		viewModelScope.launch {
+			repository.delete(conversation)
+			Diag.i("conv", "deleted id=${Diag.shortId(conversation.id)}")
+		}
 	}
 
 	fun setPinned(conversation: ConversationEntity, pinned: Boolean) {
+		Diag.d("conv", "pin id=${Diag.shortId(conversation.id)} pinned=$pinned")
 		viewModelScope.launch { repository.setPinned(conversation.id, pinned) }
 	}
 }

@@ -21,7 +21,7 @@ Six Gradle modules, one of which is a placeholder:
 
 ```
 app                      UI, theme, entry point, all ViewModels
-core/common              small shared types (currently near-empty)
+core/common              platform-free shared code (the diagnostics facade)
 core/design              colour, type, theme, layout constants
 core/data                Room, repositories, Keystore-backed secrets, DocumentsProvider
 core/ai                  provider + streaming + tools      (no Compose, no Activity)
@@ -55,6 +55,9 @@ Confirmed by `README.md:17-29` and by the code:
 - Per-conversation model and reasoning effort, read from the provider.
 - Image attachments.
 - A context gauge above the composer.
+- A local diagnostic log records turns, tool calls, HTTP failures and crashes;
+  Settings → Diagnostics can show its size, share it or clear it
+  ([10-diagnostics.md](10-diagnostics.md)).
 
 Phases 0–5 in `README.md:17-24` are all marked done. Work since then has been
 incremental and is visible in `git log`.
