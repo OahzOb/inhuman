@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+	<!--
+		The app's own clients talk to api.deepseek.com: chat, model list, and the
+		paid Search/Fetch APIs. The sandbox's "no network" guarantee applies to
+		code the model writes, not to these calls; and it must be declared
+		here rather than inherited from okhttp-android's manifest, which happens
+		to merge the same permission today.
+	-->
+	<uses-permission android:name="android.permission.INTERNET" />
+
 	<application
 		android:name=".InhumanApp"
 		android:allowBackup="true"
