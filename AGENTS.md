@@ -19,7 +19,7 @@ architecture from scratch:
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
-| `docs/08-port-philosophy.md` | **Why** the runtime is being ported, which options the project refuses to have, and how the seven design questions were answered |
+| `docs/08-port-philosophy.md` | **Why** the runtime is being ported, which options the project refuses to have, how the seven design questions were answered, and the paid-disclosure rule (§1.4) |
 | `docs/09-approvals.md` | The approval model: why the default is no prompts at all, how per-tool, per-assistant and per-path rules compose, and what of it is built |
 | `docs/10-diagnostics.md` | The flight recorder: what is logged, what is deliberately not, where the file lives and how to share it |
 | `docs/port-assessment.md`, `docs/port-design.md` | The measured feasibility and the plan |
@@ -64,6 +64,14 @@ That is why **no approval is required by default, including for deletion**. A
 user who wants to be asked can configure it, globally, per assistant, or per
 path, and where two rules apply the stricter one wins. `docs/09-approvals.md`
 has the model.
+
+**Cost is disclosed where it is chosen and where it is used.** A tool that
+spends money at a third party carries `paid = true`, a filled `PAID` badge
+beside its name, and the price above the tool list; a price in a description
+nobody opens is not disclosure. This is separate from approval — paid does not
+mean "ask" by default. The rule and its reasoning are
+`docs/08-port-philosophy.md` §1.4; apply it to every future paid capability, not
+just the two web tools.
 
 Full reasoning, plus the design questions and how each was answered, is in
 `docs/08-port-philosophy.md`. Do not add a mode, a permission prompt, or a "pro"

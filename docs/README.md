@@ -53,7 +53,7 @@ citation.
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the 8 file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | The turn lifecycle, tool-call execution, the approval gate, cancellation, context gauge, Compose layout rules |
 | [07-gotchas.md](07-gotchas.md) | The load-bearing invariants, and the mistakes that already cost someone a day |
-| [08-port-philosophy.md](08-port-philosophy.md) | **Why** a port is wanted at all, the three constraints that rule out a "full access" option, and the seven design questions with the answers that were settled |
+| [08-port-philosophy.md](08-port-philosophy.md) | **Why** a port is wanted at all, the three constraints that rule out a "full access" option, the seven design questions with the answers that were settled, and the paid-disclosure rule |
 | [09-approvals.md](09-approvals.md) | The approval model: no prompt by default, how per-tool, per-assistant and per-path rules compose, and what of it is built and verified |
 | [10-diagnostics.md](10-diagnostics.md) | The flight recorder: what is logged, what is deliberately left out, where it lives and how to get it off the device |
 | [port-assessment.md](port-assessment.md) | Feasibility of porting the DeepSeek Harness runtime, with device measurements |

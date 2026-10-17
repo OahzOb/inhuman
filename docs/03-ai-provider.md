@@ -409,6 +409,9 @@ chatting. There is no second vendor and no second credential.
   the settings approval row carries the badge too, the approval dialog repeats
   the paid-API sentence when a rule makes a call ask, and a tool result in the
   transcript carries the badge on its collapsed header.
+- Why the badge is beside the name rather than left in a description is a
+  design rule, not a styling choice:
+  [08-port-philosophy.md](08-port-philosophy.md) §1.4.
 
 ### Search
 
