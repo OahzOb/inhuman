@@ -373,10 +373,16 @@ are *reported*, not rendered as mojibake, `FilesViewModel.kt:146-177`), import v
 showing the workspace quota as `files · bytes`. All paths go through
 `SessionWorkspace.resolve` (`:96-100`, `:189-198`).
 
-Two problems: `workspace()` calls **`runBlocking`** for a database read on the
-main thread (`:96-100`), on every refresh/open/delete/import; and `refresh()`
-walks the workspace tree **twice** (`usedBytes()` and `fileCount()`, `:138-141`)
-— the exact cost `SessionWorkspace.usage()` exists to avoid.
+A `.md` or `.markdown` preview is rendered through the same `MarkdownText` the
+transcript uses, with **Source** / **Rendered** as a toggle: the default is the
+readable form, and the raw file is one tap away for a fence that does not close
+or a table the renderer lays out badly. `isMarkdownName` decides by extension
+rather than MIME, because providers disagree about the MIME type of `.md` and the
+name is what the list shows. Everything else stays monospace.
+
+Two problems used to sit here and are fixed: `workspace()` is now `suspend` and
+reads the conversation off the main thread, and `refresh()` calls `usage()` once
+instead of walking the tree separately for bytes and file count.
 
 ### Settings
 

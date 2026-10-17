@@ -62,7 +62,19 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.ui.chat.MarkdownText
 import kotlinx.coroutines.launch
+
+/**
+ * Whether a preview should be parsed as Markdown rather than shown literally.
+ *
+ * Extension, not MIME: the system's mapping for `.md` is inconsistent across
+ * providers (`text/markdown`, `text/x-markdown`, or nothing at all), while the
+ * name is what the user sees in the list and what the assistant chose. The two
+ * common extensions are enough; a `.md` inside a `.txt` name stays text.
+ */
+internal fun isMarkdownName(name: String): Boolean =
+	name.substringAfterLast('.', "").lowercase() in setOf("md", "markdown")
 
 /**
  * The conversation's workspace.
@@ -252,21 +264,45 @@ fun FilesScreen(
 	}
 
 	state.preview?.let { preview ->
+		val markdown = isMarkdownName(preview.name)
+		// Rendered is the default: the point of saving a note as .md is that it
+		// is readable, not that its asterisks are visible. Source stays one tap
+		// away for the cases where the raw file is what matters (a fence that
+		// does not close, a table the renderer lays out badly).
+		var showSource by remember(preview.relativePath) { mutableStateOf(false) }
 		AlertDialog(
 			onDismissRequest = viewModel::closePreview,
 			title = { Text(preview.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
 			text = {
-				Text(
-					text = preview.text,
-					style = MaterialTheme.typography.bodyMedium,
-					fontFamily = FontFamily.Monospace,
-					modifier = Modifier
-						.fillMaxWidth()
-						.verticalScroll(rememberScrollState()),
-				)
+				if (markdown && !showSource) {
+					MarkdownText(
+						text = preview.text,
+						modifier = Modifier
+							.fillMaxWidth()
+							.verticalScroll(rememberScrollState()),
+					)
+				} else {
+					Text(
+						text = preview.text,
+						style = MaterialTheme.typography.bodyMedium,
+						fontFamily = FontFamily.Monospace,
+						modifier = Modifier
+							.fillMaxWidth()
+							.verticalScroll(rememberScrollState()),
+					)
+				}
 			},
 			confirmButton = {
 				TextButton(onClick = viewModel::closePreview) { Text("Close") }
+			},
+			dismissButton = if (markdown) {
+				{
+					TextButton(onClick = { showSource = !showSource }) {
+						Text(if (showSource) "Rendered" else "Source")
+					}
+				}
+			} else {
+				null
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
