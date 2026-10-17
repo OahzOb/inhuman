@@ -117,6 +117,14 @@ class ConversationRepository(
 	suspend fun setReasoning(id: String, effort: String?, thinking: Boolean) =
 		db.conversations().setReasoning(id, effort, thinking)
 
+	suspend fun setSshAllowed(id: String, allowed: Boolean) =
+		db.conversations().setSshAllowed(id, allowed)
+
+	suspend fun sshAllowed(id: String): Boolean? = db.conversations().sshAllowed(id)
+
+	/** Turning the global SSH switch off revokes every conversation's consent. */
+	suspend fun clearAllSshAllowed() = db.conversations().clearAllSshAllowed()
+
 	/**
 	 * Create a conversation bound to an assistant.
 	 *

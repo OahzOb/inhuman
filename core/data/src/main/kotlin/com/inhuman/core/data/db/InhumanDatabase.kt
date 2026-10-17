@@ -50,6 +50,15 @@ interface ConversationDao {
 	@Query("UPDATE conversations SET pinned = :pinned WHERE id = :id")
 	suspend fun setPinned(id: String, pinned: Boolean)
 
+	@Query("UPDATE conversations SET sshAllowed = :allowed WHERE id = :id")
+	suspend fun setSshAllowed(id: String, allowed: Boolean)
+
+	@Query("SELECT sshAllowed FROM conversations WHERE id = :id")
+	suspend fun sshAllowed(id: String): Boolean?
+
+	@Query("UPDATE conversations SET sshAllowed = 0")
+	suspend fun clearAllSshAllowed()
+
 	@Query("UPDATE conversations SET model = :model WHERE id = :id")
 	suspend fun setModel(id: String, model: String?)
 
@@ -255,7 +264,7 @@ interface PolicyDao {
 	// guessing, which is how each was caught: the app crashed on launch with
 	// "Looks like you've changed schema but forgot to update the version number"
 	// instead of quietly losing conversations.
-	version = 8,
+	version = 9,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -431,6 +440,20 @@ abstract class InhumanDatabase : RoomDatabase() {
 					"CREATE TABLE IF NOT EXISTS `path_policy` " +
 						"(`conversationId` TEXT NOT NULL, `relPath` TEXT NOT NULL, " +
 						"`policy` TEXT NOT NULL, PRIMARY KEY(`conversationId`, `relPath`))",
+				)
+			}
+		}
+
+		/**
+		 * 8 -> 9: the per-conversation SSH acknowledgement.
+		 *
+		 * Additive and defaulted, so an upgrade starts with SSH unallowed --
+		 * the only safe meaning for a consent flag.
+		 */
+		val MIGRATION_8_9 = object : Migration(8, 9) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"ALTER TABLE conversations ADD COLUMN sshAllowed INTEGER NOT NULL DEFAULT 0",
 				)
 			}
 		}

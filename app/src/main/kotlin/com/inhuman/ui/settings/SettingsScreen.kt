@@ -240,6 +240,50 @@ fun SettingsScreen(
 				}
 			}
 
+			HorizontalDivider(
+				modifier = Modifier.padding(vertical = 8.dp),
+				color = MaterialTheme.colorScheme.outlineVariant,
+			)
+
+			// SSH tool. Off by default, and the copy says what turning it on
+			// does *not* do: it does not authorize a call by itself.
+			Column(
+				modifier = Modifier
+					.widthIn(max = Layout.ReadableMeasure)
+					.fillMaxWidth(),
+				verticalArrangement = Arrangement.spacedBy(4.dp),
+			) {
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					horizontalArrangement = Arrangement.SpaceBetween,
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					Column(modifier = Modifier.weight(1f)) {
+						Text(
+							text = "SSH tool",
+							style = MaterialTheme.typography.titleMedium,
+							color = MaterialTheme.colorScheme.onBackground,
+						)
+						Text(
+							text = "Off by default. When on, an assistant can be given " +
+								"ssh_exec. It does not configure any remote machine: the " +
+								"agent uses whatever host and credentials the user gives it. " +
+								"The first SSH call in each conversation shows a consent " +
+								"warning; after that, normal tool policy applies. The agent " +
+								"can then run any command on the remote machine, which may " +
+								"be irreversible. SSH tool arguments are redacted before " +
+								"the transcript is stored, but text you type is still stored.",
+							style = MaterialTheme.typography.bodyMedium,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+					Switch(
+						checked = state.sshToolEnabled,
+						onCheckedChange = viewModel::setSshToolEnabled,
+					)
+				}
+			}
+
 			ApprovalRulesSection(
 				rules = state.approvalRules,
 				onRuleChange = viewModel::setApprovalRule,
@@ -394,9 +438,11 @@ private fun ApprovalRulesSection(
 			color = MaterialTheme.colorScheme.onBackground,
 		)
 		Text(
-			text = "Every tool runs without asking, because everything a tool can " +
-				"reach is a copy inside this conversation's own folder. Tighten any " +
-				"of them here if you would rather be asked.",
+			text = "Local tools run without asking, because everything they reach " +
+				"is a copy inside this conversation's own folder. SSH is different: " +
+				"its first call in each conversation asks for consent, and after that " +
+				"the policy below applies. Tighten any tool here if you would rather " +
+				"be asked.",
 			style = MaterialTheme.typography.bodyMedium,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)

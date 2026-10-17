@@ -33,10 +33,12 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import com.inhuman.core.ai.tools.FetchProvider
 import com.inhuman.core.ai.tools.SearchProvider
+import com.inhuman.core.ai.tools.SshExecTool
 import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.ai.tools.TimeTool
 import com.inhuman.core.ai.tools.WebFetchTool
 import com.inhuman.core.ai.tools.WebSearchTool
+import com.inhuman.core.ai.ssh.SshTransport
 import com.inhuman.core.files.tools.FileTools
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -50,6 +52,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import java.util.UUID
 
@@ -102,6 +105,16 @@ class ChatViewModel(
 	 */
 	private val searchProvider: SearchProvider? = null,
 	private val fetchProvider: FetchProvider? = null,
+	/** The SSH transport, or null when the feature is not wired. */
+	private val sshTransport: SshTransport? = null,
+	/**
+	 * Whether the global SSH switch is on.
+	 *
+	 * Read per turn rather than copied: the user can change it in Settings
+	 * while this view model stays alive, and a tool that is still registered
+	 * after being switched off is a gate that opens the wrong way.
+	 */
+	private val sshToolEnabled: () -> Boolean = { false },
 ) : ViewModel() {
 
 	private val _state = MutableStateFlow(ChatUiState())
@@ -109,6 +122,7 @@ class ChatViewModel(
 
 	private var conversation: ConversationEntity? = null
 	private var streamJob: Job? = null
+	private var sshAllowed: Boolean = false
 
 	/** The assistant behind this conversation, once loaded. */
 	private var agent: AgentEntity? = null
@@ -520,7 +534,17 @@ class ChatViewModel(
 
 	private suspend fun reload() {
 		val loaded = repository.conversation(conversationId)
-		val entities = loaded?.messages.orEmpty()
+		var entities = loaded?.messages.orEmpty()
+
+		// A process can die while an approval or SSH-consent dialog is open.
+		// The assistant row with its `tool_calls` was already persisted, but
+		// the tool rows were not, and the next request is then rejected by
+		// DeepSeek: "assistant message with 'tool_calls' must be followed by
+		// tool messages". Close the dangling tail with explicit interrupted
+		// results before the conversation is read or sent again.
+		if (repairDanglingToolCalls(entities)) {
+			entities = repository.conversation(conversationId)?.messages.orEmpty()
+		}
 
 		// Only the points that actually branch, resolved for the whole
 		// transcript in one query. A row asking the database for its own
@@ -533,6 +557,7 @@ class ChatViewModel(
 		// through `parentId`, which puts the switcher under the message below
 		// the branch point.
 		val branchInfo = repository.branchesIn(conversationId)
+		sshAllowed = loaded?.entity?.sshAllowed ?: false
 
 		// Which calls were refused, resolved in the same pass and for the same
 		// reason: the outcome is a property of the tool result, and a row
@@ -546,6 +571,8 @@ class ChatViewModel(
 			current.copy(
 				title = loaded?.entity?.title ?: current.title,
 				messages = rebuilt,
+				sshAllowed = sshAllowed,
+				pendingSshConsent = null,
 				// `currentTurnMutated` is deliberately not assigned here. It is
 				// derived from `messages`, so rebuilding the transcript *is*
 				// recomputing it -- and assigning it here as well is what used to
@@ -704,10 +731,13 @@ class ChatViewModel(
 		Diag.i("turn", "stop requested streaming=${_state.value.isStreaming}")
 		streamJob?.cancel()
 		streamJob = null
+		sshConsentContinuation?.cancel()
+		sshConsentContinuation = null
 		_state.update { s ->
 			s.copy(
 				isStreaming = false,
 				pendingApproval = null,
+				pendingSshConsent = null,
 				messages = s.messages.map {
 					if (it.isStreaming) it.copy(isStreaming = false) else it
 				},
@@ -1325,7 +1355,61 @@ class ChatViewModel(
 					continue
 				}
 
-				val parsed = parseArguments(call, outcome.messageId) ?: continue
+				val parsed = (parseArguments(call, outcome.messageId) ?: continue).let { raw ->
+					if (tool.name == "ssh_exec") SshExecTool.normalizeArguments(raw) else raw
+				}
+
+				// Never show a consent dialogue for a call the tool would reject
+				// as malformed. The dialogue is the strongest warning in the
+				// app; it must describe a call that can actually happen.
+				if (tool.name == "ssh_exec") {
+					val missing = when {
+						stringArg(parsed, "host").isNullOrBlank() -> "host"
+						stringArg(parsed, "username").isNullOrBlank() -> "username"
+						stringArg(parsed, "command").isNullOrBlank() -> "command"
+						else -> null
+					}
+					if (missing != null) {
+						markCall(outcome.messageId, call.index, ToolCallUi.State.Failed)
+						appendToolResult(
+							call,
+							"ssh_exec: $missing is required",
+							isError = true,
+							messageId = outcome.messageId,
+						)
+						continue
+					}
+				}
+
+				// A tool can be switched off in Settings while a turn is already
+				// running; the registry was built before that change. Re-check
+				// the global gate here so "off" means off for this call too.
+				if (tool.name == "ssh_exec" && !sshToolEnabled()) {
+					Diag.i("ssh", "refused: global switch off")
+					markCall(outcome.messageId, call.index, ToolCallUi.State.Failed)
+					appendToolResult(
+						call,
+						"${REFUSED_MARKER} SSH is disabled in Settings.",
+						isError = true,
+						messageId = outcome.messageId,
+					)
+					continue
+				}
+
+				// Settings can revoke every conversation's consent (turning the
+				// global switch off does exactly that). The in-memory flag is
+				// stale after such a round trip: off, then on again. Read the
+				// persisted answer before trusting it, or the second enabling
+				// inherits a consent the user revoked.
+				if (tool.name == "ssh_exec" && sshAllowed) {
+					val persisted = runCatching { repository.sshAllowed(conversationId) }
+						.getOrNull()
+					if (persisted == false) {
+						sshAllowed = false
+						_state.update { it.copy(sshAllowed = false) }
+						Diag.i("ssh", "persisted consent gone; asking again")
+					}
+				}
 
 				// The configured rules, before the tool's own opinion.
 				//
@@ -1358,6 +1442,65 @@ class ChatViewModel(
 					continue
 				}
 
+				// The capability gate, before the per-call policy. SSH is not a
+				// workspace copy; the first call in a conversation needs an
+				// explicit acknowledgement that later calls inherit. The gate is
+				// deliberately *not* `needsApproval`: that is a per-call question,
+				// this is a grant of a capability.
+				if (tool.name == "ssh_exec" && !sshAllowed) {
+					val host = stringArg(parsed, "host").orEmpty()
+					val username = stringArg(parsed, "username").orEmpty()
+					val sshCommand = stringArg(parsed, "command").orEmpty()
+					Diag.i(
+						"ssh",
+						"consent ask host=$host user=$username commandChars=${sshCommand.length}",
+					)
+					_state.update {
+						it.copy(
+							pendingSshConsent = SshConsent(
+								messageId = outcome.messageId,
+								call = call,
+								host = host,
+								username = username,
+								command = sshCommand,
+								hostKeyFingerprint = stringArg(parsed, "hostKeyFingerprint")
+									?.trim()
+									?.takeIf { it.isNotEmpty() },
+							),
+						)
+					}
+					val allowed = awaitSshConsent()
+					if (!allowed) {
+						markCall(outcome.messageId, call.index, ToolCallUi.State.Declined)
+						appendToolResult(
+							call,
+							DECLINED_MARKER +
+								" The user declined SSH access for this conversation.",
+							isError = true,
+							messageId = outcome.messageId,
+						)
+						answerSkippedCalls(outcome, after = call.index)
+						settled = true
+						return false
+					}
+					sshAllowed = true
+					runCatching { repository.setSshAllowed(conversationId, true) }
+						.onFailure { Diag.w("ssh", "could not persist consent", it) }
+					_state.update { it.copy(sshAllowed = true) }
+					Diag.i("ssh", "consent allow host=$host")
+					if (!sshToolEnabled()) {
+						Diag.i("ssh", "global switch turned off during consent")
+						markCall(outcome.messageId, call.index, ToolCallUi.State.Failed)
+						appendToolResult(
+							call,
+							"${REFUSED_MARKER} SSH was disabled in Settings before the call ran.",
+							isError = true,
+							messageId = outcome.messageId,
+						)
+						continue
+					}
+				}
+
 				if (policy == ToolPolicy.Ask || tool.needsApproval(parsed)) {
 					val summary = describeCall(call, parsed)
 					Diag.i(
@@ -1367,7 +1510,18 @@ class ChatViewModel(
 							"args=${parsed.toString().length}B",
 					)
 					_state.update {
-						it.copy(pendingApproval = PendingApproval(outcome.messageId, call, summary))
+						it.copy(
+							pendingApproval = PendingApproval(
+								messageId = outcome.messageId,
+								call = call,
+								summary = summary,
+								details = if (tool.name == "ssh_exec") {
+									sshApprovalDetails(parsed)
+								} else {
+									null
+								},
+							),
+						)
 					}
 					// Suspend here until the user decides. The continuation is
 					// resumed by approvePendingCall/declinePendingCall, which is
@@ -1497,6 +1651,41 @@ class ChatViewModel(
 	// --- approval plumbing ---------------------------------------------------
 
 	private var approvalContinuation: kotlinx.coroutines.CancellableContinuation<Boolean>? = null
+	private var sshConsentContinuation: kotlinx.coroutines.CancellableContinuation<Boolean>? = null
+
+	private suspend fun awaitSshConsent(): Boolean =
+		kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+			sshConsentContinuation = cont
+		}
+
+	fun allowSshConsent() {
+		val pending = _state.value.pendingSshConsent ?: return
+		Diag.i("ssh", "consent allow requested host=${pending.host}")
+		_state.update { it.copy(pendingSshConsent = null) }
+		sshConsentContinuation?.let { cont ->
+			sshConsentContinuation = null
+			if (cont.isActive) cont.resumeWith(Result.success(true))
+		}
+	}
+
+	fun denySshConsent() {
+		val pending = _state.value.pendingSshConsent ?: return
+		Diag.i("ssh", "consent denied host=${pending.host}")
+		_state.update { it.copy(pendingSshConsent = null) }
+		sshConsentContinuation?.let { cont ->
+			sshConsentContinuation = null
+			if (cont.isActive) cont.resumeWith(Result.success(false))
+		}
+	}
+
+	/** Revoke this conversation's SSH consent; the next call asks again. */
+	fun revokeSshAccess() {
+		if (!sshAllowed) return
+		sshAllowed = false
+		_state.update { it.copy(sshAllowed = false) }
+		viewModelScope.launch { repository.setSshAllowed(conversationId, false) }
+		Diag.i("ssh", "consent revoked")
+	}
 
 	private suspend fun awaitApproval(): Boolean =
 		kotlinx.coroutines.suspendCancellableCoroutine { cont ->
@@ -1544,27 +1733,34 @@ class ChatViewModel(
 			return listOf(TimeTool()).filter { ToolCatalog.permits(selected, it.name) }
 		}
 
-		val fileTools = runCatching {
-			FileTools.all(
-				workspace = repository.workspace(entity),
-				// `Blind` and nothing else. `Deny` also stops the agent reaching
-				// a path, but it does so by refusing the call, which leaves the
-				// name visible -- and the name is the part that leaks.
-				hidden = { path ->
-					policies.effective(tool = "list_files", relativePath = path) == ToolPolicy.Blind
-				},
-			)
-		}
-			.getOrElse { failure ->
-				Diag.e("tools", "workspace could not be opened; file tools unavailable", failure)
-				_state.update {
-					it.copy(
-						error = "The workspace for this conversation could not be opened, " +
-							"so file tools are unavailable: ${failure.message}",
-					)
-				}
-				emptyList()
+		val workspace = runCatching { repository.workspace(entity) }.getOrElse { failure ->
+			Diag.e("tools", "workspace could not be opened; file tools unavailable", failure)
+			_state.update {
+				it.copy(
+					error = "The workspace for this conversation could not be opened, " +
+						"so file tools are unavailable: ${failure.message}",
+				)
 			}
+			null
+		}
+
+		val fileTools = workspace?.let { ws ->
+			runCatching {
+				FileTools.all(
+					workspace = ws,
+					// `Blind` and nothing else. `Deny` also stops the agent reaching
+					// a path, but it does so by refusing the call, which leaves the
+					// name visible -- and the name is the part that leaks.
+					hidden = { path ->
+						policies.effective(tool = "list_files", relativePath = path) == ToolPolicy.Blind
+					},
+				)
+			}
+				.getOrElse { failure ->
+					Diag.e("tools", "file tools could not be built", failure)
+					emptyList()
+				}
+		}.orEmpty()
 
 		return buildList {
 			addAll(fileTools)
@@ -1575,6 +1771,23 @@ class ChatViewModel(
 			// that it cannot use it, and it says so.
 			searchProvider?.let { add(WebSearchTool(it)) }
 			fetchProvider?.let { add(WebFetchTool(it)) }
+			// SSH is opt-in twice: the global setting and the assistant's
+			// explicit tool selection. `selected == null` means "all tools" for
+			// historical assistants, so it must NOT be read as consent to SSH.
+			if (sshTransport != null && sshToolEnabled() && selected?.contains("ssh_exec") == true) {
+				add(
+					SshExecTool(sshTransport) { path ->
+						workspace?.let { ws ->
+							when (val resolved = ws.resolve(path)) {
+								is SessionWorkspace.Resolution.Ok -> resolved.file
+									.takeIf { it.isFile && it.length() <= MAX_SSH_IDENTITY_BYTES }
+									?.readBytes()
+								is SessionWorkspace.Resolution.Rejected -> null
+							}
+						}
+					},
+				)
+			}
 		}.filter { ToolCatalog.permits(selected, it.name) }
 	}
 
@@ -1599,7 +1812,31 @@ class ChatViewModel(
 			stringArg(args, "url")?.take(100) ?: "a URL"
 		}? (DeepSeek's paid Fetch API)"
 
+		"ssh_exec" -> "Run on ${stringArg(args, "host") ?: "a remote host"}: ${
+			stringArg(args, "command")?.take(160) ?: "a command"
+		}?"
+
 		else -> "Run ${call.displayName}?"
+	}
+
+	/** Approval details for SSH, with credentials left out deliberately. */
+	private fun sshApprovalDetails(args: JsonObject): String = buildString {
+		append("host: ").append(stringArg(args, "host") ?: "?")
+		append("\nport: ").append(
+			(args["port"] as? kotlinx.serialization.json.JsonPrimitive)?.intOrNull ?: 22,
+		)
+		append("\nuser: ").append(stringArg(args, "username") ?: "?")
+		append("\nauth: ").append(
+			when {
+				stringArg(args, "identityFile") != null -> "identity file"
+				stringArg(args, "privateKey") != null -> "private key"
+				else -> "password"
+			},
+		)
+		append("\ncommand:\n").append(stringArg(args, "command") ?: "?")
+		stringArg(args, "hostKeyFingerprint")?.takeIf { it.isNotBlank() }?.let {
+			append("\npinned host key: ").append(it)
+		}
 	}
 
 	private fun stringArg(args: JsonObject, name: String): String? =
@@ -1680,6 +1917,60 @@ class ChatViewModel(
 			null
 		}
 
+	/**
+	 * Close an assistant tool-call tail that has no matching tool rows.
+	 *
+	 * The case is a process death while the approval or SSH-consent dialog is
+	 * open. The assistant row is already durable; the next request would carry
+	 * `tool_calls` with no following `tool` messages and DeepSeek rejects the
+	 * whole conversation with HTTP 400. A synthetic result is the honest
+	 * record: the call was interrupted and did not run.
+	 */
+	private suspend fun repairDanglingToolCalls(entities: List<MessageEntity>): Boolean {
+		val callMessage = entities.lastOrNull {
+			it.role == "assistant" && it.toolCallsJson?.isNotBlank() == true
+		} ?: return false
+		val calls = decodeCalls(callMessage.toolCallsJson.orEmpty())
+		if (calls.isEmpty()) return false
+
+		val callIndex = entities.indexOfFirst { it.id == callMessage.id }
+		// Only repair a tail. If a later user or assistant turn exists, appending
+		// results at the end would place them after text that belongs later.
+		if (entities.drop(callIndex + 1).any { it.role != "tool" }) return false
+
+		val answered = entities.asSequence()
+			.filter { it.role == "tool" }
+			.mapNotNull { it.toolCallId }
+			.toSet()
+		val missing = calls.filter { call ->
+			val id = call.id
+			id == null || id !in answered
+		}
+		if (missing.isEmpty()) return false
+
+		var parent = entities.last().id
+		val now = System.currentTimeMillis()
+		for ((offset, call) in missing.withIndex()) {
+			val id = call.id ?: "interrupted-${call.index}"
+			val content = "$INTERRUPTED_MARKER The app stopped before this call finished; it was not run."
+			val entity = MessageEntity(
+				id = UUID.randomUUID().toString(),
+				conversationId = conversationId,
+				parentId = parent,
+				role = "tool",
+				content = content,
+				error = null,
+				createdAt = now + offset,
+				toolCallId = id,
+				toolName = call.displayName,
+			)
+			repository.appendMessage(entity, parent)
+			parent = entity.id
+			Diag.w("tool", "repaired dangling call name=${call.displayName} index=${call.index}")
+		}
+		return true
+	}
+
 	private suspend fun appendToolResult(
 		call: ToolCallUi,
 		content: String,
@@ -1756,7 +2047,7 @@ class ChatViewModel(
 				)
 			}
 		}
-		return out
+		return closeDanglingCalls(out)
 	}
 
 	/**
@@ -1808,7 +2099,10 @@ class ChatViewModel(
 				put("index", c.index)
 				c.id?.let { put("id", it) }
 				c.name?.let { put("name", it) }
-				put("arguments", c.argumentsJson)
+				put(
+					"arguments",
+					if (c.name == "ssh_exec") redactSshArguments(c.argumentsJson) else c.argumentsJson,
+				)
 			}.toString()
 		}
 	}
@@ -1886,6 +2180,11 @@ class ChatViewModel(
 
 	companion object {
 		const val DEFAULT_MODEL = "deepseek-flash"
+
+		const val INTERRUPTED_MARKER = "[interrupted]"
+
+		/** A key file larger than this is not a key; do not read it into memory. */
+		private const val MAX_SSH_IDENTITY_BYTES = 512 * 1024
 
 		/**
 		 * Prefix on the tool result that records a refusal.

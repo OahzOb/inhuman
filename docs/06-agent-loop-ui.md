@@ -77,22 +77,33 @@ since this file was written — search the marker text if they are off):
 
 1. Unknown tool → an error result and `continue`.
 2. Arguments are re-parsed (they were parsed once at `ToolCallEnd`); a parse
-   failure appends a result and `continue`s.
-3. **The configured rules are consulted first**, and `Deny`/`Blind` are answered
-   here as refusals rather than questions — `needsApproval` can only say "ask",
-   and asking about something the user forbade would be the wrong question with a
-   confusing answer. The result body is `REFUSED_MARKER + …` and the chip goes
-   `Failed`, not `Declined` (`:1193-1211`).
-4. `policy == Ask`, **or** the tool's own `needsApproval(parsed)` →
-   `pendingApproval` in state, then **`awaitApproval()` suspends the turn**
-   (`:1213-1221`). No tool currently returns true from `needsApproval`, so in
-   practice this step is reached only by a configured rule.
-5. Declined → the `Declined` chip is set **before** the result is appended, the
+   failure appends a result and `continue`s. For `ssh_exec` the same
+   normalization the tool uses is applied first (some models wrap the arguments
+   in an `arguments` string); a call still missing host/user/command gets an
+   error **without** a consent dialog.
+3. The global SSH switch is re-checked for `ssh_exec`, because it can be turned
+   off while a turn is already running. Then **the configured rules are
+   consulted**, and `Deny`/`Blind` are answered here as refusals rather than
+   questions — `needsApproval` can only say "ask", and asking about something
+   the user forbade would be the wrong question with a confusing answer. The
+   result body is `REFUSED_MARKER + …` and the chip goes `Failed`, not
+   `Declined`.
+4. **SSH capability grant**, before the ordinary approval branch: if this
+   conversation has not acknowledged SSH, `pendingSshConsent` is set and
+   `awaitSshConsent()` suspends. Allow persists `conversations.sshAllowed` and
+   continues; Cancel appends a declined result and ends the turn. A revoked
+   grant (or a global off/on round trip) is re-read from the database before
+   this check, not trusted from the in-memory flag.
+5. `policy == Ask`, **or** the tool's own `needsApproval(parsed)` →
+   `pendingApproval` in state, then **`awaitApproval()` suspends the turn**.
+   `SshExecTool` returns false from `needsApproval`; after the capability grant
+   its calls follow the ordinary policy (Free by default).
+6. Declined → the `Declined` chip is set **before** the result is appended, the
    result body is `DECLINED_MARKER + …`, and the function returns `false`. The
    ordering is deliberate: without it the call stayed `Ready` forever, and a
    refused call rendered as one that was merely waiting — the one state a user is
    most likely to misread as "it is about to happen".
-6. Approved → `Running` → `tool.execute` on `Dispatchers.IO` → `Done`/`Failed` →
+7. Approved → `Running` → `tool.execute` on `Dispatchers.IO` → `Done`/`Failed` →
    result appended.
 
 **Only the execution moves off the main thread.** Approval stays on it, because
@@ -115,6 +126,21 @@ Two things to know: **the `pending: PendingApproval` parameter of
 against the call it names — and because `pendingApproval` is a single field,
 several approval-needing calls produce **sequential dialogs**, not a collected
 batch.
+
+### The SSH consent plumbing
+
+SSH has its own `CancellableContinuation<Boolean>` and its own state field,
+`pendingSshConsent`, because it asks a different question. The ordinary gate
+asks "may this call happen?"; this asks "may this conversation use SSH at all?".
+`allowSshConsent`/`denySshConsent` clear the state and resume; `stop()` cancels
+the continuation and clears the state, so a cancelled turn cannot leave a
+dialog that does nothing.
+
+The grant is persisted (`ConversationRepository.setSshAllowed`) and shown in
+`ChatUiState.sshAllowed`; the top-bar overflow menu exposes **Revoke SSH
+access** while it is true. Turning the global switch off clears every
+conversation's grant, and the next SSH call re-reads the column so an
+off→on round trip cannot inherit the old consent.
 
 ## Regeneration, and the sticky-flag bug
 
@@ -259,24 +285,42 @@ frame, which is what makes the final position stick.
 
 Modal. `onDismissRequest = declinePendingCall`, so Back and an outside tap both
 **decline** rather than leaving the call pending. The body is a sentence from
-`describeCall` (`:1270-1274`) plus Allow / Decline. It also prints the raw
-`argumentsJson` in monospace (`:429-443`) — directly under a comment saying raw
-JSON is "practically useless", which is a doc-vs-code contradiction rather than a
-bug: the raw arguments are the one place a user can see what a call will actually
-do.
+`describeCall` plus Allow / Decline. It also prints the arguments in monospace
+— directly under a comment saying raw JSON is "practically useless", which is a
+doc-vs-code contradiction rather than a bug: the arguments are the one place a
+user can see what a call will actually do. For `ssh_exec` the view model supplies
+`PendingApproval.details` instead: host, port, user, auth **type** and command,
+never the password or private key.
 
-`describeCall` special-cases `delete_file`, `write_file`, `web_search` and
-`web_fetch`; the last two also carry "(DeepSeek's paid … API)", because an
-approval prompt is exactly the moment the cost is worth repeating. Everything
-else falls back to "Run <name>?" (`:1270-1280`).
+`describeCall` special-cases `delete_file`, `write_file`, `web_search`,
+`web_fetch` and `ssh_exec`; the web tools also carry "(DeepSeek's paid … API)",
+because an approval prompt is exactly the moment the cost is worth repeating,
+and SSH names the host and first 160 characters of the command. Everything else
+falls back to "Run <name>?".
+
+### The SSH consent dialog
+
+Separate from the ordinary approval dialog, deliberately. It is a capability
+grant, not a question about one call: the text says the agent can reach **any**
+host it is given credentials for and will not ask again in this conversation.
+It shows the first command, warns that remote damage can be irreversible, and
+warns that a pasted password/key goes into the conversation and to DeepSeek
+(while a workspace key file is read locally). The checkbox is required before
+"Allow SSH"; Cancel and Back both decline.
+
+The checkbox sits **above** the long warning, not after it. On a phone the body
+scrolls; with the checkbox last it fell below the fold, so "Allow SSH" was
+disabled with no visible reason. Verified at phone width and on the pad.
 
 ### Tool rows
 
 One section per message ("Used N tools", with "N failed" trailing,
-`:779-790`). Each line shows the name, the first of `path|query|pattern|name`
-(regex-labelled and cached in `argumentPatterns`, `:596-612`) and a status word
-(`:533-576`); a declined call renders "declined" in the outline colour
-(`:540-546`).
+`:779-790`). Each line shows the name, the first of
+`path|host|query|pattern|name` (regex-labelled and cached in
+`argumentPatterns`, `:596-612`) and a status word (`:533-576`); a declined call
+renders "declined" in the outline colour (`:540-546`). `host` is in the key list
+specifically so an SSH line never falls back to raw JSON that could contain a
+credential.
 
 **The newest working section is open; older ones collapse.** This applies to
 `Thinking` and to the tool-call group alike: while a turn streams, the section
@@ -454,6 +498,7 @@ it; the sandbox's no-network rule applies to code the model writes), and
 | --- | --- |
 | `DeltaCursorTest` | The property "the pieces joined are the whole reply, however it is cut", over every chunk size; no emission when nothing is new; no duplicate on a replayed prefix; a restart on shrink; the `initialText` start; silence for an empty reply. |
 | `ContextUsageTest` | Window-without-measurement is known but not computable; no window ⇒ no fraction and `summary` is a bare count; neither ⇒ nothing drawn; 25% of 1M ⇒ `262K / 1M`; a non-zero amount never shows 0%; over-window clamps to 100% / 0 left; `contextWindow = 0` treated as absent; `TokenFormat` grouping, including "10K" for 9,960 and never a comma. |
+| `WireHistoryTest` | A dangling assistant `tool_calls` gets its missing tool result inserted **before** the next user message, not at the end; a complete block and a call-free assistant message are untouched. Also that SSH tool arguments lose `password`/`privateKey`/`passphrase` before storage, including the wrapped form. This is the HTTP-400-on-every-later-turn repair and the credential-persistence guard. |
 
-Both are pure JVM logic for the reason `AGENTS.md` gives: the device cannot
+These are pure JVM logic for the reason `AGENTS.md` gives: the device cannot
 observe these states, so the argument has to live in a test.

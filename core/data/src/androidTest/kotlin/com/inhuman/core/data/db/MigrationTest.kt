@@ -65,6 +65,7 @@ class MigrationTest {
 		InhumanDatabase.MIGRATION_5_6,
 		InhumanDatabase.MIGRATION_6_7,
 		InhumanDatabase.MIGRATION_7_8,
+		InhumanDatabase.MIGRATION_8_9,
 	)
 
 	// --- building a database at an old version -------------------------------
@@ -164,6 +165,9 @@ class MigrationTest {
 			sql += "CREATE TABLE IF NOT EXISTS approval_defaults (toolName TEXT NOT NULL PRIMARY KEY, policy TEXT NOT NULL)"
 			sql += "CREATE TABLE IF NOT EXISTS agent_approval (agentId TEXT NOT NULL, toolName TEXT NOT NULL, policy TEXT NOT NULL, PRIMARY KEY(agentId, toolName))"
 			sql += "CREATE TABLE IF NOT EXISTS path_policy (conversationId TEXT NOT NULL, relPath TEXT NOT NULL, policy TEXT NOT NULL, PRIMARY KEY(conversationId, relPath))"
+		}
+		if (version >= 9) {
+			sql += "ALTER TABLE conversations ADD COLUMN sshAllowed INTEGER NOT NULL DEFAULT 0"
 		}
 		return sql
 	}
@@ -413,13 +417,29 @@ class MigrationTest {
 
 	@Test
 	fun `7 to 8 creates the three policy tables and touches nothing else`() {
-		migrate(7, 8, *allMigrations).use { db ->
+		migrate(7, 8, *allMigrations.take(7).toTypedArray()).use { db ->
 			for (table in listOf("approval_defaults", "agent_approval", "path_policy")) {
 				// Created empty is both the correct migration and the correct
 				// product default: absence of a rule means no restriction.
 				assertEquals("$table should start empty", 0L, db.countOf(table))
 			}
 			db.assertCanarySurvived(8)
+		}
+	}
+
+	@Test
+	fun `8 to 9 adds ssh consent and defaults it off`() {
+		migrate(8, 9, *allMigrations).use { db ->
+			assertTrue(
+				"sshAllowed is missing after 8 -> 9",
+				"sshAllowed" in db.columnNames("conversations"),
+			)
+			db.query("SELECT sshAllowed FROM conversations WHERE id = 'c1'").use { c ->
+				assertTrue(c.moveToFirst())
+				// An upgrade must not hand an old conversation a remote shell.
+				assertEquals("an existing conversation was granted SSH", 0L, c.getLong(0))
+			}
+			db.assertCanarySurvived(9)
 		}
 	}
 

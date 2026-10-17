@@ -48,6 +48,14 @@ object ToolCatalog {
 		 * A tool that is merely read-only is not automatically free.
 		 */
 		val paid: Boolean = false,
+		/**
+		 * Whether the tool can affect something outside this device.
+		 *
+		 * A remote command is not a workspace copy: the damage at the other end
+		 * can be irreversible. The picker marks it so the name is not the only
+		 * warning.
+		 */
+		val remote: Boolean = false,
 	)
 
 	/**
@@ -73,6 +81,12 @@ object ToolCatalog {
 			"Fetch a page via DeepSeek's paid Fetch API",
 			mutates = false,
 			paid = true,
+		),
+		Entry(
+			"ssh_exec",
+			"Run a command on another machine over SSH",
+			mutates = true,
+			remote = true,
 		),
 		Entry("write_file", "Create or replace a file", mutates = true),
 		Entry("append_file", "Add to the end of a file", mutates = true),
@@ -114,6 +128,11 @@ object ToolCatalog {
 	 */
 	fun permits(selected: List<String>?, toolName: String): Boolean {
 		if (toolName !in names) return false
+		// SSH is never covered by the historical "null means everything"
+		// selection. That selection predates SSH, and reading it as consent
+		// would silently hand every old assistant a remote shell. It must be
+		// named explicitly in the selection.
+		if (toolName == "ssh_exec") return selected?.contains(toolName) == true
 		return selected == null || toolName in selected
 	}
 

@@ -17,13 +17,24 @@ class ToolCatalogTest {
 	// --- the two empty-looking states -----------------------------------------
 
 	@Test
-	fun `null permits everything`() {
+	fun `null permits everything except ssh`() {
 		// What an assistant created before the setting existed has. It must keep
 		// working, and it must keep working as new tools are added -- "everything"
 		// was the answer when it was recorded and is still the answer.
-		ToolCatalog.names.forEach { name ->
+		//
+		// SSH is the exception: null predates it, and reading that as consent
+		// would hand every old assistant a remote shell.
+		ToolCatalog.names.filterNot { it == "ssh_exec" }.forEach { name ->
 			assertTrue("null must permit $name", ToolCatalog.permits(null, name))
 		}
+		assertFalse(ToolCatalog.permits(null, "ssh_exec"))
+	}
+
+	@Test
+	fun `ssh must be named explicitly`() {
+		assertFalse(ToolCatalog.permits(null, "ssh_exec"))
+		assertFalse(ToolCatalog.permits(emptyList(), "ssh_exec"))
+		assertTrue(ToolCatalog.permits(listOf("ssh_exec"), "ssh_exec"))
 	}
 
 	@Test
@@ -122,13 +133,24 @@ class ToolCatalogTest {
 	}
 
 	@Test
-	fun `the tools that change files are marked as such`() {
+	fun `the tools that mutate are marked as such`() {
 		// The marker drives a warning in the picker, so what it covers matters.
+		// SSH mutates something even though it is not a file: a remote command
+		// has effects that a replay would duplicate.
 		val mutating = ToolCatalog.all.filter { it.mutates }.map { it.name }.toSet()
 		assertEquals(
-			setOf("write_file", "append_file", "create_directory", "move_file", "delete_file"),
+			setOf(
+				"write_file", "append_file", "create_directory", "move_file",
+				"delete_file", "ssh_exec",
+			),
 			mutating,
 		)
+	}
+
+	@Test
+	fun `the remote tool is the only one marked remote`() {
+		val remote = ToolCatalog.all.filter { it.remote }.map { it.name }.toSet()
+		assertEquals(setOf("ssh_exec"), remote)
 	}
 
 	@Test

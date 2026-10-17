@@ -10,6 +10,7 @@ import net.schmizz.sshj.transport.verification.HostKeyVerifier
 import com.hierynomus.sshj.userauth.keyprovider.OpenSSHKeyV1KeyFile
 import net.schmizz.sshj.userauth.password.PasswordFinder
 import net.schmizz.sshj.userauth.password.Resource
+import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
@@ -17,6 +18,7 @@ import java.io.OutputStream
 import java.io.StringReader
 import java.security.MessageDigest
 import java.security.PublicKey
+import java.security.Security
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 
@@ -45,6 +47,25 @@ data class SshResult(
 
 class SshException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
+/** The seam the tool is tested through; the client is the only production implementation. */
+interface SshTransport {
+	companion object {
+		const val DEFAULT_CONNECT_TIMEOUT_MS = 15_000
+		const val DEFAULT_COMMAND_TIMEOUT_MS = 120_000
+	}
+
+	suspend fun execute(
+		host: String,
+		port: Int,
+		username: String,
+		command: String,
+		auth: SshAuth,
+		hostKeyFingerprint: String? = null,
+		connectTimeoutMs: Int = DEFAULT_CONNECT_TIMEOUT_MS,
+		commandTimeoutMs: Int = DEFAULT_COMMAND_TIMEOUT_MS,
+	): SshResult
+}
+
 /**
  * A single non-interactive command over SSH.
  *
@@ -56,17 +77,17 @@ class SshException(message: String, cause: Throwable? = null) : Exception(messag
  * which is the default key type today. sshj's BouncyCastle dependency is the
  * price of accepting modern keys.
  */
-class SshClient(private val knownHostsFile: File) {
+class SshClient(private val knownHostsFile: File) : SshTransport {
 
-	suspend fun execute(
+	override suspend fun execute(
 		host: String,
 		port: Int,
 		username: String,
 		command: String,
 		auth: SshAuth,
-		hostKeyFingerprint: String? = null,
-		connectTimeoutMs: Int = DEFAULT_CONNECT_TIMEOUT_MS,
-		commandTimeoutMs: Int = DEFAULT_COMMAND_TIMEOUT_MS,
+		hostKeyFingerprint: String?,
+		connectTimeoutMs: Int,
+		commandTimeoutMs: Int,
 	): SshResult = withContext(Dispatchers.IO) {
 		require(host.isNotBlank()) { "host is required" }
 		require(port in 1..65535) { "port must be between 1 and 65535" }
@@ -77,6 +98,7 @@ class SshClient(private val knownHostsFile: File) {
 		}
 
 		knownHostsFile.parentFile?.mkdirs()
+		ensureBouncyCastle()
 		val knownHosts = TofuKnownHosts(knownHostsFile, hostKeyFingerprint)
 		val ssh = SSHClient().apply {
 			connectTimeout = connectTimeoutMs
@@ -238,6 +260,33 @@ class SshClient(private val knownHostsFile: File) {
 		const val DEFAULT_CONNECT_TIMEOUT_MS = 15_000
 		const val DEFAULT_COMMAND_TIMEOUT_MS = 120_000
 		private const val MAX_OUTPUT_BYTES = 20_000
+
+		/**
+		 * Android ships a stripped-down BouncyCastle under the provider name
+		 * `BC`. sshj sees that name and assumes a full installation, then asks
+		 * for X25519 and gets `NoSuchAlgorithmException`. The full bcprov is on
+		 * our classpath; replacing the stripped provider before the first SSH
+		 * connection is what makes modern key exchange work on the device.
+		 *
+		 * Runs once. If removal is refused by the platform, the original
+		 * exception is still reported by the connection rather than hidden.
+		 */
+		@Volatile
+		private var providerReady = false
+
+		@Synchronized
+		private fun ensureBouncyCastle() {
+			if (providerReady) return
+			runCatching {
+				val existing = Security.getProvider("BC")
+				if (existing?.javaClass?.name != BouncyCastleProvider::class.java.name) {
+					Security.removeProvider("BC")
+					Security.addProvider(BouncyCastleProvider())
+					Diag.i("ssh", "installed full BouncyCastle provider")
+				}
+			}.onFailure { Diag.w("ssh", "BouncyCastle provider replacement failed", it) }
+			providerReady = true
+		}
 
 		private fun pump(input: InputStream, output: CappedBuffer): Thread =
 			Thread {

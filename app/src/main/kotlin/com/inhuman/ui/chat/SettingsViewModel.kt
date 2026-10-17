@@ -23,6 +23,14 @@ data class SettingsUiState(
 	/** Reply from the built-in scripted source instead of DeepSeek. */
 	val demoMode: Boolean = false,
 	/**
+	 * The global SSH-tool switch.
+	 *
+	 * Off by default. Turning it on makes `ssh_exec` available to assistants
+	 * that explicitly select it; the first call in each conversation still
+	 * asks for the user's acknowledgement.
+	 */
+	val sshToolEnabled: Boolean = false,
+	/**
 	 * The global approval rules, by tool name.
 	 *
 	 * Absent means [ToolPolicy.Free], which is why this is a map rather than a
@@ -62,6 +70,7 @@ class SettingsViewModel(
 			apiKeyInput = existing.orEmpty(),
 			hasSavedKey = !existing.isNullOrBlank(),
 			demoMode = secure.get(SecureStore.KEY_DEMO_MODE) == "1",
+			sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
 		)
 		loadRules()
 	}
@@ -105,6 +114,30 @@ class SettingsViewModel(
 			},
 			statusIsError = false,
 		)
+	}
+
+	/**
+	 * Turn the SSH tool on or off globally.
+	 *
+	 * Disabling revokes every conversation's acknowledgement. A consent that
+	 * survives the capability being switched off and on again is a consent the
+	 * user did not give for the second enabling.
+	 */
+	fun setSshToolEnabled(enabled: Boolean) {
+		secure.put(SecureStore.KEY_SSH_TOOL_ENABLED, if (enabled) "1" else "0")
+		_state.value = _state.value.copy(
+			sshToolEnabled = enabled,
+			status = if (enabled) {
+				"SSH tool enabled. An assistant must still select it, and the first call in each conversation asks for consent."
+			} else {
+				"SSH tool disabled. Existing SSH consents were revoked."
+			},
+			statusIsError = false,
+		)
+		Diag.i("ssh", "global tool enabled=$enabled")
+		if (!enabled) {
+			viewModelScope.launch { repository.clearAllSshAllowed() }
+		}
 	}
 
 	fun onApiKeyChange(value: String) {

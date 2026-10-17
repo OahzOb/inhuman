@@ -66,6 +66,8 @@ import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.PaidToolsNotice
+import com.inhuman.ui.common.RemoteBadge
+import com.inhuman.ui.common.RemoteToolsNotice
 
 /**
  * The assistants.
@@ -474,12 +476,18 @@ private fun AgentEditor(
 				style = MaterialTheme.typography.labelLarge,
 				color = MaterialTheme.colorScheme.outline,
 			)
+			Text(
+				text = "ssh_exec is never included by “all”; select it explicitly.",
+				style = MaterialTheme.typography.labelLarge,
+				color = MaterialTheme.colorScheme.outline,
+			)
 		}
 
 		// Before the list, not after it. A price printed under eleven rows is
 		// read by the people who were already going to read it; a filled notice
 		// above them is seen by the people scanning names.
 		PaidToolsNotice(modifier = Modifier.padding(vertical = 4.dp))
+		RemoteToolsNotice(modifier = Modifier.padding(bottom = 4.dp))
 
 		ToolCatalog.all.forEach { tool ->
 			val on = ToolCatalog.permits(draft.tools, tool.name)
@@ -503,6 +511,7 @@ private fun AgentEditor(
 							// thing off rather than silently turning everything
 							// else off.
 							val current = draft.tools ?: ToolCatalog.names
+								.filterNot { it == "ssh_exec" }
 							val next = if (on) current - tool.name else current + tool.name
 							onChange { it.copy(tools = next) }
 						},
@@ -554,6 +563,7 @@ private fun AgentEditor(
 						// the one warning that has to survive a glance down the
 						// list. The trailing column is for "writes".
 						if (tool.paid) PaidBadge()
+						if (tool.remote) RemoteBadge()
 					}
 					// The description is opt-in.
 					//

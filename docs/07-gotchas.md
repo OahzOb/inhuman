@@ -492,6 +492,82 @@ told from "the file is not there" in the log.
 `D/files refresh path=/ entries=1 files=1 bytes=5440`. No unit test covers this;
 the invariant is a screen-resume lifecycle, which a JVM test cannot drive.
 
+### B13. SSH was green on the JVM and failed on Android at key exchange — **FIXED**
+
+The 8-test `SshClientTest` passed against embedded MINA SSHD, including Ed25519
+and TOFU, and the APK built. The first real device connection — an otherwise
+valid password-auth server on the other side of `adb reverse` — failed with:
+
+```
+no such algorithm: X25519 for provider BC
+```
+
+Android ships a **stripped** BouncyCastle under the provider name `BC`; sshj
+checks `SecurityUtils.isBouncyCastleRegistered()`, sees that name and assumes the
+full provider. On the JVM the full provider is on the test classpath, so no test
+could see the difference. The fix is in `SshClient.ensureBouncyCastle()`: replace
+the stripped `BC` with the full `org.bouncycastle.jce.provider.BouncyCastleProvider`
+before the first connection. Verified on the pad: `installed full BouncyCastle
+provider`, handshake, TOFU fingerprint written, command returned exit 0.
+
+The lesson is not "test on a device" in general; it is that a JVM SSH test
+answers questions about sshj and the server, not about Android's security
+providers.
+
+### B14. A model wrapped the whole SSH argument object, and consent showed an empty call — **FIXED**
+
+After a failed command, the model began emitting:
+
+```json
+{"arguments":"{\"hostname\":\"127.0.0.1\", ...}"}
+```
+
+— the function-call envelope as an argument, plus `hostname` instead of `host`.
+`SshExecTool` was made tolerant (unwrap one string level, accept `hostname`), but
+the consent dialogue read the raw parsed object and rendered "connect to @",
+with a blank first command. It could therefore ask the user to authorize a call
+that the tool would then reject.
+
+`SshExecTool.normalizeArguments` is now the single normalisation, used by both
+the tool and `ChatViewModel` before the consent gate, the policy check and
+`describeCall`. A call still missing host/user/command gets an error result and
+**no** consent dialog. Verified on the pad by re-sending after the fix: the
+dialog showed `tester@127.0.0.1` and `uname -a`, then the command ran.
+
+### B15. Global SSH off→on inherited a revoked consent — **FIXED**
+`sshAllowed` was mirrored in `ChatViewModel` and only reloaded with the
+transcript. Turning the global switch off cleared the database column but not
+that field; turning it back on made the next call trust the stale `true` and skip
+the consent dialog the user had just revoked.
+
+The call path now re-reads `conversations.sshAllowed` before the consent gate
+when the in-memory flag is true. A revoked row clears the flag and asks again.
+`SettingsViewModel.setSshToolEnabled(false)` clears every row. Verified on the
+pad: off→on, next SSH call showed the consent dialog again.
+
+### B16. Killing the app during consent made every later turn HTTP 400 — **FIXED**
+
+The assistant row with `tool_calls` is persisted as it streams; the tool rows are
+not. Force-stopping the app while the SSH consent dialog was open left the
+conversation with two calls and no results. The next request was rejected:
+
+```
+An assistant message with 'tool_calls' must be followed by tool messages
+responding to each 'tool_call_id'. (insufficient tool messages ...)
+```
+
+`ChatViewModel.closeDanglingCalls` now validates the **wire history**: after each
+assistant `tool_calls` block it keeps the real tool results and inserts an
+`[interrupted]` result for any call id still missing. This works even when a
+later user message exists, where appending to the database tail would put the
+result in the wrong place. `repairDanglingToolCalls` separately closes a dangling
+tail in storage so the transcript can be reopened cleanly.
+
+The residual is display-only: a mid-history dangling call can still render as an
+unanswered call in the transcript; the request is valid, but the UI does not
+rewrite history. That is preferable to branching the conversation by inserting a
+synthetic child and changing which message is selected.
+
 ---
 
 ## C. Comments that contradict the code

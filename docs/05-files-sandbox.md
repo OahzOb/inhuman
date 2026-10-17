@@ -12,7 +12,10 @@ anything running as the same UID can read the same files regardless. Do not cite
 `_research/android-sandbox/README.md` describe the boundary that *would* be one
 (SELinux/kernel, `isolatedProcess`), and none of it is implemented. There is no
 QuickJS, no `libqjssandbox`, and no `run_code` tool; the closed set of eight
-tools is asserted by `ToolMutationClassificationTest`.
+tools is asserted by `ToolMutationClassificationTest`. Those are the **file**
+tools. `ssh_exec` is not one of them: it never receives a `SessionWorkspace` and
+its effects are outside this sandbox, which is why it has the separate consent
+gate in [03-ai-provider.md](03-ai-provider.md) and [09-approvals.md](09-approvals.md).
 
 ## `resolve()`: the one place a path becomes a `File`
 

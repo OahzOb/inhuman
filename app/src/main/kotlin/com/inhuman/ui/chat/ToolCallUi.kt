@@ -51,4 +51,30 @@ data class PendingApproval(
 	val call: ToolCallUi,
 	/** What the call would do, phrased for a human rather than for a model. */
 	val summary: String,
+	/**
+	 * Redacted arguments for the dialog, when the raw JSON contains a secret.
+	 *
+	 * SSH arguments can carry a password or private key. The approval dialog
+	 * must show the command, not the credential, so the view model supplies a
+	 * safe rendering here. Null means the raw JSON is safe to display.
+	 */
+	val details: String? = null,
+)
+
+/**
+ * The once-per-conversation SSH acknowledgement.
+ *
+ * Separate from [PendingApproval]: this is a capability grant, not a question
+ * about one call. The first call's host and command are shown because they are
+ * the most concrete warning available, but allowing this allows every later
+ * SSH call in the conversation.
+ */
+data class SshConsent(
+	val messageId: String,
+	val call: ToolCallUi,
+	val host: String,
+	val username: String,
+	val command: String,
+	/** Present only when the model supplied an explicit host-key pin. */
+	val hostKeyFingerprint: String? = null,
 )

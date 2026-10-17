@@ -36,6 +36,9 @@ coroutines = "1.11.0"
 # Ed25519 private key, and ed25519 is `ssh-keygen`'s default today. sshj brings
 # BouncyCastle with it; that is the cost of accepting modern keys.
 sshj = "0.41.2"
+# sshj declares BouncyCastle at runtime scope; the provider class is referenced
+# directly at start-up so it must be on the compile classpath too.
+bouncyCastle = "1.84"
 # Test-only: a real SSH server on the JVM so the client is exercised over the
 # wire instead of against a hand-written fake.
 minaSshd = "2.20.0"
@@ -90,6 +93,7 @@ androidx-datastore-preferences = { module = "androidx.datastore:datastore-prefer
 
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 sshj = { module = "com.hierynomus:sshj", version.ref = "sshj" }
+bouncycastle-bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncyCastle" }
 sshd-core = { module = "org.apache.sshd:sshd-core", version.ref = "minaSshd" }
 slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
 

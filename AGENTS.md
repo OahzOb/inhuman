@@ -14,12 +14,12 @@ architecture from scratch:
 | --- | --- |
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
-| `docs/03-ai-provider.md` | Provider and stream contracts, the DeepSeek adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` APIs** |
-| `docs/04-data-persistence.md` | Room schema v8, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider` |
+| `docs/03-ai-provider.md` | Provider and stream contracts, the DeepSeek adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` APIs**, **the `ssh_exec` transport** |
+| `docs/04-data-persistence.md` | Room schema v9, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider` |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
-| `docs/08-port-philosophy.md` | **Why** the runtime is being ported, which options the project refuses to have, how the seven design questions were answered, and the paid-disclosure rule (§1.4) |
+| `docs/08-port-philosophy.md` | **Why** the runtime is being ported, which options the project refuses to have, how the seven design questions were answered, the paid-disclosure rule (§1.4), and the SSH exception (§1.2.1/§1.5) |
 | `docs/09-approvals.md` | The approval model: why the default is no prompts at all, how per-tool, per-assistant and per-path rules compose, and what of it is built |
 | `docs/10-diagnostics.md` | The flight recorder: what is logged, what is deliberately not, where the file lives and how to share it |
 | `docs/port-assessment.md`, `docs/port-design.md` | The measured feasibility and the plan |
@@ -49,9 +49,14 @@ Two consequences bind every future change, and neither is negotiable:
   the user to click wrong — it needs to talk the model into *asking* for more.
   Capability is fixed when a conversation is created.
 - **The capability boundary must be statable in one sentence a person can
-  read**, and that sentence must stay true regardless of settings. The target is:
-  *code runs on your device, sees only what you hand it, cannot reach the
-  network, and cannot reach your files.*
+  read.** The default sentence is: *code runs on your device, sees only what you
+  hand it, cannot reach the network, and cannot reach your files.* One exception
+  exists, and only one: **`ssh_exec`, off by default, enabled globally, selected
+  explicitly on the assistant, and granted once per conversation.** When SSH is
+  on, the agent can run commands on a remote machine whose address and
+  credentials the user supplies; the app has no host/credential configuration
+  and redacts SSH tool arguments before storage. Do not add another exception
+  without answering `docs/08-port-philosophy.md` §1.2.1 and §1.5.
 
 **Safety here comes from structure, not from prompts.** The agent can only see
 and change a conversation's own directory, and what the user brings in is a
@@ -72,6 +77,14 @@ nobody opens is not disclosure. This is separate from approval — paid does not
 mean "ask" by default. The rule and its reasoning are
 `docs/08-port-philosophy.md` §1.4; apply it to every future paid capability, not
 just the two web tools.
+
+**Remote capability is disclosed separately.** `ssh_exec` carries `remote =
+true`, a filled `REMOTE` badge, a notice above the tool list, and a dedicated
+first-call consent dialog. The app never configures a host or a credential store;
+the user gives them to the agent. SSH tool arguments are redacted before the
+transcript is stored. The ordinary approval dialog must never show a password or
+private key — `ssh_exec` supplies a redacted `details` string.
+The rules are `docs/08-port-philosophy.md` §1.2.1 and §1.5.
 
 Full reasoning, plus the design questions and how each was answered, is in
 `docs/08-port-philosophy.md`. Do not add a mode, a permission prompt, or a "pro"
@@ -216,6 +229,15 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   that asked for it routinely share a millisecond.
 - **`mutates` and `needsApproval` are different questions.** The first decides
   whether a turn may be replayed; the second whether a call may happen.
+- **SSH consent is a capability grant, not an approval.** It is persisted in
+  `conversations.sshAllowed`, checked before the ordinary policy, revoked by the
+  chat menu and by the global Settings switch. Do not replace it with
+  `needsApproval`, and do not let `toolsJson = null` mean SSH consent.
+- **Every assistant `tool_calls` block needs tool results on the wire.** A
+  process death while approval/consent is open leaves the assistant row without
+  results; `closeDanglingCalls` inserts `[interrupted]` results in the request
+  history. Without it, every later turn is HTTP 400 and the conversation is
+  effectively bricked.
 - **The quota check walks the tree once**, via `SessionWorkspace.usage()`.
   Asking for bytes and count separately traversed the workspace twice per write.
 - **Diagnostics never records a key, a prompt or file content, and never throws

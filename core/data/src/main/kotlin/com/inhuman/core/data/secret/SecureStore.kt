@@ -184,5 +184,13 @@ class SecureStore(
 		 * misnomer.
 		 */
 		const val KEY_DEMO_MODE = "demo.mode"
+
+		/**
+		 * Whether the SSH tool is available at all.
+		 *
+		 * Default off. This is the first of two gates: the assistant still has
+		 * to opt in, and the first call in each conversation asks the user.
+		 */
+		const val KEY_SSH_TOOL_ENABLED = "ssh.tool_enabled"
 	}
 }

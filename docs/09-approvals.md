@@ -54,6 +54,26 @@ agent **根本够不到**，所以那里也不需要审批：没有可批准的�
 **"审批"因此不是这套设计的主要安全机制，而是可选的收紧手段。**
 用户想更谨慎时可以配，但默认不配，因为默认状态下没有需要防的东西。
 
+### 唯一的例外是 SSH，它不适用"可逆副本"的论证
+
+`ssh_exec` 不在会话目录里执行。远端的一台机器不是副本，删掉的数据不会因为
+工作区还在而回来。所以 SSH 不能走"默认不问，反正可逆"的论证，也不能只靠
+一个普通的单次审批。
+
+处理方式是**能力授权**，不是逐条审批：
+
+- Settings 的全局开关默认关；打开后助手仍须显式选中 `ssh_exec`；
+- 每个会话第一次调用时，弹专用对话框，显示 host/user/第一条命令，要求勾选
+  "可能造成不可逆损坏"，才允许；允许后写 `conversations.sshAllowed`；
+- 之后该会话的 SSH 调用走普通 `ToolPolicy`，默认 Free，不再逐条问；
+- 撤销：对话顶栏菜单可撤销本会话；全局开关关闭会清掉所有会话的授权，
+  重新打开后必须重新授权；
+- 如果用户把 SSH 的规则设成 `Ask`，第一次调用会先过能力授权，再过单次审批；
+  单次审批的 details 是脱敏的，不显示密码/私钥。
+
+这不是把默认审批改成"每次问"，而是承认一个结构性例外：**默认边界仍然关闭，
+打开后用户明确授权一个不可逆的能力。**
+
 ---
 
 ## 3. 取最严：一条规则，不是三层特例
@@ -195,6 +215,10 @@ path_policy(conversationId TEXT, relPath TEXT, policy TEXT NOT NULL,
   会取到的值。
 - **`Blind` 真的隐藏**：`FileTools.all` 接受 `hidden` 判定，`ChatViewModel.buildTools`
   从已解析的 `PolicySet` 供给它；`ListFilesBlindTest` 把"名字也不出现"写成断言。
+- **SSH 的第一道门是能力授权**（schema 8→9 的 `conversations.sshAllowed`），
+  不是 `needsApproval`。`ChatViewModel.executeCalls` 在普通策略分支之前处理它；
+  `SshExecTool.needsApproval` 返回 `false`。授权后按普通策略执行，撤销/全局关闭
+  会清掉持久授权；全局关闭后再打开，下一次 SSH 调用必须重新授权。
 
 三个不在 diff 里显眼的细节：
 

@@ -18,6 +18,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.inhuman.core.ai.provider.deepseek.DeepSeekFetchApi
 import com.inhuman.core.ai.provider.deepseek.DeepSeekSearchApi
+import com.inhuman.core.ai.ssh.SshClient
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
@@ -35,6 +36,7 @@ import com.inhuman.ui.files.FilesViewModel
 import com.inhuman.ui.settings.SettingsScreen
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 	override fun onCreate(savedInstanceState: Bundle?) {
@@ -250,6 +252,14 @@ private fun InhumanRoot() {
 						fetchProvider = DeepSeekFetchApi(
 							apiKey = { secure.get(SecureStore.KEY_DEEPSEEK_API_KEY) },
 						),
+						// The SSH client owns only the TOFU host-key file in
+						// app storage. It stores no hosts and no credentials.
+						sshTransport = SshClient(
+							File(context.applicationContext.filesDir, "ssh/known_hosts"),
+						),
+						sshToolEnabled = {
+							secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1"
+						},
 					)
 				}
 			}

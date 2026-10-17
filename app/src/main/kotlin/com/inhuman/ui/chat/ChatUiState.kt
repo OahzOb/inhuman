@@ -38,6 +38,10 @@ data class ChatUiState(
 	val demoMode: Boolean = false,
 	/** A tool call waiting on the user's consent. */
 	val pendingApproval: PendingApproval? = null,
+	/** A first SSH call waiting on the conversation-level acknowledgement. */
+	val pendingSshConsent: SshConsent? = null,
+	/** Whether this conversation may run ssh_exec without asking again. */
+	val sshAllowed: Boolean = false,
 	/**
 	 * The model chosen for this conversation, or null to follow the assistant.
 	 *

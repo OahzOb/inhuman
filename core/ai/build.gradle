@@ -28,6 +28,7 @@ dependencies {
 
 	implementation libs.okhttp
 	implementation libs.sshj
+	implementation libs.bouncycastle.bcprov
 
 	testImplementation libs.junit
 	testImplementation libs.kotlinx.coroutines.test

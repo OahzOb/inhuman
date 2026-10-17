@@ -1,9 +1,17 @@
 # inhuman
 
 An Android LLM chat client where **every conversation gets its own folder**, and
-the assistant can read and write files inside that folder — and nowhere else.
+the assistant can read and write files inside that folder — and nowhere else,
+except for the opt-in `ssh_exec` tool described below.
 
 The sandbox is the point. It is enforced in code, not requested in a prompt.
+
+**One capability can leave the device.** `ssh_exec` is off by default, requires
+the global Settings switch, must be selected explicitly on the assistant, and
+asks for a separate acknowledgement in each conversation before its first call.
+The app has no remote-host or credential configuration; the user supplies them to
+the agent. It is a deliberate exception to the local sandbox, not a "full access"
+mode.
 
 ---
 
@@ -47,6 +55,7 @@ be reached without an account.
 | `read_time` | the clock, in the device zone and UTC, plus date arithmetic |
 | `web_search` | DeepSeek's paid Search API: one request, structured excerpts, no second key |
 | `web_fetch` | DeepSeek's paid Fetch API: one page as Markdown, no second key |
+| `ssh_exec` | one command on a remote machine; **off by default**, explicit assistant selection, per-conversation consent, no host config |
 
 A reply that used a tool which changed the workspace cannot be regenerated,
 because regenerating re-runs the turn and would write a second time. No
@@ -62,6 +71,18 @@ how the model reads a page that list pointed at. Failed and empty requests are
 not charged, and both tools are labelled **paid** wherever a tool is chosen. No
 second vendor and no second key: the credential already configured for chatting
 is the one they use.
+
+**`ssh_exec` is the one tool that leaves the device.** It is off in Settings by
+default, must be selected explicitly on an assistant (the historical "all tools"
+selection does not include it), and shows a dedicated warning the first time a
+conversation uses it. After that it follows the normal approval policy, which
+defaults to running without asking. Remote commands are not a workspace copy:
+some damage cannot be undone. The app has no host list and no credential store;
+it provides the transport, and the user gives the agent the host, user and
+password/key file. SSH tool arguments are redacted before the tool-call row is
+stored, but text typed into the conversation is still stored verbatim. Standard
+host-key checking is TOFU with `SHA256:` fingerprints, fail-closed on a changed
+key. Details are in [docs/03-ai-provider.md](docs/03-ai-provider.md).
 
 Search results are excerpts, not pages. The links are cleaned of campaign
 parameters before the model sees them, because it cites them back to the user;

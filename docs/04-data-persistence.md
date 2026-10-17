@@ -4,10 +4,10 @@ Module: `:core:data`. It re-exports `:core:files` and `:core:ai` with `api`,
 because a conversation's lifecycle spans the sandbox that guards it and the
 provider that answers it.
 
-## The schema, version 8
+## The schema, version 9
 
 `InhumanDatabase` (`core/data/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 8`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 9`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/data/schemas/` by KSP — configured in `core/data/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
@@ -29,6 +29,7 @@ Six entities in three files: `ConversationEntity`, `MessageEntity` and
 | `model`, `reasoningEffort`, `thinking` | **Copied from the assistant at creation**, so editing an assistant cannot rewrite what an existing conversation does. |
 | `toolsJson` | The tool selection, also copied at creation — and for a second reason: a transcript holds calls that were legal when they ran, so the permission set that produced it has to be recoverable. |
 | `createdAt`, `updatedAt`, `pinned` | Ordering and list state. |
+| `sshAllowed` | The conversation-level SSH acknowledgement, default `0`. Added in 8→9. Per conversation, not per assistant: consenting in one thread must not grant another thread the same capability. The app has no host list or credential store; SSH tool-call arguments are redacted before storage, so this boolean is the only persistent state the SSH feature adds. |
 
 ### `messages` (`Entities.kt:207-319`)
 
@@ -147,14 +148,14 @@ the messages explicitly before the row **even though the FK cascades** — the
 comment says that keeps the behaviour obvious if the cascade is ever switched
 off (`:496-502`).
 
-## Migration history 1 → 8
+## Migration history 1 → 9
 
 All hand-written. There is **no `fallbackToDestructiveMigration` anywhere** and
 the reason is stated at `MIGRATION_1_2`: it would delete every conversation on
 upgrade — acceptable while nothing has shipped, a data-loss bug the moment
 something has.
 
-Line numbers are deliberately absent from this table: seven migrations' worth of
+Line numbers are deliberately absent from this table: eight migrations' worth of
 edits have moved them twice, and a wrong line number is read as a wrong claim.
 Search for `MIGRATION_n_m` in `InhumanDatabase.kt`; the order in the file is the
 order below.
@@ -168,6 +169,7 @@ order below.
 | 5→6 | `messages` gains `mutated INTEGER NOT NULL DEFAULT 0`. |
 | 6→7 | `agents` and `conversations` gain `toolsJson TEXT NOT NULL DEFAULT ''`. `''` decodes to `null` = every tool, so pre-existing assistants keep everything. |
 | 7→8 | Three new tables and **no change to any existing one**: `approval_defaults(toolName PK, policy)`, `agent_approval(agentId, toolName PK, policy)`, `path_policy(conversationId, relPath PK, policy)`. Created empty, which is both the correct migration and the correct product default — absence of a rule means no restriction. The statements are written by hand to match what Room generates, and the safety net is Room's own schema-hash check on open. |
+| 8→9 | `conversations` gains `sshAllowed INTEGER NOT NULL DEFAULT 0`. Additive and defaulted off, so every existing conversation arrives without SSH consent. `MIGRATION_8_9` is also the first migration with no new table: the SSH feature stores no host list or credential store, only this per-conversation acknowledgement, and tool-call secrets are redacted before the message row is written. |
 
 The 7→8 comment records a product change that is *not* in the migration:
 deletion no longer asks for approval, and that lives in `DeleteFileTool`, not
@@ -181,12 +183,16 @@ apostrophes — and `INSERT OR IGNORE`s `DEFAULT_AGENT_ID`, and it is called fro
 both `onCreate` and `MIGRATION_3_4`.
 
 **These now have device tests.** `core/data/src/androidTest/…/MigrationTest` runs
-all seven upgrade steps against real SQLite, plus "the exported v1 schema can
-build a database" and a policy round-trip. Verified by running it:
+all eight upgrade steps against real SQLite, plus "the exported v1 schema can
+build a database" and a policy round-trip. The 8→9 case asserts both that the
+column exists and that an existing conversation arrives with `sshAllowed = 0`.
+The v9 schema was also exercised by installing over a v8 database on the pad:
+the app migrated and opened its conversation list with no data loss. The
+instrumented suite was run on the same device:
 
 ```
 .\gradlew.bat :core:data:connectedDebugAndroidTest
-→ dsh_tablet(AVD), 9 tests, 0 failures
+→ 23046RP50C, 10 tests, 0 failures
 ```
 
 ### Two migration traps worth knowing before touching this

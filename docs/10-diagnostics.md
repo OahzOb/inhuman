@@ -64,6 +64,7 @@ Share log is the supported path.
 | Fetch | request (URL length), response status and bytes, title and content lengths, HTTP failure body |
 | Models | `/models` request base, response status/bytes/duration, failure; picker cache hit, background refresh, 20s call timeout and 25s dialog timeout |
 | Tools | run (name, normalised path, argument bytes), done (ok, result bytes, duration), error text (first 240 chars), unknown tool, unparsable arguments, skipped call |
+| SSH | global switch changed; consent ask/allow/deny/revoke (host and user only); connect (host, port, user, auth type); connected (host and `SHA256:` fingerprint); exec done (exit code, stdout/stderr lengths, truncation, duration) |
 | Approval | asked (tool, path, whether a configured rule or the tool's own hook asked, argument bytes), allow, decline |
 | Policy | refusal (tool, path, policy), and failures to read or write rules |
 | Secrets | a stored value that will not decrypt, by entry name only |
@@ -91,6 +92,12 @@ bytes in a file.
 `Diag.redact` is a second line of defence, not the first: call sites are expected
 not to pass secrets at all. It masks `sk-…` shapes, bearer tokens and
 `key=value`-shaped secrets before a line is written.
+
+For SSH the omission is explicit: **no command text, no password, no private
+key, no passphrase, no file contents.** The command length and the exit code are
+enough to tell "it ran and failed" from "it never connected"; the transcript
+already has the result. Host, port, user and host-key fingerprint are recorded
+because they are the facts that explain a connection failure.
 
 There is no upload and no telemetry. The only way a log leaves the device is the
 user pressing **Share log**.

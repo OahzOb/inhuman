@@ -41,6 +41,7 @@ object Database {
 					InhumanDatabase.MIGRATION_5_6,
 					InhumanDatabase.MIGRATION_6_7,
 					InhumanDatabase.MIGRATION_7_8,
+					InhumanDatabase.MIGRATION_8_9,
 				)
 				// Deliberately no fallbackToDestructiveMigration. It would make
 				// a missing migration look like a successful upgrade while

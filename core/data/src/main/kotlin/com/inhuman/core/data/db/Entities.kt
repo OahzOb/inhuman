@@ -144,6 +144,15 @@ data class ConversationEntity(
 	val createdAt: Long,
 	val updatedAt: Long,
 	val pinned: Boolean = false,
+	/**
+	 * Whether this conversation's first SSH call has been acknowledged.
+	 *
+	 * Per conversation, not per assistant: consenting in one thread does not
+	 * consent to the same assistant in another. The app does not configure
+	 * remote hosts, so this is the only persistent state SSH adds.
+	 */
+	@ColumnInfo(defaultValue = "0")
+	val sshAllowed: Boolean = false,
 ) {
 	/** The selection, or null for every tool. */
 	val tools: List<String>? get() = ToolsColumn.decode(toolsJson)

@@ -55,7 +55,7 @@ fun PaidToolsNotice(modifier: Modifier = Modifier) {
 		Text(
 			text = "web_search and web_fetch are DeepSeek's paid APIs: " +
 				"¥5 per 1,000 successful calls, billed to your DeepSeek account. " +
-				"Everything else runs on this device.",
+				"The other tools do not call a paid service.",
 			style = MaterialTheme.typography.bodySmall,
 			modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
 		)

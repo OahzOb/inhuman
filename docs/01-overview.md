@@ -13,6 +13,13 @@ a path itself, so it has no vocabulary for a location outside the conversation
 `README.md:207-234`). Prompt-level confinement is not the mechanism here and
 should never be presented as one.
 
+One capability can leave the device: `ssh_exec`, which is **off by default** and
+requires both the global Settings switch and a per-conversation acknowledgement.
+The app still has no host configuration and no credential store; the agent can
+only reach a machine whose address and credentials the user supplies. With SSH
+off — the default — the paragraph above is true as written. See
+[03-ai-provider.md](03-ai-provider.md) and [08-port-philosophy.md](08-port-philosophy.md) §1.2.1.
+
 Single user, single device, DeepSeek only. Closed source.
 
 ## Shape of the repository
@@ -48,6 +55,11 @@ Confirmed by `README.md:17-29` and by the code:
   folder; files can also be browsed, imported and exported.
 - The model can search the web and fetch a page through DeepSeek's paid Search
   and Fetch APIs, using the same key as the conversation
+  ([03-ai-provider.md](03-ai-provider.md)).
+- The model can run a command on a remote machine over SSH, but only after the
+  user turns the global switch on, gives the assistant `ssh_exec`, and allows it
+  once per conversation; there is no host list or credential store, and SSH
+  tool-call arguments are redacted before storage
   ([03-ai-provider.md](03-ai-provider.md)).
 - Approval rules can tighten what the assistant may do, per tool, per assistant
   or per path; the default asks nothing, including for deletion
@@ -119,3 +131,9 @@ conversation. They are not model turns any more, and the app never opens a page
 itself: DeepSeek performs the search and the fetch, so the sandbox still has no
 network path of its own. The mechanism and the cost rules are in
 [03-ai-provider.md](03-ai-provider.md).
+
+The second non-obvious thing: **`ssh_exec` is not a local file tool.** It runs on
+another machine, so its effects are not a workspace copy and cannot be undone by
+deleting the conversation. That is why it is the one capability that does not
+follow the "default asks nothing" argument, and why it has a separate
+once-per-conversation consent instead of only a `ToolPolicy`.

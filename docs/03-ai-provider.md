@@ -489,6 +489,63 @@ $env:DEEPSEEK_LIVE_KEY = 'sk-...'
 It checks the request shape that fixtures cannot, and it is what caught the
 `&amp;` URL-encoding issue above.
 
+## `ssh_exec`: one exec call, no host inventory
+
+`SshClient` (`core/ai/src/main/kotlin/com/inhuman/core/ai/ssh/SshClient.kt`) wraps
+**sshj 0.41.2**. JSch was tried first and rejected: its EdDSA implementation
+throws `UnsupportedOperationException` on an `ssh-keygen -t ed25519` key, and
+Ed25519 is the default key type today. sshj accepts the same key and brings
+BouncyCastle transitively; that is the dependency-size cost of modern keys.
+
+The client is deliberately narrow:
+
+- one **exec** channel, no PTY, no port forwarding, no SFTP;
+- 15 s connect timeout, 120 s command timeout, 20,000-character cap per stream;
+- password auth, OpenSSH v1 private-key auth, optional passphrase;
+- TOFU known hosts in `filesDir/ssh/known_hosts`, written as standard
+  `host:port SHA256:…`; a changed key fails closed; an optional
+  `hostKeyFingerprint` argument overrides first use and is stored;
+- no host inventory and no credential store; SSH tool-call arguments are
+  redacted before the transcript is persisted.
+
+`SshExecTool` (`tools/SshExecTool.kt`) takes `host`, `port`, `username`,
+`command`, and one of `password`, `privateKey` (OpenSSH text) or `identityFile`
+(a workspace-relative path read through `SessionWorkspace`). The file path is
+the recommended route. A password/key supplied as a **tool argument** is sent to
+DeepSeek with the request but is removed before the tool-call row is persisted;
+the stored transcript keeps host, user, command and `identityFile`, not the
+secret. Text the user typed into a message is still stored verbatim — that is
+the conversation, and the consent dialog says so. The tool is `mutates = true` (a
+replay would run the remote command again) and `needsApproval = false`; the
+separate per-conversation consent gate is in `ChatViewModel`, and the ordinary
+`ToolPolicy` applies after it.
+
+### The Android BouncyCastle trap
+
+Android ships a **stripped** BouncyCastle under the provider name `BC`. sshj sees
+that name, assumes a full installation, negotiates X25519 and fails with
+`no such algorithm: X25519 for provider BC`. JVM tests do not catch it because
+the full provider is present there. `SshClient.ensureBouncyCastle()` replaces the
+stripped provider with the full `org.bouncycastle.jce.provider.BouncyCastleProvider`
+before the first connection; the app still builds and the device test completed
+a real password-auth handshake and exec against an embedded server.
+
+The same device run then used a workspace file (`id_ed25519`, the repo's test
+key) with `identityFile` and no password. The server needed BouncyCastle on its
+own classpath to verify Ed25519 signatures; once it had one, the app logged
+`auth=key`, the same fingerprint, and exit 0. Password auth and key auth are
+therefore both device-tested, not just JVM-tested.
+
+### Registration, not configuration
+
+SSH is registered only when **all** of these are true: the global Settings switch
+is on, the assistant/conversation tool selection explicitly names `ssh_exec`, and
+the transport exists. `ToolCatalog.permits` special-cases SSH: `null` means
+"everything" for historical assistants, but it does **not** mean consent to SSH.
+The app has no host editor, no allowlist and no credential store — the user tells
+the model how to connect, or puts a key file in the workspace and tells it the
+path.
+
 ## The tool catalogue
 
 `core/ai/src/main/kotlin/com/inhuman/core/ai/tools/ToolCatalog.kt` is the
@@ -510,7 +567,7 @@ collapsing them would make one impossible to express (`ToolCatalog.kt:66-74`).
 `allSelection()` returns `null` for "select all" so that a later release adding
 a tool gives it to assistants that had chosen everything.
 
-The 11 tools and their `mutates` flags are tabulated in
+The 12 tools and their `mutates` flags are tabulated in
 [05-files-sandbox.md](05-files-sandbox.md) and
 [01-overview.md](01-overview.md).
 
@@ -531,5 +588,7 @@ All JVM, no device. The one that needs a live key and is skipped by design is
 | `WebSearchToolTest` | The tool against a fake provider: count, empty result, failure text |
 | `WebFetchToolTest` | Title/URL/body format, truncation marker, missing URL, provider failure |
 | `TimeToolTest` | Zone handling and date arithmetic |
-| `ToolCatalogTest` | null vs empty, renamed tools, ordering (reads before writes) |
+| `ToolCatalogTest` | null vs empty, renamed tools, ordering (reads before writes), SSH is never covered by `null` |
+| `SshClientTest` | Password and Ed25519 auth against embedded MINA SSHD; TOFU reuse, changed-key refusal, explicit fingerprint, timeout, output cap, exit code |
+| `SshExecToolTest` | Password/identityFile/raw-key arguments, missing auth, host validation, wrapped `arguments` strings, transport errors |
 | `DemoProviderTest` | The scripted turn, including that it only calls tools it was offered |
