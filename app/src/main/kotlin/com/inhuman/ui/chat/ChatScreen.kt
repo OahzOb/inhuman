@@ -61,6 +61,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.data.Branches
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
@@ -694,6 +695,8 @@ private fun MessageBubble(
 			?.trim()
 			.orEmpty()
 		val (summaryText, summaryCount) = toolResultSummary(message.toolName, firstLine)
+		// Mark the row, not just the picker: this is where the cost is incurred.
+		val paid = ToolCatalog.all.firstOrNull { it.name == message.toolName }?.paid == true
 		CollapsibleSection(
 			summary = summaryText,
 			// The count goes in the header's right-hand slot rather than into the
@@ -701,6 +704,7 @@ private fun MessageBubble(
 			// does not push the description along with it, so a column of these
 			// lines up.
 			trailing = summaryCount,
+			paid = paid,
 			modifier = Modifier
 				.widthIn(max = Layout.ReadableMeasure)
 				// No vertical padding of its own. The collapsed header already

@@ -56,6 +56,8 @@ import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.diagnostics.AppDiagnostics
 import com.inhuman.ui.chat.SettingsViewModel
+import com.inhuman.ui.common.PaidBadge
+import com.inhuman.ui.common.PaidToolsNotice
 
 /**
  * Provider configuration.
@@ -398,13 +400,7 @@ private fun ApprovalRulesSection(
 			style = MaterialTheme.typography.bodyMedium,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
-		Text(
-			text = "web_search and web_fetch call DeepSeek's official paid APIs " +
-				"(¥5 per 1,000 successful calls, billed by DeepSeek). Everything " +
-				"else runs on this device.",
-			style = MaterialTheme.typography.bodySmall,
-			color = MaterialTheme.colorScheme.outline,
-		)
+		PaidToolsNotice(modifier = Modifier.padding(vertical = 2.dp))
 
 		for (entry in ToolCatalog.all) {
 			val current = rules[entry.name] ?: ToolPolicy.Free
@@ -412,6 +408,7 @@ private fun ApprovalRulesSection(
 				name = entry.name,
 				blurb = entry.blurb,
 				changesFiles = entry.mutates,
+				paid = entry.paid,
 				policy = current,
 				onSelect = { onRuleChange(entry.name, it) },
 			)
@@ -436,15 +433,23 @@ private fun ApprovalRuleRow(
 	name: String,
 	blurb: String,
 	changesFiles: Boolean,
+	paid: Boolean,
 	policy: ToolPolicy,
 	onSelect: (ToolPolicy) -> Unit,
 ) {
 	Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-		Text(
-			text = name,
-			style = MaterialTheme.typography.bodyLarge,
-			color = MaterialTheme.colorScheme.onBackground,
-		)
+		Row(
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.spacedBy(6.dp),
+		) {
+			Text(
+				text = name,
+				style = MaterialTheme.typography.bodyLarge,
+				color = MaterialTheme.colorScheme.onBackground,
+			)
+			// Beside the name, where a reader scanning the list cannot miss it.
+			if (paid) PaidBadge()
+		}
 		Text(
 			text = if (changesFiles) "$blurb · changes files" else blurb,
 			style = MaterialTheme.typography.bodySmall,

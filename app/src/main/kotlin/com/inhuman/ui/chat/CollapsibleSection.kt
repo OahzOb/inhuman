@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import com.inhuman.core.design.Layout
+import com.inhuman.ui.common.PaidBadge
 import androidx.compose.ui.unit.dp
 
 /**
@@ -56,6 +57,13 @@ fun CollapsibleSection(
 	summary: String,
 	/** Optional right-aligned detail, e.g. a duration or a count. */
 	trailing: String? = null,
+	/**
+	 * Marks a section whose content was fetched from a paid service.
+	 *
+	 * A tool row is the place a user actually sees the tool being used, so the
+	 * cost belongs here too, not only in the picker where the tool was chosen.
+	 */
+	paid: Boolean = false,
 	/**
 	 * Starts open, for content that is worth seeing without asking.
 	 *
@@ -121,6 +129,7 @@ fun CollapsibleSection(
 				overflow = TextOverflow.Ellipsis,
 				modifier = Modifier.weight(1f),
 			)
+			if (paid) PaidBadge()
 			trailing?.let {
 				Text(
 					text = it,

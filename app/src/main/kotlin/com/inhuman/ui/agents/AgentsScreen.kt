@@ -64,6 +64,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.ui.common.PaidBadge
+import com.inhuman.ui.common.PaidToolsNotice
 
 /**
  * The assistants.
@@ -474,6 +476,11 @@ private fun AgentEditor(
 			)
 		}
 
+		// Before the list, not after it. A price printed under eleven rows is
+		// read by the people who were already going to read it; a filled notice
+		// above them is seen by the people scanning names.
+		PaidToolsNotice(modifier = Modifier.padding(vertical = 4.dp))
+
 		ToolCatalog.all.forEach { tool ->
 			val on = ToolCatalog.permits(draft.tools, tool.name)
 			Row(
@@ -533,19 +540,28 @@ private fun AgentEditor(
 				)
 
 				Column(modifier = Modifier.weight(1f)) {
-					Text(
-						text = tool.name,
-						style = MaterialTheme.typography.bodyMedium,
-						fontFamily = FontFamily.Monospace,
-						color = MaterialTheme.colorScheme.onSurface,
-					)
+					Row(
+						verticalAlignment = Alignment.CenterVertically,
+						horizontalArrangement = Arrangement.spacedBy(6.dp),
+					) {
+						Text(
+							text = tool.name,
+							style = MaterialTheme.typography.bodyMedium,
+							fontFamily = FontFamily.Monospace,
+							color = MaterialTheme.colorScheme.onSurface,
+						)
+						// Beside the name, not in the right-hand column: this is
+						// the one warning that has to survive a glance down the
+						// list. The trailing column is for "writes".
+						if (tool.paid) PaidBadge()
+					}
 					// The description is opt-in.
 					//
-					// Ten blurbs double the length of this section, and the names
-					// are what a choice is made from -- someone who wants to know
-					// what `append_file` does can ask, and someone who does not
-					// should not scroll past nine answers to a question they did
-					// not have.
+					// Eleven blurbs double the length of this section, and the
+					// names are what a choice is made from -- someone who wants
+					// to know what `append_file` does can ask, and someone who
+					// does not should not scroll past ten answers to a question
+					// they did not have.
 					if (showToolHelp) {
 						Text(
 							text = tool.blurb,
@@ -562,30 +578,8 @@ private fun AgentEditor(
 						color = MaterialTheme.colorScheme.tertiary,
 					)
 				}
-
-				// A separate word from "writes": these do not change the
-				// workspace, they spend money at DeepSeek. Colour alone would
-				// not say which of the two warnings applies.
-				if (tool.paid) {
-					Text(
-						text = "paid",
-						style = MaterialTheme.typography.labelLarge,
-						color = MaterialTheme.colorScheme.secondary,
-					)
-				}
 			}
 		}
-
-		// Stated where the choice is made, not buried in a settings page: the
-		// user is picking capabilities here, and two of them are billed per
-		// call on the same DeepSeek account as the conversation.
-		Text(
-			text = "web_search and web_fetch call DeepSeek's official paid APIs: " +
-				"¥5 per 1,000 successful calls, billed by DeepSeek. " +
-				"Everything else runs on this device.",
-			style = MaterialTheme.typography.labelLarge,
-			color = MaterialTheme.colorScheme.outline,
-		)
 
 		if (showToolHelp) {
 			Text(

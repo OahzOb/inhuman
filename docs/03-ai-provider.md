@@ -404,9 +404,11 @@ chatting. There is no second vendor and no second credential.
   turn, and the result is structured rather than synthesised prose.
 - The app cannot cap the bill. QPS is 5 per API per account, and the charges land
   on the same DeepSeek account as the conversation.
-- Both tools are marked `paid` in `ToolCatalog`; the assistant editor shows a
-  `paid` badge and states the price, and the approval dialog repeats it when a
-  rule makes a call ask.
+- Both tools are marked `paid` in `ToolCatalog`. The assistant editor puts a
+  filled **PAID** badge beside the name and a price notice above the tool list;
+  the settings approval row carries the badge too, the approval dialog repeats
+  the paid-API sentence when a rule makes a call ask, and a tool result in the
+  transcript carries the badge on its collapsed header.
 
 ### Search
 
