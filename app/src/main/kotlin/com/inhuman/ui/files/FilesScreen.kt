@@ -57,6 +57,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.design.Layout
@@ -83,6 +84,16 @@ fun FilesScreen(
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	val context = LocalContext.current
 	val scope = rememberCoroutineScope()
+
+	// The view model is activity-scoped and keyed by conversation, so it
+	// survives leaving this screen. A file written while the screen was gone is
+	// not in its cached list; refresh on every resume, not once in `init`.
+	// Without this, "the assistant saved it" followed by an empty Files screen
+	// is exactly what a user sees.
+	LifecycleResumeEffect(Unit) {
+		viewModel.refresh()
+		onPauseOrDispose { }
+	}
 
 	var pendingDelete by remember { mutableStateOf<FileEntryUi?>(null) }
 	var importError by remember { mutableStateOf<String?>(null) }

@@ -152,9 +152,9 @@ all of them. A "FIXED" with no test named means build and the full suite only;
 where a defect sits inside a stream, or needs a fake that does not exist, saying
 so is better than a test that asserts nothing.
 
-**Status: B1-B10 fixed, B11 mostly fixed.** The dates matter less than the method,
-so each fixed entry names what convinced it — a test, a device observation, or
-neither.
+**Status: B1-B10 fixed, B11 mostly fixed, B12 fixed.** The dates matter less than
+the method, so each fixed entry names what convinced it — a test, a device
+observation, or neither.
 
 ### B1. The regenerate control was disabled for the rest of the session after any mutating turn — **FIXED**
 
@@ -471,6 +471,26 @@ stale entry is how this list loses its authority (each was re-read, not assumed)
   (`DeltaCursor.kt:29-33`), and a grep for reads of `sent` finds the slice
   computation. It is cited here because "written and never read" was a plausible
   wrong conclusion.
+
+### B12. Files showed a stale list after the assistant wrote a file — **FIXED**
+
+The report: the transcript said a file was saved, and Files was empty. Both were
+true at their moment. `FilesViewModel` refreshed only in `init`, and the view
+model is activity-scoped and keyed by conversation (`files-$id`), so leaving the
+screen and returning reused the same instance with the list from before the
+write. The workspace on disk held `notes/g-dropping-用法笔记.md`; the screen was
+still showing the state from its first composition.
+
+The fix has two halves. `FilesScreen` refreshes on every resume
+(`LifecycleResumeEffect`), and `FilesViewModel` no longer refreshes in `init`;
+otherwise the first open would walk the workspace twice. `refresh()` also logs
+the path, entry count, file count and bytes, so "the screen is stale" can be
+told from "the file is not there" in the log.
+
+**Verified on the pad**: reopening Files on that conversation shows `notes` and
+`1/5000 files · 5 KB`; inside, `g-dropping-用法笔记.md`, 5 KB. The log line is
+`D/files refresh path=/ entries=1 files=1 bytes=5440`. No unit test covers this;
+the invariant is a screen-resume lifecycle, which a JVM test cannot drive.
 
 ---
 

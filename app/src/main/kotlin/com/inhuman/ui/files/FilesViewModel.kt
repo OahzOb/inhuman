@@ -102,7 +102,14 @@ class FilesViewModel(
 	private val _state = MutableStateFlow(FilesUiState())
 	val state: StateFlow<FilesUiState> = _state.asStateFlow()
 
-	init { refresh() }
+	// No refresh in `init`.
+	//
+	// FilesScreen refreshes on every resume instead. Doing both walked the
+	// workspace twice on first open; doing only `init` meant that reopening the
+	// screen showed the list as it was when the view model was first built. The
+	// symptom was exactly the reported one: the assistant wrote a file, the
+	// transcript said so, and Files was still empty because the activity-scoped
+	// view model had cached the pre-write state.
 
 	/**
 	 * The workspace for this conversation, or null if the row is gone.
@@ -204,6 +211,11 @@ class FilesViewModel(
 				totalBytes = ws.limits.maxTotalBytes,
 				fileCount = usage.files,
 				maxFiles = ws.limits.maxFileCount,
+			)
+			Diag.d(
+				"files",
+				"refresh path=${path.ifBlank { "/" }} entries=${entries?.size ?: -1} " +
+					"files=${usage.files} bytes=${usage.bytes}",
 			)
 		}
 	}
