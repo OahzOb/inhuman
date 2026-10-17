@@ -247,6 +247,14 @@ already within two items of the bottom (`:202-224`), using `scrollToItem` rather
 than an animated scroll (`:220-222`). Auto-scrolling unconditionally would fight
 a user reading back.
 
+When scrolled away, a `FilledIconButton` with a down arrow overlays the
+transcript's bottom-end (`contentDescription = "Jump to latest message"`). It
+hides once the bottom is reached. The jump is not one `scrollToItem`: a long
+last reply is taller than the viewport and its height is still being measured
+when the jump starts, so a single pass lands short once Markdown lays out. It
+walks forward in finite `scrollBy` steps and repeats up to four times after a
+frame, which is what makes the final position stick.
+
 ### The approval dialog (`:423-456`)
 
 Modal. `onDismissRequest = declinePendingCall`, so Back and an outside tap both

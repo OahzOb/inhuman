@@ -1,6 +1,7 @@
 package com.inhuman.ui.chat
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
@@ -53,6 +54,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -65,7 +67,9 @@ import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.data.Branches
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 /**
  * One conversation.
@@ -121,6 +125,7 @@ fun ChatScreen(
 		.collectAsStateWithLifecycle(false)
 
 	val listState = rememberLazyListState()
+	val scope = rememberCoroutineScope()
 	var showModelPicker by remember { mutableStateOf(false) }
 	// Whether the context figures are open. Screen state rather than view model
 	// state: it is about what this screen is showing, and a rotation that
@@ -308,32 +313,73 @@ fun ChatScreen(
 				.map { ContextUsage(it.context.usedTokens, it.context.contextWindow) }
 				.collectAsStateWithLifecycle(ContextUsage(null, null))
 
-			LazyColumn(
-				state = listState,
-				modifier = Modifier.weight(1f),
-				contentPadding = PaddingValues(
-					horizontal = comfortableGutter(),
-					vertical = 12.dp,
-				),
-				verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
-			) {
-				items(messages, key = { it.id }) { message ->
-					MessageBubble(
-						message = message,
-						// The newest assistant reply, which is the only one that
-						// can be regenerated without discarding what follows it.
-						isLastAssistantMessage = !message.fromUser && !message.isToolResult &&
-							message.id == lastAssistantId,
-						isStreaming = isStreaming,
-						currentTurnMutated = currentTurnMutated,
-						onRegenerate = viewModel::regenerate,
-						// Both ids go up: the alternative being switched to is
-						// not on the active path, so the view model cannot find
-						// its parent by searching the transcript.
-						onSelectBranch = { parentId, childId ->
-							if (parentId != null) viewModel.selectBranch(parentId, childId)
+			Box(modifier = Modifier.weight(1f)) {
+				LazyColumn(
+					state = listState,
+					modifier = Modifier.fillMaxSize(),
+					contentPadding = PaddingValues(
+						horizontal = comfortableGutter(),
+						vertical = 12.dp,
+					),
+					verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
+				) {
+					items(messages, key = { it.id }) { message ->
+						MessageBubble(
+							message = message,
+							// The newest assistant reply, which is the only one that
+							// can be regenerated without discarding what follows it.
+							isLastAssistantMessage = !message.fromUser && !message.isToolResult &&
+								message.id == lastAssistantId,
+							isStreaming = isStreaming,
+							currentTurnMutated = currentTurnMutated,
+							onRegenerate = viewModel::regenerate,
+							// Both ids go up: the alternative being switched to is
+							// not on the active path, so the view model cannot find
+							// its parent by searching the transcript.
+							onSelectBranch = { parentId, childId ->
+								if (parentId != null) viewModel.selectBranch(parentId, childId)
+							},
+						)
+					}
+				}
+
+				// Only while the transcript is scrolled away from the newest
+				// message. It is an overlay rather than a row so it does not
+				// change the layout when it appears, and it is inside the
+				// transcript's Box so it sits above the composer rather than
+				// over the input.
+				if (!atBottom && messages.isNotEmpty()) {
+					FilledIconButton(
+						onClick = {
+							scope.launch {
+								// A long reply's height is not known until it has
+								// been composed and its Markdown laid out, and
+								// that happens *after* the first jump. A single
+								// pass therefore lands short when the last item
+								// grows; repeat after a frame or two so the
+								// second pass starts from the measured height.
+								// Finite `scrollBy` steps also avoid the overflow
+								// of `scrollOffset = Int.MAX_VALUE`.
+								var passes = 0
+								while (passes++ < 4) {
+									listState.scrollToItem(messages.lastIndex)
+									var steps = 0
+									while (listState.canScrollForward && steps++ < 20) {
+										listState.scrollBy(10_000f)
+									}
+									delay(120)
+								}
+							}
 						},
-					)
+						modifier = Modifier
+							.align(Alignment.BottomEnd)
+							.padding(end = comfortableGutter(), bottom = 12.dp),
+					) {
+						Icon(
+							imageVector = Icons.Filled.KeyboardArrowDown,
+							contentDescription = "Jump to latest message",
+						)
+					}
 				}
 			}
 
