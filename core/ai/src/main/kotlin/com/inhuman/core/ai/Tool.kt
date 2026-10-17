@@ -69,9 +69,9 @@ interface Tool {
 	 *
 	 * A default would be wrong about half the tools that will ever exist, and
 	 * wrong in the dangerous direction: `false` on something that writes means
-	 * the regenerate control stays enabled and the write happens twice. There
-	 * are eight tools; making each one state its answer is cheap, and it puts
-	 * the question in front of whoever adds the ninth.
+	 * the regenerate control stays enabled and the write happens twice. Every
+	 * tool states its answer, which is cheap, and it puts the question in front
+	 * of whoever adds the next one.
 	 */
 	val mutates: Boolean
 

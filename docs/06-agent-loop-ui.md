@@ -192,21 +192,22 @@ through this module's Kotlin metadata (`:98-107`). The `Markdown` call is
 **positional** because four overloads defeat named arguments (`:117-122`).
 
 The flicker fix is `retainState = true` on the non-streaming path (`:126-141`).
-Its doc comment (`:48-52`) says the renderer switches to the plain path "once per
-reply, when the stream ends" — **that switch is not implemented**: `deltas` is
-never set back to null (`updateParts` at `:1444-1466` does not touch it), so the
-force-closed channel object stays in state and the reply keeps rendering through
-the incremental renderer for the rest of the session. The `retainState` path
-therefore only applies to transcripts loaded from the database.
+The switch its doc comment (`:48-52`) describes now happens: when the stream
+ends, `ChatViewModel` updates the reply with `deltas = null` alongside
+`isStreaming = false` (`ChatViewModel.kt:1009-1021`), so the finished reply is
+handed to the plain renderer and `retainState` applies to it too.
 
-**A rotation mid-stream loses the text received before it.** The delta channel is
-a queue with no replay, so a rebuilt composition starts with an empty streaming
-state and only sees deltas sent after the rotation — and `text` is ignored while
-`deltas != null`. `DeltaCursor(initialText = …)` looks like it was written for
-exactly this and is never called. `AGENTS.md` already notes that a rotation
-mid-reply is a live issue for other reasons (`MainActivity.kt:91-98`).
+**A rotation mid-stream no longer loses the text received before it.** The delta
+channel is a queue with no replay, and a rebuilt composition starts with an empty
+streaming state — so `MarkdownText` appends the message's `text` through a
+`DeltaCursor` before it starts following the channel (`:113-132`); the cursor
+emits only what the renderer does not already have. Verified by reading the code;
+the cursor's rewind cases have unit tests, but the composition itself has no
+device observation, because this happens inside a stream.
 
-No LaTeX (GPLv2) and no Mermaid, deliberately (`MarkdownText.kt:54-61`).
+No LaTeX and no Mermaid, deliberately (`MarkdownText.kt:54-61`). For LaTeX the
+licence is not the obstacle (JLaTeXMath carries a linking exception); the fonts
+and the notices file are — see the root `README.md`.
 
 ## The chat screen
 
@@ -235,8 +236,9 @@ assistant bubble starts at the 32dp gutter while the centred composer starts at
 the intent as the tutorial and the composer being on the same axis, and that is
 true of the composer only.
 
-The cap is also **inert** on five other screens — see
-[05-files-sandbox.md](05-files-sandbox.md) for the list and the mechanism.
+The cap was inert at seven other sites; all now constrain first and fill second,
+and the 576dp tablet measurement is in
+[07-gotchas.md](07-gotchas.md) B5.
 
 ### Scrolling
 

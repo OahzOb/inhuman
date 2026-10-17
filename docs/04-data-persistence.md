@@ -189,29 +189,21 @@ build a database" and a policy round-trip. Verified by running it:
 → dsh_tablet(AVD), 9 tests, 0 failures
 ```
 
-### Two migration risks worth knowing before touching this
+### Two migration traps worth knowing before touching this
 
-1. **`schemas/…/1.json` and `2.json` are byte-identical except for the `version`
-   field, and `1.json` already contains `toolCallsJson`, `toolCallId` and
-   `toolName`** (verified: `1.json:155-169` declares the fields, and the file's
-   only difference from `2.json` is the version number). `MIGRATION_1_2` adds
-   exactly those columns. So the exported v1 is **not** the schema that migration
-   was written against — it is v1's export as re-taken after the entities gained
-   the fields. The migration itself is right for a real pre-migration v1
-   database; what is wrong is the artefact in the repository. Consequence: the
-   1→2 path cannot be validated from this schema history, so do not add a
-   `MigrationTestHelper` case that assumes `1.json` is the true starting point
-   without re-creating a genuine v1 by hand.
+1. **`1.json` used to be v2's export re-labelled.** It declared `toolCallsJson`,
+   `toolCallId` and `toolName` — the three columns `MIGRATION_1_2` adds — so it
+   could not be the schema that migration was written against, and
+   `MigrationTestHelper` could not build a v1 database from it (`duplicate column
+   name`). Fixed by deleting those columns from the export; `MigrationTest` now
+   includes "the exported v1 schema can build a database". One caveat remains:
+   the file's `identityHash` is stale, and nothing currently consults it —
+   [07-gotchas.md](07-gotchas.md) B8 carries the full story.
 2. **Migrations write `DEFAULT 0` for `thinking` (3→4) and `mutated` (5→6) while
    the entity declarations carry no default**, so a column created by migration
    and the same column created by Room from scratch are not identical. It has not
    bitten, but it is the kind of divergence a future `NOT NULL` addition turns
    into a failure.
-
-**There is no migration test anywhere in the tree** — no `MigrationTestHelper`, no
-`androidx.room:room-testing` dependency, no `androidTest` source set in
-`:core:data`. The entire safety net is the exported schema diff plus Room's
-runtime identity-hash check.
 
 ## Repositories
 

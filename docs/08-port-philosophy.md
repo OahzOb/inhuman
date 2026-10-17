@@ -196,9 +196,10 @@ DSH 有 `sandbox/mode`、`permission/preset`、`approval/policy` 三类事件，
 已经表达了这个意思，而且 `ToolCatalog.permits()` 已经检查了"选择的**且**存在的"。
 
 需要定的：
-- 审批门怎么表达？现有 `delete_file` 是唯一的门，且 `needsApproval(arguments)`
-  **按调用**求值。这个设计比"模式"好——它是**针对具体动作**的问句，不是档位。
-  应当保留并推广，而不是换成一个 `approval/policy` 式的事件。
+- 审批门怎么表达？现在的答案是**用户配置的规则**（见 09），`needsApproval(arguments)`
+  只剩下"这个工具永远要问"的钩子，仍按调用求值。这个形状比"模式"好——它是
+  **针对具体动作**的问句，不是档位；应当保留，而不是换成一个 `approval/policy`
+  式的事件。
 - 一个助手**不该**有的能力，是不是应该连**工具名都不出现**在请求里？
   现在是（`buildTools` 过滤），这是对的：模型看不见的能力，注入也拿不到。
 

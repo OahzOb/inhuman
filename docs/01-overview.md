@@ -46,8 +46,12 @@ Confirmed by `README.md:17-29` and by the code:
 - Replies stream, with reasoning shown and a live token/usage breakdown.
 - The model **and the user** can read and write files in the conversation's
   folder; files can also be browsed, imported and exported.
-- Answers can be regenerated — except when the turn changed something, and the
-  guard then over-stays ([07-gotchas.md](07-gotchas.md) B1).
+- Approval rules can tighten what the assistant may do, per tool, per assistant
+  or per path; the default asks nothing, including for deletion
+  ([09-approvals.md](09-approvals.md)).
+- Answers can be regenerated — except when the turn changed something; the guard
+  is derived from the transcript, so it lifts on the next turn that changes
+  nothing ([07-gotchas.md](07-gotchas.md) B1).
 - Per-conversation model and reasoning effort, read from the provider.
 - Image attachments.
 - A context gauge above the composer.

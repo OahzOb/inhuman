@@ -203,17 +203,28 @@ short until something reloads the transcript.
 
 ### B3. `MarkdownText` never switched to the plain renderer when the stream ended — **FIXED**
 
-`MarkdownText.kt:48-52` documents a switch. `updateParts` (`:1444-1466`) never
-sets `deltas` back to `null`, so the reply keeps rendering through the incremental
-renderer until something reloads the transcript. The anti-flicker `retainState`
-path (`:126-141`) therefore applies only to transcripts loaded from the database.
+`MarkdownText.kt:48-52` documents a switch. Nothing performed it: `deltas` was
+captured into the message when it was built, so removing the map entry at the end
+of the turn left the field holding a closed channel — the reply kept rendering
+through the incremental parser until something reloaded the transcript, and the
+anti-flicker `retainState` path applied only to transcripts loaded from the
+database.
 
-Related, and worse for a user: **a rotation mid-stream permanently loses the text
-received before it.** The delta channel is a queue with no replay, so a rebuilt
-composition starts empty and only sees later deltas — and `text` is ignored while
-`deltas != null`. `DeltaCursor(initialText = …)` appears to have been written for
-this and is never called with an initial text in the app (`ChatViewModel.kt:875`
-builds a bare `DeltaCursor()`; only `DeltaCursorTest` passes one).
+Two fixes, because there were two causes. The closing update now sets
+`deltas = null` with `isStreaming = false` (`ChatViewModel.kt:1009-1021`), which
+is the switch the renderer's documentation describes. Separately, **a rotation
+mid-stream lost the text received before it**: the delta channel is a queue with
+no replay, and a rebuilt composition started empty while `text` was ignored. So
+`MarkdownText` now appends `text` through a `DeltaCursor` before following the
+channel (`:113-132`); the cursor only emits what the renderer does not already
+have.
+
+Adding the rewind case to `DeltaCursorTest` immediately caught a regression in
+that fix — on a shrinking buffer it reset `sent` to zero and re-emitted the
+prefix, which is one of the two failure modes that file's own documentation
+names. Verified by build and the full suite. **Not verified on a device:** this
+is inside a stream, which `AGENTS.md` records as unobservable through adb at any
+sampling rate.
 
 ### B4. Declining the first of several tool calls persisted an unanswered call — **FIXED**
 
@@ -227,11 +238,12 @@ The stop path runs it from a `finally` under `NonCancellable`, because by then
 the coroutine is already cancelled and each answer is an insert. Deliberately not
 around the whole loop: that would make Stop unable to interrupt a tool.
 
-`executeCalls` returns immediately on the first decline (`:1128`), but all calls of
-the round are already in `toolCallsJson`. Calls after the declined one get no tool
-result. `Stop` during `tool.execute` leaves the same shape. The app's own comment
-says such a transcript is a request the API rejects (`:1282-1292`), so the next
-user message after either is likely a 400.
+The old shape was this: `executeCalls` returned immediately on the first decline
+(`:1128`) while all calls of the round were already in `toolCallsJson`, so calls
+after the declined one got no result; `Stop` during `tool.execute` left the same
+gap. That transcript is a request the API rejects (`:1282-1292`), so the next user
+message after either was likely a 400. `answerSkippedCalls` is what closes that
+gap on both paths.
 
 ### B5. The 640dp measure cap was inert at seven call sites — **FIXED**
 
@@ -470,20 +482,17 @@ stale entry is how this list loses its authority (each was re-read, not assumed)
 ## C. Comments that contradict the code
 
 By this repository's standard, the comment is the bug. These were all verified.
+An entry leaves this table when the fix makes its comment true, rather than
+staying as history.
 
 | Comment | Reality |
 | --- | --- |
-| `ChatViewModel.kt:867-868`: "The `finally` block publishes regardless" | It never calls `publishIfDue`. See B2. |
-| `MarkdownText.kt:48-52`: the renderer switches when the stream ends | `deltas` is never nulled. See B3. |
-| `WideDialog.kt:41-46`: "The cap is `Layout.ReadableMeasure`, so the dialog grows… and then stops" | The cap is inert — `fillMaxWidth` comes first. See B5. |
-| `ConversationsScreen.kt:452-454`: "The measure cap is what makes the tablet layout readable" | Same, and the empty state's own order is the wrong one. See B5. |
 | `WorkspaceTool.kt:63-65`: "A ranged read never loads the whole file" | `file.readText()` is called before the slice (`:77`), and the ceiling compares UTF-16 chars against a byte limit (`:91-95`). |
 | `SessionWorkspace.kt:151-153`: "anything behind a symlink is not charged to its quota" | Only symlinked *directories* are skipped; symlinked files are still counted (`:158-165`). |
 | `SessionWorkspace.kt:20-22`: "[root] is never exposed" | `rootPath()` exposes it (`:175-184`) — deliberately, for `StatFs`, with the argument written out. |
 | `SessionWorkspace.kt:26-33`: a symlink "can never be swapped in between the check and the open()" | The walk refuses to *traverse* links; nothing stops another same-UID writer creating one, and there is no re-check or `O_NOFOLLOW` at open. |
 | `WorkspaceDocumentsProvider.kt:207`: "A bare workspace id is a conversation" | The lookup underneath is `byId`, which matches the *conversation* id. See B6. |
 | `SearchProvider` in `WebSearchTool.kt:10`: "an interface with nothing behind it yet" | `DeepSeekSearchProvider` has been behind it since `b4e503f`. |
-| `Tool.kt:73`: "There are eight tools" | `ToolCatalog.all` has ten. |
 | `Tool.kt:81-82`: "Anything that writes, deletes or reaches outside the workspace should override this" | **No tool overrides `needsApproval` to return true**, `delete_file` included — it returns `false` (`FileTools.kt:355`). The advice is now historical: approval is decided by the user's configured rules, and `needsApproval` survives as an unused "must always ask" hook. |
 | `AgentsScreen.kt:723-738`: "Hand-rolled rather than pulling in the FlowRow API" | It calls `androidx.compose.foundation.layout.FlowRow`. |
 | `ChatScreen.kt:419-422`: raw JSON is "practically useless" | The dialog prints the raw `argumentsJson` seven lines later (`:429-443`). |

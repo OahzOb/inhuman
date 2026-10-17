@@ -6,11 +6,12 @@ and cites the file and line that says so, so a claim can be checked cheaply and
 a stale claim can be spotted quickly.
 
 Twelve files in total: nine numbered, two about the port, and this index. The
-numbered series describes **what the code does today**, with three exceptions
-that say so in their own first lines — `08-port-philosophy.md`,
-`09-approvals.md` and `port-design.md` describe what the project *intends*,
-because that part is not written yet. Keep the two kinds apart: a claim from the
-second group is a decision, not a description.
+numbered series describes **what the code does today**, with two exceptions that
+say so in their own first lines — `08-port-philosophy.md` and `port-design.md`
+describe what the project *intends*, because the runtime part is not written yet.
+`09-approvals.md` is both kinds in one file: it states the approval model, then
+records in its §7 how much of it is built and verified. Keep the kinds apart: a
+claim from the intent group is a decision, not a description.
 
 They are not a replacement for the root `README.md`, and they are not a
 tutorial. The root README explains *what the app is* and what it deliberately is
@@ -48,12 +49,12 @@ citation.
 | [01-overview.md](01-overview.md) | What is this, which module holds what, what does the app actually do today, what is deliberately missing |
 | [02-architecture.md](02-architecture.md) | Module graph, dependency rule, how the app is wired at start-up, navigation, build toolchain, build/verify commands |
 | [03-ai-provider.md](03-ai-provider.md) | The provider interface and stream types, the DeepSeek adapter, SSE decoding, demo mode, `web_search` and **how search really works** |
-| [04-data-persistence.md](04-data-persistence.md) | Room schema and its 7 versions, repositories, ordering rules, API-key storage, `DocumentsProvider`, orphan sweeps |
+| [04-data-persistence.md](04-data-persistence.md) | Room schema and its 8 versions, repositories, ordering rules, API-key storage, `DocumentsProvider`, orphan sweeps |
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the 8 file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | The turn lifecycle, tool-call execution, the approval gate, cancellation, context gauge, Compose layout rules |
 | [07-gotchas.md](07-gotchas.md) | The load-bearing invariants, and the mistakes that already cost someone a day |
 | [08-port-philosophy.md](08-port-philosophy.md) | **Why** a port is wanted at all, the three constraints that rule out a "full access" option, and the seven design questions with the answers that were settled |
-| [09-approvals.md](09-approvals.md) | The approval model: no prompt by default, and how per-tool, per-assistant and per-path rules compose |
+| [09-approvals.md](09-approvals.md) | The approval model: no prompt by default, how per-tool, per-assistant and per-path rules compose, and what of it is built and verified |
 | [port-assessment.md](port-assessment.md) | Feasibility of porting the DeepSeek Harness runtime, with device measurements |
 | [port-design.md](port-design.md) | How it would be built: layering, the 43-kind event vocabulary, phases |
 
@@ -148,7 +149,7 @@ throughout.
 | --- | --- |
 | Work out a rough plan at all | [`01-overview.md`](01-overview.md), then [`07-gotchas.md`](07-gotchas.md) |
 | Startup, dependency wiring, navigation, Back, ViewModel keys | `app/src/main/kotlin/com/inhuman/MainActivity.kt` |
-| Streaming, tool loop, approval, cancellation, regenerate, context gauge | `app/src/main/kotlin/com/inhuman/ui/chat/ChatViewModel.kt` (1656 lines — the file everything routes through) |
+| Streaming, tool loop, approval, cancellation, regenerate, context gauge | `app/src/main/kotlin/com/inhuman/ui/chat/ChatViewModel.kt` (the file everything routes through) |
 | Visible chat layout, bubbles, composer, tool rows, the dialog | `app/src/main/kotlin/com/inhuman/ui/chat/ChatScreen.kt` |
 | Incremental Markdown, the delta channel, the renderer switch | `ui/chat/MarkdownText.kt`, `ui/chat/DeltaCursor.kt` |
 | The context ring and its three cases | `ui/chat/ContextUsage.kt`, `ui/chat/ContextGauge.kt` |
@@ -182,10 +183,10 @@ turn do that?" questions end there.
 ## Keeping these current
 
 These docs are part of the change, not an afterthought: a commit that alters a
-behaviour described here should alter the description in the same commit. Two
-doc comments in this repository were already found making claims the
-implementation did not honour, and [07-gotchas.md](07-gotchas.md) section C lists
-fifteen, which is the argument for the rule rather than an exception to it.
+behaviour described here should alter the description in the same commit. Doc
+comments in this repository have been found making claims the implementation did
+not honour, and [07-gotchas.md](07-gotchas.md) section C lists the ones that still
+stand, which is the argument for the rule rather than an exception to it.
 
 The cheapest way to check the drift-prone parts is to re-read the files cited in
 `07-gotchas.md` — those are the ones where being wrong is expensive.

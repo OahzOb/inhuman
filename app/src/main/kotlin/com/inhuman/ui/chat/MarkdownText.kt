@@ -54,12 +54,12 @@ import kotlinx.coroutines.channels.Channel
  *
  * ## Deliberately absent
  *
- * **No LaTeX.** The only viable Android renderer is JLaTeXMath, which is
- * GPLv2, and this app is not open source. Rendering `$x^2$` as literal text is
- * a worse experience than rendering it as maths, and a much better one than
- * shipping a licence problem. **No Mermaid** for the same reason plus weight:
- * it needs a JavaScript engine in a WebView, and a WebView per diagram destroys
- * scroll performance.
+ * **No LaTeX.** The only viable Android renderer is JLaTeXMath; the licence is
+ * not the obstacle (linking exception), but its fonts are GPLv2/OFL/Knuth and
+ * shipping them means maintaining a `THIRD-PARTY-NOTICES` file. Rendering
+ * `$x^2$` as literal text is worse than maths, and better than that upkeep.
+ * **No Mermaid** for weight rather than licence: it needs a JavaScript engine
+ * in a WebView, and a WebView per diagram destroys scroll performance.
  */
 @Composable
 fun MarkdownText(

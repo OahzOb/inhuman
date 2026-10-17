@@ -217,7 +217,7 @@ rather than guessing coordinates:
 | Script | What it does |
 | --- | --- |
 | `build-and-shot.ps1` | The whole loop: build, install, launch, screenshot with brightness check. `-Serial`, `-Label`, `-SkipBuild`. |
-| `device-flow.ps1` | End-to-end on a real device: clear app data, enter the API key from `C:\android-toolchain\.deepseek-key`, create a file through the agent, then ask it to delete one so the approval dialog appears. |
+| `device-flow.ps1` | End-to-end on a real device: clear app data, enter the API key from `C:\android-toolchain\.deepseek-key`, create a file through the agent, then ask it to delete one. It reports whether the approval dialog appeared — by default it will not, since deletion asks nothing — and dumps the transcript either way. |
 | `verify-features.ps1`, `verify-agents.ps1`, `verify-model-picker.ps1`, `verify-regenerate-guard.ps1`, `verify-back-and-delete.ps1`, `verify-migration.ps1` | Feature verification flows, each asserting on dumped UI state. |
 | `inspect-agent-state.ps1`, `measure-screen.ps1`, `measure-usage.ps1` | Read-only probes: what the UI currently says, what fits on a screen, what a turn cost. |
 | `seed-and-verify-migration.ps1` | Seeds an old database and checks the migration against it. |

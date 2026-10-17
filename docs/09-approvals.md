@@ -3,7 +3,9 @@
 配套：[08-port-philosophy.md](08-port-philosophy.md)（理念）、[05-files-sandbox.md](05-files-sandbox.md)
 （沙箱契约）、[06-agent-loop-ui.md](06-agent-loop-ui.md)（当前审批门）。
 
-**状态：设计，未实现。** 本文定的是"应该怎样"，不是"现在怎样"。
+**状态：已实现，并在设备上验证过。** 前五节保留的是"为什么这样设计"；§7 记录
+哪些已经落地、§8 是仍未定的问题。判断"现在怎样"请看这两节，不要从前五节的
+将来时推断。
 
 ---
 
@@ -72,27 +74,29 @@ effective = strictest( 用户规则, agent 规则 )
 
 ## 4. 默认值与配置
 
-### 3.1 默认：全部不问
+### 4.1 默认：全部不问
 
 | 工具 | 默认 |
 | --- | --- |
 | 全部（含 `write_file`、`delete_file`、`move_file`） | **不问** |
 
 见 §2：目录内的一切都是副本，问也没有新信息。
-**现有的 `DeleteFileTool.needsApproval = true`（`FileTools.kt:316`）要改成 `false`。**
+落地时改掉的一处：`DeleteFileTool.needsApproval` 从 `true` 改为 `false`。
+现在没有任何工具的内置钩子要求审批，`FileToolsTest` 把"默认要问的工具集为空"
+写成了断言。
 
-### 3.2 用户可收紧任何一项
+### 4.2 用户可收紧任何一项
 
 全局、每 agent、每路径三处都可配，合成规则只有一条：**取最严**（§3）。
 用户可以把 `delete_file` 配成要问，也可以把某个目录配成 `read-only`。
 
-### 3.3 agent 自定义
+### 4.3 agent 自定义
 
 沿用现有结构：助手本来带工具清单（`ConversationEntity.toolsJson`）。
 **agent 的规则与用户的规则并列适用，取更严**——它不再是"只能收紧"的单向关系，
 因为默认已经是最松的"不问"，所以两边都只能往上加。
 
-### 3.4 路径策略
+### 4.4 路径策略
 
 对会话目录内的**具体文件或目录**设规则，**只对 agent 生效**：
 
@@ -112,36 +116,37 @@ effective = strictest( 用户规则, agent 规则 )
 
 ## 5. 三个具体后果
 
-### 4.1 `delete_file` 的默认值要反过来
+### 5.1 `delete_file` 的默认值反过来了
 
-现在的 `DeleteFileTool.needsApproval` 硬编码 `true`（`FileTools.kt:316`），
-按 §4.1 要改成 `false`。其余六个工具已经是 `false`。
+`DeleteFileTool.needsApproval` 当时硬编码 `true`（`FileTools.kt:316`），现在是
+`false`；其余七个文件工具本来就是 `false`。这一改当时会让一处测试与一处 UI 断言
+失效（`FileToolsTest.kt:80` 断言有工具需要审批、`ToolCallUi.State.Declined` 的
+可达性）——处理方式是**换断言，不是删断言**："默认问"换成了"默认不问、配置后问"，
+`Declined` 因此只能经由一条 `Ask` 规则到达。
 
-这一改会让现有的一处测试与一处 UI 断言失效（`FileToolsTest.kt:80` 断言有工具需要审批、
-`ToolCallUi.State.Declined` 的可达性），要一并处理——**不是把测试删掉，
-而是把一个"默认问"的断言换成"默认不问、配置后问"的断言**。
+### 5.2 路径策略要能"拒绝"，不只是"问"
 
-### 4.2 路径策略要能"拒绝"，不只是"问"
+`read-only` 与 `agent-blind` 的语义是**拒绝**，而 `needsApproval` 只有"问/不问"
+两态。当时的两个选项是：在钩子之外加一个"这个调用被策略禁止"的判定，或让每个
+工具在 `execute` 里返回 `ToolResult.error(...)`。
 
-`read-only` 与 `agent-blind` 的语义是**拒绝**，而现在的 `needsApproval` 只有
-"问/不问"两态。所以要么：
+**选了前者，而且已经实现**：拒绝发生在调用**之前**，由 `PolicySet` 统一裁决；
+`Deny` 与 `Blind` 排在 `needsApproval` 之前处理（`ChatViewModel.executeCalls`，
+拒绝文案带 `REFUSED_MARKER`）。这样就不需要每个工具各自记得查一次策略。
 
-- 让 `needsApproval` 之外多一个"这个调用被策略禁止"的判定，或
-- 在工具 `execute` 里返回 `ToolResult.error(...)`
-
-**我倾向前者**：拒绝应当发生在调用**之前**、由策略层统一决定，而不是让每个工具
-自己去查策略——否则八个工具就是八处可能忘记检查的地方。
-
-### 4.3 审批决定应当进会话日志
+### 5.3 审批决定应当进会话日志
 
 按 08 的 Q5（日志给用户看、要更详细），每一次"问了、用户答了什么"都应当是
 **持久事件**，而不是只活在内存里的 UI 状态。
 
-这也直接修掉 B4：现在用户拒绝一轮里的第一个工具调用时，同一个 round 里
-**后面的调用不会被处理**（`ChatViewModel.kt:1128` 直接 return），于是
-`toolCallsJson` 里留着没有结果的调用——app 自己的注释说这种 transcript 是
-API 会拒绝的请求（`:1282-1292`）。事件化之后，"这次调用没有结果"本身是一个可
-补写的记录，而不是一个缺口。
+**这一条还没做。** 决定目前只活在两处：`pendingApproval` 的 UI 状态，以及被拒绝
+调用写下的那条 `[declined]` 工具结果。没有事件日志可以追加 `approval/asked` /
+`approval/decided`，所以会话重新加载之后，"为什么问过、答了什么"只剩下工具结果
+那一句。
+
+B4 已经用另一条路修掉了：拒绝第一个调用后，`answerSkippedCalls` 会给同一轮里每个
+未执行的调用各写一条 `[skipped]` 结果（Stop 路径同样如此），不再是"有调用、没结果"。
+事件化仍然值得做，但它不再是修 B4 的前提。
 
 ---
 
@@ -152,8 +157,8 @@ API 会拒绝的请求（`:1282-1292`）。事件化之后，"这次调用没有
 approval_defaults(toolName TEXT PRIMARY KEY, policy TEXT NOT NULL)
 
 // 每 agent：与全局并列适用，取更严；缺席即无规则
-agent_approval(conversationId TEXT, toolName TEXT, policy TEXT NOT NULL,
-               PRIMARY KEY(conversationId, toolName))
+agent_approval(agentId TEXT, toolName TEXT, policy TEXT NOT NULL,
+               PRIMARY KEY(agentId, toolName))
 
 // 每路径：只作用于 agent。缺席 = free
 path_policy(conversationId TEXT, relPath TEXT, policy TEXT NOT NULL,
@@ -176,10 +181,15 @@ path_policy(conversationId TEXT, relPath TEXT, policy TEXT NOT NULL,
 - 存储：schema **7 → 8**，三张新表（`approval_defaults`、`agent_approval`、`path_policy`），
   **未改动任何既有表**
 - `PolicyRepository` —— 装载与写入
-- `DeleteFileTool.needsApproval` 默认 `false`（§4.1）
+- `DeleteFileTool.needsApproval` 默认 `false`（§5.1）
 - **执行循环里的裁决**（`ChatViewModel.executeCalls`）：`Deny` / `Blind` 是**拒绝**，
   因此排在 `needsApproval` **之前**——那个钩子只会说"问"，而对一件用户已经禁止的事
   发问，是答非所问。`Ask` 与钩子合入同一分支。
+- **三处编辑器**：全局规则在设置页，按助手的规则在 Agents 的编辑对话框，按路径的
+  规则在文件浏览器每一行的锁按钮上。三者写的是同一套表，界面上显示的就是工具调用
+  会取到的值。
+- **`Blind` 真的隐藏**：`FileTools.all` 接受 `hidden` 判定，`ChatViewModel.buildTools`
+  从已解析的 `PolicySet` 供给它；`ListFilesBlindTest` 把"名字也不出现"写成断言。
 
 三个不在 diff 里显眼的细节：
 
@@ -306,8 +316,10 @@ not change / Hidden from the agent）。两者都写库后重读，不在内存�
 硬编码的），拒绝消息**不含路径**——这正是当初把 `Deny` 与 `Blind` 写成同一句话
 的理由。模型知道路径，是因为它自己写的，不是因为被回了什么。
 
-**仍未实现**：per-assistant 规则的编辑器。`PolicySet.assistant` 与
-`PolicyRepository.setAssistantRule` 已实现并有测试，但够不到界面。
+**per-assistant 规则后来也接上了界面**：Agents 的编辑对话框为每个工具给出四档，
+草稿存在 `AgentsViewModel` 里，Save 时在助手行写入之后逐条写 `agent_approval`
+（先有助手、后有规则，否则一条指向不存在助手的规则既看不见也删不掉）。三处界面
+都在模拟器上设过并读回数据库核对，包括三者同时设置的情况。
 
 **这同时补上了之前那个"demo 工具循环跑不起来"的欠账**：当时发不出消息的真正原因是
 `pm clear` 把 demo 模式开关也重置了，不是默认助手缺文件工具——`toolsJson = ''`
@@ -341,13 +353,13 @@ WAL            0 bytes    （已 checkpoint）
 
 ## 8. 待定
 
-1. **`agent-blind` 要不要现在就做。** 它是四档里唯一需要新增行为的，
-   实现面也最大（要影响 `list_files` 的输出，不只是拦截一次调用）。
-2. **审批疲劳。** 这不是默认状态的问题（默认不问），而是**用户配了要问之后**
+1. **审批疲劳。** 这不是默认状态的问题（默认不问），而是**用户配了要问之后**
    的问题：一次覆盖 10 个文件会问 10 次。要不要"同一 turn 内对同一目录的同类动作
    批量确认"？我倾向**先不做**，等有人真的这么配了再说。
-3. **超时。** 用户不回答怎么办？现在的行为需要查证（`06-agent-loop-ui.md`
-   描述的是"停等"），但**绝不能不回答就执行**。
-4. **用户规则与 agent 规则的冲突展示。** 取最严是规则，但用户看不到"为什么这次
+2. **超时。** 用户不回答怎么办？现在就是一直等：`awaitApproval` 挂起，直到
+   `approvePendingCall` / `declinePendingCall` 恢复它，没有超时。**"绝不不能不回答
+   就执行"这一点是满足的**；要定的是超时之后算拒绝、算取消，还是回到一个可以继续
+   的 pending 状态。
+3. **用户规则与 agent 规则的冲突展示。** 取最严是规则，但用户看不到"为什么这次
    问了"。要不要在审批对话框上说明是哪条规则触发的？我倾向要——否则用户会以为
    是 bug。

@@ -224,7 +224,7 @@ read has to be a real path anyway (`:10-16`).
   disappears (`:125-147`). At `n > 200` it returns a name **without
   collision-checking it** (`:144`).
 
-## The design layer, and the inert 640dp cap
+## The design layer, and the 640dp cap
 
 `Layout` (`core/design/src/main/kotlin/com/inhuman/core/design/Layout.kt`):
 
@@ -241,43 +241,35 @@ read has to be a real path anyway (`:10-16`).
 behaves like Expanded** for both helpers above — a fact worth knowing before
 adding a third case.
 
-### The cap is inert wherever `fill` comes first
+### The cap binds only when `widthIn` comes first
 
 `AGENTS.md` states the rule as "cap the measure, centre what is capped" and gives
-the modifier order. What it does not say is that **seven call sites in the tree
-have the order the wrong way round, and at those sites the cap does nothing**:
+the modifier order. The measurement that made it stick: with the order reversed,
+the composer's field stretched to **2208px** on a 1280dp tablet while the messages
+above it stopped at **1232**.
 
-| Site | Modifiers | Cap binds? |
-| --- | --- | --- |
-| `ChatScreen.kt:349-351` (error strip) | `widthIn` → `fillMaxWidth` | yes |
-| `ChatScreen.kt:387-389` (composer) | `widthIn` → `fillMaxWidth` | yes |
-| `WideDialog.kt:86-87` | `fillMaxWidth` → `widthIn` | **no** |
-| `AgentsScreen.kt:123-124` | `fillMaxSize` → `widthIn` | **no** |
-| `FilesScreen.kt:206-207` | `fillMaxSize` → `widthIn` | **no** |
-| `ConversationsScreen.kt:315-316` (list) | `fillMaxSize` → `widthIn` | **no** |
-| `ConversationsScreen.kt:450-454` (empty state) | `fillMaxWidth` → `padding` → `widthIn` | **no** |
-| `SettingsScreen.kt:95-98` | `fillMaxWidth` → … → `widthIn` | **no** |
-| `SettingsScreen.kt:189-190` | `fillMaxWidth` → `widthIn` | **no** |
+**Seven call sites had the order the wrong way round**, so the cap did nothing
+there and the layouts ran the full 1280dp: `WideDialog`, `AgentsScreen`,
+`FilesScreen`, `ConversationsScreen` (list and empty state) and `SettingsScreen`
+(two sites). All seven now constrain first and fill second; the chat screen's
+composer and error strip were already correct and carry the measurement above.
 
-**Why**: `fillMaxWidth()`/`fillMaxSize()` set `minWidth = maxWidth = incoming
-max`. A following `widthIn(max = 640.dp)` can only coerce its argument into that
-already-fixed range, so it clamps back to the incoming maximum and the cap never
-binds. It is not that the dialog or the list is subtly too wide — the constraint
-is doing nothing at all.
+**Verified on the tablet AVD** (2560x1600 @ 320dpi = 1280dp), measuring the
+conversations empty state through `uiautomator`:
 
-**Three of those sites have comments claiming the opposite**, which is the
-doc-comment-contradicts-code pattern this repository treats as a bug:
+```
+text column    1152px = 576dp, centred at 1280px (the screen centre)
+```
 
-- `WideDialog.kt:41-46`: "The cap is `Layout.ReadableMeasure`, so the dialog grows
-  with the device up to where a line stops being readable and then stops."
-- `ConversationsScreen.kt:452-454`: "The measure cap is what makes the tablet
-  layout readable rather than merely wide. On a phone this is inert."
-- `SettingsScreen.kt:96-97`: "Cap the measure on a tablet; a full-width text
-  field across 1280dp is unusable to type into."
+576dp is `ReadableMeasure` (640dp) less the 32dp gutter on each side, which is the
+expected result and exactly what the cap was supposed to produce. Before the fix
+this text ran the full 2560px.
 
-`ChatScreen.kt:379-389` is the one that gets it right, and it carries the
-measurement: with the wrong order the composer's field stretched to **2208px** on
-a 1280dp tablet while the messages above it stopped at **1232**.
+**Why the wrong order is silent**: `fillMaxWidth()`/`fillMaxSize()` set
+`minWidth = maxWidth = incoming max`. A following `widthIn(max = 640.dp)` can only
+coerce its argument into that already-fixed range, so it clamps back to the
+incoming maximum and the cap never binds — the constraint is doing nothing at all,
+not merely producing something slightly too wide.
 
 The fix is the order, and the parent has to centre the result — which is what
 makes `ChatScreen`'s `Column(horizontalAlignment = CenterHorizontally)` and
