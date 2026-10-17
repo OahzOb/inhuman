@@ -26,6 +26,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.inhuman.core.ai.RemoteModel
+import com.inhuman.core.common.diag.Diag
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Model and reasoning, for this conversation.
@@ -64,22 +66,62 @@ fun ModelPickerDialog(
 	var models by remember { mutableStateOf<List<RemoteModel>>(emptyList()) }
 	var loading by remember { mutableStateOf(true) }
 	var error by remember { mutableStateOf<String?>(null) }
+	var attempt by remember { mutableStateOf(0) }
 
 	// Reloaded every time the dialog opens rather than cached in the screen:
 	// this is the moment the information is wanted, and a list fetched an hour
 	// ago is a list that may already be wrong.
-	LaunchedEffect(Unit) {
+	//
+	// Cached first, refreshed second. The cache is populated when the
+	// conversation resolves its model, so the common case has a list before the
+	// dialog is drawn; the refetch updates it without making a slow network
+	// look like a broken picker. The spinner is only for a genuinely cold list.
+	LaunchedEffect(attempt) {
 		loading = true
-		val result = chat.reloadModels()
-		models = result.getOrDefault(emptyList())
-		// The failure the view model used to swallow before returning. Without
-		// it a key-less user got an empty dialog and no reason for it.
-		//
-		// An **empty list is not a failure** and does not become one here:
-		// "the provider listed nothing" and "the request failed" are different
-		// answers, and collapsing them is what made this branch dead in the
-		// first place. The empty case gets its own sentence below.
-		error = result.exceptionOrNull()?.message
+		error = null
+		Diag.d("models", "dialog open; reading cache")
+		val cached = chat.cachedModels()
+		if (cached.isNotEmpty()) {
+			models = cached
+			loading = false
+			Diag.d("models", "dialog cached=${cached.size}; refreshing")
+		}
+		// The HTTP call has its own shorter timeout; this one covers the cases
+		// around it (a blocked key read, a mutex, a JNI call that never
+		// returns). A loading state must not be able to outlive the dialog's
+		// usefulness, which is what the unbounded spinner was.
+		val result = withTimeoutOrNull(25_000) { chat.models(force = true) }
+		if (result == null) {
+			if (models.isEmpty()) {
+				error = "Loading models timed out. Check the connection and try again."
+			} else {
+				Diag.w("models", "refresh timed out; keeping ${models.size} cached")
+			}
+			Diag.w("models", "dialog timed out after 25s")
+			loading = false
+			return@LaunchedEffect
+		}
+		val refreshed = result.getOrNull()
+		if (refreshed != null) {
+			models = refreshed
+			error = null
+		} else {
+			// A refresh failure does not erase a list that is already usable.
+			// Report it only when there is nothing to choose from.
+			if (models.isEmpty()) {
+				error = result.exceptionOrNull()?.message ?: "Could not load the model list."
+			} else {
+				Diag.w(
+					"models",
+					"refresh failed; keeping ${models.size} cached: " +
+						(result.exceptionOrNull()?.message ?: "unknown"),
+				)
+			}
+		}
+		Diag.d(
+			"models",
+			"dialog result ok=${result.isSuccess} models=${models.size} error=${error ?: "-"}",
+		)
 		loading = false
 	}
 
@@ -98,7 +140,17 @@ fun ModelPickerDialog(
 				verticalArrangement = Arrangement.spacedBy(12.dp),
 			) {
 				if (loading) {
-					CircularProgressIndicator(modifier = Modifier.padding(8.dp), strokeWidth = 2.dp)
+					Row(
+						verticalAlignment = Alignment.CenterVertically,
+						horizontalArrangement = Arrangement.spacedBy(10.dp),
+					) {
+						CircularProgressIndicator(strokeWidth = 2.dp)
+						Text(
+							text = "Loading models…",
+							style = MaterialTheme.typography.bodyMedium,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
 				}
 
 				error?.let {
@@ -107,6 +159,7 @@ fun ModelPickerDialog(
 						style = MaterialTheme.typography.bodyMedium,
 						color = MaterialTheme.colorScheme.error,
 					)
+					TextButton(onClick = { attempt++ }) { Text("Retry") }
 				}
 
 				if (!loading) {

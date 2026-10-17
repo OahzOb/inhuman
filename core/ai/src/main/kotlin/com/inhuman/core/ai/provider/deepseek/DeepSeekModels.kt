@@ -1,6 +1,7 @@
 package com.inhuman.core.ai.provider.deepseek
 
 import com.inhuman.core.ai.RemoteModel
+import com.inhuman.core.common.diag.Diag
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
@@ -13,6 +14,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 /**
  * Reads `GET /models`.
@@ -30,22 +32,58 @@ internal object DeepSeekModels {
 
 	suspend fun fetch(client: OkHttpClient, baseUrl: String, apiKey: String): List<RemoteModel> =
 		withContext(Dispatchers.IO) {
+			val startedAt = System.currentTimeMillis()
+			// The shared client's read timeout is eleven minutes on purpose,
+			// because a reasoning reply may legitimately take that long to
+			// produce its first token. `GET /models` has no such excuse, and
+			// inheriting that timeout is how the picker could spin for eleven
+			// minutes on a stalled request. Derived client, same pool and
+			// dispatcher; only the whole-call ceiling is new.
+			val callClient = client.newBuilder()
+				.callTimeout(MODELS_CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+				.build()
 			val request = Request.Builder()
 				.url("$baseUrl/models")
 				.header("Authorization", "Bearer $apiKey")
 				.get()
 				.build()
 
-			client.newCall(request).execute().use { response ->
-				if (!response.isSuccessful) {
-					throw IOException(
-						"listing models failed: HTTP ${response.code} ${response.message}" +
-							response.body.string().take(300).let { " — $it" },
+			Diag.i("models", "request base=$baseUrl")
+			try {
+				callClient.newCall(request).execute().use { response ->
+					val body = response.body.string()
+					Diag.i(
+						"models",
+						"response HTTP ${response.code} bytes=${body.length} " +
+							"ms=${System.currentTimeMillis() - startedAt}",
 					)
+					if (!response.isSuccessful) {
+						throw IOException(
+							"listing models failed: HTTP ${response.code} ${response.message}" +
+								body.take(300).let { " — $it" },
+						)
+					}
+					parse(body)
 				}
-				parse(response.body.string())
+			} catch (e: Exception) {
+				Diag.w(
+					"models",
+					"request failed after ${System.currentTimeMillis() - startedAt}ms",
+					e,
+				)
+				throw e
 			}
 		}
+
+	/**
+	 * How long the model list may take before the picker reports an error.
+	 *
+	 * This is not the chat timeout and must not become it: the chat client's
+	 * long read timeout exists for reasoning models, while this endpoint is a
+	 * small JSON document. A number is required because "no timeout" is what
+	 * made the spinner unbounded.
+	 */
+	private const val MODELS_CALL_TIMEOUT_SECONDS = 20L
 
 	/**
 	 * Read a `/models` body.

@@ -348,7 +348,19 @@ class ChatViewModel(
 	 * its error branch was unreachable and a user with no API key saw an empty
 	 * dialog with no explanation of why.
 	 */
-	suspend fun reloadModels(): Result<List<RemoteModel>> = agents.models(force = true)
+	/**
+	 * The provider's model list, from the in-memory cache unless [force].
+	 *
+	 * The picker reads the cached copy first and refreshes in the background.
+	 * That copy is already there because opening the conversation resolved the
+	 * effective model, so blocking the picker on a forced refetch made a fast
+	 * dialog depend on a slow network for no new information.
+	 */
+	suspend fun models(force: Boolean = false): Result<List<RemoteModel>> =
+		agents.models(force = force)
+
+	/** The models already held in memory, without making a request. */
+	suspend fun cachedModels(): List<RemoteModel> = agents.cachedModelList().orEmpty()
 
 	/**
 	 * Switch the model for this conversation only.

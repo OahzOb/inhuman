@@ -384,6 +384,24 @@ Two problems used to sit here and are fixed: `workspace()` is now `suspend` and
 reads the conversation off the main thread, and `refresh()` calls `usage()` once
 instead of walking the tree separately for bytes and file count.
 
+### Model picker
+
+`ModelPickerDialog.kt` + `ChatViewModel.models()`. The dialog reads the cached
+model list **without making a request**, shows it immediately, and refreshes in
+the background. The cache is populated when the conversation resolves its
+effective model, so the common case has a list before the dialog is drawn.
+Blocking on a forced refetch was the "Model" dialog spinning forever: the
+information to fill it was already in memory, but the UI discarded it and waited
+for the network.
+
+A genuinely cold list shows "Loading models…" and is bounded twice: the HTTP
+call created for `/models` has a **20-second call timeout** (the shared client's
+eleven-minute read timeout exists for reasoning replies and must not apply here),
+and the dialog has a 25-second guard around the whole load. On failure or
+timeout with a cached list, the list stays usable and the refresh failure is
+logged; with no list, the error is shown with a **Retry** button. Selecting a
+model dismisses the dialog.
+
 ### Settings
 
 `SettingsScreen.kt` / `SettingsViewModel.kt`. One API-key field
@@ -414,15 +432,13 @@ message to get prose instead of a tool turn.
 - Demo mode counts as configured **without** a key, and the demo model list is
   fetched separately by `demoModelsIfEnabled` (`:301-302`) only so the context
   gauge has a denominator.
-- The model picker's error branch is **dead**: `reloadModels()` swallows the
-  failure and returns an empty list (`:333-334`), so `error` is never set and a
-  key-less user gets an empty picker with no explanation
-  (`ModelPickerDialog.kt:71-77`). Selecting a model also does not dismiss the
-  dialog (`:97-103`).
+- The model picker's error branch is reachable: `models()` returns the failure,
+  so a key-less user gets an explanation rather than an empty dialog
+  (`ModelPickerDialog.kt`). Selecting a model dismisses the dialog.
 
-`AndroidManifest.xml` declares **no permissions** and only `MainActivity`.
-`INTERNET` arrives by manifest merging from `core/ai`, and
-`WorkspaceDocumentsProvider` from `core/data`.
+`AndroidManifest.xml` declares `INTERNET` explicitly (the app's own clients need
+it; the sandbox's no-network rule applies to code the model writes), and
+`WorkspaceDocumentsProvider` lives in `core/data`.
 
 ## Tests, and what they carry
 

@@ -62,6 +62,7 @@ Share log is the supported path.
 | HTTP | chat request shape (model, message/tool counts, thinking, effort, payload bytes), response status, failure body (first 300 chars), stream end (SSE lines/frames/chunks, duration), network failure class and message |
 | Search | request (`api=search`, count, query length), response status and bytes, result count, HTTP failure body |
 | Fetch | request (URL length), response status and bytes, title and content lengths, HTTP failure body |
+| Models | `/models` request base, response status/bytes/duration, failure; picker cache hit, background refresh, 20s call timeout and 25s dialog timeout |
 | Tools | run (name, normalised path, argument bytes), done (ok, result bytes, duration), error text (first 240 chars), unknown tool, unparsable arguments, skipped call |
 | Approval | asked (tool, path, whether a configured rule or the tool's own hook asked, argument bytes), allow, decline |
 | Policy | refusal (tool, path, policy), and failures to read or write rules |

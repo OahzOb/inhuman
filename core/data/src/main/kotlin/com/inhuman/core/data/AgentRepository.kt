@@ -110,6 +110,15 @@ class AgentRepository(
 	}
 
 	/**
+	 * The already-fetched list, or null when nothing has been fetched.
+	 *
+	 * Separate from [models] on purpose: `models(force = false)` still performs
+	 * a request when the cache is empty, and a caller that wants "show what we
+	 * have, then refresh" must not accidentally block on that first request.
+	 */
+	suspend fun cachedModelList(): List<RemoteModel>? = modelsLock.withLock { cachedModels }
+
+	/**
 	 * The models the provider currently offers.
 	 *
 	 * @param force refetch even if a list is already held, for a pull-to-refresh
