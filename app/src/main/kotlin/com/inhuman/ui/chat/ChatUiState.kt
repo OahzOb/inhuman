@@ -170,6 +170,18 @@ data class ChatMessageUi(
 	/** Tool calls this turn requested. */
 	val toolCalls: List<ToolCallUi> = emptyList(),
 	/**
+	 * True once answer text arrives *after* a tool call has started.
+	 *
+	 * A model often says "I'll search for that" before calling a tool. That
+	 * preamble is text, but it is not the answer, and treating it as one closed
+	 * the tool section while the calls were still running. This separates the
+	 * two: text before the first call does not count, text after it does.
+	 *
+	 * Not persisted and false on a loaded message, which is harmless: the
+	 * live-section rule only applies while a turn is streaming.
+	 */
+	val answerAfterCalls: Boolean = false,
+	/**
 	 * Where this message sits among the alternatives at its point in the
 	 * conversation, or null when there is only one.
 	 *
@@ -296,4 +308,42 @@ data class UsageUi(
 		 */
 		const val MIN_SPEED_WINDOW_MS = 100L
 	}
+}
+
+/**
+ * Which working section of the live turn is allowed to stay open.
+ *
+ * ## Why this is a separate function
+ *
+ * The decision is about *position in the turn*, not about how a section looks:
+ * only the newest section before the answer should be open, and it should close
+ * as soon as anything newer exists. Expressing that inline in three composables
+ * would make the three copies drift, and it would put the rule somewhere a JVM
+ * test cannot reach it. The screen maps the answer back to two booleans.
+ *
+ * `isStreaming` matters: an old transcript that happens to end in reasoning is
+ * not "live" and should open collapsed. Only a turn in progress has a current
+ * section.
+ */
+internal enum class LiveAssistantSection { None, Reasoning, Tools }
+
+internal fun liveAssistantSection(
+	isStreaming: Boolean,
+	isLatestAssistant: Boolean,
+	hasReasoning: Boolean,
+	hasText: Boolean,
+	toolCallCount: Int,
+	answerAfterCalls: Boolean,
+): LiveAssistantSection = when {
+	!isStreaming || !isLatestAssistant -> LiveAssistantSection.None
+	// A preamble before the calls is not the answer: keep the calls open while
+	// they are the thing being produced.
+	toolCallCount > 0 && !answerAfterCalls -> LiveAssistantSection.Tools
+	// The answer has started; working-out is no longer what the reader is
+	// waiting for.
+	hasText -> LiveAssistantSection.None
+	// Tool calls come after reasoning in the layout, so they supersede it.
+	toolCallCount > 0 -> LiveAssistantSection.Tools
+	hasReasoning -> LiveAssistantSection.Reasoning
+	else -> LiveAssistantSection.None
 }

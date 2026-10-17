@@ -55,6 +55,7 @@ Share log is the supported path.
 | Start-up | version and version code, SDK, manufacturer/model, ABI, locale, pid |
 | Lifecycle | activity create (fresh or restored), start, stop, destroy |
 | Navigation | which screen is on top, and the conversation id when there is one |
+| UI | a collapsed section that auto-expanded or auto-collapsed, by its summary ("Thinking", "Used N tools"); only on an actual change |
 | Database | opening, opened, created (and the stack trace if it will not open) |
 | Turn | send (chars, attachments, demo), run start (provider, model, thinking, effort, tool count, round limit), run end (rounds, reply id), round limit reached, stop, regenerate refused and why |
 | Stream | request shape (history size, tool count, reply id), first-text latency, end line (finish reason, chunk count, text and reasoning lengths, call count, prompt/completion/cached tokens, TTFT, generation time, total), failure chunk text |

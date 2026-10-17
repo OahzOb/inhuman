@@ -733,7 +733,8 @@ private fun MessageBubble(
 				.padding(horizontal = 12.dp, vertical = 8.dp),
 		) {
 			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
-				// Reasoning first, collapsed, and never in the way of the answer.
+				// Reasoning first, open only while it is the newest working
+				// section, and never in the way of the answer.
 				//
 				// It is shown when a model has thought and hidden otherwise, so
 				// a reply that used no thinking has no empty header above it. The
@@ -743,27 +744,44 @@ private fun MessageBubble(
 				val reasoning = message.parts
 					.filter { it.kind == AssistantPart.Kind.Reasoning }
 					.joinToString("\n\n") { it.text }
+				val calls = message.toolCalls
+				val hasText = message.parts.any {
+					it.kind == AssistantPart.Kind.Text && it.text.isNotBlank()
+				}
+				// One section is open at a time, and only while the turn is
+				// still producing. A tool call supersedes reasoning; the answer
+				// supersedes both.
+				val live = liveAssistantSection(
+					isStreaming = isStreaming,
+					isLatestAssistant = isLastAssistantMessage,
+					hasReasoning = reasoning.isNotBlank(),
+					hasText = hasText,
+					toolCallCount = calls.size,
+					answerAfterCalls = message.answerAfterCalls,
+				)
 				if (reasoning.isNotBlank() && !message.fromUser) {
 					CollapsibleSection(
 						summary = "Thinking",
 						trailing = "${reasoning.length} chars",
+						autoExpand = live == LiveAssistantSection.Reasoning,
 					) {
 						ReasoningBody(reasoning)
 					}
 				}
 
-				// Tool calls, collapsed together.
+				// Tool calls, grouped together, and open while they are the
+				// newest working section.
 				//
 				// One section rather than one per call: a turn that searched
 				// eight times would otherwise produce eight headers, and the
 				// question a reader has is "what did it do", not "what did the
 				// fourth call do".
-				val calls = message.toolCalls
 				if (calls.isNotEmpty()) {
 					CollapsibleSection(
 						summary = if (calls.size == 1) "Used one tool" else "Used ${calls.size} tools",
 						trailing = calls.count { it.state == ToolCallUi.State.Failed }
 							.takeIf { it > 0 }?.let { "$it failed" },
+						autoExpand = live == LiveAssistantSection.Tools,
 					) {
 						Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed)) {
 							calls.forEach { ToolCallLine(it) }

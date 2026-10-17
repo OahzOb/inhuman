@@ -940,6 +940,12 @@ class ChatViewModel(
 		// came to be dropped.
 		val cursor = DeltaCursor()
 
+		// Whether text has arrived after a tool call started. A model's "I'll
+		// search for that" is a preamble, not the answer; without this flag the
+		// tool section closed the moment the preamble streamed, which is the
+		// opposite of keeping the current work visible.
+		var answerAfterCalls = false
+
 		try {
 			// When the screen was last given a snapshot of the streaming reply.
 			//
@@ -964,7 +970,7 @@ class ChatViewModel(
 				val now = System.currentTimeMillis()
 				if (!force && now - publishedAt < STREAM_PUBLISH_INTERVAL_MS) return
 				publishedAt = now
-				publishParts(replyId, reasoning, answer, calls, cursor)
+				publishParts(replyId, reasoning, answer, calls, cursor, answerAfterCalls)
 			}
 
 			provider.stream(
@@ -991,6 +997,7 @@ class ChatViewModel(
 					}
 
 					is StreamChunk.TextDelta -> {
+						if (calls.isNotEmpty()) answerAfterCalls = true
 						answer.append(chunk.text)
 						publishIfDue()
 					}
@@ -1089,7 +1096,7 @@ class ChatViewModel(
 			//
 			// Hoisting the publish into a real method is the fix; calling it
 			// here is what makes the throttle non-lossy.
-			publishParts(replyId, reasoning, answer, calls, cursor)
+			publishParts(replyId, reasoning, answer, calls, cursor, answerAfterCalls)
 			finishedCalls = calls.values.toList()
 			// The reply is done arriving, so it stays parsed from the plain
 			// renderer from here on -- and the channel is dropped so an
@@ -1799,6 +1806,7 @@ class ChatViewModel(
 		reasoning: String,
 		answer: String,
 		calls: List<ToolCallUi>,
+		answerAfterCalls: Boolean,
 	) {
 		updateMessage(id) { m ->
 			val parts = buildList {
@@ -1814,6 +1822,7 @@ class ChatViewModel(
 				plainText = answer,
 				reasoningText = reasoning,
 				toolCalls = calls,
+				answerAfterCalls = answerAfterCalls,
 			)
 		}
 	}
@@ -1834,8 +1843,9 @@ class ChatViewModel(
 		answer: StringBuilder,
 		calls: Map<Int, ToolCallUi>,
 		cursor: DeltaCursor,
+		answerAfterCalls: Boolean,
 	) {
-		updateParts(id, reasoning.toString(), answer.toString(), calls.values.toList())
+		updateParts(id, reasoning.toString(), answer.toString(), calls.values.toList(), answerAfterCalls)
 
 		// Hand the *new* answer text to the incremental parser. Only the
 		// answer: reasoning is rendered as plain dimmed text in its own

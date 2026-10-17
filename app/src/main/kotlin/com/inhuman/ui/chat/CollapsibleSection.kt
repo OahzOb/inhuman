@@ -17,6 +17,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.design.Layout
 import com.inhuman.ui.common.PaidBadge
 import androidx.compose.ui.unit.dp
@@ -71,10 +73,33 @@ fun CollapsibleSection(
 	 * itself on every recomposition would fight the user's tap.
 	 */
 	initiallyExpanded: Boolean = false,
+	/**
+	 * Whether this section is the live one, or null to leave it to the user.
+	 *
+	 * While a turn runs, the newest working section stays open and the previous
+	 * one closes as soon as anything newer appears. That is a *transition*, not
+	 * a permanent policy: the effect runs only when this value changes, so a
+	 * user who opens an old section keeps it open, and a user who closes the
+	 * live one does not have it reopened on the next token.
+	 */
+	autoExpand: Boolean? = null,
 	modifier: Modifier = Modifier,
 	content: @Composable () -> Unit,
 ) {
-	var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
+	var expanded by rememberSaveable { mutableStateOf(autoExpand ?: initiallyExpanded) }
+	LaunchedEffect(autoExpand) {
+		autoExpand?.let {
+			if (expanded != it) {
+				// Only the live sections get this line, and only when the state
+				// actually changes: opening an old transcript would otherwise
+				// log one "false" per section. It makes "did the accordion open
+				// and close?" answerable from the diagnostic log rather than a
+				// screenshot race.
+				Diag.d("ui", "section '$summary' autoExpand=$it")
+				expanded = it
+			}
+		}
+	}
 
 	Column(
 		modifier = modifier

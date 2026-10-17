@@ -264,13 +264,34 @@ else falls back to "Run <name>?" (`:1270-1280`).
 
 ### Tool rows
 
-One collapsed section per message ("Used N tools", with "N failed" trailing,
-`:757-768`). Each line shows the name, the first of `path|query|pattern|name`
+One section per message ("Used N tools", with "N failed" trailing,
+`:779-790`). Each line shows the name, the first of `path|query|pattern|name`
 (regex-labelled and cached in `argumentPatterns`, `:596-612`) and a status word
 (`:533-576`); a declined call renders "declined" in the outline colour
-(`:540-546`). Tool *results* are one collapsed row each, with the `— N results`
-suffix moved into the trailing slot and `padding(vertical = 0.dp)` because the
-header already carries its inset (`:691-719`).
+(`:540-546`).
+
+**The newest working section is open; older ones collapse.** This applies to
+`Thinking` and to the tool-call group alike: while a turn streams, the section
+being produced is expanded, and it closes as soon as a newer one — the next
+thinking block, the next tool call, or the answer text — exists. The rule is
+`liveAssistantSection` (`ChatUiState.kt`), unit-tested in
+`LiveAssistantSectionTest`: only the latest assistant message of a streaming
+turn has a live section, a tool call supersedes reasoning, and the answer closes
+both. A preamble before the first call ("I'll search for that") is text but not
+the answer: `ChatMessageUi.answerAfterCalls` records text that arrives *after* a
+call started, so the tool section stays open while the calls run. Without that
+distinction the section named after the tools closed the moment the model
+announced it was about to use them.
+
+`CollapsibleSection.autoExpand` applies the decision only when it *changes*, so a
+user who opens an old section keeps it open and a user who closes the live one is
+not overridden on the next token.
+
+Tool *results* are one collapsed row each, with the `— N results` suffix moved
+into the trailing slot and `padding(vertical = 0.dp)` because the header already
+carries its inset (`:700-721`). They are not part of the live-section rule: a
+result can be a whole page, and expanding it while a turn runs would bury the
+next thing being produced.
 
 ### The gauge
 
