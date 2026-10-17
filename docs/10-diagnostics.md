@@ -59,7 +59,8 @@ Share log is the supported path.
 | Turn | send (chars, attachments, demo), run start (provider, model, thinking, effort, tool count, round limit), run end (rounds, reply id), round limit reached, stop, regenerate refused and why |
 | Stream | request shape (history size, tool count, reply id), first-text latency, end line (finish reason, chunk count, text and reasoning lengths, call count, prompt/completion/cached tokens, TTFT, generation time, total), failure chunk text |
 | HTTP | chat request shape (model, message/tool counts, thinking, effort, payload bytes), response status, failure body (first 300 chars), stream end (SSE lines/frames/chunks, duration), network failure class and message |
-| Search | request (model, query length, max results), response status and bytes, result count, HTTP failure body |
+| Search | request (`api=search`, count, query length), response status and bytes, result count, HTTP failure body |
+| Fetch | request (URL length), response status and bytes, title and content lengths, HTTP failure body |
 | Tools | run (name, normalised path, argument bytes), done (ok, result bytes, duration), error text (first 240 chars), unknown tool, unparsable arguments, skipped call |
 | Approval | asked (tool, path, whether a configured rule or the tool's own hook asked, argument bytes), allow, decline |
 | Policy | refusal (tool, path, policy), and failures to read or write rules |

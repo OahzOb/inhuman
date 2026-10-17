@@ -14,7 +14,7 @@ architecture from scratch:
 | --- | --- |
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
-| `docs/03-ai-provider.md` | Provider and stream contracts, the DeepSeek adapter, SSE, demo mode, **how `web_search` really works** |
+| `docs/03-ai-provider.md` | Provider and stream contracts, the DeepSeek adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` APIs** |
 | `docs/04-data-persistence.md` | Room schema v8, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider` |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
@@ -234,8 +234,8 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
 warning output is empty as well as the error output — this tree currently
 compiles clean, and that is worth keeping.
 
-One test is skipped by design: `DeepSeekSearchProviderLiveTest` talks to the
-real API and needs a key. Everything else runs on the JVM.
+One test is skipped by design: `DeepSeekWebLiveTest` talks to the real Search and
+Fetch APIs and needs a key (and spends money). Everything else runs on the JVM.
 
 ---
 

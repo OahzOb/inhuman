@@ -562,8 +562,30 @@ private fun AgentEditor(
 						color = MaterialTheme.colorScheme.tertiary,
 					)
 				}
+
+				// A separate word from "writes": these do not change the
+				// workspace, they spend money at DeepSeek. Colour alone would
+				// not say which of the two warnings applies.
+				if (tool.paid) {
+					Text(
+						text = "paid",
+						style = MaterialTheme.typography.labelLarge,
+						color = MaterialTheme.colorScheme.secondary,
+					)
+				}
 			}
 		}
+
+		// Stated where the choice is made, not buried in a settings page: the
+		// user is picking capabilities here, and two of them are billed per
+		// call on the same DeepSeek account as the conversation.
+		Text(
+			text = "web_search and web_fetch call DeepSeek's official paid APIs: " +
+				"¥5 per 1,000 successful calls, billed by DeepSeek. " +
+				"Everything else runs on this device.",
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.outline,
+		)
 
 		if (showToolHelp) {
 			Text(

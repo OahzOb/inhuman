@@ -31,9 +31,11 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import com.inhuman.core.ai.tools.FetchProvider
 import com.inhuman.core.ai.tools.SearchProvider
 import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.ai.tools.TimeTool
+import com.inhuman.core.ai.tools.WebFetchTool
 import com.inhuman.core.ai.tools.WebSearchTool
 import com.inhuman.core.files.tools.FileTools
 import kotlinx.coroutines.Job
@@ -80,23 +82,26 @@ class ChatViewModel(
 	private val secure: SecureStore,
 	private val conversationId: String,
 	/**
-	 * Where `web_search` gets its answers, or null when none is configured.
+	 * Where the web tools get their answers, or null when none is configured.
 	 *
-	 * ## Why this is a constructor parameter and not a field with a default
+	 * ## Why these are constructor parameters and not fields with a default
 	 *
-	 * The provider has not been chosen. A null here is not an oversight waiting
-	 * to be filled in with a hardcoded vendor -- it is the seam. Wiring a
-	 * concrete service directly into the view model is the thing that would have
-	 * to be unpicked to change it, so the view model takes the interface and
-	 * stays ignorant of who implements it.
+	 * The providers are interfaces, and the concrete ones are chosen at the
+	 * wiring point. A null here is not an oversight waiting to be filled in with
+	 * a hardcoded vendor -- it is the seam. Wiring a service directly into the
+	 * view model is the thing that would have to be unpicked to change it.
 	 *
-	 * When nothing is passed the search tool is **not registered at all**, rather
-	 * than registered and always failing. The distinction matters: a model given
-	 * a tool that errors will retry it and end up telling the user that search is
+	 * When nothing is passed the tool is **not registered at all**, rather than
+	 * registered and always failing. The distinction matters: a model given a
+	 * tool that errors will retry it and end up telling the user that search is
 	 * broken, whereas a model without the tool will say it cannot search, which
 	 * is true.
+	 *
+	 * Search and fetch are separate seams because they are separate DeepSeek
+	 * APIs with different failure modes, and one can exist without the other.
 	 */
 	private val searchProvider: SearchProvider? = null,
+	private val fetchProvider: FetchProvider? = null,
 ) : ViewModel() {
 
 	private val _state = MutableStateFlow(ChatUiState())
@@ -1545,11 +1550,12 @@ class ChatViewModel(
 		return buildList {
 			addAll(fileTools)
 			add(TimeTool())
-			// Search is registered only when something can answer it. A tool that
-			// is present and always fails teaches the model that the tool is
-			// broken and it keeps retrying; one that is absent teaches it that it
-			// cannot search, and it says so.
+			// The web tools are registered only when something can answer them.
+			// A tool that is present and always fails teaches the model that the
+			// tool is broken and it keeps retrying; one that is absent teaches it
+			// that it cannot use it, and it says so.
 			searchProvider?.let { add(WebSearchTool(it)) }
+			fetchProvider?.let { add(WebFetchTool(it)) }
 		}.filter { ToolCatalog.permits(selected, it.name) }
 	}
 
@@ -1563,6 +1569,17 @@ class ChatViewModel(
 	private fun describeCall(call: ToolCallUi, args: JsonObject): String = when (call.displayName) {
 		"delete_file" -> "Delete ${stringArg(args, "path") ?: "a path"} from this conversation's folder?"
 		"write_file" -> "Write to ${stringArg(args, "path") ?: "a file"} in this conversation's folder?"
+		// Both are DeepSeek's paid APIs, and this sentence is shown only when a
+		// rule makes them ask -- which is exactly the moment the cost is worth
+		// repeating.
+		"web_search" -> "Search the web for \"${
+			stringArg(args, "query")?.take(80) ?: "a query"
+		}\"? (DeepSeek's paid Search API)"
+
+		"web_fetch" -> "Fetch ${
+			stringArg(args, "url")?.take(100) ?: "a URL"
+		}? (DeepSeek's paid Fetch API)"
+
 		else -> "Run ${call.displayName}?"
 	}
 

@@ -46,6 +46,9 @@ Confirmed by `README.md:17-29` and by the code:
 - Replies stream, with reasoning shown and a live token/usage breakdown.
 - The model **and the user** can read and write files in the conversation's
   folder; files can also be browsed, imported and exported.
+- The model can search the web and fetch a page through DeepSeek's paid Search
+  and Fetch APIs, using the same key as the conversation
+  ([03-ai-provider.md](03-ai-provider.md)).
 - Approval rules can tighten what the assistant may do, per tool, per assistant
   or per path; the default asks nothing, including for deletion
   ([09-approvals.md](09-approvals.md)).
@@ -109,9 +112,10 @@ other — see [06-agent-loop-ui.md](06-agent-loop-ui.md) and the long argument i
 
 ## The non-obvious thing most people get wrong first
 
-`web_search` is not an HTTP call to a search API. DeepSeek exposes no search
-endpoint; its web search is a **server-side tool** on the Anthropic-compatible
-Messages API, so one search costs a whole model turn
-(`core/ai/src/main/kotlin/com/inhuman/core/ai/provider/deepseek/DeepSeekSearchProvider.kt:18-48`).
-The full mechanism, including why the OpenAI-compatible endpoint returns 422 for
-it, is in [03-ai-provider.md](03-ai-provider.md).
+`web_search` and `web_fetch` are **DeepSeek's paid APIs**, not free helpers. Each
+is one HTTP request to `https://api.deepseek.com/v1/tools/...`, billed per
+successful call (¥5 per 1,000 at the time of writing) on the same account as the
+conversation. They are not model turns any more, and the app never opens a page
+itself: DeepSeek performs the search and the fetch, so the sandbox still has no
+network path of its own. The mechanism and the cost rules are in
+[03-ai-provider.md](03-ai-provider.md).

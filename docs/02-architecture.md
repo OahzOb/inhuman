@@ -70,19 +70,23 @@ ViewModels receive their dependencies through a hand-written
 else is invented; if you need a new dependency in a screen, add it to the
 factory call for that screen.
 
-### The search provider is built per conversation, with the key as a lambda
+### The web providers are built per conversation, with the key as a lambda
 
 ```kotlin
-searchProvider = DeepSeekSearchProvider(
+searchProvider = DeepSeekSearchApi(
+    apiKey = { secure.get(SecureStore.KEY_DEEPSEEK_API_KEY) },
+)
+fetchProvider = DeepSeekFetchApi(
     apiKey = { secure.get(SecureStore.KEY_DEEPSEEK_API_KEY) },
 )
 ```
 
-`MainActivity.kt:227-229`. The lambda is the point: a key captured at
-construction would be the one configured when the conversation opened, so a
-user who added a key afterwards would see "search failed" with nothing to
-suggest why, until they restarted. The same reasoning is repeated in
-`DeepSeekSearchProvider.kt:50-58`.
+`MainActivity.kt:236-252`. Both tools call DeepSeek's own paid APIs, so there is
+no second vendor and no second credential. The lambda is the point: a key
+captured at construction would be the one configured when the conversation
+opened, so a user who added a key afterwards would see "search failed" with
+nothing to suggest why, until they restarted. The same reasoning is repeated in
+both providers.
 
 ### Navigation is `when` over state, not a nav library
 
@@ -180,6 +184,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :core:data:testDebugUnitTest `
   :core:ai:testDebugUnitTest `
   :core:files:testDebugUnitTest `
+  :core:common:testDebugUnitTest `
   --console=plain --rerun-tasks
 ```
 
@@ -188,8 +193,8 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 warning output is empty as well as the error output: this tree compiles clean
 and that is worth keeping (`AGENTS.md`).
 
-One test is skipped by design: `DeepSeekSearchProviderLiveTest` talks to the
-real API and needs a key. Everything else runs on the JVM — including the file
+One test is skipped by design: `DeepSeekWebLiveTest` talks to the real Search and
+Fetch APIs and needs a key. Everything else runs on the JVM — including the file
 tests, which use a temp directory because unit tests in `:core:files` need real
 filesystem semantics (`core/files/build.gradle`, `testOptions`).
 

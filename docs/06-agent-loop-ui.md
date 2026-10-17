@@ -257,8 +257,10 @@ JSON is "practically useless", which is a doc-vs-code contradiction rather than 
 bug: the raw arguments are the one place a user can see what a call will actually
 do.
 
-`describeCall` only special-cases `delete_file` and `write_file`; everything else
-falls back to "Run <name>?" (`:1270-1274`).
+`describeCall` special-cases `delete_file`, `write_file`, `web_search` and
+`web_fetch`; the last two also carry "(DeepSeek's paid … API)", because an
+approval prompt is exactly the moment the cost is worth repeating. Everything
+else falls back to "Run <name>?" (`:1270-1280`).
 
 ### Tool rows
 

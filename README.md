@@ -45,23 +45,28 @@ be reached without an account.
 | `write_file` `append_file` `create_directory` `move_file` | change the workspace |
 | `delete_file` | deletes from the folder; asks first only if a rule says so |
 | `read_time` | the clock, in the device zone and UTC, plus date arithmetic |
-| `web_search` | DeepSeek's native search, no second vendor or key |
+| `web_search` | DeepSeek's paid Search API: one request, structured excerpts, no second key |
+| `web_fetch` | DeepSeek's paid Fetch API: one page as Markdown, no second key |
 
 A reply that used a tool which changed the workspace cannot be regenerated,
 because regenerating re-runs the turn and would write a second time. No
 rollback: the blast radius of a bad rollback is the user's files, whereas
 refusing to replay cannot corrupt anything.
 
-**Search is expensive and that is not a defect.** DeepSeek exposes no search
-endpoint — its web search is a *server-side tool*, so the model searches inside a
-model turn. One search therefore costs a whole turn in latency and tokens, and on
-a hard question the model will search several times as it narrows the query. A
-measured run took close to a minute. It needs no extra service and no extra key:
-the credential already configured for chatting is the one it uses, over the
-Anthropic-compatible endpoint where the tool is understood.
+**Search and fetch are paid, and that is why they are separate tools.** Both
+call DeepSeek's own APIs directly (`/v1/tools/search`, `/v1/tools/fetch`),
+billed by DeepSeek at ¥5 per 1,000 successful calls on the account the
+conversation already uses. A search is one request, not a model turn, so what
+comes back is a structured list rather than the model's summary of one; fetch is
+how the model reads a page that list pointed at. Failed and empty requests are
+not charged, and both tools are labelled **paid** wherever a tool is chosen. No
+second vendor and no second key: the credential already configured for chatting
+is the one they use.
 
 Search results are excerpts, not pages. The links are cleaned of campaign
-parameters before the model sees them, because it cites them back to the user.
+parameters before the model sees them, because it cites them back to the user;
+fetch returns Markdown and truncates very long pages with a visible marker
+rather than silently cutting them off.
 
 ### The context gauge, and what is not there
 

@@ -413,11 +413,6 @@ both numbers off the result.
 Fixed in this pass, each verified by reading the code rather than by the commit
 message:
 
-- `DeepSeekSearchProvider.DEFAULT_MODEL` was `"deepseek-v4-flash"`, which nothing
-  advertises; a live `GET /models` returns `deepseek-flash`, and
-  `DeepSeekModelsTest` pins that list. Now `"deepseek-flash"`
-  (`DeepSeekSearchProvider.kt:166`). The search path is never handed the
-  conversation's model, so this default was what it always used.
 - `ConversationDao.observeAll` and both `AgentDao` orderings gained `id ASC` as a
   tie-break (`InhumanDatabase.kt:25`, `:167`, `:170`). Two rows saved in the same
   millisecond compare equal on `updatedAt`, and SQLite may return them in either
@@ -492,7 +487,6 @@ staying as history.
 | `SessionWorkspace.kt:20-22`: "[root] is never exposed" | `rootPath()` exposes it (`:175-184`) — deliberately, for `StatFs`, with the argument written out. |
 | `SessionWorkspace.kt:26-33`: a symlink "can never be swapped in between the check and the open()" | The walk refuses to *traverse* links; nothing stops another same-UID writer creating one, and there is no re-check or `O_NOFOLLOW` at open. |
 | `WorkspaceDocumentsProvider.kt:207`: "A bare workspace id is a conversation" | The lookup underneath is `byId`, which matches the *conversation* id. See B6. |
-| `SearchProvider` in `WebSearchTool.kt:10`: "an interface with nothing behind it yet" | `DeepSeekSearchProvider` has been behind it since `b4e503f`. |
 | `Tool.kt:81-82`: "Anything that writes, deletes or reaches outside the workspace should override this" | **No tool overrides `needsApproval` to return true**, `delete_file` included — it returns `false` (`FileTools.kt:355`). The advice is now historical: approval is decided by the user's configured rules, and `needsApproval` survives as an unused "must always ask" hook. |
 | `AgentsScreen.kt:723-738`: "Hand-rolled rather than pulling in the FlowRow API" | It calls `androidx.compose.foundation.layout.FlowRow`. |
 | `ChatScreen.kt:419-422`: raw JSON is "practically useless" | The dialog prints the raw `argumentsJson` seven lines later (`:429-443`). |

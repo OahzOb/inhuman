@@ -7,16 +7,12 @@ import kotlinx.serialization.json.JsonObject
 /**
  * A source of web search results.
  *
- * ## Why this is an interface with nothing behind it yet
+ * ## Why this is an interface
  *
- * The provider has not been chosen, and choosing one is not a decision the code
- * should make quietly. What *is* settled is the shape: a search tool needs a
- * query, a result count, and results that carry a title, a URL and a snippet
- * the model can read without fetching the page.
- *
- * Making that an interface costs almost nothing now and avoids the usual
- * outcome of deferring it -- a tool wired directly to one vendor's JSON, which
- * then has to be unwound before a second one can be added.
+ * The app has one implementation today -- DeepSeek's Search API -- but the tool
+ * is written against this shape rather than against that JSON. A replacement or
+ * a second provider then does not have to touch the tool loop, and the tool's
+ * formatting can be tested against a fake instead of someone else's uptime.
  *
  * ## What a provider must guarantee
  *

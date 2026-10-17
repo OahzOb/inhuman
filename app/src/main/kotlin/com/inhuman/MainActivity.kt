@@ -16,7 +16,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.inhuman.core.ai.provider.deepseek.DeepSeekSearchProvider
+import com.inhuman.core.ai.provider.deepseek.DeepSeekFetchApi
+import com.inhuman.core.ai.provider.deepseek.DeepSeekSearchApi
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
@@ -233,18 +234,20 @@ private fun InhumanRoot() {
 						agents = agents,
 						secure = secure,
 						conversationId = id,
-						// Search runs on DeepSeek's own service, through the
-						// Anthropic-compatible endpoint where the native
-						// `web_search` server tool is understood. So there is no
-						// second vendor and no second credential: the key already
-						// configured for chatting is the one it uses.
+						// Both web tools call DeepSeek's own paid APIs: Search for
+						// results, Fetch for one page. No second vendor and no
+						// second credential -- the key already configured for
+						// chatting is the one they use.
 						//
 						// The key is passed as a function rather than a string.
 						// Captured at construction it would be whatever was
 						// configured when the conversation opened, so a user who
 						// added a key afterwards would get "search failed" with
 						// nothing to suggest why, until they restarted.
-						searchProvider = DeepSeekSearchProvider(
+						searchProvider = DeepSeekSearchApi(
+							apiKey = { secure.get(SecureStore.KEY_DEEPSEEK_API_KEY) },
+						),
+						fetchProvider = DeepSeekFetchApi(
 							apiKey = { secure.get(SecureStore.KEY_DEEPSEEK_API_KEY) },
 						),
 					)

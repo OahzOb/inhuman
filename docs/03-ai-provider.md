@@ -137,8 +137,7 @@ what the provider produced.
 (`DeepSeekRequest.kt:38`), and `ChatRequest.temperature` the same way
 (`DeepSeekRequest.kt:37`), but the app never sets either — grep the tree: the
 only assignments of `temperature`/`maxTokens` on a `ChatRequest` are the
-defaulted constructor parameters themselves, and the `max_tokens` the search
-provider sends is its own literal, not this field. That is half of why a
+defaulted constructor parameters themselves. That is half of why a
 conversation that reaches the context ceiling gets stuck
 (`README.md:81-88`). `userId` **is** set per conversation: DeepSeek uses it for
 KV-cache isolation and content-safety scoping, so one conversation's cache is
@@ -154,15 +153,15 @@ not shared with another (`ChatTypes.kt:152-159`).
 | --- | --- | --- |
 | Chat, streaming | `https://api.deepseek.com/chat/completions` (OpenAI-compatible) | `Authorization: Bearer <key>` |
 | Model list | `https://api.deepseek.com/models` | `Authorization: Bearer <key>` |
-| Web search | `https://api.deepseek.com/anthropic/v1/messages` (Anthropic-compatible) | `x-api-key` **and** `Authorization: Bearer` |
+| Web search | `https://api.deepseek.com/v1/tools/search` (Search API) | `Authorization: Bearer <key>` |
+| Web fetch | `https://api.deepseek.com/v1/tools/fetch` (Fetch API) | `Authorization: Bearer <key>` |
 
 `DeepSeekProvider.DEFAULT_BASE_URL` is `https://api.deepseek.com`
 (`DeepSeekProvider.kt:166`), and the chat POST is `"$baseUrl/chat/completions"`
 with `Authorization: Bearer` (`DeepSeekProvider.kt:68-69`);
-`DeepSeekSearchProvider.DEFAULT_BASE_URL` is `https://api.deepseek.com/anthropic/v1`
-(`DeepSeekSearchProvider.kt:157`), it appends `/messages`
-(`DeepSeekSearchProvider.kt:88`), and it sends both `x-api-key` and
-`Authorization: Bearer` (`DeepSeekSearchProvider.kt:92-93`).
+`DeepSeekSearchApi.DEFAULT_BASE_URL` and `DeepSeekFetchApi.DEFAULT_BASE_URL` are
+the same host (`DeepSeekSearchApi.kt`, `DeepSeekFetchApi.kt`), and they append
+`/v1/tools/search` and `/v1/tools/fetch` with the same bearer header.
 
 ### One shared OkHttp client, and why
 
@@ -371,110 +370,119 @@ Two special cases that exist for real reasons:
   Anything after the last user message is this turn's own work in progress
   (`DemoProvider.kt:131-146`).
 
-## `web_search`: DeepSeek's own server-side search
+## `web_search` and `web_fetch`: DeepSeek's paid APIs
 
-This is the part of the AI layer most often misunderstood, so it is worth being
-blunt about it.
+This section replaced the previous design on 2026-10-17, when DeepSeek opened its
+search engine as two ordinary JSON APIs. The history is worth one paragraph
+because it explains the shape of the code that replaced it.
 
-**DeepSeek exposes no search endpoint.** Its web search is a **server-side tool**
-on the Anthropic-compatible Messages API: the request declares
-`web_search_20250305`, the model decides to use it, the search happens on
-DeepSeek's side, and the results come back as content blocks. The app makes
-**one model call and reads the sources out of the reply**
-(`core/ai/src/main/kotlin/com/inhuman/core/ai/provider/deepseek/DeepSeekSearchProvider.kt:84-116`).
+Until then, search declared a **server-side tool** (`web_search_20250305`) on
+the Anthropic-compatible Messages API: one model call, sources returned as
+content blocks beside the model's prose. It worked, but one search cost a whole
+model turn, the results arrived mixed with text the app had to discard, and a
+DeepSeek feature was being parsed out of an Anthropic envelope. The direct APIs
+are one request each, return structured data, and are billed by request instead
+of by token.
 
-The consequences, in the order they surprise people:
+| Tool | Endpoint | Returns |
+| --- | --- | --- |
+| `web_search` | `POST https://api.deepseek.com/v1/tools/search` | a structured result list |
+| `web_fetch` | `POST https://api.deepseek.com/v1/tools/fetch` | one page as Markdown |
 
-1. **One search costs a whole model turn** in latency and tokens. It is not a
-   lookup; it is a conversation with one answer in it. A measured run took close
-   to a minute (`README.md:53-59`). On a hard question the model searches several
-   times as it narrows the query.
-2. **No second vendor and no second key.** The credential already configured for
-   chatting is the one it uses. `MainActivity` passes
-   `apiKey = { secure.get(SecureStore.KEY_DEEPSEEK_API_KEY) }` — a lambda, so a
-   key added after a conversation was opened is picked up
-   (`MainActivity.kt:227-229`, `DeepSeekSearchProvider.kt:50-58`, headers at
-   `:89-93`).
-3. **The Anthropic endpoint is required.** Declaring the server tool on
-   `/chat/completions` returns **HTTP 422**; it is only understood on
-   `/anthropic/v1/messages`. Declaring it there as an ordinary *function* tool is
-   accepted but does something different and useless: the model asks *this app*
-   to search, which is the thing there is no way to do
-   (`DeepSeekSearchProvider.kt:34-40`).
-4. **`max_uses` is a ceiling on the model's own judgement**, not a setting that
-   decides anything alone. Default 3 (`DeepSeekSearchProvider.kt:61-68`, sent at
-   `:137`).
-   DeepSeek exposes no result-count parameter, so the only way to honour
-   `maxResults` is to truncate the parsed list — and the caller is told the set
-   was trimmed because `WebSearchTool` compares the count against what it asked
-   for (`DeepSeekSearchProvider.kt:110-115`,
-   `core/ai/src/main/kotlin/com/inhuman/core/ai/tools/WebSearchTool.kt:144-145`).
-5. **The prose is discarded; only the structured blocks survive.**
-   `DeepSeekSearchResponse` keeps `web_search_tool_result` blocks and their
-   `web_search_result` items. The model writes a summary alongside the results
-   and it is *not* used: a result set is evidence, a paragraph around it is a
-   claim about that evidence produced by the same model the results are being
-   handed to. Passing both would let the caller cite a synthesis as a source
-   (`core/ai/src/main/kotlin/com/inhuman/core/ai/provider/deepseek/DeepSeekSearchResponse.kt:63-88`).
-   The alternative — regexing URLs out of the model's prose — produces citations
-   the model wrote rather than links the search returned, which is exactly the
-   failure where a citation looks authoritative and points nowhere.
-6. **Result URLs are stripped of tracking parameters** before the model sees
-   them (`DeepSeekSearchResponse.cleanUrl`). Not cosmetic: a live search for a
-   Kotlin release returned
-   `?via=Knowgenerativeai.com&utm_source=Knowgenerativeai.com&…`, and following
-   one tells a third party which query found them. Only parameters whose sole
-   purpose is tracking are dropped — `ref` and `source` are deliberately kept
-   because plenty of sites use them to select content, and breaking a working
-   link is the worse failure (`DeepSeekSearchResponse.kt:136-143`).
-7. **Snippets are cited text keyed by URL**, not nested in the result, and only
-   some results have any. Absent stays absent rather than becoming an empty
-   string, so "no excerpt" and "an empty excerpt" stay distinguishable
-   (`DeepSeekSearchResponse.kt:101-111`).
+Both take `Authorization: Bearer <key>` — the key already configured for
+chatting. There is no second vendor and no second credential.
 
-The OkHttp client here is separate from the chat provider's
-(`DeepSeekSearchProvider.defaultClient()`): connect 30s, **read 3 minutes**,
-write 30s. The default 10-second read timeout is regularly exceeded because a
-search is a whole model turn (`DeepSeekSearchProvider.kt:176-188`).
+### Cost
 
-One asymmetry between the two clients, stated because it is invisible otherwise:
-the chat client sets **`retryOnConnectionFailure(false)`**, the search client
-does **not** — it leaves OkHttp's default of `true` and sets no call timeout. A
-search is a read-only model turn whose worst case is paying for it twice, so a
-retried connection failure is tolerable there in a way it is not for a stream
-that may already have produced tokens.
+- **¥5 per 1,000 successful requests**, separately for Search and Fetch
+  (DeepSeek's published price on 2026-10-17). Only HTTP 200 responses with a
+  non-empty result/body are charged; failures, empty results and timeouts are
+  not.
+- DeepSeek's notice said server-side tool calls were free until 2026-11-01 and
+  would be billed after that. The direct APIs are billed from the first call.
+  Paying earlier was deliberate: the request is cheaper and faster than a model
+  turn, and the result is structured rather than synthesised prose.
+- The app cannot cap the bill. QPS is 5 per API per account, and the charges land
+  on the same DeepSeek account as the conversation.
+- Both tools are marked `paid` in `ToolCatalog`; the assistant editor shows a
+  `paid` badge and states the price, and the approval dialog repeats it when a
+  rule makes a call ask.
 
-### The tool wrapper
+### Search
+
+`DeepSeekSearchApi` (`core/ai/src/main/kotlin/com/inhuman/core/ai/provider/deepseek/DeepSeekSearchApi.kt`)
+sends:
+
+```json
+{"query": "...", "count": 5, "need_content": false}
+```
+
+- `count` is 1–50 in the API; the tool's `max_results` is clamped to 10 and
+  defaults to 5 (`WebSearchTool`).
+- `need_content` is **false**. Results carry a 600–800 character `summary`
+  written for a model; fetching the full body of every result would spend the
+  context before the model knows which page matters. `web_fetch` exists for the
+  one page that does.
+- The parser prefers `summary` over `snippet`, maps `date` to `publishedAt`, and
+  de-duplicates by URL after cleaning.
+- `cleanUrl` drops tracking parameters (`utm_*`, `gclid`, `via`, …) and keeps
+  unknown ones such as `page` or `ref`, because a removed meaningful parameter
+  breaks a working link. A live response also returned URLs with **HTML-escaped
+  `&amp;` separators**; without decoding those first, every parameter is named
+  `amp;utm_...`, matches no rule, and the tracking survives into what the model
+  cites. A unit test pins the decode, and the live test is what found it.
+- Non-2xx becomes an `IOException` carrying the status and the first 300
+  characters of the body — 402 is balance, 429 is QPS, and both are actionable.
+
+### Fetch
+
+`DeepSeekFetchApi` sends `{"url": "..."}` and receives `{"title": ..., "content":
+...}` where `content` is Markdown.
+
+- Only absolute `http`/`https` URLs, no credentials, at most 8192 characters.
+  Validation happens before the request, so an invalid URL is a free local error
+  rather than a paid round trip.
+- `WebFetchTool` caps the Markdown at **20,000 characters** and appends
+  `[truncated at 20000 characters]`. A clean ending would make a truncated page
+  look complete.
+- Blank content is an error, not a successful fetch of an empty page.
+- **The app never opens the page.** DeepSeek performs the request; the sandbox
+  still has no network path of its own, and a URL cannot make the device fetch
+  anything.
+
+### The tool wrappers
 
 `WebSearchTool` (`core/ai/src/main/kotlin/com/inhuman/core/ai/tools/WebSearchTool.kt`)
-is what the model calls, and `SearchProvider` is the seam behind it — an
-interface with one implementation, written before the provider was chosen so
-that the first implementation could not be wired directly to one vendor's JSON.
-`max_results` defaults to 5 and is clamped to the tool's own limit
-(`WebSearchTool.kt:119-122`, limit at `:72`). An empty result set says "No results for …"
-plainly, because a model that receives silence tends to search again with the
-same query (`WebSearchTool.kt:126-129`).
+formats results with title, URL, optional date and excerpt, says out loud when
+fewer results came back than were requested, and treats an empty list as a real
+answer ("No results for …") rather than an error. `WebFetchTool`
+(`tools/WebFetchTool.kt`) puts the title, the URL and the body in that order and
+uses the same error contract.
 
-**`web_search` is registered only when a provider exists**
-(`ChatViewModel.kt:1255-1260`). A tool that is present and always fails teaches
-the model that the tool is broken and it keeps retrying; one that is absent
-teaches it that it cannot search, and it says so.
+**Both tools are registered only when their provider exists**
+(`ChatViewModel.buildTools`). A tool that is present and always fails teaches the
+model that it is broken and it keeps retrying; an absent tool teaches it that it
+cannot do that, and it says so.
 
-### A live inconsistency worth knowing before it bites
+### What is not here
 
-`DeepSeekSearchProvider.DEFAULT_MODEL` is **`"deepseek-v4-flash"`**
-(`DeepSeekSearchProvider.kt:156`). The id from a live `GET /models` is
-**`deepseek-flash`** — `deepseek-v4-flash` does not appear in the provider's
-model list, and the display name is `DeepSeek-V4.1-Flash`
-(`DeepSeekModelsTest.kt:38-41`). The search provider shares no model constant
-with the chat provider: it has its own default (`DeepSeekSearchProvider.kt:59`)
-and is never passed the conversation's chosen model — the only construction in
-the app, `MainActivity.kt:227-229`, passes the key and nothing else.
-`GitHub`-style naming aside, `search` will send
-`deepseek-v4-flash` on `/anthropic/v1/messages` and the outcome depends on
-whether that endpoint accepts an alias the OpenAI-compatible `/models` list does
-not advertise. This is a one-line change if search starts failing with a 400
-naming the model — check here first.
+- No HTML parsing or readability pass in the app: DeepSeek returns Markdown.
+- No page cache: every fetch is a new paid call, including fetching the same URL
+  twice.
+- No streaming fetch: it is one response, capped and returned whole.
+
+### The live test
+
+`DeepSeekWebLiveTest` is skipped unless `DEEPSEEK_LIVE_KEY` is set, because it
+spends money on one search and one fetch. Run deliberately:
+
+```powershell
+$env:DEEPSEEK_LIVE_KEY = 'sk-...'
+.\gradlew.bat :core:ai:testDebugUnitTest --tests '*DeepSeekWebLiveTest'
+```
+
+It checks the request shape that fixtures cannot, and it is what caught the
+`&amp;` URL-encoding issue above.
 
 ## The tool catalogue
 
@@ -497,14 +505,14 @@ collapsing them would make one impossible to express (`ToolCatalog.kt:66-74`).
 `allSelection()` returns `null` for "select all" so that a later release adding
 a tool gives it to assistants that had chosen everything.
 
-The 10 tools and their `mutates` flags are tabulated in
+The 11 tools and their `mutates` flags are tabulated in
 [05-files-sandbox.md](05-files-sandbox.md) and
 [01-overview.md](01-overview.md).
 
 ## Tests in this module
 
 All JVM, no device. The one that needs a live key and is skipped by design is
-`DeepSeekSearchProviderLiveTest`.
+`DeepSeekWebLiveTest` (one search and one fetch, both paid).
 
 | Test | Locks in |
 | --- | --- |
@@ -513,8 +521,10 @@ All JVM, no device. The one that needs a live key and is skipped by design is
 | `CallbackFlowFailureDeliveryTest` | **The failure-before-close ordering**, because the rule is a fact about the coroutines library |
 | `DeepSeekModelsTest` | A fixture copied from a live `/models`: ids vs names, vision flags, wrongly-typed fields becoming null |
 | `DeepSeekImageRequestTest` | The `image_url`-as-object shape |
-| `DeepSeekSearchResponseTest` | Block/item parsing, URL de-duplication, tracking-parameter removal |
+| `DeepSeekSearchApiTest` | Result parsing, summary-over-snippet, date handling, URL de-duplication, tracking-parameter removal including `&amp;` |
+| `DeepSeekFetchApiTest` | URL validation (scheme, host, credentials, length) and page parsing |
 | `WebSearchToolTest` | The tool against a fake provider: count, empty result, failure text |
+| `WebFetchToolTest` | Title/URL/body format, truncation marker, missing URL, provider failure |
 | `TimeToolTest` | Zone handling and date arithmetic |
 | `ToolCatalogTest` | null vs empty, renamed tools, ordering (reads before writes) |
 | `DemoProviderTest` | The scripted turn, including that it only calls tools it was offered |

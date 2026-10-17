@@ -130,4 +130,13 @@ class ToolCatalogTest {
 			mutating,
 		)
 	}
+
+	@Test
+	fun `the deepseek web tools are marked paid`() {
+		// The marker is a cost warning, not a capability one: these tools are
+		// read-only but they spend money at DeepSeek on every successful call.
+		val paid = ToolCatalog.all.filter { it.paid }.map { it.name }.toSet()
+		assertEquals(setOf("web_search", "web_fetch"), paid)
+		assertFalse(ToolCatalog.all.first { it.name == "web_fetch" }.mutates)
+	}
 }

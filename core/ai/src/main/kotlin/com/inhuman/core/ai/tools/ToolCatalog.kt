@@ -39,6 +39,15 @@ object ToolCatalog {
 		 * name.
 		 */
 		val mutates: Boolean,
+		/**
+		 * Whether using it spends money at a third party.
+		 *
+		 * Surfaced in the picker and in the approval rules because the cost is
+		 * real and invisible otherwise: these tools call DeepSeek's own paid
+		 * APIs, and the bill arrives on the same account as the conversation.
+		 * A tool that is merely read-only is not automatically free.
+		 */
+		val paid: Boolean = false,
 	)
 
 	/**
@@ -53,7 +62,18 @@ object ToolCatalog {
 		Entry("read_file", "Read a file from the folder", mutates = false),
 		Entry("file_info", "Size and modified date of a file", mutates = false),
 		Entry("read_time", "The current date and time, and date arithmetic", mutates = false),
-		Entry("web_search", "Search the web and read excerpts", mutates = false),
+		Entry(
+			"web_search",
+			"Search the web via DeepSeek's paid Search API",
+			mutates = false,
+			paid = true,
+		),
+		Entry(
+			"web_fetch",
+			"Fetch a page via DeepSeek's paid Fetch API",
+			mutates = false,
+			paid = true,
+		),
 		Entry("write_file", "Create or replace a file", mutates = true),
 		Entry("append_file", "Add to the end of a file", mutates = true),
 		Entry("create_directory", "Make a folder inside the folder", mutates = true),

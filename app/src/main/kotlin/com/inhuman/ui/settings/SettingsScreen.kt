@@ -398,6 +398,13 @@ private fun ApprovalRulesSection(
 			style = MaterialTheme.typography.bodyMedium,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
+		Text(
+			text = "web_search and web_fetch call DeepSeek's official paid APIs " +
+				"(¥5 per 1,000 successful calls, billed by DeepSeek). Everything " +
+				"else runs on this device.",
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.outline,
+		)
 
 		for (entry in ToolCatalog.all) {
 			val current = rules[entry.name] ?: ToolPolicy.Free

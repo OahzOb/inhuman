@@ -31,9 +31,9 @@ and a future session that trusts them will start from a false premise:
 | "the chat screen applies [the cap] to the transcript *and* to the composer strip" | `AGENTS.md:63-70` | True of the composer strip and the error row only. Bubbles are capped but aligned to the start/end inside a full-width item, so on a tablet they do not share the composer's axis. Carries an in-place correction. |
 | "`writeText` is wrapped in `NonCancellable`" | `AGENTS.md:151` (now corrected) | It is the row insert at `ChatViewModel.kt:1040`, not the tool-layer `writeText`. |
 
-The tool table at `README.md:40-46` is fine and is worth trusting: ten rows,
-`read_time` and `web_search` included. What has drifted is the *prose* around
-mechanisms rather than the lists.
+The tool table at `README.md:42-49` is worth trusting: eleven tools, including
+`read_time`, `web_search` and `web_fetch`. What has drifted is the *prose*
+around mechanisms rather than the lists.
 
 The pattern is worth naming, because it is the one thing this docs set exists to
 prevent: **a description of a mechanism outlives the mechanism.** When a count, a
@@ -48,7 +48,7 @@ citation.
 | --- | --- |
 | [01-overview.md](01-overview.md) | What is this, which module holds what, what does the app actually do today, what is deliberately missing |
 | [02-architecture.md](02-architecture.md) | Module graph, dependency rule, how the app is wired at start-up, navigation, build toolchain, build/verify commands |
-| [03-ai-provider.md](03-ai-provider.md) | The provider interface and stream types, the DeepSeek adapter, SSE decoding, demo mode, `web_search` and **how search really works** |
+| [03-ai-provider.md](03-ai-provider.md) | The provider interface and stream types, the DeepSeek adapter, SSE decoding, demo mode, `web_search`/`web_fetch` and **the paid APIs behind them** |
 | [04-data-persistence.md](04-data-persistence.md) | Room schema and its 8 versions, repositories, ordering rules, API-key storage, `DocumentsProvider`, orphan sweeps |
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the 8 file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | The turn lifecycle, tool-call execution, the approval gate, cancellation, context gauge, Compose layout rules |
@@ -106,13 +106,13 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :app:testDebugUnitTest --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 260 tests in 26 suites, 0 failures, 1 skipped** — the skip is
-`DeepSeekSearchProviderLiveTest`, which talks to the real API and needs
-`DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
+**BUILD SUCCESSFUL, 278 tests in 28 suites, 0 failures, 1 skipped** — the skip is
+`DeepSeekWebLiveTest`, which talks to the real paid Search and Fetch APIs and
+needs `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 
 | Module | Suites | Tests |
 | --- | --- | --- |
-| `:core:ai` | 14 | 149 (1 skipped) |
+| `:core:ai` | 16 | 167 (1 skipped) |
 | `:core:files` | 5 | 56 |
 | `:app` | 3 | 26 |
 | `:core:common` | 2 | 16 |
@@ -166,7 +166,7 @@ throughout.
 | A path becoming a `File`; the confinement rules | `core/files/…/SessionWorkspace.kt` |
 | Import/export and name collisions | `core/files/…/WorkspaceTransfer.kt` |
 | HTTP, SSE, the decoder, model list, chat request shape | `core/ai/src/main/kotlin/com/inhuman/core/ai/provider/deepseek/` |
-| `web_search` — the server tool, the endpoint, URL cleaning | `provider/deepseek/DeepSeekSearchProvider.kt`, `DeepSeekSearchResponse.kt` |
+| `web_search` / `web_fetch` — the paid APIs, response parsing, URL cleaning | `provider/deepseek/DeepSeekSearchApi.kt`, `DeepSeekFetchApi.kt`, `tools/WebFetchTool.kt` |
 | Demo mode's script and its magic words | `provider/demo/DemoProvider.kt` |
 | What was recorded before a bug, and how to get the log | `core/common/src/main/kotlin/com/inhuman/core/common/diag/`, `app/src/main/kotlin/com/inhuman/diagnostics/AppDiagnostics.kt` |
 | Tables, queries, ordering, migrations | `core/data/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`, `db/Entities.kt` |

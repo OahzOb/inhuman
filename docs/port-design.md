@@ -70,16 +70,18 @@
 | 要 | 理由 |
 | --- | --- |
 | `read` `write` `edit` | 已有等价物（`read_file`/`write_file`），**保留现有的** |
-| `web_search` `web_fetch` | 已有 `web_search`；**`web_fetch` 缺失且重要**（见 §3.1） |
+| `web_search` `web_fetch` | 两个都已实现：`web_search` 走 DeepSeek Search API，`web_fetch` 走 DeepSeek Fetch API，均按成功调用付费（¥5/千次） |
 | `pwsh` / `bash` | **不要**——Android 无 shell，且现有工具的收敛路径正确 |
 | `todo` `goal` | 要，但排在会话日志之后 |
 | `subagent` `workflow` | 要，但依赖运行时稳定之后 |
 | `present` `jobs` `skill` `mcp` `str_replace_editor` | 暂不要，各有前置 |
 
-### 3.1 `web_fetch` 是缺口，而不是可选项
+### 3.1 `web_fetch` 曾经是缺口
 
 上一轮的会话数据：46 次工具调用里 **42 次是 `web_search`**。那个会话的失败形态是
 模型反复换关键词、每次一个模型轮次。DSH 有 `web_fetch`——搜到链接后**去读那一页**。
+这个缺口已经在 2026-10-17 补上（DeepSeek 开放 Fetch API 之后），下面的论证保留为
+当时的依据。
 
 对"查官方规格"这类任务，`web_search` 给的是俄语新闻稿和百度知道，而 `web_fetch`
 能让模型直接打开厂商页面。**这不是锦上添花，是当前失败模式的直接解药之一。**
@@ -255,7 +257,7 @@ DSH 自己写着 *"No built-in turn budget"*。所以**不加轮次上限**是�
 | **P2** | 工具管线：超时预算、并行/独占分类 | 搜索挂住时整轮不再卡死；超时给模型明确错误 |
 | **P3** | UI 改读投影 | 对话页从 `ChatUiState` 切到 `project(events)`，行为不变 |
 | **P4** | 旧 schema 迁移 | 真实设备上的 v7 → 事件日志，一次性且可回滚 |
-| **P5** | `web_fetch` + token meter + 压缩 | 对齐全 §4 的四条语义 |
+| **P5** | token meter + 压缩（`web_fetch` 已接，见 §3.1） | 对齐全 §4 的四条语义 |
 
 **P0 是唯一的地基**，也是唯一天然适合先做的：它能独立测试，不依赖运行时，
 而且做完之后 P3/P4 的形态就定了。
