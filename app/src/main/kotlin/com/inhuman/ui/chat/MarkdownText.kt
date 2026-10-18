@@ -34,23 +34,24 @@ import kotlinx.coroutines.channels.Channel
  * The renderer ships a genuinely incremental path for exactly this --
  * `StreamingMarkdownStateImpl`, which appends into an
  * `org.intellij.markdown.parser.StreamingMarkdownFile` and only reparses from
- * the last *stable* block boundary. It consumes a `Flow<String>` of **deltas**;
- * `collectAsStreamingMarkdownState` appends every emission with no inspection,
- * so feeding it the accumulated text would duplicate it. That is the whole
- * reason the view model now publishes a delta flow alongside the text it keeps
- * for persistence: the text is what gets stored, the deltas are what gets
- * parsed.
+ * the last *stable* block boundary. Its `append` does not compare against what
+ * it already holds. The app therefore sends accumulated answer snapshots,
+ * passes them through [DeltaCursor], and appends only the missing suffix. That
+ * makes a late first composition and a queued snapshot safe: replaying an older
+ * snapshot yields nothing, while a new one yields exactly the new text.
  *
- * A message loaded from the database has no deltas and never will -- there is
+ * A message loaded from the database has no stream and never will -- there is
  * nothing to be incremental about, because it arrives complete and is parsed
  * once. So the two cases take the two paths, and the choice is made by whether
  * [deltas] is present.
  *
- * The switch happens once per reply, when the stream ends: the incremental
- * state holds exactly the text that was appended, so the plain renderer
- * produces the same document and the swap is not visible. That is a claim about
- * two renderers agreeing, so it is one of the things to look at on a device
- * rather than to assume.
+ * The switch does **not** happen at the end of the stream. Clearing [deltas]
+ * there created a blank frame: the plain path parses asynchronously, so the new
+ * state has nothing to draw for one composition. The finished reply keeps its
+ * streaming state -- its content is already the final document and the channel
+ * is closed -- until the row is rebuilt from the database (reopen, branch
+ * switch, reload). A database row has no deltas and takes the plain path once,
+ * before anything is on screen.
  *
  * ## Deliberately absent
  *
@@ -125,17 +126,17 @@ fun MarkdownText(
 			// in both directions: `DeltaCursor` only ever emits what the
 			// renderer does not already have, so text that has already been
 			// appended produces nothing, and text that has not produces exactly
-			// the missing part. Without it, everything received before the
-			// rebuild was permanently lost from the bubble -- the deltas still
-			// to arrive carry only the *new* text, and `text` was ignored
-			// entirely while `deltas != null`.
+			// the missing part. The queued snapshots are reconciled the same
+			// way, so overlapping catch-up does not duplicate a prefix.
 			appended.next(text)?.let { streaming.append(it) }
 
 			// Sequential and lossless: `append` suspends, so the loop cannot
-			// run ahead of the parser, and `Channel` iteration delivers every
-			// value in order without dropping any.
-			for (delta in deltas) {
-				streaming.append(delta)
+			// run ahead of the parser. The channel carries accumulated
+			// snapshots, not slices, so a value that arrived before the first
+			// composition is reconciled by `DeltaCursor` instead of being
+			// appended twice.
+			for (snapshot in deltas) {
+				appended.next(snapshot)?.let { streaming.append(it) }
 			}
 		}
 		// Positional, not named: the m3 artifact carries four `Markdown`

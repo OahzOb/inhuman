@@ -688,6 +688,8 @@ two current group manifests.
 
 ### B21. The transcript flashed when the reply completed
 
+Two independent causes, found in sequence.
+
 The completion path called `reload()` after the last token. `reload` re-reads
 every row and replaces the whole `messages` list, so the streamed row was
 swapped for an equal reconstructed row and the LazyColumn re-laid out -- a
@@ -701,6 +703,23 @@ regeneration also avoids `reload`: it fetches the new reply's branch metadata
 with `refreshReplyBranches()` and patches that one row. A full `reload` remains
 for paths that genuinely replace the tree (initial load, branch switch,
 rewind).
+
+After that fix the regenerate path still flashed. The remaining switch was
+`deltas = null`: it handed the finished message to `rememberMarkdownState`,
+which parses asynchronously. For one composition the new state was empty and
+the reply disappeared. The completed message now keeps its closed streaming
+channel and its `StreamingMarkdownState`; the plain parser is used only when a
+row is rebuilt from the database, before it is drawn. `MarkdownText`'s claim
+that the swap is invisible was the comment that was the bug.
+
+Keeping the streaming state exposed a latent duplicate in the delta protocol.
+When the first composition landed after the first token, the catch-up appended
+the accumulated `text` and the still-queued first delta was appended again:
+the reply read `HiHi there!`. The channel now carries accumulated snapshots
+(conflated) rather than slices; `DeltaCursor` decides the missing suffix, so a
+late catch-up and a queued snapshot reconcile instead of overlapping. Verified
+after a regenerate: the reply read `Hi there!`, not `HiHi`. The branch switcher
+still showed `3 of 3` without a reload.
 
 ### B22. Rewind deleted the user row's descendants but kept the user row
 

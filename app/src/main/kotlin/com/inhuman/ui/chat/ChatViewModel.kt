@@ -154,35 +154,25 @@ class ChatViewModel(
 	private var contextWindow: Int? = null
 
 	/**
-	 * Deltas for the answer currently arriving, keyed by message id.
+	 * Answer snapshots for the reply currently arriving, keyed by message id.
 	 *
-	 * ## Why a channel, and why only the answer
+	 * ## Why snapshots and not deltas
 	 *
-	 * The Markdown renderer's incremental parser is fed a `Flow<String>` and
-	 * appends every emission verbatim -- it does not compare against what it
-	 * already holds. Feeding it the accumulated text would therefore duplicate
-	 * the whole reply on every tick, so it has to be given only the *new* text,
-	 * which is what lets it reparse from the last stable block rather than from
-	 * the start.
+	 * The incremental renderer appends whatever it is given. The previous
+	 * protocol sent only the new slice. That is correct for a collector that
+	 * started before the first slice, but not when the first composition lands
+	 * after one: the catch-up appended the accumulated text and the queued
+	 * first slice was appended again, producing `HiHi there!`. A conflated
+	 * channel carrying the **accumulated answer** lets `DeltaCursor` decide the
+	 * missing suffix; replaying an older snapshot is a no-op.
+	 *
+	 * Conflated is enough because the accumulated text is also in the message
+	 * state and the cursor catches up from it. If the renderer falls behind,
+	 * the latest snapshot is the one that matters; no text is lost because it
+	 * contains every earlier slice.
 	 *
 	 * Only the answer gets one. Reasoning is rendered as plain dimmed text in
-	 * its own collapsed section, never as Markdown, so a reasoning delta
-	 * appended to this stream would be parsed as part of the answer and then
-	 * vanish when the reply completed.
-	 *
-	 * A `Channel` rather than a `MutableSharedFlow`: this must not drop values.
-	 * A reply is appended to at human speed so the buffer stays tiny, and a
-	 * shared flow with a small buffer would silently lose text the moment the
-	 * renderer fell behind.
-	 *
-	 * ## Why the consumer iterates the channel
-	 *
-	 * `receiveAsFlow` exists in the coroutines artifact but does not resolve
-	 * from this module's Kotlin metadata -- the same gap that hides
-	 * `collectAsStreamingMarkdownState` in the Markdown library and makes
-	 * `Channel` look like it is not a `Flow`. `Channel` is iterable and
-	 * `receiveAsFlow` is a thin wrapper over exactly that iteration, so the
-	 * consumer loop is the same mechanism with one less layer.
+	 * its own collapsed section, never as Markdown.
 	 */
 	private val replyDeltas = mutableMapOf<String, Channel<String>>()
 
@@ -1469,7 +1459,7 @@ class ChatViewModel(
 		// Registered before the row exists, because the row's first render
 		// already needs it: a reply that appeared with no deltas and gained
 		// them a moment later would parse its first slice twice.
-		val deltas = Channel<String>(Channel.UNLIMITED)
+		val deltas = Channel<String>(Channel.CONFLATED)
 		replyDeltas[replyId] = deltas
 
 		_state.update {
@@ -1682,9 +1672,10 @@ class ChatViewModel(
 			// here is what makes the throttle non-lossy.
 			publishParts(replyId, reasoning, answer, calls, cursor, answerAfterCalls)
 			finishedCalls = calls.values.toList()
-			// The reply is done arriving, so it stays parsed from the plain
-			// renderer from here on -- and the channel is dropped so an
-			// abandoned collector cannot keep this reply's map entry alive.
+			// The channel is removed from the live map and closed. The message
+			// keeps its reference so the streaming renderer can settle on the
+			// final text without the blank frame a switch to the asynchronous
+			// plain parser caused; a later reload rebuilds the row without it.
 			replyDeltas.remove(replyId)?.close()
 			// Captured here, while the coroutine can still say whether it was
 			// cancelled: by the time the writes below have run, being inside
@@ -1708,17 +1699,14 @@ class ChatViewModel(
 				null
 			}
 			// `deltas = null` is the switch the renderer's documentation
-			// describes and nothing performed: while it is non-null the reply
-			// renders through the incremental parser, and `text` is ignored.
-			// Clearing it here hands the finished reply to the plain renderer,
-			// whose content is the same document -- so the swap is not visible,
-			// and the last parse is a real one rather than a stream that never
-			// ends. `replyDeltas.remove` below drops the channel, but the field
-			// was captured into the message when it was built, so removing the
-			// map entry alone left the reply on the streaming path for the rest
-			// of the session.
+			// describes, but performing it here produced a blank frame: the
+			// plain renderer parses asynchronously, so for one composition the
+			// new state had nothing to draw and the finished reply blinked.
+			// Keep the streaming state -- its content is already the final
+			// document and the channel is closed -- until the row is rebuilt
+			// from the database (reopen, branch switch, reload).
 			updateMessage(replyId) {
-				it.copy(isStreaming = false, finishReason = finish, usage = usage, deltas = null)
+				it.copy(isStreaming = false, finishReason = finish, usage = usage)
 			}
 			// The gauge moves here rather than at the end of the turn, because
 			// this is the moment the provider's count for this prompt exists --
@@ -2761,7 +2749,12 @@ class ChatViewModel(
 		// delivered exactly once -- re-sending a prefix duplicates the reply and
 		// skipping a slice loses text, and neither is visible after the stream
 		// has ended.
-		cursor.next(answer.toString())?.let { delta -> replyDeltas[id]?.trySend(delta) }
+		// The channel carries accumulated snapshots, not slices; see
+		// replyDeltas. Sending the full answer is what makes a late first
+		// collector and an already-queued value safe to reconcile.
+		cursor.next(answer.toString())?.let { _ ->
+			replyDeltas[id]?.trySend(answer.toString())
+		}
 	}
 
 	private fun updateMessage(id: String, transform: (ChatMessageUi) -> ChatMessageUi) {
