@@ -189,12 +189,17 @@ fun ChatScreen(
 		.collectAsStateWithLifecycle(0)
 	val isStreaming by viewModel.state.map { it.isStreaming }.collectAsStateWithLifecycle(false)
 	val sshAllowed by viewModel.state.map { it.sshAllowed }.collectAsStateWithLifecycle(false)
+	val rollbackAvailable by viewModel.state
+		.map { it.rollbackAvailable }
+		.collectAsStateWithLifecycle(false)
+	val rollbackBlockedReason by viewModel.state
+		.map { it.rollbackBlockedReason }
+		.collectAsStateWithLifecycle(null)
 	val pendingSshConsent by viewModel.state
 		.map { it.pendingSshConsent }
 		.collectAsStateWithLifecycle(null)
 	var showChatMenu by remember { mutableStateOf(false) }
 	var rollbackTarget by remember { mutableStateOf<ChatMessageUi?>(null) }
-	var rollbackIrreversible by remember { mutableStateOf(false) }
 
 	// Reported upward so the app's single Back handler knows a dialog is up.
 	// Both this and the approval gate are transient questions that Back should
@@ -447,20 +452,11 @@ fun ChatScreen(
 							isLastAssistantMessage = !message.fromUser && !message.isToolResult &&
 								message.id == lastAssistantId,
 							isLastUserMessage = message.fromUser && message.id == lastUserId,
+							canRollback = rollbackAvailable,
+							rollbackBlockedReason = rollbackBlockedReason,
 							isStreaming = isStreaming,
 							onRegenerate = viewModel::regenerate,
-							onRollback = {
-								rollbackTarget = message
-								rollbackIrreversible = messages
-									.dropWhile { it.id != message.id }
-									.any { later ->
-										later.toolCalls.any { call ->
-											ToolCatalog.all
-												.firstOrNull { it.name == call.displayName }
-												?.reversible == false
-										}
-									}
-							},
+							onRollback = { rollbackTarget = message },
 							// Both ids go up: the alternative being switched to is
 							// not on the active path, so the view model cannot find
 							// its parent by searching the transcript.
@@ -651,18 +647,11 @@ fun ChatScreen(
 							"puts the text back in the composer so you can edit it.",
 					)
 					Text(
-						"Files already changed in this conversation's folder stay changed.",
+						"The conversation's folder is restored to how it was before " +
+							"this message. Files changed after that point are lost too.",
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
-					if (rollbackIrreversible) {
-						Text(
-							"SSH commands in this turn already ran. Rewinding the " +
-								"conversation does not undo anything on the remote machine.",
-							style = MaterialTheme.typography.bodySmall,
-							color = MaterialTheme.colorScheme.error,
-						)
-					}
 				}
 			},
 			confirmButton = {
@@ -1004,6 +993,8 @@ private fun MessageBubble(
 	message: ChatMessageUi,
 	isLastAssistantMessage: Boolean,
 	isLastUserMessage: Boolean,
+	canRollback: Boolean,
+	rollbackBlockedReason: String?,
 	isStreaming: Boolean,
 	onRegenerate: () -> Unit,
 	onRollback: () -> Unit,
@@ -1241,12 +1232,21 @@ private fun MessageBubble(
 		// turn". It restores the text and attachments to the composer; the
 		// view model deletes the message and everything below it.
 		if (isLastUserMessage && !isStreaming) {
-			TextButton(
-				onClick = onRollback,
-				contentPadding = PaddingValues(horizontal = 8.dp),
-				modifier = Modifier.padding(top = 2.dp),
-			) {
-				Text("Edit", style = MaterialTheme.typography.labelLarge)
+			if (canRollback) {
+				TextButton(
+					onClick = onRollback,
+					contentPadding = PaddingValues(horizontal = 8.dp),
+					modifier = Modifier.padding(top = 2.dp),
+				) {
+					Text("Edit", style = MaterialTheme.typography.labelLarge)
+				}
+			} else if (rollbackBlockedReason != null) {
+				Text(
+					text = rollbackBlockedReason,
+					style = MaterialTheme.typography.labelLarge,
+					color = MaterialTheme.colorScheme.outline,
+					modifier = Modifier.padding(top = 4.dp),
+				)
 			}
 		}
 	}

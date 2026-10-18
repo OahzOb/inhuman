@@ -42,6 +42,10 @@ data class ChatUiState(
 	val pendingSshConsent: SshConsent? = null,
 	/** Whether this conversation may run ssh_exec without asking again. */
 	val sshAllowed: Boolean = false,
+	/** Whether the last user turn can be rewound safely. */
+	val rollbackAvailable: Boolean = false,
+	/** Why [rollbackAvailable] is false, when it is. */
+	val rollbackBlockedReason: String? = null,
 	/**
 	 * The model chosen for this conversation, or null to follow the assistant.
 	 *

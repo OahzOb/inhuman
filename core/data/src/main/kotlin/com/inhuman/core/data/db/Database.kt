@@ -107,4 +107,15 @@ object Database {
 	/** The workspace directory for one conversation. */
 	fun workspaceDir(context: Context, workspaceId: String): File =
 		File(workspacesRoot(context), workspaceId)
+
+	/**
+	 * Rollback snapshots live outside `conversations/`: they are not workspace
+	 * content, must not appear in Files, and restoring one must not be able to
+	 * recurse into the snapshot itself.
+	 */
+	fun rollbackRoot(context: Context): File =
+		File(context.filesDir, "rollback").apply { mkdirs() }
+
+	fun rollbackDir(context: Context, conversationId: String): File =
+		File(rollbackRoot(context), conversationId)
 }

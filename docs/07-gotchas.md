@@ -604,6 +604,31 @@ Verified on the pad during a live thinking answer: no jump button appeared while
 the accordion expanded, a manual swipe up held its position for five seconds of
 continued streaming, and the jump button restored follow.
 
+### B18. Rollback deleted the turn but left tool effects behind — **FIXED**
+
+The first rollback implementation was transcript-only: Edit deleted the user
+message and descendants and restored the composer, but files written by the turn
+stayed written and SSH commands stayed run. That is not a rollback; it is
+hiding the evidence. The correction is structural:
+
+- before the first **reversible mutating** tool of a turn, copy the workspace to
+  `filesDir/rollback/<conversation>/<last-user-id>`; if the copy fails, refuse
+  the mutation;
+- rollback restores that snapshot **before** deleting any rows; a failed restore
+  leaves the conversation intact;
+- `ssh_exec` is tagged `reversible = false`; a turn containing it gets no Edit,
+  only the reason. Regeneration is still available and tool-less.
+
+Snapshots are one per conversation, replaced on the next send and removed by a
+successful rollback or conversation deletion. A snapshot's existence is also
+treated as evidence of a mutation, because a process can die after the file
+changed and before `markMutated` was written; relying on the row alone would
+recreate the same half-rollback.
+
+Verified on the pad with a throwaway conversation: a real `write_file` created
+`notes.txt`; Edit restored the empty workspace snapshot, removed `notes.txt`,
+deleted the turn, restored the prompt, and removed the snapshot directory.
+
 ---
 
 ## C. Comments that contradict the code

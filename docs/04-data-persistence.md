@@ -297,11 +297,27 @@ view model, and retaining the Activity leaked a destroyed view hierarchy
 
 ```
 filesDir/conversations/<workspaceId>/…     one directory per conversation
+filesDir/rollback/<conversationId>/<user-id>/…  last turn's pre-mutation snapshot
 ```
 
 `Database.workspacesRoot` creates the parent on every call and `workspaceDir`
 joins the id (`core/data/src/main/kotlin/com/inhuman/core/data/db/Database.kt:81-88`).
 The name is the opaque `workspaceId`, never the title.
+
+### Rollback snapshots
+
+`Database.rollbackDir` is outside `conversations/` on purpose: the snapshot is
+not workspace content, must not appear in Files, and must not be reachable by
+the sandbox. `RollbackSnapshot` copies the workspace before the first reversible
+mutating tool of a turn; `ConversationRepository` refuses that mutation if the
+copy fails. The token is the last user message id.
+
+Only the last turn is retained. A new send replaces the snapshot, a successful
+rollback discards it after restoring, and deleting a conversation removes the
+directory. The copy refuses symlinks rather than following them, matching the
+sandbox rule. Restoring deletes the current workspace children and copies the
+snapshot back; `deleteSubtree` runs only after a successful restore, so a
+restore failure leaves the transcript intact.
 
 ### The orphan sweep
 

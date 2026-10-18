@@ -234,9 +234,13 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   transcript and tool results, so a reply after a file write or SSH call is
   retryable without replaying the tool. Do not pass the normal tool list again;
   that restores the double-write failure.
-- **Rollback is a conversation subtree delete.** The last user message's Edit
-  action removes it and all descendants and restores text/attachments. It does
-  not undo files or remote commands, and the confirmation says so.
+- **Rollback restores the workspace before deleting the turn.** The last user
+  message's Edit action restores the pre-turn snapshot, then removes the message
+  and all descendants and restores text/attachments. A snapshot failure must
+  leave the rows intact. A turn containing `reversible = false` (`ssh_exec`)
+  gets no Edit at all; deleting the transcript would leave its remote effects.
+  The snapshot is one per conversation and is replaced/removed at the documented
+  points.
 - **SSH consent is a capability grant, not an approval.** It is persisted in
   `conversations.sshAllowed`, checked before the ordinary policy, revoked by the
   chat menu and by the global Settings switch. Do not replace it with

@@ -124,6 +124,11 @@ class ChatViewModel(
 	private var streamJob: Job? = null
 	private var sshAllowed: Boolean = false
 
+	/** The user message that anchors the in-flight turn's rollback snapshot. */
+	private var turnAnchorId: String? = null
+	private var turnSnapshotReady = false
+	private var turnIrreversible = false
+
 	/** The assistant behind this conversation, once loaded. */
 	private var agent: AgentEntity? = null
 
@@ -559,6 +564,43 @@ class ChatViewModel(
 		val branchInfo = repository.branchesIn(conversationId)
 		sshAllowed = loaded?.entity?.sshAllowed ?: false
 
+		// What the last turn can safely undo. A mutating turn needs a snapshot
+		// that was captured before its first write; an irreversible tool means
+		// no rollback at all, because deleting the transcript would leave the
+		// remote effects untouched.
+		val lastUser = entities.lastOrNull { it.role == "user" }
+		val lastTurn = lastUser?.let { user ->
+			entities.dropWhile { it.id != user.id }
+		}.orEmpty()
+		val irreversible = lastTurn.any { message ->
+			decodeCalls(message.toolCallsJson.orEmpty()).any { call ->
+				ToolCatalog.all.firstOrNull { it.name == call.displayName }?.reversible == false
+			}
+		}
+		val hasSnapshot = lastUser != null &&
+			runCatching {
+				repository.hasRollbackSnapshot(conversationId, lastUser.id)
+			}.getOrElse { failure ->
+				Diag.w("rollback", "could not read snapshot state", failure)
+				false
+			}
+		// A snapshot is stronger evidence than the `mutated` row: the process
+		// can die after a tool changed the workspace and before markMutated is
+		// written. If the snapshot exists, restore it even when every row still
+		// says "not mutated".
+		val mutated = lastTurn.any { it.mutated } || hasSnapshot
+		val rollbackAvailable = lastUser != null && !irreversible && (!mutated || hasSnapshot)
+		val rollbackBlockedReason = when {
+			lastUser == null -> null
+			irreversible -> "This turn ran SSH commands; remote effects cannot be rolled back."
+			mutated && !hasSnapshot ->
+				"The workspace snapshot for this turn is missing, so it cannot be rewound safely."
+			else -> null
+		}
+		turnAnchorId = lastUser?.id
+		turnSnapshotReady = hasSnapshot
+		turnIrreversible = irreversible
+
 		// Which calls were refused, resolved in the same pass and for the same
 		// reason: the outcome is a property of the tool result, and a row
 		// searching the transcript for its own would be a scan per call.
@@ -573,6 +615,8 @@ class ChatViewModel(
 				messages = rebuilt,
 				sshAllowed = sshAllowed,
 				pendingSshConsent = null,
+				rollbackAvailable = rollbackAvailable,
+				rollbackBlockedReason = rollbackBlockedReason,
 				// Read off the rebuilt list: the remaining transcript-derived
 				// values have to agree with the messages that are on screen.
 				context = contextOf(rebuilt),
@@ -690,11 +734,12 @@ class ChatViewModel(
 	/**
 	 * Rewind to just before the last user message, putting it back in the composer.
 	 *
-	 * This deletes the user row and everything below it -- the assistant turn,
-	 * its tool calls and results, and any later turns. It does **not** undo the
-	 * workspace or a remote command: the point is to let the user edit and send
-	 * again, not to pretend a tool never ran. The UI warns separately when the
-	 * turn contains an irreversible call.
+	 * The transcript and the workspace move together: if the turn changed local
+	 * files, the pre-turn snapshot is restored **before** any rows are deleted.
+	 * A failure to restore leaves the conversation intact. A turn containing an
+	 * irreversible tool is refused outright -- deleting its rows while its
+	 * remote effects remain would be exactly the half-rollback this is meant to
+	 * prevent.
 	 *
 	 * Only the last user message is accepted. Rewinding an older one is the same
 	 * operation with a larger discard, and the UI only offers it on the tail.
@@ -706,12 +751,53 @@ class ChatViewModel(
 		}
 		val target = _state.value.messages.lastOrNull { it.fromUser }?.takeIf { it.id == messageId }
 			?: return
+		val turn = _state.value.messages.dropWhile { it.id != target.id }
+		val irreversible = turn.any { message ->
+			message.toolCalls.any { call ->
+				ToolCatalog.all.firstOrNull { it.name == call.displayName }?.reversible == false
+			}
+		}
+		if (irreversible) {
+			_state.update {
+				it.copy(
+					error = "This turn ran SSH commands; their remote effects cannot " +
+						"be rolled back, so the conversation was left intact.",
+				)
+			}
+			return
+		}
+		val mutated = turn.any { it.mutated }
 		Diag.i(
 			"turn",
 			"rollback conv=${Diag.shortId(conversationId)} " +
-				"message=${Diag.shortId(target.id)}",
+				"message=${Diag.shortId(target.id)} mutated=$mutated",
 		)
 		viewModelScope.launch {
+			// A snapshot is also evidence of a mutation whose row update may
+			// have been lost with the process. Restore whenever one exists,
+			// even if `mutated` is false.
+			val entity = conversation
+			val hasSnapshot = entity != null && runCatching {
+				repository.hasRollbackSnapshot(conversationId, target.id)
+			}.getOrDefault(false)
+			if (mutated || hasSnapshot) {
+				val restored = entity != null && runCatching {
+					repository.restoreRollbackSnapshot(entity, target.id)
+				}.getOrElse { failure ->
+					Diag.w("rollback", "snapshot restore threw", failure)
+					false
+				}
+				if (!restored) {
+					_state.update {
+						it.copy(
+							error = "Could not restore the workspace snapshot, so the " +
+								"conversation was left intact.",
+						)
+					}
+					return@launch
+				}
+				Diag.i("rollback", "workspace restored")
+			}
 			runCatching {
 				repository.deleteSubtree(
 					rootId = target.id,
@@ -719,10 +805,11 @@ class ChatViewModel(
 					conversationId = conversationId,
 				)
 			}.onFailure { failure ->
-				Diag.w("turn", "rollback failed", failure)
+				Diag.w("turn", "rollback delete failed", failure)
 				_state.update { it.copy(error = "Could not rewind the conversation: ${failure.message}") }
 				return@launch
 			}
+			repository.discardRollbackSnapshot(conversationId)
 			_state.update {
 				it.copy(
 					input = target.plainText,
@@ -855,6 +942,10 @@ class ChatViewModel(
 		)
 		streamJob = viewModelScope.launch {
 			repository.appendMessage(userMessage, parent)
+			repository.discardRollbackSnapshot(conversationId)
+			turnAnchorId = userMessage.id
+			turnSnapshotReady = false
+			turnIrreversible = false
 			if (_state.value.messages.count { it.fromUser } == 1) {
 				// An image-only first message has no text to derive a title
 				// from, so it falls back rather than leaving the list blank.
@@ -866,6 +957,7 @@ class ChatViewModel(
 				if (stored != null) _state.update { it.copy(title = stored) }
 			}
 			runTurn(apiKey = apiKey, demo = demo)
+			reload()
 		}
 	}
 
@@ -1576,6 +1668,41 @@ class ChatViewModel(
 						answerSkippedCalls(outcome, after = call.index)
 						settled = true
 						return false
+					}
+				}
+
+				// Secure the pre-turn workspace before the first local mutation.
+				// A rollback that cannot restore the files must not be offered;
+				// refusing the mutation is safer than deleting the turn later
+				// and leaving the changes behind.
+				if (tool.mutates) {
+					if (!tool.reversible) {
+						turnIrreversible = true
+					} else if (!turnSnapshotReady && !turnIrreversible) {
+						val anchor = turnAnchorId
+							?: _state.value.messages.lastOrNull { it.fromUser }?.id
+						val entity = conversation
+						val captured = anchor != null && entity != null &&
+							runCatching {
+								repository.captureRollbackSnapshot(entity, anchor)
+							}.getOrElse { failure ->
+								Diag.w("rollback", "snapshot capture threw", failure)
+								false
+							}
+						if (!captured) {
+							Diag.w("rollback", "refused mutation: no snapshot")
+							markCall(outcome.messageId, call.index, ToolCallUi.State.Failed)
+							appendToolResult(
+								call,
+								"Could not create a rollback snapshot, so this " +
+									"workspace change was refused.",
+								isError = true,
+								messageId = outcome.messageId,
+							)
+							continue
+						}
+						turnSnapshotReady = true
+						Diag.i("rollback", "snapshot captured for turn")
 					}
 				}
 

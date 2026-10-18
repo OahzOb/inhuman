@@ -52,6 +52,7 @@ class SshExecToolTest {
 		val tool = SshExecTool(FakeTransport())
 		assertEquals("ssh_exec", tool.name)
 		assertTrue(tool.mutates)
+		assertFalse(tool.reversible)
 		assertFalse(tool.needsApproval(buildJsonObject { }))
 	}
 

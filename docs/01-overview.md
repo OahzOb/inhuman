@@ -99,12 +99,14 @@ Two more that are stated as behaviour rather than as policy:
   recorded, and the next message rebuilds the same oversized history — the
   conversation is stuck. The gauge exists to make that wall visible before it is
   hit; it does not remove it (`README.md:81-92`).
-- **Rollback is conversation-only.** Regeneration is tool-less: it keeps the
-  transcript and tool results but offers no tools, so it cannot write or run SSH
-  again. The last user message also has **Edit**, which deletes that message and
-  everything after it and restores the text to the composer. Neither action
-  undoes files already changed or commands already run; the confirmation says
-  so. Earlier behaviour that refused every reply in a mutating turn is gone.
+- **Rollback moves the transcript and the local workspace together.** The last
+  user message has **Edit**: a pre-turn snapshot is restored, then that message
+  and everything after it are deleted, and the text/attachments go back to the
+  composer. A turn containing an irreversible tool (SSH) is **not** offered for
+  rollback, because its remote effects cannot be undone and deleting the rows
+  would leave them behind. Regeneration remains available: it is tool-less and
+  keeps the transcript and tool results, so it cannot write or run SSH again.
+  Earlier behaviour that refused every reply in a mutating turn is gone.
 
 ## The vocabulary this codebase uses
 
@@ -118,6 +120,7 @@ Worth settling before reading the rest, because the words are overloaded:
 | **workspace** | The per-conversation folder, and the sandbox boundary. |
 | **turn** | One user message and everything the model and its tools did in response. |
 | **mutates** | "Replaying this turn with tools would change something." A record, not a blanket regeneration gate. |
+| **reversible** | "The app can put this effect back." Local file tools are reversible; `ssh_exec` is not. Rollback requires it. |
 | **needsApproval** | "This particular call needs the user's consent first." Gates execution. |
 
 `mutates` and `needsApproval` are different questions and neither implies the

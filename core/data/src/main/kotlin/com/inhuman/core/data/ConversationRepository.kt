@@ -9,8 +9,10 @@ import com.inhuman.core.data.db.InhumanDatabase
 import com.inhuman.core.data.db.MessageEntity
 import com.inhuman.core.data.db.ToolsColumn
 import com.inhuman.core.files.SessionWorkspace
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 
@@ -176,6 +178,7 @@ class ConversationRepository(
 	 */
 	suspend fun delete(conversation: ConversationEntity) {
 		Database.workspaceDir(appContext, conversation.workspaceId).deleteRecursively()
+		rollbackDir(conversation.id).deleteRecursively()
 		store.deleteConversation(conversation.id)
 	}
 
@@ -284,6 +287,49 @@ class ConversationRepository(
 			db.conversations().touch(conversationId, System.currentTimeMillis())
 		}
 	}
+
+	private fun rollbackDir(conversationId: String): File =
+		Database.rollbackDir(appContext, conversationId)
+
+	private fun snapshotFor(conversationId: String, token: String): File {
+		require(token.isNotBlank() && '/' !in token && '\\' !in token) {
+			"invalid rollback token"
+		}
+		return File(rollbackDir(conversationId), token)
+	}
+
+	/** Whether a restorable snapshot exists for a turn. */
+	suspend fun hasRollbackSnapshot(conversationId: String, token: String): Boolean =
+		withContext(Dispatchers.IO) { snapshotFor(conversationId, token).isDirectory }
+
+	/**
+	 * Copy the workspace before the first mutating call of a turn.
+	 *
+	 * The caller refuses the mutation when this returns false. A mutating turn
+	 * without a snapshot is exactly the case rollback must not silently delete.
+	 */
+	suspend fun captureRollbackSnapshot(conversation: ConversationEntity, token: String): Boolean =
+		withContext(Dispatchers.IO) {
+			RollbackSnapshot.capture(
+				workspaceRoot = workspace(conversation).rootPath(),
+				target = snapshotFor(conversation.id, token),
+			)
+		}
+
+	/** Put the workspace back, or return false and leave the rows untouched. */
+	suspend fun restoreRollbackSnapshot(conversation: ConversationEntity, token: String): Boolean =
+		withContext(Dispatchers.IO) {
+			RollbackSnapshot.restore(
+				workspaceRoot = workspace(conversation).rootPath(),
+				snapshot = snapshotFor(conversation.id, token),
+			)
+		}
+
+	suspend fun discardRollbackSnapshot(conversationId: String) =
+		withContext(Dispatchers.IO) {
+			runCatching { rollbackDir(conversationId).deleteRecursively() }
+			Unit
+		}
 
 	/**
 	 * Record that a reply changed the workspace.

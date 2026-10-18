@@ -75,6 +75,15 @@ interface Tool {
 	val mutates: Boolean
 
 	/**
+	 * Whether the effects can be undone inside the app's boundaries.
+	 *
+	 * Default true: a tool either does not change anything, or changes only a
+	 * workspace copy. `ssh_exec` overrides it to false. This is what rollback
+	 * consults: a mutating turn without a restorable snapshot must not silently
+	 * be deleted.
+	 */
+	val reversible: Boolean get() = true
+	/**
 	 * Whether this particular call needs the user's consent first.
 	 *
 	 * Default is no approval, which is right for reads. Anything that writes,

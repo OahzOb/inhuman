@@ -75,6 +75,7 @@ class SshExecTool(
 	)
 
 	override val mutates: Boolean = true
+	override val reversible: Boolean = false
 
 	override suspend fun execute(arguments: JsonObject): ToolResult {
 		// Some models wrap the whole argument object in a string field named

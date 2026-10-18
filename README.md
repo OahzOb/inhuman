@@ -64,9 +64,12 @@ tool can be retried. It does not undo what already happened.
 
 The last user message has an **Edit** action. It rewinds the conversation to
 before that message, removes the message and everything after it, and restores
-the text and attachments to the composer. Files already changed and SSH
-commands already run stay that way; the confirmation says so. It is a
-conversation rollback, not a filesystem or remote undo.
+the text and attachments to the composer. If the turn wrote local files, the
+pre-turn workspace snapshot is restored **before** any rows are deleted, so the
+files and the transcript move together. A turn that ran SSH is **not** offered
+for rollback: its remote effects cannot be undone, and deleting the rows would
+leave the change behind. Regeneration remains available there because it does
+not run tools.
 
 **Search and fetch are paid, and that is why they are separate tools.** Both
 call DeepSeek's own APIs directly (`/v1/tools/search`, `/v1/tools/fetch`),
