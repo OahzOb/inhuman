@@ -99,10 +99,12 @@ Two more that are stated as behaviour rather than as policy:
   recorded, and the next message rebuilds the same oversized history — the
   conversation is stuck. The gauge exists to make that wall visible before it is
   hit; it does not remove it (`README.md:81-92`).
-- **No rollback.** A reply that used a mutating tool cannot be regenerated,
-  because regenerating re-runs the turn and would write a second time. The blast
-  radius of a bad rollback is the user's files; refusing to replay cannot
-  corrupt anything (`README.md:48-51`).
+- **Rollback is conversation-only.** Regeneration is tool-less: it keeps the
+  transcript and tool results but offers no tools, so it cannot write or run SSH
+  again. The last user message also has **Edit**, which deletes that message and
+  everything after it and restores the text to the composer. Neither action
+  undoes files already changed or commands already run; the confirmation says
+  so. Earlier behaviour that refused every reply in a mutating turn is gone.
 
 ## The vocabulary this codebase uses
 
@@ -115,7 +117,7 @@ Worth settling before reading the rest, because the words are overloaded:
 | **branch** | A regeneration is stored as a sibling branch; the user can switch between them. |
 | **workspace** | The per-conversation folder, and the sandbox boundary. |
 | **turn** | One user message and everything the model and its tools did in response. |
-| **mutates** | "Replaying this turn would change something." Blocks regeneration. |
+| **mutates** | "Replaying this turn with tools would change something." A record, not a blanket regeneration gate. |
 | **needsApproval** | "This particular call needs the user's consent first." Gates execution. |
 
 `mutates` and `needsApproval` are different questions and neither implies the

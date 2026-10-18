@@ -228,7 +228,15 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   `ConversationStore.SAID_ORDER` must agree with it; a tool result and the turn
   that asked for it routinely share a millisecond.
 - **`mutates` and `needsApproval` are different questions.** The first decides
-  whether a turn may be replayed; the second whether a call may happen.
+  whether replay-with-tools would change something; the second whether a call
+  may happen.
+- **Regeneration offers no tools.** It rewrites the final text from the existing
+  transcript and tool results, so a reply after a file write or SSH call is
+  retryable without replaying the tool. Do not pass the normal tool list again;
+  that restores the double-write failure.
+- **Rollback is a conversation subtree delete.** The last user message's Edit
+  action removes it and all descendants and restores text/attachments. It does
+  not undo files or remote commands, and the confirmation says so.
 - **SSH consent is a capability grant, not an approval.** It is persisted in
   `conversations.sshAllowed`, checked before the ordinary policy, revoked by the
   chat menu and by the global Settings switch. Do not replace it with

@@ -56,11 +56,11 @@ Two of those columns exist for reasons that are easy to undo by accident:
 - **`reasoning` is not a UI nicety.** It is what makes a thinking turn replayable.
 - **`mutated` is stored, not derived.** The column's own comment says why: tools
   get renamed and removed, and deriving it by asking today's tools whether a
-  recorded call mutates would silently reclassify history — and then re-run a
-  real write. It defaults to `false` on migration, which is itself a judgement:
-  treating every old row as mutating would disable regeneration on every reply
-  that predates the column, and the risk is bounded because the files are still
-  visible (`InhumanDatabase.kt:289-307`).
+  recorded call mutates would silently reclassify history — and then a future
+  replay-with-tools would write a second time. It defaults to `false` on
+  migration, which is itself a judgement: marking every old row as mutating
+  would lose a fact about those turns. It no longer gates regeneration; that
+  path sends no tools (`InhumanDatabase.kt:289-307`).
 
 ### `agents` (`Entities.kt:30-88`)
 

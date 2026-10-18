@@ -188,18 +188,19 @@ fun ChatScreen(
 		.map { it.messages.lastOrNull()?.plainText?.length ?: 0 }
 		.collectAsStateWithLifecycle(0)
 	val isStreaming by viewModel.state.map { it.isStreaming }.collectAsStateWithLifecycle(false)
-	val currentTurnMutated by viewModel.state.map { it.currentTurnMutated }.collectAsStateWithLifecycle(false)
 	val sshAllowed by viewModel.state.map { it.sshAllowed }.collectAsStateWithLifecycle(false)
 	val pendingSshConsent by viewModel.state
 		.map { it.pendingSshConsent }
 		.collectAsStateWithLifecycle(null)
 	var showChatMenu by remember { mutableStateOf(false) }
+	var rollbackTarget by remember { mutableStateOf<ChatMessageUi?>(null) }
+	var rollbackIrreversible by remember { mutableStateOf(false) }
 
 	// Reported upward so the app's single Back handler knows a dialog is up.
 	// Both this and the approval gate are transient questions that Back should
 	// answer by dismissing, not by navigating away from.
 	val anyDialogOpen = showModelPicker || pendingApproval != null ||
-		pendingSshConsent != null
+		pendingSshConsent != null || rollbackTarget != null
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
 	// Re-read the key and demo setting whenever this screen appears. The view
@@ -296,9 +297,11 @@ fun ChatScreen(
 	// key rather than the list, so the scan does not re-run several times a
 	// second while a reply streams.
 	var lastAssistantId by remember { mutableStateOf<String?>(null) }
+	var lastUserId by remember { mutableStateOf<String?>(null) }
 	LaunchedEffect(lastMessageId) {
-		lastAssistantId = viewModel.state.value.messages
-			.lastOrNull { !it.fromUser && !it.isToolResult }?.id
+		val messages = viewModel.state.value.messages
+		lastAssistantId = messages.lastOrNull { !it.fromUser && !it.isToolResult }?.id
+		lastUserId = messages.lastOrNull { it.fromUser }?.id
 	}
 	LaunchedEffect(messageCount, lastMessageLength, lastItemHeight, lastItemOffset) {
 		if (messageCount > 0 && followLatest && !programmaticScroll) {
@@ -443,9 +446,21 @@ fun ChatScreen(
 							// can be regenerated without discarding what follows it.
 							isLastAssistantMessage = !message.fromUser && !message.isToolResult &&
 								message.id == lastAssistantId,
+							isLastUserMessage = message.fromUser && message.id == lastUserId,
 							isStreaming = isStreaming,
-							currentTurnMutated = currentTurnMutated,
 							onRegenerate = viewModel::regenerate,
+							onRollback = {
+								rollbackTarget = message
+								rollbackIrreversible = messages
+									.dropWhile { it.id != message.id }
+									.any { later ->
+										later.toolCalls.any { call ->
+											ToolCatalog.all
+												.firstOrNull { it.name == call.displayName }
+												?.reversible == false
+										}
+									}
+							},
 							// Both ids go up: the alternative being switched to is
 							// not on the active path, so the view model cannot find
 							// its parent by searching the transcript.
@@ -622,6 +637,48 @@ fun ChatScreen(
 			consent = consent,
 			onAllow = viewModel::allowSshConsent,
 			onDeny = viewModel::denySshConsent,
+		)
+	}
+
+	rollbackTarget?.let { target ->
+		AlertDialog(
+			onDismissRequest = { rollbackTarget = null },
+			title = { Text("Rewind to before this message?") },
+			text = {
+				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+					Text(
+						"This removes this message and everything after it, and " +
+							"puts the text back in the composer so you can edit it.",
+					)
+					Text(
+						"Files already changed in this conversation's folder stay changed.",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					if (rollbackIrreversible) {
+						Text(
+							"SSH commands in this turn already ran. Rewinding the " +
+								"conversation does not undo anything on the remote machine.",
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.error,
+						)
+					}
+				}
+			},
+			confirmButton = {
+				TextButton(
+					onClick = {
+						rollbackTarget = null
+						viewModel.rollbackTo(target.id)
+					},
+				) { Text("Rewind") }
+			},
+			dismissButton = {
+				TextButton(onClick = { rollbackTarget = null }) { Text("Cancel") }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 	}
 }
@@ -946,9 +1003,10 @@ private fun toolResultSummary(
 private fun MessageBubble(
 	message: ChatMessageUi,
 	isLastAssistantMessage: Boolean,
+	isLastUserMessage: Boolean,
 	isStreaming: Boolean,
-	currentTurnMutated: Boolean,
 	onRegenerate: () -> Unit,
+	onRollback: () -> Unit,
 	onSelectBranch: (String?, String) -> Unit,
 ) {
 	val alignment = if (message.fromUser) Alignment.End else Alignment.Start
@@ -1153,42 +1211,42 @@ private fun MessageBubble(
 		// Offered here rather than on every reply: regenerating mid-conversation
 		// would discard everything after it, and a control that silently deletes
 		// the rest of a transcript is not one to put within reach of a mis-tap.
+		//
+		// The view model sends this request **without tools**, so the refresh is
+		// safe even when earlier calls in the turn used SSH or wrote files: it
+		// rewrites the final text from the existing tool results and cannot run
+		// anything again.
 		if (isLastAssistantMessage && !message.isStreaming && !isStreaming) {
-			if (currentTurnMutated) {
-				// Not offered at all, with the reason given.
-				//
-				// Regenerating re-runs the turn, tools included. For a reply that
-				// wrote or deleted files that means doing it a second time, and no
-				// amount of confirmation makes that the same request -- the second
-				// write lands on a workspace the first one changed.
-				//
-				// A disabled button would invite pressing it; a line of text
-				// explains why the option is gone, and the file it changed is in
-				// the workspace for anyone who wants to look.
-				Text(
-					text = "This reply changed files, so it cannot be regenerated.",
-					style = MaterialTheme.typography.labelLarge,
-					color = MaterialTheme.colorScheme.outline,
-					modifier = Modifier.padding(top = 4.dp),
+			IconButton(
+				onClick = onRegenerate,
+				modifier = Modifier
+					.padding(top = 2.dp)
+					.size(32.dp),
+			) {
+				Icon(
+					// Refresh rather than a rerun arrow: the action produces
+					// another answer, not a replay of this one, and the
+					// existing answers stay reachable through the branch
+					// switcher beside it.
+					imageVector = Icons.Outlined.Refresh,
+					contentDescription = "Answer again",
+					tint = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier.size(18.dp),
 				)
-			} else {
-				IconButton(
-					onClick = onRegenerate,
-					modifier = Modifier
-						.padding(top = 2.dp)
-						.size(32.dp),
-				) {
-					Icon(
-						// Refresh rather than a rerun arrow: the action produces
-						// another answer, not a replay of this one, and the
-						// existing answers stay reachable through the branch
-						// switcher beside it.
-						imageVector = Icons.Outlined.Refresh,
-						contentDescription = "Answer again",
-						tint = MaterialTheme.colorScheme.onSurfaceVariant,
-						modifier = Modifier.size(18.dp),
-					)
-				}
+			}
+		}
+
+		// Rewind is offered on the last user message, because that is the only
+		// place where "before this message" is synonymous with "before this
+		// turn". It restores the text and attachments to the composer; the
+		// view model deletes the message and everything below it.
+		if (isLastUserMessage && !isStreaming) {
+			TextButton(
+				onClick = onRollback,
+				contentPadding = PaddingValues(horizontal = 8.dp),
+				modifier = Modifier.padding(top = 2.dp),
+			) {
+				Text("Edit", style = MaterialTheme.typography.labelLarge)
 			}
 		}
 	}

@@ -51,11 +51,13 @@ Note the second expression: `ConversationRepository.branches` cannot see
 
 ### A5. `mutates` and `needsApproval` are different questions
 
-`Tool.kt:43-84`. `mutates` = "can this turn be replayed?" *afterwards*;
-`needsApproval` = "may this call happen?" *before*. `mutates` deliberately has
-**no default**: a default `false` on a writer leaves regenerate enabled and the
-write happens twice. `needsApproval` **takes the arguments**, because "writing a
-new file may be fine while overwriting an existing one is not".
+`Tool.kt:43-84`. `mutates` = "would replaying this with tools change state?
+afterwards"; `needsApproval` = "may this call happen?" *before*. `mutates`
+deliberately has **no default**: a default `false` on a writer is how a retry
+with tools writes twice. Regeneration itself is tool-less now, so this flag is a
+record about replay-with-tools, not a blanket refusal. `needsApproval` **takes
+the arguments**, because "writing a new file may be fine while overwriting an
+existing one is not".
 
 ### A6. The quota check walks the tree once
 
@@ -100,7 +102,8 @@ sounding like it looked (`ChatTypes.kt:55-61`).
 `Entities.kt:298-318`. Derived flags would silently reclassify history when a
 tool is renamed or removed, and then re-run a real write. `markMutated` is a
 separate statement (`InhumanDatabase.kt:101-108`) because tools run after the
-stream closes; without it the guard disappears on restart.
+stream closes; without it the record disappears on restart. It no longer gates
+regeneration: that path sends no tools.
 
 ### A12. `ToolsColumn` garbage decodes to "every tool"
 
@@ -190,6 +193,13 @@ A version of this entry previously described the two-named-flags bug as still
 current, directly beneath the paragraph announcing the fix. Both halves were in
 the same file for a week; the lesson is that fixing an entry means replacing it,
 not appending to it.
+
+**Superseded on 2026-10-18.** The derived `currentTurnMutated` property and its
+UI sentence were removed entirely, together with the five `ChatUiStateTest`
+cases that existed only for it. Regeneration now sends the request with
+`includeTools = false`, so a pure-text reply can be retried after SSH or a file
+write without any chance of replaying the tool. The old property was protecting
+against a replay that is now structurally impossible.
 
 ### B2. The last ~40 ms of every reply was missing from the live transcript — **FIXED**
 

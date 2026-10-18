@@ -45,12 +45,13 @@ interface Tool {
 	 *
 	 * ## What this is for
 	 *
-	 * A reply that used a mutating tool cannot be regenerated, and the reason is
-	 * not that the transcript would be inconsistent -- it is that regenerating
-	 * **runs the tools again**. The model is asked the same question with the
-	 * same context and will very likely make the same calls, so a second attempt
-	 * is a second round of real writes: a file written twice, a directory moved
-	 * onto itself, a delete attempted against something already gone.
+	 * It records that replaying the tool would be a second real write: a file
+	 * written twice, a directory moved onto itself, a delete attempted against
+	 * something already gone. It is **not** a blanket "this reply cannot be
+	 * regenerated" flag. Regeneration is sent with no tools offered, so it can
+	 * rewrite the final text from the existing transcript without replaying
+	 * anything. The flag remains the fact a future replay-with-tools feature,
+	 * or a UI warning, would need.
 	 *
 	 * Reading the time again costs nothing. Writing the same file again does
 	 * not.
@@ -58,20 +59,18 @@ interface Tool {
 	 * ## Why this is not `needsApproval`
 	 *
 	 * They answer different questions and neither implies the other. Approval
-	 * asks "may this happen?" *before* it happens. This asks "can the turn be
-	 * replayed?" *afterwards*. `write_file` mutates and needs no approval;
-	 * a future tool could reasonably need approval without mutating -- an
-	 * expensive search the user pays for, say -- and it could be offered for
-	 * regeneration freely, because running it twice only costs money, not
-	 * correctness.
+	 * asks "may this happen?" *before* it happens. This asks "would replaying
+	 * it with tools change something?" *afterwards*. `write_file` mutates and
+	 * needs no approval; a future tool could reasonably need approval without
+	 * mutating -- an expensive search the user pays for, say -- and it could
+	 * be replayed for money rather than correctness.
 	 *
 	 * ## Why this is deliberately not defaulted
 	 *
 	 * A default would be wrong about half the tools that will ever exist, and
-	 * wrong in the dangerous direction: `false` on something that writes means
-	 * the regenerate control stays enabled and the write happens twice. Every
-	 * tool states its answer, which is cheap, and it puts the question in front
-	 * of whoever adds the next one.
+	 * wrong in the dangerous direction for any caller that does replay with
+	 * tools. Every tool states its answer, which is cheap, and it puts the
+	 * question in front of whoever adds the next one.
 	 */
 	val mutates: Boolean
 

@@ -31,14 +31,24 @@ object ToolCatalog {
 		val name: String,
 		val blurb: String,
 		/**
-		 * Whether a turn that used it can be replayed.
+		 * Whether replaying the turn with tools enabled could change state.
 		 *
 		 * Surfaced in the picker because it is the consequence a person is
-		 * actually choosing about: a mutating tool removes the ability to
-		 * regenerate that reply, which is a real cost and not obvious from the
-		 * name.
+		 * actually choosing about: a mutating tool means a retry that re-runs
+		 * tools is a second real write. Regenerating the final text is still
+		 * allowed, but it is sent without tools so this cannot happen.
 		 */
 		val mutates: Boolean,
+		/**
+		 * Whether the effects can be undone inside the app's boundaries.
+		 *
+		 * A file write is a change to a workspace copy: the original is still
+		 * in the user's hands. A remote SSH command is not reversible at all.
+		 * This is separate from [mutates]: `delete_file` mutates but its blast
+		 * radius is the conversation copy; `ssh_exec` mutates and cannot be
+		 * undone. Rollback warns on the irreversible ones.
+		 */
+		val reversible: Boolean = true,
 		/**
 		 * Whether using it spends money at a third party.
 		 *
@@ -86,6 +96,7 @@ object ToolCatalog {
 			"ssh_exec",
 			"Run a command on another machine over SSH",
 			mutates = true,
+			reversible = false,
 			remote = true,
 		),
 		Entry("write_file", "Create or replace a file", mutates = true),

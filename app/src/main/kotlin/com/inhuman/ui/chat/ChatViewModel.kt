@@ -573,15 +573,8 @@ class ChatViewModel(
 				messages = rebuilt,
 				sshAllowed = sshAllowed,
 				pendingSshConsent = null,
-				// `currentTurnMutated` is deliberately not assigned here. It is
-				// derived from `messages`, so rebuilding the transcript *is*
-				// recomputing it -- and assigning it here as well is what used to
-				// leave a stale copy behind, because a plain `send()` never
-				// reloads and so never came past this line to clear it.
-				//
-				// Read off the rebuilt list, for the same reason the mutation
-				// flag is: the two controls that depend on the transcript have
-				// to be computed from the transcript that is on screen.
+				// Read off the rebuilt list: the remaining transcript-derived
+				// values have to agree with the messages that are on screen.
 				context = contextOf(rebuilt),
 			)
 		}
@@ -611,26 +604,13 @@ class ChatViewModel(
 			return
 		}
 
-		// Refused here as well as in the UI.
-		//
-		// The button is hidden, but a check that lives only in the view is not a
-		// rule -- it is a habit, and the next entry point added would not inherit
-		// it. What is at stake is a second round of real writes, which is not
-		// something to guard with layout alone.
-		if (_state.value.currentTurnMutated) {
-			Diag.i("turn", "regenerate refused: last turn mutated")
-			_state.update {
-				it.copy(
-					error = "This reply changed files, so it cannot be regenerated. " +
-						"Send a new message instead.",
-				)
-			}
-			return
-		}
-
-		// The question this reply answers. Null means it is the first message,
-		// which cannot happen for an assistant turn, but returning is safer
-		// than guessing a parent.
+		// Regeneration is deliberately **tool-less**. The request includes the
+		// transcript up to the question, including any earlier tool calls and
+		// results, but offers no tools, so a retry cannot run SSH, write a file
+		// or spend money again. That is why a pure-text reply after a mutating
+		// tool can be regenerated at all: the old blanket "this turn mutated"
+		// refusal was protecting against a replayed tool call that this path
+		// makes impossible.
 		val questionId = lastReply.parentId
 		if (questionId == null) {
 			Diag.d("turn", "regenerate ignored: reply has no parent")
@@ -664,7 +644,7 @@ class ChatViewModel(
 		}
 
 		streamJob = viewModelScope.launch {
-			runTurn(apiKey = apiKey, demo = demo)
+			runTurn(apiKey = apiKey, demo = demo, includeTools = false)
 			// Reload after answering, so the new reply is recognised as a
 			// sibling of the one it replaced.
 			//
@@ -703,6 +683,56 @@ class ChatViewModel(
 		)
 		viewModelScope.launch {
 			repository.selectBranch(parentId, childId)
+			reload()
+		}
+	}
+
+	/**
+	 * Rewind to just before the last user message, putting it back in the composer.
+	 *
+	 * This deletes the user row and everything below it -- the assistant turn,
+	 * its tool calls and results, and any later turns. It does **not** undo the
+	 * workspace or a remote command: the point is to let the user edit and send
+	 * again, not to pretend a tool never ran. The UI warns separately when the
+	 * turn contains an irreversible call.
+	 *
+	 * Only the last user message is accepted. Rewinding an older one is the same
+	 * operation with a larger discard, and the UI only offers it on the tail.
+	 */
+	fun rollbackTo(messageId: String) {
+		if (_state.value.isStreaming) {
+			_state.update { it.copy(error = "Stop the reply before rewinding the conversation.") }
+			return
+		}
+		val target = _state.value.messages.lastOrNull { it.fromUser }?.takeIf { it.id == messageId }
+			?: return
+		Diag.i(
+			"turn",
+			"rollback conv=${Diag.shortId(conversationId)} " +
+				"message=${Diag.shortId(target.id)}",
+		)
+		viewModelScope.launch {
+			runCatching {
+				repository.deleteSubtree(
+					rootId = target.id,
+					parentId = target.parentId,
+					conversationId = conversationId,
+				)
+			}.onFailure { failure ->
+				Diag.w("turn", "rollback failed", failure)
+				_state.update { it.copy(error = "Could not rewind the conversation: ${failure.message}") }
+				return@launch
+			}
+			_state.update {
+				it.copy(
+					input = target.plainText,
+					pendingAttachments = target.attachments,
+					isStreaming = false,
+					error = null,
+					pendingApproval = null,
+					pendingSshConsent = null,
+				)
+			}
 			reload()
 		}
 	}
@@ -845,7 +875,7 @@ class ChatViewModel(
 	 * Each iteration appends the model's turn (with any tool calls), executes
 	 * what was asked, appends the results, and goes round again.
 	 */
-	private suspend fun runTurn(apiKey: String?, demo: Boolean) {
+	private suspend fun runTurn(apiKey: String?, demo: Boolean, includeTools: Boolean = true) {
 		val provider: ChatProvider =
 			if (demo) DemoProvider() else DeepSeekProvider(apiKey = apiKey!!)
 
@@ -854,7 +884,10 @@ class ChatViewModel(
 		// `Blind` has to be absent from the listing, not merely refused when
 		// named -- a filename leaks on its own.
 		val policies = loadPolicies()
-		val tools = buildTools(policies)
+		// A regenerate request carries the transcript, including tool results,
+		// but no tools. It can therefore rewrite the final text without
+		// re-running an SSH command or a file write.
+		val tools = if (includeTools) buildTools(policies) else emptyList()
 		val toolSpecs = tools.map { spec(it) }
 		Diag.i(
 			"turn",
@@ -1594,20 +1627,14 @@ class ChatViewModel(
 				// Recorded whether it succeeded or not.
 				//
 				// A failed write still means the turn *tried* to change the
-				// workspace, and regenerating would try again. Marking only the
-				// successes would leave a reply that attempted a delete and was
-				// refused looking like plain text -- which is precisely the reply
-				// someone would be most inclined to re-run, and on a second attempt
-				// the refusal might go the other way.
+				// workspace. Marking only the successes would leave a reply that
+				// attempted a delete and was refused looking like plain text.
+				// This is a durable record about replay-with-tools; regeneration
+				// is tool-less and does not use it.
 				if (tool.mutates) {
-					// Marking the message is the whole of the bookkeeping.
-					//
-					// There used to be a `currentTurnMutated = true` here as well,
-					// because `ChatUiState` stored the flag. It stores nothing now
-					// (see the property's own note): the flag is read off the
-					// transcript, so recording the mutation *is* raising the flag,
-					// and there is no second copy to go stale. This line is
-					// therefore load-bearing and the removed one was the bug.
+					// Marking the message is the whole of the bookkeeping. There
+					// is no second `currentTurnMutated` flag to keep in step:
+					// that gate was removed when regeneration became tool-less.
 					_state.update { s ->
 						s.copy(
 							messages = s.messages.map {
@@ -1617,9 +1644,9 @@ class ChatViewModel(
 					}
 					// Written separately, and this is not optional: the reply was
 					// persisted when the model stopped streaming, and its tools run
-					// afterwards. Updating only the in-memory copy makes the guard
-					// vanish on the next launch, which is the worst version of it --
-					// the control would come back and the write would happen again.
+					// afterwards. Updating only the in-memory copy loses the record
+					// on the next launch, and a future replay-with-tools feature
+					// would then treat a real write as replayable.
 					repository.markMutated(outcome.messageId)
 				}
 			}

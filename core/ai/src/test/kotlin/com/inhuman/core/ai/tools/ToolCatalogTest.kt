@@ -154,6 +154,13 @@ class ToolCatalogTest {
 	}
 
 	@Test
+	fun `the remote tool is the only irreversible one`() {
+		val irreversible = ToolCatalog.all.filterNot { it.reversible }.map { it.name }.toSet()
+		assertEquals(setOf("ssh_exec"), irreversible)
+		assertTrue(ToolCatalog.all.first { it.name == "delete_file" }.reversible)
+	}
+
+	@Test
 	fun `the deepseek web tools are marked paid`() {
 		// The marker is a cost warning, not a capability one: these tools are
 		// read-only but they spend money at DeepSeek on every successful call.

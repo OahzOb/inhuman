@@ -113,7 +113,8 @@ The measured reason for the move: one `write_file` costs about 106 ms in a
 
 **Any `tool.mutates` call sets `mutated`, whether it succeeded or not**
 (`:1155-1168`). A failed write still means the turn *tried* to change the
-workspace, and regenerating would try again.
+workspace. It is a record about replay-with-tools; the regenerate path now sends
+no tools, so it does not use this flag to refuse a pure-text retry.
 
 ### The approval plumbing
 
@@ -142,36 +143,39 @@ access** while it is true. Turning the global switch off clears every
 conversation's grant, and the next SSH call re-reads the column so an
 off→on round trip cannot inherit the old consent.
 
-## Regeneration, and the sticky-flag bug
+## Regeneration, without re-running tools
 
-`regenerate()` (`:543-600`) refuses while streaming; targets the last non-user,
-non-tool message; requires a key or demo mode; truncates state to just before the
-old reply; runs the turn; and then `reload()`s so the two replies are seen as
-siblings.
+`regenerate()` refuses while streaming; targets the last non-user, non-tool
+message; requires a key or demo mode; truncates state to just before the old
+reply; runs the turn **with no tools**; and then `reload()`s so the two replies
+are seen as siblings.
 
-**There are two different things called `currentTurnMutated`, and the UI reads
-the wrong one.**
+The tool-less part is the safety rule. The request still carries the transcript
+and every earlier tool result, so a pure-text summary after `ssh_exec` can be
+retried without running the SSH command again. This replaced the old
+`currentTurnMutated` guard, which refused every reply in a turn that had used a
+mutating tool. That flag and its UI are gone: it was protecting against a replay
+that the tool-less path makes impossible.
 
-| | What it is | Where |
-| --- | --- | --- |
-| `currentTurnMutated()` | A **private function**, correctly scoped to the last user message: "a file written three exchanges ago is not rewritten by answering again, so it must not block anything" | `:536-541` |
-| `state.currentTurnMutated` | A **UI flag** on `ChatUiState` (`ChatUiState.kt:101`) | read by `ChatScreen.kt:171`, used at `:852` |
+A tool-call-only tail is also safe to regenerate: the model is asked for an
+answer with no tools offered, so a read-only call cannot be repeated and a
+write/SSH call cannot happen at all. The old answer is kept as a sibling and
+remains reachable through the branch switcher.
 
-The function is right. The flag is **sticky**: it is assigned in `reload()`
-(`:498`) and set to `true` in `executeCalls` (`:1177`), and **nothing in `send()`
-clears it** (verified: `:708-719`). So once any reply in a conversation has
-mutated a file, every later reply renders "This reply changed files, so it cannot
-be regenerated." — even though the button's own guard would allow it.
+## Rollback: rewind to before the last user message
 
-Reopening the conversation does **not** fix it: the chat ViewModel is keyed
-(`MainActivity.kt:233`, `key = "chat-$id"`) and activity-scoped, so returning to
-the same conversation returns the *same* instance — `init` does not re-run and
-`reload()` is not called. Only a process restart, or a branch switch (which does
-reload), recalculates it.
+The last user message has an **Edit** action. It deletes that message and every
+descendant (the assistant turn, its tool calls, results and anything later),
+clears the parent's selected child, and restores the text and attachments to the
+composer. This is a conversation rollback, not a filesystem or remote undo:
+files already written stay written, and SSH commands already run stay run. The
+confirmation says both, and calls out the remote case when the turn used an
+irreversible tool.
 
-The UI also **replaces** the button with that sentence rather than disabling it,
-which is deliberate (`ChatScreen.kt:852-868`) — a disabled control invites
-guessing at why.
+`ConversationRepository.deleteSubtree` walks the conversation rows and deletes
+the descendant set in one transaction; only the tail user message is offered,
+because rewinding an older one is the same operation with a larger discard. An
+empty conversation keeps its stored title until the next send updates it.
 
 ## The stream-inside-the-UI invariants
 

@@ -57,10 +57,16 @@ be reached without an account.
 | `web_fetch` | DeepSeek's paid Fetch API: one page as Markdown, no second key |
 | `ssh_exec` | one command on a remote machine; **off by default**, explicit assistant selection, per-conversation consent, no host config |
 
-A reply that used a tool which changed the workspace cannot be regenerated,
-because regenerating re-runs the turn and would write a second time. No
-rollback: the blast radius of a bad rollback is the user's files, whereas
-refusing to replay cannot corrupt anything.
+Regenerating a reply is **tool-less**: the request carries the transcript and
+any earlier tool results, but offers no tools, so it cannot write a second time
+or run an SSH command again. That also means a pure-text reply after a mutating
+tool can be retried. It does not undo what already happened.
+
+The last user message has an **Edit** action. It rewinds the conversation to
+before that message, removes the message and everything after it, and restores
+the text and attachments to the composer. Files already changed and SSH
+commands already run stay that way; the confirmation says so. It is a
+conversation rollback, not a filesystem or remote undo.
 
 **Search and fetch are paid, and that is why they are separate tools.** Both
 call DeepSeek's own APIs directly (`/v1/tools/search`, `/v1/tools/fetch`),

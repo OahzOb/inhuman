@@ -1,6 +1,7 @@
 package com.inhuman.core.data
 
 import android.content.Context
+import androidx.room.withTransaction
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.ConversationStore
 import com.inhuman.core.data.db.Database
@@ -244,6 +245,44 @@ class ConversationRepository(
 	 */
 	suspend fun selectBranch(parentId: String, childId: String) {
 		db.messages().setSelectedChild(parentId, childId)
+	}
+
+	/**
+	 * Delete one message and every descendant below it.
+	 *
+	 * A conversation rollback is a **tree** operation, not a row delete: a user
+	 * message owns the assistant reply, its tool calls, the tool results and
+	 * anything after them. Removing only the user row would leave an orphaned
+	 * tail that no longer has a question, and the next request would send an
+	 * assistant/tool sequence with no opening user message.
+	 *
+	 * The parent's selected child is cleared. `ConversationStore.activePath`
+	 * then falls back to the newest surviving child, which is the branch the
+	 * user was looking at before the rolled-back one; when there is no sibling,
+	 * the parent becomes the end of the transcript.
+	 *
+	 * The workspace is deliberately untouched. A rollback rewinds the
+	 * conversation so the user can re-edit the message; it is not a file-system
+	 * undo, and the UI says so.
+	 */
+	suspend fun deleteSubtree(rootId: String, parentId: String?, conversationId: String) {
+		val all = db.messages().all(conversationId)
+		if (all.none { it.id == rootId }) return
+		val doomed = mutableSetOf(rootId)
+		var changed = true
+		while (changed) {
+			changed = false
+			for (message in all) {
+				if (message.parentId in doomed && doomed.add(message.id)) {
+					changed = true
+				}
+			}
+		}
+		db.withTransaction {
+			for (id in doomed) db.messages().delete(id)
+			if (parentId != null) db.messages().setSelectedChild(parentId, null)
+			db.conversations().touch(conversationId, System.currentTimeMillis())
+		}
 	}
 
 	/**
