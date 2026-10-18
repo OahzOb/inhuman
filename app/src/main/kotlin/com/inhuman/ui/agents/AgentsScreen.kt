@@ -68,6 +68,7 @@ import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.PaidToolsNotice
 import com.inhuman.ui.common.RemoteBadge
 import com.inhuman.ui.common.RemoteToolsNotice
+import com.inhuman.ui.common.RewindBadge
 
 /**
  * The assistants.
@@ -564,6 +565,7 @@ private fun AgentEditor(
 						// list. The trailing column is for "writes".
 						if (tool.paid) PaidBadge()
 						if (tool.remote) RemoteBadge()
+						if (tool.mutates) RewindBadge(canRewind = tool.reversible)
 					}
 					// The description is opt-in.
 					//
@@ -790,11 +792,19 @@ private fun AssistantRulesSection(
 		for (entry in ToolCatalog.all) {
 			val current = rules[entry.name] ?: ToolPolicy.Free
 			Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-				Text(
-					text = entry.name,
-					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.onSurface,
-				)
+				Row(
+					horizontalArrangement = Arrangement.spacedBy(6.dp),
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					Text(
+						text = entry.name,
+						style = MaterialTheme.typography.bodyMedium,
+						color = MaterialTheme.colorScheme.onSurface,
+					)
+					if (entry.paid) PaidBadge()
+					if (entry.remote) RemoteBadge()
+					if (entry.mutates) RewindBadge(canRewind = entry.reversible)
+				}
 				Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
 					for (option in ToolPolicy.entries) {
 						ChoiceChip(

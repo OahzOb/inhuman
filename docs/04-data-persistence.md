@@ -4,7 +4,7 @@ Module: `:core:data`. It re-exports `:core:files` and `:core:ai` with `api`,
 because a conversation's lifecycle spans the sandbox that guards it and the
 provider that answers it.
 
-## The schema, version 9
+## The schema, version 10
 
 `InhumanDatabase` (`core/data/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
 `version = 9`, `exportSchema = true`, database file `inhuman.db`. Schemas are
@@ -48,6 +48,7 @@ Six entities in three files: `ConversationEntity`, `MessageEntity` and
 | `toolCallsJson` | The assistant turn's requested calls, as a JSON array in a TEXT column — text because it is only ever read and written whole. |
 | `toolCallId` | Which call a tool result answers. Answering the wrong one is worse than answering none. |
 | `toolName` | For display. |
+| `changedFilesJson` | The turn's changed paths, `{"path","kind"}`; written on the final assistant row after tools run. |
 | `attachmentsJson` | JSON array of `{"path","mime","size"}` pointing **into the workspace** — never bytes. Bytes are read only when a request is built. |
 | `mutated` | Written when a turn actually changed the workspace. |
 
@@ -183,16 +184,18 @@ apostrophes — and `INSERT OR IGNORE`s `DEFAULT_AGENT_ID`, and it is called fro
 both `onCreate` and `MIGRATION_3_4`.
 
 **These now have device tests.** `core/data/src/androidTest/…/MigrationTest` runs
-all eight upgrade steps against real SQLite, plus "the exported v1 schema can
+all nine upgrade steps against real SQLite, plus "the exported v1 schema can
 build a database" and a policy round-trip. The 8→9 case asserts both that the
-column exists and that an existing conversation arrives with `sshAllowed = 0`.
-The v9 schema was also exercised by installing over a v8 database on the pad:
+column exists and that an existing conversation arrives with `sshAllowed = 0`;
+9→10 asserts the changed-files column exists and is null on old messages. The
+v10 schema was exercised by installing over the existing database on the pad:
 the app migrated and opened its conversation list with no data loss. The
-instrumented suite was run on the same device:
+instrumented suite was run on both the pad and the tablet AVD:
 
 ```
 .\gradlew.bat :core:data:connectedDebugAndroidTest
-→ 23046RP50C, 10 tests, 0 failures
+→ 23046RP50C, 11 tests, 0 failures
+→ dsh_tablet(AVD), 11 tests, 0 failures
 ```
 
 ### Two migration traps worth knowing before touching this

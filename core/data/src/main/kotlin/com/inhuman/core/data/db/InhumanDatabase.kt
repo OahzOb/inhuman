@@ -113,6 +113,9 @@ interface MessageDao {
 	@Query("UPDATE messages SET selectedChildId = :childId WHERE id = :parentId")
 	suspend fun setSelectedChild(parentId: String, childId: String?)
 
+	@Query("UPDATE messages SET changedFilesJson = :json WHERE id = :id")
+	suspend fun setChangedFiles(id: String, json: String?)
+
 	/**
 	 * Mark a message as having changed the workspace.
 	 *
@@ -264,7 +267,7 @@ interface PolicyDao {
 	// guessing, which is how each was caught: the app crashed on launch with
 	// "Looks like you've changed schema but forgot to update the version number"
 	// instead of quietly losing conversations.
-	version = 9,
+	version = 10,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -455,6 +458,19 @@ abstract class InhumanDatabase : RoomDatabase() {
 				connection.execSQL(
 					"ALTER TABLE conversations ADD COLUMN sshAllowed INTEGER NOT NULL DEFAULT 0",
 				)
+			}
+		}
+
+		/**
+		 * 9 -> 10: the per-turn changed-file list.
+		 *
+		 * Nullable, so every existing message reads as "not recorded" rather
+		 * than "no changes". Those are different facts and old rows really do
+		 * not know.
+		 */
+		val MIGRATION_9_10 = object : Migration(9, 10) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL("ALTER TABLE messages ADD COLUMN changedFilesJson TEXT")
 			}
 		}
 

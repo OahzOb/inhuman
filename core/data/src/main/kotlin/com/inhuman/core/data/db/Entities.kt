@@ -293,6 +293,14 @@ data class MessageEntity(
 	val toolName: String? = null,
 
 	/**
+	 * Paths this turn changed, as a JSON array of `{"path": ..., "kind": ...}`.
+	 *
+	 * Written on the final assistant row after the turn ends. Nullable because
+	 * old rows predate the column and a read-only turn has nothing to report.
+	 */
+	val changedFilesJson: String? = null,
+
+	/**
 	 * Images attached to this message, as a JSON array of
 	 * `{"path": ..., "mime": ...}`.
 	 *

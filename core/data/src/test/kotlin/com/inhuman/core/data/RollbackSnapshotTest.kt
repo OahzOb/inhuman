@@ -45,6 +45,27 @@ class RollbackSnapshotTest {
 	}
 
 	@Test
+	fun `diff reports paths by actual content`() {
+		val root = tempDir("rollback-ws")
+		val snapshot = tempDir("rollback-snap")
+		File(root, "same.txt").writeText("same")
+		File(root, "changed.txt").writeText("before")
+		File(root, "deleted.txt").writeText("gone")
+
+		assertTrue(RollbackSnapshot.capture(root, snapshot))
+
+		File(root, "changed.txt").writeText("after")
+		File(root, "deleted.txt").delete()
+		File(root, "added.txt").writeText("new")
+
+		val changes = RollbackSnapshot.diff(root, snapshot).associate { it.path to it.kind }
+		assertEquals(WorkspaceChange.Kind.Modified, changes["changed.txt"])
+		assertEquals(WorkspaceChange.Kind.Deleted, changes["deleted.txt"])
+		assertEquals(WorkspaceChange.Kind.Added, changes["added.txt"])
+		assertFalse("unchanged file must be omitted", "same.txt" in changes)
+	}
+
+	@Test
 	fun `restore refuses a missing snapshot`() {
 		val root = tempDir("rollback-ws")
 		File(root, "a.txt").writeText("still here")

@@ -57,6 +57,10 @@ be reached without an account.
 | `web_fetch` | DeepSeek's paid Fetch API: one page as Markdown, no second key |
 | `ssh_exec` | one command on a remote machine; **off by default**, explicit assistant selection, per-conversation consent, no host config |
 
+Every mutating tool carries a **REWIND** or **NO REWIND** badge beside its name,
+in the same row as PAID and REMOTE. The name says what the tool does; the badge
+says whether the turn can be undone. `ssh_exec` is the only `NO REWIND` entry.
+
 Regenerating a reply is **tool-less**: the request carries the transcript and
 any earlier tool results, but offers no tools, so it cannot write a second time
 or run an SSH command again. That also means a pure-text reply after a mutating
@@ -66,9 +70,11 @@ The last user message has an **Edit** action. It rewinds the conversation to
 before that message, removes the message and everything after it, and restores
 the text and attachments to the composer. If the turn wrote local files, the
 pre-turn workspace snapshot is restored **before** any rows are deleted, so the
-files and the transcript move together. A turn that ran SSH is **not** offered
-for rollback: its remote effects cannot be undone, and deleting the rows would
-leave the change behind. Regeneration remains available there because it does
+files and the transcript move together. A turn's changed files are listed under
+its answer (`+`/`~`/`-` paths) and repeated in the confirmation. A turn that ran
+SSH is **not** offered for rollback: its remote effects cannot be undone, and
+deleting the rows would leave the change behind. Regeneration remains available
+there because it does
 not run tools.
 
 **Search and fetch are paid, and that is why they are separate tools.** Both

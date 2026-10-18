@@ -409,6 +409,10 @@ chatting. There is no second vendor and no second credential.
   the settings approval row carries the badge too, the approval dialog repeats
   the paid-API sentence when a rule makes a call ask, and a tool result in the
   transcript carries the badge on its collapsed header.
+- Mutating tools also carry **REWIND** or **NO REWIND**, driven by
+  `ToolCatalog.Entry.reversible`, in the same badge row. This is separate from
+  paid: `ssh_exec` is both `REMOTE` and `NO REWIND`; a local write is `REWIND`.
+  The name is not expected to carry the consequence by itself.
 - Why the badge is beside the name rather than left in a description is a
   design rule, not a styling choice:
   [08-port-philosophy.md](08-port-philosophy.md) §1.4.

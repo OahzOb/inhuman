@@ -629,6 +629,34 @@ Verified on the pad with a throwaway conversation: a real `write_file` created
 `notes.txt`; Edit restored the empty workspace snapshot, removed `notes.txt`,
 deleted the turn, restored the prompt, and removed the snapshot directory.
 
+### B19. Rewind was described only in prose, and the changed files were invisible
+
+Three related UI failures, reported together:
+
+- Whether a turn could be rewound lived in the tool description, which is
+  collapsed by default. The name `ssh_exec` says what it runs, not that its
+  effects are permanent. Every mutating tool now carries **REWIND** or **NO
+  REWIND** in the same badge row as PAID and REMOTE, in the assistant editor,
+  the approval-rule row, and the approval dialog. `ssh_exec` shows both REMOTE
+  and NO REWIND.
+- Edit restored a snapshot without naming what it would revert. The turn's
+  changed paths are now compared against the snapshot by content hash, stored
+  on the final assistant row (`messages.changedFilesJson`, schema v10), shown
+  under the answer as `+`/`~`/`- path`, and listed in the confirmation dialog.
+  The comparison is content-based because a copied snapshot does not preserve
+  modification times.
+- Agent answers were still 640dp chat bubbles. User messages remain bubbles
+  because they are short; an assistant answer is the document, so it has no
+  background or width cap and fills the transcript. Tool-result rows and the
+  composer remain capped.
+
+Verified on the pad: the file turn showed `Changed files / + notes.txt`, the
+dialog repeated the same path under "Files that will be restored", and the
+assistant text ran to the transcript edge. On the phone AVD the assistant
+answer did the same while the user bubble stayed capped; the tool editor showed
+`REWIND` on file tools and `REMOTE` + `NO REWIND` on `ssh_exec`. The persisted
+list survived a force-stop and relaunch.
+
 ---
 
 ## C. Comments that contradict the code

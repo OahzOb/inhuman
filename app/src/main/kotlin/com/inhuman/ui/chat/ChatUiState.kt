@@ -1,6 +1,7 @@
 package com.inhuman.ui.chat
 
 import com.inhuman.core.data.Branches
+import com.inhuman.core.data.WorkspaceChange
 
 /**
  * One rendered region of an assistant reply.
@@ -192,6 +193,8 @@ data class ChatMessageUi(
 	 * except the request.
 	 */
 	val attachments: List<PendingAttachment> = emptyList(),
+	/** Files this turn changed, written after the turn; empty for reads. */
+	val changedFiles: List<WorkspaceChange> = emptyList(),
 )
 
 /**

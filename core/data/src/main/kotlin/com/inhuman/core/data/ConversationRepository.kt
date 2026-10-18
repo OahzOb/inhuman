@@ -331,6 +331,20 @@ class ConversationRepository(
 			Unit
 		}
 
+	/** The turn's changed paths, computed from the pre-turn snapshot. */
+	suspend fun workspaceChanges(
+		conversation: ConversationEntity,
+		token: String,
+	): List<WorkspaceChange> = withContext(Dispatchers.IO) {
+		RollbackSnapshot.diff(
+			workspaceRoot = workspace(conversation).rootPath(),
+			snapshot = snapshotFor(conversation.id, token),
+		)
+	}
+
+	suspend fun setChangedFiles(messageId: String, json: String?) =
+		db.messages().setChangedFiles(messageId, json)
+
 	/**
 	 * Record that a reply changed the workspace.
 	 *

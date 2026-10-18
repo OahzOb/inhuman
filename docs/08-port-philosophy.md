@@ -114,6 +114,10 @@ Cordis 插件宿主、多宿主 profile、Web UI 都在此列。
 
 - `ToolCatalog.Entry.remote = true`，`REMOTE` 徽标紧挨工具名；助手工具列表上方
   有常驻说明，明确说 app 不配置 host、远端损坏不可逆、第一次调用要授权。
+- **能否 rewind 也是工具标签，不是说明文字。** 所有会改变状态的工具在名字旁带
+  `REWIND`（本地可恢复）或 `NO REWIND`（不可恢复），和 `PAID`/`REMOTE` 同一行；
+  `ssh_exec` 同时有 `REMOTE` 和 `NO REWIND`。设置页审批行、审批弹窗和对话里的
+  工具调用行复用同一徽标。理由同 §1.4：用户扫名字时不会展开描述。
 - 设置页的 SSH 开关文案说明"打开只是让助手可以选它，不等于授权任何调用"。
 - 会话第一次调用弹专用授权对话框，不是普通 `PendingApproval`。它显示
   host/user/第一条命令，要求勾选"可能造成不可逆损坏"，才允许。

@@ -66,6 +66,7 @@ class MigrationTest {
 		InhumanDatabase.MIGRATION_6_7,
 		InhumanDatabase.MIGRATION_7_8,
 		InhumanDatabase.MIGRATION_8_9,
+		InhumanDatabase.MIGRATION_9_10,
 	)
 
 	// --- building a database at an old version -------------------------------
@@ -168,6 +169,9 @@ class MigrationTest {
 		}
 		if (version >= 9) {
 			sql += "ALTER TABLE conversations ADD COLUMN sshAllowed INTEGER NOT NULL DEFAULT 0"
+		}
+		if (version >= 10) {
+			sql += "ALTER TABLE messages ADD COLUMN changedFilesJson TEXT"
 		}
 		return sql
 	}
@@ -429,7 +433,7 @@ class MigrationTest {
 
 	@Test
 	fun `8 to 9 adds ssh consent and defaults it off`() {
-		migrate(8, 9, *allMigrations).use { db ->
+		migrate(8, 9, *allMigrations.take(8).toTypedArray()).use { db ->
 			assertTrue(
 				"sshAllowed is missing after 8 -> 9",
 				"sshAllowed" in db.columnNames("conversations"),
@@ -440,6 +444,21 @@ class MigrationTest {
 				assertEquals("an existing conversation was granted SSH", 0L, c.getLong(0))
 			}
 			db.assertCanarySurvived(9)
+		}
+	}
+
+	@Test
+	fun `9 to 10 adds the changed-files column`() {
+		migrate(9, 10, *allMigrations).use { db ->
+			assertTrue(
+				"changedFilesJson is missing after 9 -> 10",
+				"changedFilesJson" in db.columnNames("messages"),
+			)
+			db.query("SELECT changedFilesJson FROM messages WHERE id = 'm1'").use { c ->
+				assertTrue(c.moveToFirst())
+				assertTrue("an old message must not claim a file list", c.isNull(0))
+			}
+			db.assertCanarySurvived(10)
 		}
 	}
 

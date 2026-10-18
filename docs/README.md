@@ -28,7 +28,7 @@ and a future session that trusts them will start from a false premise:
 | Claim | Where | Reality |
 | --- | --- | --- |
 | The cap makes a tablet layout readable | `WideDialog.kt:89-93`, `ConversationsScreen.kt:452-457`, `SettingsScreen.kt:96-100` | **Was** inert at those sites — the fill modifier came first. **Fixed**, and verified by measurement on the tablet AVD. See [07-gotchas.md](07-gotchas.md) B5. |
-| "the chat screen applies [the cap] to the transcript *and* to the composer strip" | `AGENTS.md:63-70` | True of the composer strip and the error row only. Bubbles are capped but aligned to the start/end inside a full-width item, so on a tablet they do not share the composer's axis. Carries an in-place correction. |
+| "the chat screen applies [the cap] to the transcript *and* to the composer strip" | `AGENTS.md:130-138` | True of the composer strip and the error row only. User messages are bubbles capped at 640dp; assistant replies have no bubble and fill the list width. See [06](06-agent-loop-ui.md). |
 | "`writeText` is wrapped in `NonCancellable`" | `AGENTS.md:151` (now corrected) | It is the row insert at `ChatViewModel.kt:1040`, not the tool-layer `writeText`. |
 
 The tool table at `README.md:42-49` is worth trusting: eleven tools, including
@@ -106,7 +106,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :app:testDebugUnitTest --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 314 tests in 33 suites, 0 failures, 1 skipped** — the skip is
+**BUILD SUCCESSFUL, 315 tests in 33 suites, 0 failures, 1 skipped** — the skip is
 `DeepSeekWebLiveTest`, which talks to the real paid Search and Fetch APIs and
 needs `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 
@@ -116,7 +116,7 @@ needs `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 | `:core:files` | 5 | 56 |
 | `:app` | 5 | 41 |
 | `:core:common` | 2 | 16 |
-| `:core:data` | 3 | 15 |
+| `:core:data` | 3 | 16 |
 
 The count grows with every fix that lands with a test, so treat the total as a
 baseline to re-measure rather than a fact to quote: the command above is the

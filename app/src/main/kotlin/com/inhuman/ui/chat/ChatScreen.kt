@@ -78,9 +78,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.data.Branches
+import com.inhuman.core.data.WorkspaceChange
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.RemoteBadge
+import com.inhuman.ui.common.RewindBadge
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -200,6 +203,7 @@ fun ChatScreen(
 		.collectAsStateWithLifecycle(null)
 	var showChatMenu by remember { mutableStateOf(false) }
 	var rollbackTarget by remember { mutableStateOf<ChatMessageUi?>(null) }
+	var rollbackFiles by remember { mutableStateOf<List<WorkspaceChange>>(emptyList()) }
 
 	// Reported upward so the app's single Back handler knows a dialog is up.
 	// Both this and the approval gate are transient questions that Back should
@@ -456,7 +460,14 @@ fun ChatScreen(
 							rollbackBlockedReason = rollbackBlockedReason,
 							isStreaming = isStreaming,
 							onRegenerate = viewModel::regenerate,
-							onRollback = { rollbackTarget = message },
+							onRollback = {
+								rollbackTarget = message
+								rollbackFiles = messages
+									.dropWhile { it.id != message.id }
+									.lastOrNull { !it.fromUser && !it.isToolResult }
+									?.changedFiles
+									.orEmpty()
+							},
 							// Both ids go up: the alternative being switched to is
 							// not on the active path, so the view model cannot find
 							// its parent by searching the transcript.
@@ -599,6 +610,13 @@ fun ChatScreen(
 			text = {
 				Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
 					Text(pending.summary, style = MaterialTheme.typography.bodyLarge)
+					ToolCatalog.all.firstOrNull { it.name == pending.call.displayName }?.let { entry ->
+						Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+							if (entry.paid) PaidBadge()
+							if (entry.remote) RemoteBadge()
+							if (entry.mutates) RewindBadge(canRewind = entry.reversible)
+						}
+					}
 					if (!pending.details.isNullOrBlank() || pending.call.argumentsJson.isNotBlank()) {
 						Text(
 							text = pending.details ?: pending.call.argumentsJson,
@@ -652,6 +670,28 @@ fun ChatScreen(
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
+					if (rollbackFiles.isEmpty()) {
+						Text(
+							"No workspace files changed in this turn.",
+							style = MaterialTheme.typography.bodySmall,
+						)
+					} else {
+						Text("Files that will be restored:", style = MaterialTheme.typography.labelLarge)
+						Column(
+							modifier = Modifier
+								.heightIn(max = 220.dp)
+								.verticalScroll(rememberScrollState()),
+							verticalArrangement = Arrangement.spacedBy(2.dp),
+						) {
+							rollbackFiles.forEach { change ->
+								Text(
+									text = "${changeMark(change.kind)} ${change.path}",
+									style = MaterialTheme.typography.bodySmall,
+									fontFamily = FontFamily.Monospace,
+								)
+							}
+						}
+					}
 				}
 			},
 			confirmButton = {
@@ -663,7 +703,12 @@ fun ChatScreen(
 				) { Text("Rewind") }
 			},
 			dismissButton = {
-				TextButton(onClick = { rollbackTarget = null }) { Text("Cancel") }
+				TextButton(
+					onClick = {
+						rollbackTarget = null
+						rollbackFiles = emptyList()
+					},
+				) { Text("Cancel") }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -887,6 +932,9 @@ private fun ToolCallLine(call: ToolCallUi) {
 			fontFamily = FontFamily.Monospace,
 		)
 		if (call.displayName == "ssh_exec") RemoteBadge()
+		ToolCatalog.all.firstOrNull { it.name == call.displayName }
+			?.takeIf { it.mutates && !it.reversible }
+			?.let { RewindBadge(canRewind = false) }
 		Text(
 			// The single most identifying argument, which for these tools is
 			// almost always the path or the query.
@@ -1059,10 +1107,17 @@ private fun MessageBubble(
 		horizontalAlignment = alignment,
 	) {
 		Box(
-			modifier = Modifier
-				.widthIn(max = Layout.ReadableMeasure)
-				.background(bubbleColor, RoundedCornerShape(14.dp))
-				.padding(horizontal = 12.dp, vertical = 8.dp),
+			modifier = if (message.fromUser) {
+				Modifier
+					.widthIn(max = Layout.ReadableMeasure)
+					.background(bubbleColor, RoundedCornerShape(14.dp))
+					.padding(horizontal = 12.dp, vertical = 8.dp)
+			} else {
+				// An assistant answer is the document, not a remark in a chat:
+				// no bubble, no 640dp cap. On a tablet that is the difference
+				// between a paragraph and a column with room for code and tables.
+				Modifier.fillMaxWidth()
+			},
 		) {
 			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
 				// Reasoning first, open only while it is the newest working
@@ -1182,6 +1237,13 @@ private fun MessageBubble(
 			UsageLine(usage = u, modifier = Modifier.padding(top = 4.dp))
 		}
 
+		if (!message.fromUser && message.changedFiles.isNotEmpty()) {
+			ChangedFilesSummary(
+				changes = message.changedFiles,
+				modifier = Modifier.padding(top = 6.dp),
+			)
+		}
+
 		// Alternatives, when this reply has any.
 		//
 		// Placed under the answer rather than beside it, because it belongs to
@@ -1244,12 +1306,48 @@ private fun MessageBubble(
 				Text(
 					text = rollbackBlockedReason,
 					style = MaterialTheme.typography.labelLarge,
-					color = MaterialTheme.colorScheme.outline,
+					color = MaterialTheme.colorScheme.error,
 					modifier = Modifier.padding(top = 4.dp),
 				)
 			}
 		}
 	}
+}
+
+@Composable
+private fun ChangedFilesSummary(
+	changes: List<WorkspaceChange>,
+	modifier: Modifier = Modifier,
+) {
+	Column(
+		modifier = modifier.fillMaxWidth(),
+		verticalArrangement = Arrangement.spacedBy(2.dp),
+	) {
+		Text(
+			text = "Changed files",
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		changes.forEach { change ->
+			Text(
+				text = "${changeMark(change.kind)} ${change.path}",
+				style = MaterialTheme.typography.bodySmall,
+				fontFamily = FontFamily.Monospace,
+				color = when (change.kind) {
+					WorkspaceChange.Kind.Added -> MaterialTheme.colorScheme.primary
+					WorkspaceChange.Kind.Modified -> MaterialTheme.colorScheme.onSurface
+					WorkspaceChange.Kind.Deleted -> MaterialTheme.colorScheme.error
+				},
+			)
+		}
+	}
+}
+
+/** One character, so a list of paths scans as a diff. */
+private fun changeMark(kind: WorkspaceChange.Kind): String = when (kind) {
+	WorkspaceChange.Kind.Added -> "+"
+	WorkspaceChange.Kind.Modified -> "~"
+	WorkspaceChange.Kind.Deleted -> "-"
 }
 
 @Composable

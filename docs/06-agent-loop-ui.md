@@ -182,6 +182,11 @@ only irreversible tool: a turn containing it shows the reason and **no Edit**,
 because deleting the transcript would leave the remote effects in place.
 Regenerate is still available there; it sends no tools.
 
+The final assistant row carries the turn's changed paths (`changedFilesJson`,
+schema v10), computed by hashing the workspace against the snapshot. They are
+shown under the answer and listed in the Edit confirmation, so a rewind names
+what it will restore instead of only promising one.
+
 `ConversationRepository.deleteSubtree` walks the conversation rows and deletes
 the descendant set in one transaction; only the tail user message is offered.
 An empty conversation keeps its stored title until the next send updates it.
@@ -268,12 +273,13 @@ composer, each `widthIn(max = ReadableMeasure).fillMaxWidth()` (`:349-351`,
 comment: the wrong order put the field at 2208px on a 1280dp tablet while the
 messages stopped at 1232.
 
-**The cap does not put the transcript on that axis.** Bubbles are capped at 640dp
-but aligned to the list's start/end inside a full-width item, so on a tablet an
-assistant bubble starts at the 32dp gutter while the centred composer starts at
-320dp. Only the composer and the error row share an axis; `AGENTS.md` describes
-the intent as the tutorial and the composer being on the same axis, and that is
-true of the composer only.
+**Assistant answers are the document, not a bubble.** User messages remain
+capped at `ReadableMeasure` (640dp) and aligned to the end, because they are
+short remarks. An assistant reply has no bubble, no background and no 640dp cap:
+it fills the list width, so prose, code and tables get the tablet's horizontal
+room. Tool-result rows stay capped as machinery. The composer and error row are
+still centred at 640dp; on a tablet that means they do not share an axis with
+the answer, deliberately.
 
 The cap was inert at seven other sites; all now constrain first and fill second,
 and the 576dp tablet measurement is in

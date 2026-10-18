@@ -15,7 +15,7 @@ architecture from scratch:
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
 | `docs/03-ai-provider.md` | Provider and stream contracts, the DeepSeek adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` APIs**, **the `ssh_exec` transport** |
-| `docs/04-data-persistence.md` | Room schema v9, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider` |
+| `docs/04-data-persistence.md` | Room schema v10, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider` |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
@@ -131,9 +131,10 @@ Two corrections to what this file used to claim, both verified — see
 `docs/07-gotchas.md` B5:
 
 - The chat screen caps the **composer strip and the error row** on that axis,
-  not the transcript. Bubbles are capped at 640dp but aligned to the start/end
-  inside a full-width item, so on a tablet an assistant bubble begins at the
-  32dp gutter while the centred composer begins at 320dp.
+  not the answer. Assistant replies have no bubble and no 640dp cap: they fill
+  the list width so code and tables get the tablet's room. User messages remain
+  bubbles capped at 640dp and aligned to the end; tool-result rows stay capped.
+  The composer is centred, so it does not share an axis with the answer.
 - The cap **was inert at seven call sites** in five files (the conversations
   list, the agents list, files, settings, `WideDialog`), because they chained
   `fillMaxWidth`/`fillMaxSize` *before* `widthIn`. **Fixed**, and verified by

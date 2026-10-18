@@ -19,6 +19,7 @@ import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.Branches
 import com.inhuman.core.data.ConversationRepository
+import com.inhuman.core.data.WorkspaceChange
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.Database
@@ -53,6 +54,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import java.util.UUID
 
@@ -687,8 +690,34 @@ class ChatViewModel(
 			it.copy(messages = it.messages.take(cut), isStreaming = true, error = null)
 		}
 
+		val changedFiles = lastReply.changedFiles
 		streamJob = viewModelScope.launch {
 			runTurn(apiKey = apiKey, demo = demo, includeTools = false)
+			// The files belong to the user turn, not to this particular answer:
+			// a regenerated sibling must keep the same "changed files" list.
+			if (changedFiles.isNotEmpty()) {
+				val replacement = _state.value.messages
+					.lastOrNull { !it.fromUser && !it.isToolResult }
+				if (replacement != null) {
+					runCatching {
+						repository.setChangedFiles(
+							replacement.id,
+							encodeChangedFiles(changedFiles),
+						)
+					}
+					_state.update { s ->
+						s.copy(
+							messages = s.messages.map {
+								if (it.id == replacement.id) {
+									it.copy(changedFiles = changedFiles)
+								} else {
+									it
+								}
+							},
+						)
+					}
+				}
+			}
 			// Reload after answering, so the new reply is recognised as a
 			// sibling of the one it replaced.
 			//
@@ -957,8 +986,42 @@ class ChatViewModel(
 				if (stored != null) _state.update { it.copy(title = stored) }
 			}
 			runTurn(apiKey = apiKey, demo = demo)
+			recordChangedFiles()
 			reload()
 		}
+	}
+
+	/**
+	 * Write the turn's changed paths onto its final assistant row.
+	 *
+	 * The snapshot diff is the source of truth, so this reports what actually
+	 * differs after the tools ran rather than trusting each tool to volunteer a
+	 * path. It runs once, on IO, before [reload] re-reads the row.
+	 */
+	private suspend fun recordChangedFiles() {
+		val entity = conversation ?: return
+		val anchor = turnAnchorId ?: return
+		val changes = runCatching {
+			repository.workspaceChanges(entity, anchor)
+		}.getOrElse { failure ->
+			Diag.w("rollback", "could not diff workspace", failure)
+			emptyList()
+		}
+		if (changes.isEmpty()) return
+		val target = _state.value.messages
+			.dropWhile { it.id != anchor }
+			.lastOrNull { !it.fromUser && !it.isToolResult }
+			?: return
+		runCatching { repository.setChangedFiles(target.id, encodeChangedFiles(changes)) }
+			.onFailure { Diag.w("rollback", "could not store changed files", it) }
+		_state.update { s ->
+			s.copy(
+				messages = s.messages.map {
+					if (it.id == target.id) it.copy(changedFiles = changes) else it
+				},
+			)
+		}
+		Diag.i("rollback", "recorded ${changes.size} changed files")
 	}
 
 	/**
@@ -2242,6 +2305,14 @@ class ChatViewModel(
 			}.toString()
 		}
 
+	private fun encodeChangedFiles(changes: List<WorkspaceChange>): String =
+		changes.joinToString(prefix = "[", postfix = "]") { change ->
+			buildJsonObject {
+				put("path", change.path)
+				put("kind", change.kind.name)
+			}.toString()
+		}
+
 
 
 	private fun encodeCalls(calls: List<ToolCallUi>): String = buildJsonObject {
@@ -2474,6 +2545,7 @@ private fun MessageEntity.toUi(
 		branchParentId = parentId,
 		mutated = mutated,
 		attachments = decodeAttachments(attachmentsJson),
+		changedFiles = decodeChangedFiles(changedFilesJson),
 	)
 }
 
@@ -2500,6 +2572,25 @@ private fun decodeAttachments(raw: String?): List<PendingAttachment> {
 					mimeType = obj["mime"]?.toString()?.trim('"') ?: "image/*",
 					sizeBytes = obj["size"]?.toString()?.trim('"')?.toLongOrNull() ?: 0L,
 				)
+			}
+	}.getOrDefault(emptyList())
+}
+
+/** The changed-file summary stored on the final assistant row. */
+private fun decodeChangedFiles(raw: String?): List<WorkspaceChange> {
+	if (raw.isNullOrBlank()) return emptyList()
+	return runCatching {
+		(Json.parseToJsonElement(raw) as? kotlinx.serialization.json.JsonArray)
+			.orEmpty()
+			.mapNotNull { item ->
+				val obj = item as? JsonObject ?: return@mapNotNull null
+				val path = obj["path"]?.toString()?.trim('"') ?: return@mapNotNull null
+				val kind = obj["kind"]?.toString()?.trim('"')?.let { raw ->
+					WorkspaceChange.Kind.entries.firstOrNull {
+						it.name.equals(raw, ignoreCase = true)
+					}
+				} ?: return@mapNotNull null
+				WorkspaceChange(path, kind)
 			}
 	}.getOrDefault(emptyList())
 }
