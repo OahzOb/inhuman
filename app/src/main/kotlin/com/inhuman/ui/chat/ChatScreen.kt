@@ -9,6 +9,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +31,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -62,6 +67,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -221,9 +227,69 @@ fun ChatScreen(
 	// single most annoying thing a chat app can do.
 	val atBottom by remember {
 		derivedStateOf {
-			val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()
-			last == null || last.index >= listState.layoutInfo.totalItemsCount - 2
+			val info = listState.layoutInfo
+			val last = info.visibleItemsInfo.lastOrNull()
+			// The last item has to be the *last item*, and its bottom has to be
+			// at the viewport's bottom. The old test allowed the second-to-last
+			// item to count as "at bottom"; that made a small manual scroll look
+			// like following and let a growing reply drag the user down.
+			last == null ||
+				(last.index == info.totalItemsCount - 1 &&
+					last.offset + last.size <= info.viewportEndOffset + 2)
 		}
+	}
+
+	// Height of the last visible row. A reasoning/tool accordion expanding or
+	// collapsing changes layout without changing the message count or the
+	// answer's text length, which is why the follow effect used to miss it.
+	val lastItemHeight by remember {
+		derivedStateOf {
+			listState.layoutInfo.visibleItemsInfo.lastOrNull()?.size ?: 0
+		}
+	}
+	val lastItemOffset by remember {
+		derivedStateOf {
+			listState.layoutInfo.visibleItemsInfo.lastOrNull()?.offset ?: 0
+		}
+	}
+
+	// Whether the view should keep following the newest content.
+	//
+	// This cannot be derived from `atBottom` alone: when the last item grows,
+	// the list's existing scroll position stays put, so the item's bottom moves
+	// below the viewport and `atBottom` becomes false *because of the growth*.
+	// A derived flag would therefore stop following at the exact moment it is
+	// needed. Instead, user input turns it off and reaching the bottom turns it
+	// back on; content growth never changes it.
+	var followLatest by remember { mutableStateOf(true) }
+	// Programmatic jumps also travel through nested scroll on some Compose
+	// versions. Without this guard their UserInput source would turn following
+	// off at the exact moment the user asked to follow again.
+	var programmaticScroll by remember { mutableStateOf(false) }
+	val followConnection = remember {
+		object : NestedScrollConnection {
+			override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+				if (source == NestedScrollSource.UserInput && !programmaticScroll) {
+					followLatest = false
+				}
+				return Offset.Zero
+			}
+		}
+	}
+	LaunchedEffect(listState) {
+		snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+			if (!scrolling && !followLatest) {
+				// The gesture/fling has ended; if it landed at the bottom, the
+				// next content change should follow again.
+				followLatest = atBottom
+			}
+		}
+	}
+	LaunchedEffect(atBottom) {
+		// Reaching the bottom is itself the signal, not only the end of a
+		// gesture. A fling can finish with `atBottom` still catching up, and a
+		// new user message can shift the layout after the scroll-end event.
+		if (atBottom) followLatest = true
 	}
 
 	// Which message the regenerate control belongs to. Computed from the tail
@@ -234,12 +300,22 @@ fun ChatScreen(
 		lastAssistantId = viewModel.state.value.messages
 			.lastOrNull { !it.fromUser && !it.isToolResult }?.id
 	}
-	LaunchedEffect(messageCount, lastMessageLength) {
-		if (messageCount > 0 && atBottom) {
+	LaunchedEffect(messageCount, lastMessageLength, lastItemHeight, lastItemOffset) {
+		if (messageCount > 0 && followLatest && !programmaticScroll) {
 			// scrollToItem, not animateScrollToItem: the list is already growing
 			// under the user's eyes, and an animation racing the arrival of the
 			// next chunk is what makes streaming look unsteady.
-			listState.scrollToItem(messageCount - 1)
+			//
+			// `lastItemHeight` / `lastItemOffset` are part of the key because a
+			// live reasoning or tool section can expand without adding a message
+			// or a character to the answer. The offset also catches a preceding
+			// row growing, which shifts the last row without resizing it.
+			programmaticScroll = true
+			try {
+				listState.scrollToLatest(messageCount - 1)
+			} finally {
+				programmaticScroll = false
+			}
 		}
 	}
 
@@ -351,7 +427,9 @@ fun ChatScreen(
 			Box(modifier = Modifier.weight(1f)) {
 				LazyColumn(
 					state = listState,
-					modifier = Modifier.fillMaxSize(),
+					modifier = Modifier
+						.fillMaxSize()
+						.nestedScroll(followConnection),
 					contentPadding = PaddingValues(
 						horizontal = comfortableGutter(),
 						vertical = 12.dp,
@@ -386,23 +464,25 @@ fun ChatScreen(
 				if (!atBottom && messages.isNotEmpty()) {
 					FilledIconButton(
 						onClick = {
+							followLatest = true
+							programmaticScroll = true
 							scope.launch {
-								// A long reply's height is not known until it has
-								// been composed and its Markdown laid out, and
-								// that happens *after* the first jump. A single
-								// pass therefore lands short when the last item
-								// grows; repeat after a frame or two so the
-								// second pass starts from the measured height.
-								// Finite `scrollBy` steps also avoid the overflow
-								// of `scrollOffset = Int.MAX_VALUE`.
-								var passes = 0
-								while (passes++ < 4) {
-									listState.scrollToItem(messages.lastIndex)
-									var steps = 0
-									while (listState.canScrollForward && steps++ < 20) {
-										listState.scrollBy(10_000f)
+								try {
+									// A long reply's height is not known until it has
+									// been composed and its Markdown laid out, and
+									// that happens *after* the first jump. A single
+									// pass therefore lands short when the last item
+									// grows; repeat after a frame or two so the
+									// second pass starts from the measured height.
+									// Finite `scrollBy` steps also avoid the overflow
+									// of `scrollOffset = Int.MAX_VALUE`.
+									var passes = 0
+									while (passes++ < 4) {
+										listState.scrollToLatest(messages.lastIndex)
+										delay(120)
 									}
-									delay(120)
+								} finally {
+									programmaticScroll = false
 								}
 							}
 						},
@@ -640,6 +720,24 @@ private fun SshConsentDialog(
 		textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 	)
 }
+
+/**
+ * Put the end of [lastIndex] at the viewport bottom.
+ *
+ * `scrollToItem` alone aligns the item's **top**, which for a reply taller than
+ * the viewport leaves the newest tokens below the fold. The follow effect used
+ * to call only that, so a long streaming answer could look like it was not
+ * following even when the scroll ran. The finite `scrollBy` steps finish the
+ * job and avoid `scrollOffset = Int.MAX_VALUE`.
+ */
+private suspend fun LazyListState.scrollToLatest(lastIndex: Int) {
+	scrollToItem(lastIndex)
+	var steps = 0
+	while (canScrollForward && steps++ < 20) {
+		scrollBy(10_000f)
+	}
+}
+
 
 /**
  * Step between the alternatives at one point in the conversation.

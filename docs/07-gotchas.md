@@ -568,6 +568,32 @@ unanswered call in the transcript; the request is valid, but the UI does not
 rewrite history. That is preferable to branching the conversation by inserting a
 synthetic child and changing which message is selected.
 
+### B17. A live Thinking/tool accordion expanded below the fold without following — **FIXED**
+
+Reported as: "拖到底部时默认跟随最新，手动移动后停住，点回到底部也跟随；但 thinking
+之类的临时展开部分似乎不会跟随最新." The follow effect was keyed only on
+`messageCount` and the last answer's text length. A `Thinking` or tool accordion
+expanding or collapsing changes the row's measured height without changing
+either key, so the transcript stayed put while the newest content grew below the
+fold.
+
+Two changes in `ChatScreen`:
+
+1. `followLatest` is now an explicit intent. `NestedScrollConnection` turns it
+   off on `NestedScrollSource.UserInput`, and a scroll-end observer turns it
+   back on if the gesture landed at the bottom. Content growth never changes it;
+   deriving follow from `atBottom` would stop following when a growing row
+   pushed its own bottom below the viewport. A `programmaticScroll` flag keeps
+   the jump/follow callbacks from counting as user input; without it the jump
+   requested follow and its own scroll immediately cancelled it.
+2. The follow effect also keys on the last visible row's measured height and
+   offset, and `atBottom` now requires the actual last item's bottom at the
+   viewport bottom, not "within two items".
+
+Verified on the pad during a live thinking answer: no jump button appeared while
+the accordion expanded, a manual swipe up held its position for five seconds of
+continued streaming, and the jump button restored follow.
+
 ---
 
 ## C. Comments that contradict the code

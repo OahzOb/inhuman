@@ -268,14 +268,31 @@ and the 576dp tablet measurement is in
 
 ### Scrolling
 
-Keyed on `messageCount` plus the last message's text length, and only when
-already within two items of the bottom (`:202-224`), using `scrollToItem` rather
-than an animated scroll (`:220-222`). Auto-scrolling unconditionally would fight
-a user reading back.
+The transcript has a **follow intent**, not an `atBottom` condition alone.
+`followLatest` starts true, is turned off by a real user gesture
+(`NestedScrollConnection`, `NestedScrollSource.UserInput`), and is turned back
+on when a gesture/fling ends at the bottom. Content growth never changes it.
+A `programmaticScroll` flag keeps the jump/follow scroll itself from being
+mistaken for a user gesture; without it the jump set `followLatest = true` and
+its own nested-scroll callback immediately set it back to false.
+That distinction matters because a growing last item moves its own bottom below
+the viewport: deriving "should follow" from `atBottom` would stop following at
+the exact moment the item grew.
 
-When scrolled away, a `FilledIconButton` with a down arrow overlays the
+The follow effect is keyed on `messageCount`, the last message's text length,
+**and the last item's measured height**. The height key is what makes a live
+`Thinking`/tool accordion follow while it expands or collapses: those change
+layout without adding a message or a character to the answer. The effect uses
+`scrollToItem`, not an animated scroll, because an animation racing the next
+chunk makes streaming look unsteady.
+
+`atBottom` means the last item is fully at the viewport bottom, not "within two
+items". Auto-scrolling unconditionally would fight a user reading back.
+
+When `followLatest` is false, a `FilledIconButton` with a down arrow overlays the
 transcript's bottom-end (`contentDescription = "Jump to latest message"`). It
-hides once the bottom is reached. The jump is not one `scrollToItem`: a long
+sets `followLatest = true` before the jump, so the rest of the reply keeps
+following. The jump is not one `scrollToItem`: a long
 last reply is taller than the viewport and its height is still being measured
 when the jump starts, so a single pass lands short once Markdown lays out. It
 walks forward in finite `scrollBy` steps and repeats up to four times after a
