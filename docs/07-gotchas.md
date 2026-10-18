@@ -686,6 +686,30 @@ snapshot count went `2 turns` → `1 turn`, proving only the rewound turn was
 discarded. The old second-group manifest was replaced, leaving `start` plus the
 two current group manifests.
 
+### B21. The transcript flashed when the reply completed
+
+The completion path called `reload()` after the last token. `reload` re-reads
+every row and replaces the whole `messages` list, so the streamed row was
+swapped for an equal reconstructed row and the LazyColumn re-laid out -- a
+visible flash at the exact moment the user starts reading.
+
+The transcript is already current and persisted when the stream ends. The send
+and mid-turn-regeneration paths now call `refreshTurnMeta()` instead: it
+recomputes only checkpoints, rollback availability, the changed-file section's
+source state and the context gauge, and does not touch `messages`. Final-answer
+regeneration also avoids `reload`: it fetches the new reply's branch metadata
+with `refreshReplyBranches()` and patches that one row. A full `reload` remains
+for paths that genuinely replace the tree (initial load, branch switch,
+rewind).
+
+### B22. Rewind deleted the user row's descendants but kept the user row
+
+Adding `deleteDescendants()` for mid-turn regeneration accidentally changed
+`deleteSubtree()` to `doomed - rootId`, so Edit restored the workspace, deleted
+the assistant/tool subtree, and left the user message on screen. The two
+operations are now distinct: `deleteSubtree` deletes the root plus descendants;
+`deleteDescendants` keeps the selected boundary and removes the rest.
+
 ---
 
 ## C. Comments that contradict the code

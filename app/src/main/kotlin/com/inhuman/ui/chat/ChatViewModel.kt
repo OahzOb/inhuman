@@ -729,16 +729,34 @@ class ChatViewModel(
 					}
 				}
 			}
-			// Reload after answering, so the new reply is recognised as a
-			// sibling of the one it replaced.
-			//
-			// Without this the transcript on screen is correct but its branch
-			// information is not: runTurn appends the reply with no siblings
-			// known, and nothing recomputes them. The tree in the database has
-			// the two replies under one parent the whole time -- only the view
-			// model's copy was missing it, so the switcher never appeared and
-			// the earlier answer could not be reached again.
-			reload()
+			// Reloading here used to make the completed answer flash. Only the
+			// new reply's branch metadata is missing; fetch that and leave the
+			// transcript alone.
+			refreshReplyBranches(questionId)
+			refreshTurnMeta()
+		}
+	}
+
+	/**
+	 * Attach branch metadata to the newest reply without rebuilding the list.
+	 *
+	 * The old answer is deliberately not in `messages` after a regenerate: it is
+	 * a sibling, not the active path. The switcher under the new reply still has
+	 * to know both ids, so one branch query is enough.
+	 */
+	private suspend fun refreshReplyBranches(parentId: String) {
+		val branches = runCatching { repository.branches(parentId) }.getOrNull() ?: return
+		_state.update { s ->
+			val index = s.messages.indexOfLast { !it.fromUser && !it.isToolResult }
+			if (index < 0) return@update s
+			s.copy(
+				messages = s.messages.toMutableList().also { list ->
+					val message = list[index]
+					if (message.parentId == parentId) {
+						list[index] = message.copy(branches = branches)
+					}
+				},
+			)
 		}
 	}
 
@@ -834,7 +852,56 @@ class ChatViewModel(
 			turnSnapshotReady = startAvailable
 			runTurn(apiKey = apiKey, demo = demo, includeTools = true)
 			recordChangedFiles()
-			reload()
+			refreshTurnMeta()
+		}
+	}
+
+	/**
+	 * Update everything derived from the completed turn without reloading the
+	 * transcript.
+	 *
+	 * The old path called [reload] here, which re-read every row and replaced
+	 * the whole visible list after the last token. That produced a visible
+	 * flash at the end of every reply -- the streamed row was replaced by an
+	 * equal row, and the list briefly re-laid out. The transcript is already in
+	 * the state and already persisted; only the controls and the checkpoint
+	 * metadata need recomputing.
+	 */
+	private suspend fun refreshTurnMeta() {
+		val entities = repository.conversation(conversationId)?.messages ?: return
+		val lastUser = entities.lastOrNull { it.role == "user" }
+		val lastTurn = lastUser?.let { user ->
+			entities.dropWhile { it.id != user.id }
+		}.orEmpty()
+		val irreversible = lastTurn.any { it.hasIrreversibleCall() }
+		val hasSnapshot = lastUser != null && runCatching {
+			repository.hasStartCheckpoint(conversationId, lastUser.id)
+		}.getOrDefault(false)
+		val snapshotStats = runCatching { repository.snapshotStats(conversationId) }
+			.getOrElse { SnapshotStats(0, 0) }
+		val mutated = lastTurn.any { it.mutated } || hasSnapshot
+		val rollbackAvailable = lastUser != null && !irreversible && (!mutated || hasSnapshot)
+		val rollbackBlockedReason = when {
+			lastUser == null -> null
+			irreversible -> "This turn ran SSH commands; remote effects cannot be rolled back."
+			mutated && !hasSnapshot ->
+				"The workspace snapshot for this turn is missing, so it cannot be rewound safely."
+			else -> null
+		}
+		val regenerationPoints = regenerationPointsFor(lastUser, lastTurn)
+		turnAnchorId = lastUser?.id
+		turnSnapshotReady = hasSnapshot
+		turnIrreversible = irreversible
+		_state.update {
+			it.copy(
+				isStreaming = false,
+				rollbackAvailable = rollbackAvailable,
+				rollbackBlockedReason = rollbackBlockedReason,
+				snapshotStats = snapshotStats,
+				snapshotRetention = snapshotRetention(),
+				regenerationPoints = regenerationPoints,
+				context = contextOf(it.messages),
+			)
 		}
 	}
 
@@ -1115,7 +1182,7 @@ class ChatViewModel(
 			}
 			runTurn(apiKey = apiKey, demo = demo)
 			recordChangedFiles()
-			reload()
+			refreshTurnMeta()
 		}
 	}
 
