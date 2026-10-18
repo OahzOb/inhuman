@@ -150,15 +150,30 @@ is the part reused, and there is no explicit "write cache" call. A different
 prefix — even one that is a subset of an earlier prompt — is a different
 request.
 
-This shows up in the two regeneration paths. A final-answer retry is tool-less,
-so it removes the tool definitions and the assistant/tool suffix. The same turn
-was measured at `prompt=2201 cache=2048` with tools and `prompt=191 cache=0`
-without them: the smaller prompt did not match the cached tool-bearing prefix.
-`Regenerate from…` keeps the tools and the prefix up to a checkpoint; the same
-conversation measured `prompt=2204 cache=93%` there. Neither path "rewrites the
-whole cache"; it either reuses a matching prefix or creates a new one. Zero is
-shown as `cache 0%` in the usage summary, and the expanded row spells out
-`from cache N of M`.
+The cache is persisted in **prefix units**, at the end of the user input and at
+the end of the model output (plus fixed intervals for long inputs). A pure-chat
+turn `A+B` therefore leaves a unit at the user-input boundary `A+B`. Regenerating
+its assistant answer sends `A+B` again: that exactly matches the user-input
+unit, so the reused part is `A+B`; the old output unit `A+B+C` is ignored and the
+new output gets a new unit. It is not "cache zero" and not a rewrite of the old
+cache.
+
+The tool case is different because the request shape changes. A final-answer
+retry is tool-less, so it removes the `tools` definitions and the assistant/tool
+suffix. The same turn was measured at `prompt=2201 cache=2048` with tools and
+`prompt=191 cache=0` without them: the smaller prompt did not match the cached
+tool-bearing prefix. `Regenerate from…` keeps the tools and the prefix up to a
+checkpoint; the same conversation measured `prompt=2204 cache=93%` there.
+
+Tool calls are ordinary serialized messages once they are on the wire; there is
+no separate "tool cache". They can hit the same prefix cache when the whole tool
+definition + call/result prefix is byte-for-byte the request prefix — which is
+what a checkpoint replay preserves. A fresh tool-less retry cannot, and a new
+tool call diverges at its new call id anyway.
+
+Neither path "rewrites the whole cache"; it either reuses a matching prefix unit
+or creates a new one. Zero is shown as `cache 0%` in the usage summary, and the
+expanded row spells out `from cache N of M`.
 
 ## The DeepSeek adapter
 
