@@ -104,11 +104,13 @@ Two more that are stated as behaviour rather than as policy:
   and everything after it are deleted, and the text/attachments go back to the
   composer. A turn containing an irreversible tool (SSH) is **not** offered for
   rollback, because its remote effects cannot be undone. Separately, the newest
-  answer can be regenerated tool-lessly, and **Regenerate from…** can restart
-  after any completed tool group in the last turn: the prefix is kept, the
-  suffix is deleted, its checkpoint is restored, and the request runs with
-  tools. Checkpoints are content-addressed; the chat menu shows the stored turn
-  count and size and lets the user keep 1/3/5/10 turns.
+  answer can be retried from the same prefix: the tool definitions stay (so the
+  context cache can hit), a transient instruction forbids calls, and the app
+  refuses any call before execution. **Regenerate from…** can restart after any
+  completed tool group in the last turn: the prefix is kept, the suffix is
+  deleted, its checkpoint is restored, and the request runs with tools.
+  Checkpoints are content-addressed; the chat menu shows the stored turn count
+  and size and lets the user keep 1/3/5/10 turns.
 
 ## The vocabulary this codebase uses
 

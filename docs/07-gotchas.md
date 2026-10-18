@@ -54,10 +54,10 @@ Note the second expression: `ConversationRepository.branches` cannot see
 `Tool.kt:43-84`. `mutates` = "would replaying this with tools change state?
 afterwards"; `needsApproval` = "may this call happen?" *before*. `mutates`
 deliberately has **no default**: a default `false` on a writer is how a retry
-with tools writes twice. Regeneration itself is tool-less now, so this flag is a
-record about replay-with-tools, not a blanket refusal. `needsApproval` **takes
-the arguments**, because "writing a new file may be fine while overwriting an
-existing one is not".
+with tools writes twice. Regeneration keeps the tool definitions for prompt-cache
+matching but suppresses calls, so this flag is a record about replay-with-tools,
+not a blanket refusal. `needsApproval` **takes the arguments**, because "writing a
+new file may be fine while overwriting an existing one is not".
 
 ### A6. The quota check walks the tree once
 
@@ -103,7 +103,7 @@ sounding like it looked (`ChatTypes.kt:55-61`).
 tool is renamed or removed, and then re-run a real write. `markMutated` is a
 separate statement (`InhumanDatabase.kt:101-108`) because tools run after the
 stream closes; without it the record disappears on restart. It no longer gates
-regeneration: that path sends no tools.
+regeneration: the final-answer retry keeps definitions but suppresses calls.
 
 ### A12. `ToolsColumn` garbage decodes to "every tool"
 
@@ -728,6 +728,20 @@ Adding `deleteDescendants()` for mid-turn regeneration accidentally changed
 the assistant/tool subtree, and left the user message on screen. The two
 operations are now distinct: `deleteSubtree` deletes the root plus descendants;
 `deleteDescendants` keeps the selected boundary and removes the rest.
+
+### B23. The final-answer retry removed its tool definitions and lost the cache
+
+The retry was "tool-less": it dropped the `tools` definitions to guarantee no
+call. DeepSeek's cache is a prefix cache, so that changed the request from
+`prompt=2201 cache=2048` to `prompt=191 cache=0` after a tool turn. The cache
+was not reset; the cached tool-bearing prefix simply was not the request.
+
+Keeping the definitions but appending a **transient** system instruction after
+the cached prefix preserves it. The same retry then measured
+`prompt=2148 cache=1920` (89%) and returned no tool calls. The app still refuses
+any call before execution, so the cache is not paid for with a replayed write.
+If the model violates the instruction, the turn stops with an error; nothing is
+executed.
 
 ---
 

@@ -113,8 +113,9 @@ The measured reason for the move: one `write_file` costs about 106 ms in a
 
 **Any `tool.mutates` call sets `mutated`, whether it succeeded or not**
 (`:1155-1168`). A failed write still means the turn *tried* to change the
-workspace. It is a record about replay-with-tools; the regenerate path now sends
-no tools, so it does not use this flag to refuse a pure-text retry.
+workspace. It is a record about replay-with-tools; the final-answer retry keeps
+the definitions for cache matching but suppresses calls, so this flag is not
+used to refuse a pure-text retry.
 
 ### The approval plumbing
 
@@ -147,20 +148,19 @@ off→on round trip cannot inherit the old consent.
 
 `regenerate()` refuses while streaming; targets the last non-user, non-tool
 message; requires a key or demo mode; truncates state to just before the old
-reply; runs the turn **with no tools**; and then `reload()`s so the two replies
-are seen as siblings.
+reply; runs the turn with the **tool definitions still present**; and then
+patches the new reply's branch metadata instead of reloading the transcript.
 
-The tool-less part is the safety rule. The request still carries the transcript
-and every earlier tool result, so a pure-text summary after `ssh_exec` can be
-retried without running the SSH command again. This replaced the old
-`currentTurnMutated` guard, which refused every reply in a turn that had used a
-mutating tool. That flag and its UI are gone: it was protecting against a replay
-that the tool-less path makes impossible.
+The safety rule is no longer "offer no tools". The request keeps the same tool
+definitions and history so its prefix matches the original tool-bearing prompt
+and can hit the context cache. A transient system instruction (not persisted)
+then asks for prose and forbids calls; if the model returns a call anyway, the
+app refuses it before execution. Nothing is written and no SSH command runs.
 
-A tool-call-only tail is also safe to regenerate: the model is asked for an
-answer with no tools offered, so a read-only call cannot be repeated and a
-write/SSH call cannot happen at all. The old answer is kept as a sibling and
-remains reachable through the branch switcher.
+A tool-call-only tail is safe for the same reason: the model has the tools in
+context but is instructed not to use them, and the app enforces that instruction
+at the execution boundary. The old answer is kept as a sibling and remains
+reachable through the branch switcher.
 
 ## Rollback and checkpoint regeneration
 
@@ -176,9 +176,9 @@ text and attachments back in the composer. A restore failure leaves the rows
 untouched. Only that turn's checkpoint directory is deleted; older turns remain
 according to the retention setting.
 
-The newest answer's refresh icon is still **tool-less**. Beside it,
-**Regenerate from…** lists the user message and every completed tool-group
-boundary in the last turn. Selecting one:
+The newest answer's refresh icon keeps the tools for cache purposes but
+suppresses calls. Beside it, **Regenerate from…** lists the user message and
+every completed tool-group boundary in the last turn. Selecting one:
 
 - restores its checkpoint (or `start` for a read-only group before the first
   write), then deletes everything below the boundary and asks the model again
@@ -198,12 +198,13 @@ turns are not truncated. A mid-turn regeneration trims manifests the rewritten
 transcript no longer references, so that turn's checkpoints are replaced.
 
 The two regeneration paths have different cache behaviour, and the usage line
-says so. The final-answer refresh is tool-less, so it removes the tool
-definitions; a request that was cached with tools is a different prefix and will
-usually show `cache 0%` (measured 2201→191 prompt tokens). A checkpoint
-regeneration keeps the tools and the prefix, so it can hit (measured
-`cache 93%`). Zero is displayed rather than hidden; the expanded line shows
-`from cache N of M`.
+says so. The final-answer refresh keeps the tool definitions and appends a
+transient no-tool instruction after the prefix, so the prefix can hit (measured
+`prompt=2148 cache=1920`, 89%). A checkpoint regeneration keeps the tools and
+prefix without the instruction; it measured `cache 93%`. A retry that removed
+the definitions used to produce `prompt=191 cache=0`, which was a different
+request rather than a cache reset. Zero is displayed rather than hidden; the
+expanded line shows `from cache N of M`.
 
 The final assistant row carries the turn's changed paths (`changedFilesJson`,
 schema v10), computed by hashing the workspace against `start`. They are shown

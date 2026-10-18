@@ -1403,10 +1403,9 @@ private fun MessageBubble(
 		// would discard everything after it, and a control that silently deletes
 		// the rest of a transcript is not one to put within reach of a mis-tap.
 		//
-		// The view model sends this request **without tools**, so the refresh is
-		// safe even when earlier calls in the turn used SSH or wrote files: it
-		// rewrites the final text from the existing tool results and cannot run
-		// anything again.
+		// The view model keeps the tool definitions (for prefix-cache matching)
+		// but appends a transient instruction and refuses any returned call, so
+		// the refresh is safe even when earlier calls used SSH or wrote files.
 		if (isLastAssistantMessage && !message.isStreaming && !isStreaming) {
 			IconButton(
 				onClick = onRegenerate,

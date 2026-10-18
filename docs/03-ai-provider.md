@@ -158,18 +158,22 @@ unit, so the reused part is `A+B`; the old output unit `A+B+C` is ignored and th
 new output gets a new unit. It is not "cache zero" and not a rewrite of the old
 cache.
 
-The tool case is different because the request shape changes. A final-answer
-retry is tool-less, so it removes the `tools` definitions and the assistant/tool
-suffix. The same turn was measured at `prompt=2201 cache=2048` with tools and
-`prompt=191 cache=0` without them: the smaller prompt did not match the cached
-tool-bearing prefix. `Regenerate from…` keeps the tools and the prefix up to a
-checkpoint; the same conversation measured `prompt=2204 cache=93%` there.
+The tool case used to be different because the retry removed the `tools`
+definitions: the same turn measured `prompt=2201 cache=2048` with tools and
+`prompt=191 cache=0` without them. The fix is to keep the tool definitions and
+append a **transient** system instruction after the cached prefix, telling the
+model to answer in prose and not call one. The app refuses any call before
+execution. The same turn then measured `prompt=2148 cache=1920` (89%): the old
+prefix is reused, and the instruction plus new output are the only uncached
+tokens. `Regenerate from…` does the same without the instruction, from a
+checkpoint; the conversation measured `prompt=2204 cache=93%` there.
 
 Tool calls are ordinary serialized messages once they are on the wire; there is
 no separate "tool cache". They can hit the same prefix cache when the whole tool
 definition + call/result prefix is byte-for-byte the request prefix — which is
-what a checkpoint replay preserves. A fresh tool-less retry cannot, and a new
-tool call diverges at its new call id anyway.
+what a checkpoint replay and the instruction-based final retry preserve. A retry
+that removes the definitions cannot; a new tool call diverges at its new call id
+anyway.
 
 Neither path "rewrites the whole cache"; it either reuses a matching prefix unit
 or creates a new one. Zero is shown as `cache 0%` in the usage summary, and the

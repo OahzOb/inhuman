@@ -652,13 +652,12 @@ class ChatViewModel(
 			return
 		}
 
-		// Regeneration is deliberately **tool-less**. The request includes the
-		// transcript up to the question, including any earlier tool calls and
-		// results, but offers no tools, so a retry cannot run SSH, write a file
-		// or spend money again. That is why a pure-text reply after a mutating
-		// tool can be regenerated at all: the old blanket "this turn mutated"
-		// refusal was protecting against a replayed tool call that this path
-		// makes impossible.
+		// The retry keeps the tool **definitions** so the request prefix can
+		// still match the original tool-bearing prompt and hit the context
+		// cache, but sends `tool_choice = "none"`. The model therefore cannot
+		// run SSH, write a file or spend money again. Removing the definitions
+		// instead (the previous implementation) made the prompt a different,
+		// much smaller prefix and guaranteed a cache miss after any tool turn.
 		val questionId = lastReply.parentId
 		if (questionId == null) {
 			Diag.d("turn", "regenerate ignored: reply has no parent")
@@ -693,7 +692,7 @@ class ChatViewModel(
 
 		val changedFiles = lastReply.changedFiles
 		streamJob = viewModelScope.launch {
-			runTurn(apiKey = apiKey, demo = demo, includeTools = false)
+			runTurn(apiKey = apiKey, demo = demo, suppressToolCalls = true)
 			// The files belong to the user turn, not to this particular answer:
 			// a regenerated sibling must keep the same "changed files" list.
 			if (changedFiles.isNotEmpty()) {
@@ -1374,7 +1373,12 @@ class ChatViewModel(
 	 * Each iteration appends the model's turn (with any tool calls), executes
 	 * what was asked, appends the results, and goes round again.
 	 */
-	private suspend fun runTurn(apiKey: String?, demo: Boolean, includeTools: Boolean = true) {
+	private suspend fun runTurn(
+		apiKey: String?,
+		demo: Boolean,
+		includeTools: Boolean = true,
+		suppressToolCalls: Boolean = false,
+	) {
 		val provider: ChatProvider =
 			if (demo) DemoProvider() else DeepSeekProvider(apiKey = apiKey!!)
 
@@ -1383,23 +1387,46 @@ class ChatViewModel(
 		// `Blind` has to be absent from the listing, not merely refused when
 		// named -- a filename leaks on its own.
 		val policies = loadPolicies()
-		// A regenerate request carries the transcript, including tool results,
-		// but no tools. It can therefore rewrite the final text without
-		// re-running an SSH command or a file write.
-		val tools = if (includeTools) buildTools(policies) else emptyList()
+		// A regenerate request keeps the transcript and the tool definitions so
+		// the request prefix remains the same and can hit the context cache; a
+		// transient system instruction tells the model not to call one. The
+		// app still refuses to execute any call it receives in this mode. The
+		// demo provider scripts calls from request.tools and ignores
+		// instructions, so demo mode gets no tools here.
+		val tools = if (includeTools && (!suppressToolCalls || !demo)) {
+			buildTools(policies)
+		} else {
+			emptyList()
+		}
 		val toolSpecs = tools.map { spec(it) }
 		Diag.i(
 			"turn",
 			"run start provider=${provider.id} " +
 				"model=${model ?: agent?.model ?: DEFAULT_MODEL} thinking=$thinking " +
 				"effort=${reasoningEffort ?: "-"} tools=${tools.size} " +
+				"suppressTools=$suppressToolCalls " +
 				"maxRounds=$MAX_TOOL_ROUNDS demo=$demo",
 		)
 
 		var rounds = 0
 		while (rounds < MAX_TOOL_ROUNDS) {
 			rounds++
-			val outcome = streamOneTurn(provider, tools, toolSpecs)
+			val outcome = streamOneTurn(provider, tools, toolSpecs, suppressToolCalls)
+
+			// The model was told not to call tools. If one arrives anyway,
+			// executing it would defeat the retry's safety, so stop with the
+			// reason rather than replaying a write.
+			if (suppressToolCalls && outcome.toolCalls.isNotEmpty()) {
+				Diag.w("turn", "provider called a tool despite the retry instruction")
+				_state.update {
+					it.copy(
+						isStreaming = false,
+						error = "The model tried to call a tool during a text-only retry. " +
+							"Nothing was executed.",
+					)
+				}
+				return
+			}
 
 			if (outcome.toolCalls.isEmpty()) {
 				Diag.i(
@@ -1451,6 +1478,7 @@ class ChatViewModel(
 		provider: ChatProvider,
 		tools: List<Tool>,
 		toolSpecs: List<ToolSpec>,
+		suppressToolCalls: Boolean = false,
 	): TurnOutcome {
 		val parent = _state.value.messages.lastOrNull()?.id
 		val replyId = UUID.randomUUID().toString()
@@ -1474,7 +1502,13 @@ class ChatViewModel(
 			)
 		}
 
-		val history = buildWireHistory()
+		val history = buildWireHistory().let { base ->
+			if (suppressToolCalls) {
+				base + ChatMessage(Role.System, NO_TOOL_RETRY_INSTRUCTION)
+			} else {
+				base
+			}
+		}
 		Diag.i(
 			"stream",
 			"request history=${history.size} tools=${toolSpecs.size} " +
@@ -2161,12 +2195,12 @@ class ChatViewModel(
 				// A failed write still means the turn *tried* to change the
 				// workspace. Marking only the successes would leave a reply that
 				// attempted a delete and was refused looking like plain text.
-				// This is a durable record about replay-with-tools; regeneration
-				// is tool-less and does not use it.
+				// This is a durable record about replay-with-tools; the final
+				// retry keeps the definitions but suppresses execution.
 				if (tool.mutates) {
 					// Marking the message is the whole of the bookkeeping. There
 					// is no second `currentTurnMutated` flag to keep in step:
-					// that gate was removed when regeneration became tool-less.
+					// that gate was removed.
 					_state.update { s ->
 						s.copy(
 							messages = s.messages.map {
@@ -2841,6 +2875,17 @@ class ChatViewModel(
 		 * transcript the cost of a runaway loop grows quadratically.
 		 */
 		const val MAX_TOOL_ROUNDS = 8
+
+		/**
+		 * Appended only to a final-answer retry, not stored.
+		 *
+		 * It comes after the cached tool-bearing prefix so the definitions and
+		 * history can still hit the context cache, while the instruction tells
+		 * the model to answer in text. Any call that ignores it is refused
+		 * before execution.
+		 */
+		const val NO_TOOL_RETRY_INSTRUCTION =
+			"Answer the last user message in prose only. Do not call any tool in this reply."
 
 		/**
 		 * How often a streaming reply is copied into the visible state.

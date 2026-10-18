@@ -61,7 +61,8 @@ Two of those columns exist for reasons that are easy to undo by accident:
   replay-with-tools would write a second time. It defaults to `false` on
   migration, which is itself a judgement: marking every old row as mutating
   would lose a fact about those turns. It no longer gates regeneration; that
-  path sends no tools (`InhumanDatabase.kt:289-307`).
+  path keeps the definitions for prompt-cache matching but suppresses calls
+  (`InhumanDatabase.kt:289-307`).
 
 ### `agents` (`Entities.kt:30-88`)
 

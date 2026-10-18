@@ -231,10 +231,12 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
 - **`mutates` and `needsApproval` are different questions.** The first decides
   whether replay-with-tools would change something; the second whether a call
   may happen.
-- **The final-answer retry is tool-less; mid-turn regeneration is not.** The
-  refresh icon rewrites final text from existing results. `Regenerate from…`
-  keeps a checkpointed prefix and reruns **with tools**, so only a suffix whose
-  tools are reversible may be discarded. Do not collapse the two paths.
+- **The final-answer retry keeps tools but suppresses calls.** The refresh icon
+  rewrites final text from existing results; keeping the definitions preserves
+  the cache prefix, while a transient system instruction and an app-side guard
+  prevent execution. `Regenerate from…` keeps a checkpointed prefix and reruns
+  **with tools**, so only a suffix whose tools are reversible may be discarded.
+  Do not collapse the two paths.
 - **Rollback restores the workspace before deleting the turn.** The last user
   message's Edit action restores the `start` checkpoint, then removes the message
   and all descendants and restores text/attachments. A restore failure must

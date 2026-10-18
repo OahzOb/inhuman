@@ -63,9 +63,10 @@ says whether the turn can be undone. `ssh_exec` is the only `NO REWIND` entry.
 
 Regenerating a reply has two forms:
 
-- **Answer again** (the refresh icon on the newest answer) is **tool-less**: the
-  request carries the transcript and any earlier tool results, but offers no
-  tools, so it cannot write a second time or run an SSH command again.
+- **Answer again** (the refresh icon on the newest answer) keeps the tool
+  **definitions** so the request prefix can still hit DeepSeek's context cache,
+  but appends a transient instruction not to call one. If the model calls anyway,
+  the app refuses it before execution; nothing is written or sent over SSH.
 - **Regenerate from…** can restart at the user message or after any completed
   tool group in the last turn. The prefix and its tool results stay; everything
   after the chosen point is deleted, the workspace is restored to that

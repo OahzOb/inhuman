@@ -193,9 +193,10 @@ data class ChatMessageUi(
 	/**
 	 * Whether this turn changed the workspace.
 	 *
-	 * A record, not a regeneration gate: regeneration is sent without tools, so
-	 * it cannot write or delete again. This remains the fact a future
-	 * replay-with-tools path or a warning would need.
+	 * A record, not a regeneration gate: the final-answer retry keeps the tool
+	 * definitions for cache matching but suppresses calls, so it cannot write
+	 * or delete again. This remains the fact a future replay-with-tools path or
+	 * a warning would need.
 	 */
 	val mutated: Boolean = false,
 	/**
