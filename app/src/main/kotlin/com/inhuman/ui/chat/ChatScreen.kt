@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.data.Branches
+import com.inhuman.core.data.SnapshotStats
 import com.inhuman.core.data.WorkspaceChange
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
@@ -198,18 +199,30 @@ fun ChatScreen(
 	val rollbackBlockedReason by viewModel.state
 		.map { it.rollbackBlockedReason }
 		.collectAsStateWithLifecycle(null)
+	val regenerationPoints by viewModel.state
+		.map { it.regenerationPoints }
+		.collectAsStateWithLifecycle(emptyList())
+	val snapshotStats by viewModel.state
+		.map { it.snapshotStats }
+		.collectAsStateWithLifecycle(SnapshotStats(0, 0))
+	val snapshotRetention by viewModel.state
+		.map { it.snapshotRetention }
+		.collectAsStateWithLifecycle(3)
 	val pendingSshConsent by viewModel.state
 		.map { it.pendingSshConsent }
 		.collectAsStateWithLifecycle(null)
 	var showChatMenu by remember { mutableStateOf(false) }
 	var rollbackTarget by remember { mutableStateOf<ChatMessageUi?>(null) }
 	var rollbackFiles by remember { mutableStateOf<List<WorkspaceChange>>(emptyList()) }
+	var showRegeneratePicker by remember { mutableStateOf(false) }
+	var showSnapshotDialog by remember { mutableStateOf(false) }
 
 	// Reported upward so the app's single Back handler knows a dialog is up.
 	// Both this and the approval gate are transient questions that Back should
 	// answer by dismissing, not by navigating away from.
 	val anyDialogOpen = showModelPicker || pendingApproval != null ||
-		pendingSshConsent != null || rollbackTarget != null
+		pendingSshConsent != null || rollbackTarget != null || showRegeneratePicker ||
+		showSnapshotDialog
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
 	// Re-read the key and demo setting whenever this screen appears. The view
@@ -382,6 +395,24 @@ fun ChatScreen(
 							onDismissRequest = { showChatMenu = false },
 						) {
 							DropdownMenuItem(
+								text = {
+									Column {
+										Text("Rollback snapshots")
+										Text(
+											text = "${snapshotStats.turns} " +
+												"turn${if (snapshotStats.turns == 1) "" else "s"} · " +
+												humanSize(snapshotStats.bytes),
+											style = MaterialTheme.typography.bodySmall,
+											color = MaterialTheme.colorScheme.onSurfaceVariant,
+										)
+									}
+								},
+								onClick = {
+									showChatMenu = false
+									showSnapshotDialog = true
+								},
+							)
+							DropdownMenuItem(
 								text = { Text("Revoke SSH access") },
 								enabled = sshAllowed,
 								onClick = {
@@ -460,6 +491,8 @@ fun ChatScreen(
 							rollbackBlockedReason = rollbackBlockedReason,
 							isStreaming = isStreaming,
 							onRegenerate = viewModel::regenerate,
+							hasRegenerationPoints = regenerationPoints.size > 1,
+							onShowRegenerationPoints = { showRegeneratePicker = true },
 							onRollback = {
 								rollbackTarget = message
 								rollbackFiles = messages
@@ -709,6 +742,109 @@ fun ChatScreen(
 						rollbackFiles = emptyList()
 					},
 				) { Text("Cancel") }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+
+	if (showRegeneratePicker) {
+		AlertDialog(
+			onDismissRequest = { showRegeneratePicker = false },
+			title = { Text("Regenerate from") },
+			text = {
+				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+					Text(
+						"Everything after the selected point is removed and its " +
+							"workspace effects are restored. The request runs again " +
+							"with tools, so new tool calls are possible.",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					Column(
+						modifier = Modifier
+							.heightIn(max = 420.dp)
+							.verticalScroll(rememberScrollState()),
+					) {
+						regenerationPoints.forEach { point ->
+							Column(modifier = Modifier.fillMaxWidth()) {
+								TextButton(
+									onClick = {
+										showRegeneratePicker = false
+										viewModel.regenerateFrom(point)
+									},
+									enabled = point.blockedReason == null,
+									contentPadding = PaddingValues(horizontal = 4.dp),
+								) {
+									Text(point.label)
+								}
+								point.blockedReason?.let { reason ->
+									Text(
+										text = reason,
+										style = MaterialTheme.typography.bodySmall,
+										color = MaterialTheme.colorScheme.error,
+										modifier = Modifier.padding(start = 12.dp, bottom = 4.dp),
+									)
+								}
+							}
+						}
+					}
+				}
+			},
+			confirmButton = {
+				TextButton(onClick = { showRegeneratePicker = false }) { Text("Cancel") }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+
+	if (showSnapshotDialog) {
+		AlertDialog(
+			onDismissRequest = { showSnapshotDialog = false },
+			title = { Text("Rollback snapshots") },
+			text = {
+				Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+					Text(
+						if (snapshotStats.turns == 0) {
+							"No checkpoints are stored for this conversation yet."
+						} else {
+							"${snapshotStats.turns} " +
+								"turn${if (snapshotStats.turns == 1) "" else "s"} stored · " +
+								humanSize(snapshotStats.bytes) + ". " +
+								"The current turn is always kept."
+						},
+					)
+					Text(
+						"Choose how many turns to keep. Older checkpoint data is " +
+							"deleted; the current turn's start checkpoint is always kept.",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+						listOf(1, 3, 5, 10).forEach { turns ->
+							TextButton(
+								onClick = { viewModel.setSnapshotRetention(turns) },
+								contentPadding = PaddingValues(horizontal = 8.dp),
+							) {
+								Text(
+									text = "$turns",
+									style = MaterialTheme.typography.labelLarge,
+									color = if (turns == snapshotRetention) {
+										MaterialTheme.colorScheme.primary
+									} else {
+										MaterialTheme.colorScheme.onSurfaceVariant
+									},
+								)
+							}
+						}
+					}
+				}
+			},
+			confirmButton = {
+				TextButton(onClick = { showSnapshotDialog = false }) { Text("Close") }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -1045,6 +1181,8 @@ private fun MessageBubble(
 	rollbackBlockedReason: String?,
 	isStreaming: Boolean,
 	onRegenerate: () -> Unit,
+	hasRegenerationPoints: Boolean,
+	onShowRegenerationPoints: () -> Unit,
 	onRollback: () -> Unit,
 	onSelectBranch: (String?, String) -> Unit,
 ) {
@@ -1286,6 +1424,15 @@ private fun MessageBubble(
 					tint = MaterialTheme.colorScheme.onSurfaceVariant,
 					modifier = Modifier.size(18.dp),
 				)
+			}
+			if (hasRegenerationPoints) {
+				TextButton(
+					onClick = onShowRegenerationPoints,
+					contentPadding = PaddingValues(horizontal = 8.dp),
+					modifier = Modifier.padding(top = 2.dp),
+				) {
+					Text("Regenerate from…", style = MaterialTheme.typography.labelLarge)
+				}
 			}
 		}
 

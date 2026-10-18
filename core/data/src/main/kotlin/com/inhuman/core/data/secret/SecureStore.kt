@@ -192,5 +192,14 @@ class SecureStore(
 		 * to opt in, and the first call in each conversation asks the user.
 		 */
 		const val KEY_SSH_TOOL_ENABLED = "ssh.tool_enabled"
+
+		/**
+		 * How many past turns' checkpoints a conversation keeps.
+		 *
+		 * Minimum 1: the current turn needs its own start checkpoint before a
+		 * local mutation. The setting controls the history, not whether the
+		 * current turn is safe to undo.
+		 */
+		const val KEY_SNAPSHOT_TURNS = "rollback.snapshot_turns"
 	}
 }

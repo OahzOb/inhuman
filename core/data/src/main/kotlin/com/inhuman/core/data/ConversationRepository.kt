@@ -271,6 +271,33 @@ class ConversationRepository(
 	suspend fun deleteSubtree(rootId: String, parentId: String?, conversationId: String) {
 		val all = db.messages().all(conversationId)
 		if (all.none { it.id == rootId }) return
+		val doomed = descendantIds(all, rootId)
+		db.withTransaction {
+			for (id in doomed) db.messages().delete(id)
+			if (parentId != null) db.messages().setSelectedChild(parentId, null)
+			db.conversations().touch(conversationId, System.currentTimeMillis())
+		}
+	}
+
+	/**
+	 * Delete everything below [afterId] but keep the boundary row.
+	 *
+	 * Used by mid-turn regeneration: the selected tool result stays, the next
+	 * assistant/tool subtree goes, and the parent's selected child is cleared
+	 * so the new reply can occupy the same place.
+	 */
+	suspend fun deleteDescendants(afterId: String, conversationId: String) {
+		val all = db.messages().all(conversationId)
+		if (all.none { it.id == afterId }) return
+		val doomed = descendantIds(all, afterId) - afterId
+		db.withTransaction {
+			for (id in doomed) db.messages().delete(id)
+			db.messages().setSelectedChild(afterId, null)
+			db.conversations().touch(conversationId, System.currentTimeMillis())
+		}
+	}
+
+	private fun descendantIds(all: List<MessageEntity>, rootId: String): Set<String> {
 		val doomed = mutableSetOf(rootId)
 		var changed = true
 		while (changed) {
@@ -281,64 +308,104 @@ class ConversationRepository(
 				}
 			}
 		}
-		db.withTransaction {
-			for (id in doomed) db.messages().delete(id)
-			if (parentId != null) db.messages().setSelectedChild(parentId, null)
-			db.conversations().touch(conversationId, System.currentTimeMillis())
-		}
+		return doomed
 	}
 
 	private fun rollbackDir(conversationId: String): File =
 		Database.rollbackDir(appContext, conversationId)
 
-	private fun snapshotFor(conversationId: String, token: String): File {
-		require(token.isNotBlank() && '/' !in token && '\\' !in token) {
-			"invalid rollback token"
-		}
-		return File(rollbackDir(conversationId), token)
-	}
-
-	/** Whether a restorable snapshot exists for a turn. */
-	suspend fun hasRollbackSnapshot(conversationId: String, token: String): Boolean =
-		withContext(Dispatchers.IO) { snapshotFor(conversationId, token).isDirectory }
+	suspend fun hasStartCheckpoint(conversationId: String, token: String): Boolean =
+		hasCheckpoint(conversationId, token, SnapshotStore.START)
 
 	/**
-	 * Copy the workspace before the first mutating call of a turn.
+	 * Store the workspace before the first mutating call of a turn.
 	 *
 	 * The caller refuses the mutation when this returns false. A mutating turn
-	 * without a snapshot is exactly the case rollback must not silently delete.
+	 * without a start checkpoint is exactly the case rollback must not silently
+	 * delete.
 	 */
-	suspend fun captureRollbackSnapshot(conversation: ConversationEntity, token: String): Boolean =
+	suspend fun captureStartCheckpoint(conversation: ConversationEntity, token: String): Boolean =
 		withContext(Dispatchers.IO) {
-			RollbackSnapshot.capture(
+			SnapshotStore.capture(
 				workspaceRoot = workspace(conversation).rootPath(),
-				target = snapshotFor(conversation.id, token),
+				turnDir = SnapshotStore.turnDir(rollbackDir(conversation.id), token),
+				checkpointId = SnapshotStore.START,
 			)
 		}
 
-	/** Put the workspace back, or return false and leave the rows untouched. */
-	suspend fun restoreRollbackSnapshot(conversation: ConversationEntity, token: String): Boolean =
-		withContext(Dispatchers.IO) {
-			RollbackSnapshot.restore(
-				workspaceRoot = workspace(conversation).rootPath(),
-				snapshot = snapshotFor(conversation.id, token),
-			)
-		}
+	/** Store the workspace after a completed tool group. */
+	suspend fun captureCheckpoint(
+		conversation: ConversationEntity,
+		token: String,
+		checkpointId: String,
+	): Boolean = withContext(Dispatchers.IO) {
+		SnapshotStore.capture(
+			workspaceRoot = workspace(conversation).rootPath(),
+			turnDir = SnapshotStore.turnDir(rollbackDir(conversation.id), token),
+			checkpointId = checkpointId,
+		)
+	}
 
-	suspend fun discardRollbackSnapshot(conversationId: String) =
-		withContext(Dispatchers.IO) {
-			runCatching { rollbackDir(conversationId).deleteRecursively() }
-			Unit
-		}
+	suspend fun hasCheckpoint(
+		conversationId: String,
+		token: String,
+		checkpointId: String,
+	): Boolean = withContext(Dispatchers.IO) {
+		SnapshotStore.hasCheckpoint(
+			SnapshotStore.turnDir(rollbackDir(conversationId), token),
+			checkpointId,
+		)
+	}
 
-	/** The turn's changed paths, computed from the pre-turn snapshot. */
+	/** Put the workspace back to a checkpoint, or false and leave rows untouched. */
+	suspend fun restoreCheckpoint(
+		conversation: ConversationEntity,
+		token: String,
+		checkpointId: String,
+	): Boolean = withContext(Dispatchers.IO) {
+		SnapshotStore.restore(
+			workspaceRoot = workspace(conversation).rootPath(),
+			turnDir = SnapshotStore.turnDir(rollbackDir(conversation.id), token),
+			checkpointId = checkpointId,
+		)
+	}
+
+	/** The turn's changed paths, computed against its start checkpoint. */
 	suspend fun workspaceChanges(
 		conversation: ConversationEntity,
 		token: String,
+		checkpointId: String = SnapshotStore.START,
 	): List<WorkspaceChange> = withContext(Dispatchers.IO) {
-		RollbackSnapshot.diff(
+		SnapshotStore.diff(
 			workspaceRoot = workspace(conversation).rootPath(),
-			snapshot = snapshotFor(conversation.id, token),
+			turnDir = SnapshotStore.turnDir(rollbackDir(conversation.id), token),
+			checkpointId = checkpointId,
+		)
+	}
+
+	suspend fun snapshotStats(conversationId: String): SnapshotStats =
+		withContext(Dispatchers.IO) { SnapshotStore.stats(rollbackDir(conversationId)) }
+
+	/** Keep only the newest [keepTurns] turns, including the current one. */
+	suspend fun pruneSnapshots(conversationId: String, keepTurns: Int) =
+		withContext(Dispatchers.IO) {
+			SnapshotStore.prune(rollbackDir(conversationId), keepTurns)
+		}
+
+	suspend fun deleteTurnSnapshot(conversationId: String, token: String) =
+		withContext(Dispatchers.IO) {
+			SnapshotStore.deleteTurn(rollbackDir(conversationId), token)
+		}
+
+	/** Remove checkpoints the rewritten transcript no longer refers to. */
+	suspend fun retainCheckpoints(
+		conversationId: String,
+		token: String,
+		keep: Set<String>,
+	) = withContext(Dispatchers.IO) {
+		SnapshotStore.retainCheckpoints(
+			SnapshotStore.turnDir(rollbackDir(conversationId), token),
+			keep,
 		)
 	}
 

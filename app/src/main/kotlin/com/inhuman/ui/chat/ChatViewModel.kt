@@ -19,6 +19,8 @@ import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.Branches
 import com.inhuman.core.data.ConversationRepository
+import com.inhuman.core.data.SnapshotStore
+import com.inhuman.core.data.SnapshotStats
 import com.inhuman.core.data.WorkspaceChange
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
@@ -582,10 +584,15 @@ class ChatViewModel(
 		}
 		val hasSnapshot = lastUser != null &&
 			runCatching {
-				repository.hasRollbackSnapshot(conversationId, lastUser.id)
+				repository.hasStartCheckpoint(conversationId, lastUser.id)
 			}.getOrElse { failure ->
 				Diag.w("rollback", "could not read snapshot state", failure)
 				false
+			}
+		val snapshotStats = runCatching { repository.snapshotStats(conversationId) }
+			.getOrElse { failure ->
+				Diag.w("rollback", "could not read snapshot stats", failure)
+				SnapshotStats(0, 0)
 			}
 		// A snapshot is stronger evidence than the `mutated` row: the process
 		// can die after a tool changed the workspace and before markMutated is
@@ -600,6 +607,7 @@ class ChatViewModel(
 				"The workspace snapshot for this turn is missing, so it cannot be rewound safely."
 			else -> null
 		}
+		val regenerationPoints = regenerationPointsFor(lastUser, lastTurn)
 		turnAnchorId = lastUser?.id
 		turnSnapshotReady = hasSnapshot
 		turnIrreversible = irreversible
@@ -620,6 +628,9 @@ class ChatViewModel(
 				pendingSshConsent = null,
 				rollbackAvailable = rollbackAvailable,
 				rollbackBlockedReason = rollbackBlockedReason,
+				snapshotStats = snapshotStats,
+				snapshotRetention = snapshotRetention(),
+				regenerationPoints = regenerationPoints,
 				// Read off the rebuilt list: the remaining transcript-derived
 				// values have to agree with the messages that are on screen.
 				context = contextOf(rebuilt),
@@ -732,6 +743,103 @@ class ChatViewModel(
 	}
 
 	/**
+	 * Regenerate from a completed tool-group boundary in the last turn.
+	 *
+	 * Everything below the boundary is deleted, not kept as a sibling: its
+	 * workspace effects are restored to that checkpoint, so an old branch
+	 * containing tool results that no longer match the workspace would be
+	 * misleading. The prefix stays, including its tool results, and the model
+	 * is asked again **with tools**.
+	 */
+	fun regenerateFrom(point: RegenerationPoint) {
+		if (_state.value.isStreaming) return
+		val visible = _state.value.messages
+		val boundaryIndex = visible.indexOfFirst { it.id == point.afterMessageId }
+		if (boundaryIndex < 0) {
+			_state.update { it.copy(error = "That point is no longer in the conversation.") }
+			return
+		}
+		val boundary = visible[boundaryIndex]
+		if (point.blockedReason != null) {
+			_state.update { it.copy(error = point.blockedReason) }
+			return
+		}
+		val dropped = visible.drop(boundaryIndex + 1)
+		if (dropped.any { it.hasIrreversibleCall() }) {
+			_state.update {
+				it.copy(error = "The later part of this turn ran SSH; those effects cannot be undone.")
+			}
+			return
+		}
+		val lastUser = visible.lastOrNull { it.fromUser } ?: return
+		val startAvailable = _state.value.regenerationPoints
+			.firstOrNull { it.checkpointId == SnapshotStore.START }
+			?.checkpointAvailable == true
+		val checkpointAvailable = point.checkpointAvailable
+		val prefixLocal = visible.take(boundaryIndex + 1).any { it.isLocalMutation() }
+		val turnLocal = visible.any { it.isLocalMutation() }
+		if ((point.checkpointId == SnapshotStore.START && turnLocal && !startAvailable) ||
+			((prefixLocal || startAvailable) && !checkpointAvailable)
+		) {
+			_state.update {
+				it.copy(error = "The checkpoint for that point is missing, so nothing was changed.")
+			}
+			return
+		}
+
+		val demo = demoEnabled()
+		val apiKey = secure.get(SecureStore.KEY_DEEPSEEK_API_KEY)
+		if (!demo && apiKey.isNullOrBlank()) {
+			_state.update { it.copy(error = "Add a DeepSeek API key first, or switch on demo mode.") }
+			return
+		}
+		val entity = conversation ?: return
+
+		Diag.i(
+			"turn",
+			"regenerate-from conv=${Diag.shortId(conversationId)} " +
+				"point=${Diag.shortId(point.checkpointId)}",
+		)
+		streamJob = viewModelScope.launch {
+			if (checkpointAvailable) {
+				val restored = runCatching {
+					repository.restoreCheckpoint(entity, lastUser.id, point.checkpointId)
+				}.getOrElse { failure ->
+					Diag.w("rollback", "checkpoint restore threw", failure)
+					false
+				}
+				if (!restored) {
+					_state.update {
+						it.copy(
+							error = "Could not restore that checkpoint, so nothing was changed.",
+						)
+					}
+					return@launch
+				}
+			}
+			runCatching {
+				repository.deleteDescendants(boundary.id, conversationId)
+			}.onFailure { failure ->
+				_state.update { it.copy(error = "Could not clear the later turns: ${failure.message}") }
+				return@launch
+			}
+			_state.update {
+				it.copy(
+					messages = visible.take(boundaryIndex + 1),
+					isStreaming = true,
+					error = null,
+				)
+			}
+			turnAnchorId = lastUser.id
+			turnSnapshotReady = startAvailable
+			runTurn(apiKey = apiKey, demo = demo, includeTools = true)
+			recordChangedFiles()
+			reload()
+		}
+	}
+
+
+	/**
 	 * Show a different reply at a branch point.
 	 *
 	 * ## Why the parent is passed in rather than looked up
@@ -807,11 +915,11 @@ class ChatViewModel(
 			// even if `mutated` is false.
 			val entity = conversation
 			val hasSnapshot = entity != null && runCatching {
-				repository.hasRollbackSnapshot(conversationId, target.id)
+				repository.hasStartCheckpoint(conversationId, target.id)
 			}.getOrDefault(false)
 			if (mutated || hasSnapshot) {
 				val restored = entity != null && runCatching {
-					repository.restoreRollbackSnapshot(entity, target.id)
+					repository.restoreCheckpoint(entity, target.id, SnapshotStore.START)
 				}.getOrElse { failure ->
 					Diag.w("rollback", "snapshot restore threw", failure)
 					false
@@ -838,7 +946,7 @@ class ChatViewModel(
 				_state.update { it.copy(error = "Could not rewind the conversation: ${failure.message}") }
 				return@launch
 			}
-			repository.discardRollbackSnapshot(conversationId)
+			repository.deleteTurnSnapshot(conversationId, target.id)
 			_state.update {
 				it.copy(
 					input = target.plainText,
@@ -849,6 +957,25 @@ class ChatViewModel(
 					pendingSshConsent = null,
 				)
 			}
+			reload()
+		}
+	}
+
+	/**
+	 * How many turns of checkpoints to keep. Current turn always included.
+	 *
+	 * The minimum is 1: a local mutation needs its start checkpoint even if the
+	 * user wants no history, and the setting governs history rather than
+	 * whether the in-flight turn can be undone.
+	 */
+	private fun snapshotRetention(): Int =
+		secure.get(SecureStore.KEY_SNAPSHOT_TURNS)?.toIntOrNull()?.coerceIn(1, 10) ?: 3
+
+	fun setSnapshotRetention(turns: Int) {
+		val keep = turns.coerceIn(1, 10)
+		secure.put(SecureStore.KEY_SNAPSHOT_TURNS, keep.toString())
+		viewModelScope.launch {
+			repository.pruneSnapshots(conversationId, keep)
 			reload()
 		}
 	}
@@ -971,7 +1098,8 @@ class ChatViewModel(
 		)
 		streamJob = viewModelScope.launch {
 			repository.appendMessage(userMessage, parent)
-			repository.discardRollbackSnapshot(conversationId)
+			// Older turns' snapshots stay: the retention setting decides how
+			// many are kept, not the act of starting a new turn.
 			turnAnchorId = userMessage.id
 			turnSnapshotReady = false
 			turnIrreversible = false
@@ -1007,6 +1135,10 @@ class ChatViewModel(
 			Diag.w("rollback", "could not diff workspace", failure)
 			emptyList()
 		}
+		runCatching { repository.pruneSnapshots(conversationId, snapshotRetention()) }
+			.onFailure { Diag.w("rollback", "could not prune snapshots", it) }
+		runCatching { retainCurrentCheckpoints(anchor) }
+			.onFailure { Diag.w("rollback", "could not trim checkpoints", it) }
 		if (changes.isEmpty()) return
 		val target = _state.value.messages
 			.dropWhile { it.id != anchor }
@@ -1023,6 +1155,161 @@ class ChatViewModel(
 		}
 		Diag.i("rollback", "recorded ${changes.size} changed files")
 	}
+
+	/**
+	 * Delete checkpoint manifests no longer on the active transcript.
+	 *
+	 * Regenerating from the middle of a turn replaces the rest of that turn;
+	 * the old checkpoints after the chosen boundary must not accumulate. The
+	 * start and every complete current tool group are kept.
+	 */
+	private suspend fun retainCurrentCheckpoints(anchor: String) {
+		val turn = _state.value.messages.dropWhile { it.id != anchor }
+		val keep = mutableSetOf(SnapshotStore.START)
+		var index = 1
+		while (index < turn.size) {
+			val message = turn[index]
+			if (message.fromUser || message.isToolResult || message.toolCalls.isEmpty()) {
+				index++
+				continue
+			}
+			var next = index + 1
+			var lastResult: String? = null
+			while (next < turn.size && turn[next].isToolResult) {
+				lastResult = turn[next].id
+				next++
+			}
+			lastResult?.let { keep += it }
+			index = next
+		}
+		repository.retainCheckpoints(conversationId, anchor, keep)
+	}
+
+	/**
+	 * The last turn's tool-group boundaries, in order.
+	 *
+	 * Each point is the last tool result of a complete assistant tool-calls
+	 * block. Partial groups are excluded: keeping an assistant `tool_calls`
+	 * without every matching result is an invalid wire history, and replaying
+	 * from there would be rejected before the model saw anything.
+	 */
+	private suspend fun regenerationPointsFor(
+		lastUser: MessageEntity?,
+		lastTurn: List<MessageEntity>,
+	): List<RegenerationPoint> {
+		if (lastUser == null) return emptyList()
+		val startAvailable = repository.hasStartCheckpoint(conversationId, lastUser.id)
+		val startIrreversible = lastTurn.any { it.hasIrreversibleCall() }
+		val startBlocked = when {
+			startIrreversible ->
+				"The rest of this turn ran SSH; those effects cannot be undone."
+			lastTurn.any { it.hasLocalMutation() } && !startAvailable ->
+				"No start checkpoint exists for this turn."
+			else -> null
+		}
+		val points = mutableListOf(
+			RegenerationPoint(
+				checkpointId = SnapshotStore.START,
+				label = "From your message",
+				afterMessageId = lastUser.id,
+				checkpointAvailable = startAvailable,
+				blockedReason = startBlocked,
+			),
+		)
+
+		var index = 1 // lastTurn[0] is the user message
+		var group = 0
+		while (index < lastTurn.size) {
+			val message = lastTurn[index]
+			val callsJson = message.toolCallsJson
+			if (message.role != "assistant" || callsJson.isNullOrBlank()) {
+				index++
+				continue
+			}
+			val calls = decodeCalls(callsJson)
+			if (calls.isEmpty()) {
+				index++
+				continue
+			}
+			var next = index + 1
+			val results = mutableListOf<MessageEntity>()
+			while (next < lastTurn.size && lastTurn[next].role == "tool") {
+				results += lastTurn[next]
+				next++
+			}
+			val resultIds = results.mapNotNull { it.toolCallId }.toSet()
+			if (results.isEmpty() || calls.any { it.id != null && it.id !in resultIds }) {
+				break
+			}
+			val boundary = results.last()
+			val dropped = lastTurn.dropWhile { it.id != boundary.id }.drop(1)
+			val droppedIrreversible = dropped.any { it.hasIrreversibleCall() }
+			val checkpointAvailable = repository.hasCheckpoint(
+				conversationId,
+				lastUser.id,
+				boundary.id,
+			)
+			val prefixLocal = lastTurn.takeWhile { it.id != boundary.id }
+				.any { it.hasLocalMutation() }
+			// A read-only group before the first local write has no checkpoint
+			// of its own, but its workspace is exactly the start checkpoint.
+			val effectiveCheckpointId = if (
+				!checkpointAvailable && !prefixLocal && startAvailable
+			) {
+				SnapshotStore.START
+			} else {
+				boundary.id
+			}
+			val effectiveAvailable = checkpointAvailable ||
+				(effectiveCheckpointId == SnapshotStore.START && startAvailable)
+			val blocked = when {
+				droppedIrreversible ->
+					"The rest of this turn ran SSH; those effects cannot be undone."
+				startAvailable && !effectiveAvailable ->
+					"The checkpoint after this tool group is missing."
+				!startAvailable && prefixLocal ->
+					"No checkpoint exists for this turn."
+				else -> null
+			}
+			val names = calls.mapNotNull { it.displayName }.distinct()
+			group++
+			points += RegenerationPoint(
+				checkpointId = effectiveCheckpointId,
+				label = if (names.isEmpty()) {
+					"After tool group $group"
+				} else {
+					"After tool group $group: ${names.joinToString(", ")}"
+				},
+				afterMessageId = boundary.id,
+				checkpointAvailable = effectiveAvailable,
+				blockedReason = blocked,
+			)
+			index = next
+		}
+		return points
+	}
+
+	private fun MessageEntity.hasIrreversibleCall(): Boolean =
+		decodeCalls(toolCallsJson.orEmpty()).any { call ->
+			ToolCatalog.all.firstOrNull { it.name == call.displayName }?.reversible == false
+		}
+
+	private fun MessageEntity.hasLocalMutation(): Boolean =
+		decodeCalls(toolCallsJson.orEmpty()).any { call ->
+			ToolCatalog.all.firstOrNull { it.name == call.displayName }
+				?.let { it.mutates && it.reversible } == true
+		}
+
+	private fun ChatMessageUi.hasIrreversibleCall(): Boolean =
+		toolCalls.any { call ->
+			ToolCatalog.all.firstOrNull { it.name == call.displayName }?.reversible == false
+		}
+
+	private fun ChatMessageUi.isLocalMutation(): Boolean =
+		toolCalls.any { call ->
+			ToolCatalog.all.firstOrNull { it.name == call.displayName }
+				?.let { it.mutates && it.reversible } == true
+		}
 
 	/**
 	 * Run the model until it answers without asking for a tool.
@@ -1741,13 +2028,13 @@ class ChatViewModel(
 				if (tool.mutates) {
 					if (!tool.reversible) {
 						turnIrreversible = true
-					} else if (!turnSnapshotReady && !turnIrreversible) {
+					} else if (!turnSnapshotReady) {
 						val anchor = turnAnchorId
 							?: _state.value.messages.lastOrNull { it.fromUser }?.id
 						val entity = conversation
 						val captured = anchor != null && entity != null &&
 							runCatching {
-								repository.captureRollbackSnapshot(entity, anchor)
+								repository.captureStartCheckpoint(entity, anchor)
 							}.getOrElse { failure ->
 								Diag.w("rollback", "snapshot capture threw", failure)
 								false
@@ -1862,7 +2149,29 @@ class ChatViewModel(
 				withContext(NonCancellable) { answerSkippedCalls(outcome, after = reached) }
 			}
 		}
+		captureCheckpointAfterGroup()
 		return true
+	}
+
+	/**
+	 * Save the workspace after a complete tool group, so regeneration can
+	 * resume from this point rather than only from the end of the turn.
+	 *
+	 * A turn that never touched the workspace has no start checkpoint and needs
+	 * no checkpoint here: its workspace is unchanged.
+	 */
+	private suspend fun captureCheckpointAfterGroup() {
+		if (!turnSnapshotReady) return
+		val entity = conversation ?: return
+		val anchor = turnAnchorId ?: return
+		val lastResult = _state.value.messages.lastOrNull { it.isToolResult } ?: return
+		val saved = runCatching {
+			repository.captureCheckpoint(entity, anchor, lastResult.id)
+		}.getOrElse { failure ->
+			Diag.w("rollback", "tool checkpoint capture threw", failure)
+			false
+		}
+		if (saved) Diag.i("rollback", "checkpoint after tool group")
 	}
 
 	// --- approval plumbing ---------------------------------------------------

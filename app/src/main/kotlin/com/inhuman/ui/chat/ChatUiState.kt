@@ -1,6 +1,7 @@
 package com.inhuman.ui.chat
 
 import com.inhuman.core.data.Branches
+import com.inhuman.core.data.SnapshotStats
 import com.inhuman.core.data.WorkspaceChange
 
 /**
@@ -19,6 +20,21 @@ data class AssistantPart(
 ) {
 	enum class Kind { Reasoning, Text, ToolCall }
 }
+
+/**
+ * A point in the last turn from which the model may be asked again.
+ *
+ * [afterMessageId] is the last retained message; everything below it is
+ * discarded and its workspace effects are restored. [checkpointId] is `start`
+ * for the user's message, or the last tool result of a completed group.
+ */
+data class RegenerationPoint(
+	val checkpointId: String,
+	val label: String,
+	val afterMessageId: String,
+	val checkpointAvailable: Boolean = false,
+	val blockedReason: String? = null,
+)
 
 /**
  * The state of one conversation view.
@@ -47,6 +63,12 @@ data class ChatUiState(
 	val rollbackAvailable: Boolean = false,
 	/** Why [rollbackAvailable] is false, when it is. */
 	val rollbackBlockedReason: String? = null,
+	/** Turns and bytes currently stored for this conversation. */
+	val snapshotStats: SnapshotStats = SnapshotStats(0, 0),
+	/** Configured number of turns to keep, current turn included. */
+	val snapshotRetention: Int = 3,
+	/** Places in the last turn a tool-using regeneration may start. */
+	val regenerationPoints: List<RegenerationPoint> = emptyList(),
 	/**
 	 * The model chosen for this conversation, or null to follow the assistant.
 	 *

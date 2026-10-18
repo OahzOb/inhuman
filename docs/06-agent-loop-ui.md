@@ -162,34 +162,49 @@ answer with no tools offered, so a read-only call cannot be repeated and a
 write/SSH call cannot happen at all. The old answer is kept as a sibling and
 remains reachable through the branch switcher.
 
-## Rollback: rewind the conversation *and* the workspace
+## Rollback and checkpoint regeneration
 
-The Edit action is offered only when the last turn is safe to undo. Before the
-first **reversible mutating** call of a turn, the app copies the whole
-conversation workspace to `filesDir/rollback/<conversation>/<last-user-id>`.
-If the copy fails, the mutation is refused rather than run without an undo
-record. Read-only turns need no snapshot.
+Before the first **reversible mutating** call of a turn, the app captures a
+content-addressed `start` checkpoint. After each completed tool group it
+captures another checkpoint keyed by the last tool-result id. If the start
+capture fails, the mutation is refused rather than run without an undo record.
+Read-only turns need no checkpoint.
 
-Rollback restores that snapshot **first**, then deletes the user message and
-every descendant (assistant turn, tool calls, results, later turns), clears the
-parent's selected child, and puts the text and attachments back in the composer.
-A restore failure leaves the rows untouched. The snapshot is discarded after a
-successful rollback, when the next user message starts a new turn, and when the
-conversation is deleted.
+The last user message has **Edit**: it restores `start`, then deletes that
+message and every descendant, clears the parent's selected child, and puts the
+text and attachments back in the composer. A restore failure leaves the rows
+untouched. Only that turn's checkpoint directory is deleted; older turns remain
+according to the retention setting.
+
+The newest answer's refresh icon is still **tool-less**. Beside it,
+**Regenerate from…** lists the user message and every completed tool-group
+boundary in the last turn. Selecting one:
+
+- restores its checkpoint (or `start` for a read-only group before the first
+  write), then deletes everything below the boundary and asks the model again
+  **with tools**;
+- keeps the prefix and its tool results; the suffix is replaced, not kept as a
+  branch, because its tool results would no longer match the restored workspace;
+- is disabled when the discarded suffix contains an irreversible tool.
 
 `Tool.reversible` / `ToolCatalog.Entry.reversible` is the gate. `ssh_exec` is the
-only irreversible tool: a turn containing it shows the reason and **no Edit**,
-because deleting the transcript would leave the remote effects in place.
-Regenerate is still available there; it sends no tools.
+only irreversible tool: a turn containing it shows the reason and **no Edit**.
+A checkpoint after an SSH call can still be selected if only reversible work is
+discarded; the SSH call stays in the prefix.
+
+The chat menu shows how many turn checkpoints and bytes are stored and lets the
+user keep 1/3/5/10 turns. Rewinding one turn replaces only that turn; older
+turns are not truncated. A mid-turn regeneration trims manifests the rewritten
+transcript no longer references, so that turn's checkpoints are replaced.
 
 The final assistant row carries the turn's changed paths (`changedFilesJson`,
-schema v10), computed by hashing the workspace against the snapshot. They are
-shown under the answer and listed in the Edit confirmation, so a rewind names
-what it will restore instead of only promising one.
+schema v10), computed by hashing the workspace against `start`. They are shown
+under the answer and listed in the Edit confirmation.
 
 `ConversationRepository.deleteSubtree` walks the conversation rows and deletes
-the descendant set in one transaction; only the tail user message is offered.
-An empty conversation keeps its stored title until the next send updates it.
+the root plus descendants in one transaction; `deleteDescendants` keeps the
+chosen boundary and removes what is below it. An empty conversation keeps its
+stored title until the next send updates it.
 
 ## The stream-inside-the-UI invariants
 
@@ -535,7 +550,7 @@ it; the sandbox's no-network rule applies to code the model writes), and
 | `DeltaCursorTest` | The property "the pieces joined are the whole reply, however it is cut", over every chunk size; no emission when nothing is new; no duplicate on a replayed prefix; a restart on shrink; the `initialText` start; silence for an empty reply. |
 | `ContextUsageTest` | Window-without-measurement is known but not computable; no window ⇒ no fraction and `summary` is a bare count; neither ⇒ nothing drawn; 25% of 1M ⇒ `262K / 1M`; a non-zero amount never shows 0%; over-window clamps to 100% / 0 left; `contextWindow = 0` treated as absent; `TokenFormat` grouping, including "10K" for 9,960 and never a comma. |
 | `WireHistoryTest` | A dangling assistant `tool_calls` gets its missing tool result inserted **before** the next user message, not at the end; a complete block and a call-free assistant message are untouched. Also that SSH tool arguments lose `password`/`privateKey`/`passphrase` before storage, including the wrapped form. This is the HTTP-400-on-every-later-turn repair and the credential-persistence guard. |
-| `RollbackSnapshotTest` | A changed file, an added file, a deleted nested file and an empty directory all come back exactly as before; a missing snapshot is refused and leaves the workspace alone. This is the file half of rollback. |
+| `SnapshotStoreTest` | `start` and a later tool checkpoint restore their own file versions; added/deleted/modified paths are diffed by content; stats count turns and pruning keeps the newest. This is the file half of checkpointed rollback. |
 
 These are pure JVM logic for the reason `AGENTS.md` gives: the device cannot
 observe these states, so the argument has to live in a test.

@@ -231,17 +231,22 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
 - **`mutates` and `needsApproval` are different questions.** The first decides
   whether replay-with-tools would change something; the second whether a call
   may happen.
-- **Regeneration offers no tools.** It rewrites the final text from the existing
-  transcript and tool results, so a reply after a file write or SSH call is
-  retryable without replaying the tool. Do not pass the normal tool list again;
-  that restores the double-write failure.
+- **The final-answer retry is tool-less; mid-turn regeneration is not.** The
+  refresh icon rewrites final text from existing results. `Regenerate from…`
+  keeps a checkpointed prefix and reruns **with tools**, so only a suffix whose
+  tools are reversible may be discarded. Do not collapse the two paths.
 - **Rollback restores the workspace before deleting the turn.** The last user
-  message's Edit action restores the pre-turn snapshot, then removes the message
-  and all descendants and restores text/attachments. A snapshot failure must
-  leave the rows intact. A turn containing `reversible = false` (`ssh_exec`)
-  gets no Edit at all; deleting the transcript would leave its remote effects.
-  The snapshot is one per conversation and is replaced/removed at the documented
-  points.
+  message's Edit action restores the `start` checkpoint, then removes the message
+  and all descendants and restores text/attachments. A restore failure must
+  leave the rows intact. A turn containing `reversible = false` (`ssh_exec`) gets
+  no Edit at all.
+- **Checkpoints are content-addressed, per turn and per completed tool group.**
+  `start` plus group manifests live under
+  `filesDir/rollback/<conversation>/<user-id>`. Retention is 1/3/5/10 turns; the
+  chat menu shows count/bytes. Rewinding one turn deletes only that turn's
+  directory; a mid-turn regeneration trims only manifests the rewritten
+  transcript no longer references. Do not reintroduce a single mutable
+  per-conversation snapshot.
 - **SSH consent is a capability grant, not an approval.** It is persisted in
   `conversations.sshAllowed`, checked before the ordinary policy, revoked by the
   chat menu and by the global Settings switch. Do not replace it with

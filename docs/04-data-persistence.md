@@ -300,27 +300,39 @@ view model, and retaining the Activity leaked a destroyed view hierarchy
 
 ```
 filesDir/conversations/<workspaceId>/…     one directory per conversation
-filesDir/rollback/<conversationId>/<user-id>/…  last turn's pre-mutation snapshot
+filesDir/rollback/<conversationId>/<user-id>/
+  meta.json
+  blobs/<sha256>
+  manifests/<checkpoint>.json
 ```
 
 `Database.workspacesRoot` creates the parent on every call and `workspaceDir`
 joins the id (`core/data/src/main/kotlin/com/inhuman/core/data/db/Database.kt:81-88`).
 The name is the opaque `workspaceId`, never the title.
 
-### Rollback snapshots
+### Rollback checkpoints
 
-`Database.rollbackDir` is outside `conversations/` on purpose: the snapshot is
+`Database.rollbackDir` is outside `conversations/` on purpose: checkpoints are
 not workspace content, must not appear in Files, and must not be reachable by
-the sandbox. `RollbackSnapshot` copies the workspace before the first reversible
-mutating tool of a turn; `ConversationRepository` refuses that mutation if the
-copy fails. The token is the last user message id.
+the sandbox. A turn directory is keyed by the user message id. Its `blobs/` are
+content-addressed file versions; a manifest maps relative paths to hashes. The
+`start` manifest is captured before the first reversible mutation, and each
+completed tool group gets a manifest keyed by its last tool-result message id.
+`ConversationRepository` refuses a local mutation if the start capture fails.
 
-Only the last turn is retained. A new send replaces the snapshot, a successful
-rollback discards it after restoring, and deleting a conversation removes the
-directory. The copy refuses symlinks rather than following them, matching the
-sandbox rule. Restoring deletes the current workspace children and copies the
-snapshot back; `deleteSubtree` runs only after a successful restore, so a
-restore failure leaves the transcript intact.
+This is not one full copy per checkpoint: unchanged files share a blob, so ten
+checkpoints after ten small writes store ten small deltas rather than ten
+workspaces. Symlinks are refused. Restore validates every blob before deleting
+anything, then rebuilds the workspace; `deleteSubtree`/`deleteDescendants` runs
+only after a successful restore.
+
+The chat menu shows stored turns and bytes. Retention (1/3/5/10 turns) is in
+`SecureStore.KEY_SNAPSHOT_TURNS`; pruning keeps the newest N turn directories,
+always including the current one, and compacts unreferenced blobs. Rewinding a
+turn deletes only that turn's directory, leaving older snapshots intact. A
+mid-turn regeneration trims manifests that the rewritten transcript no longer
+references, so it replaces that turn's checkpoints rather than accumulating
+them.
 
 ### The orphan sweep
 

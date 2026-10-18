@@ -61,21 +61,28 @@ Every mutating tool carries a **REWIND** or **NO REWIND** badge beside its name,
 in the same row as PAID and REMOTE. The name says what the tool does; the badge
 says whether the turn can be undone. `ssh_exec` is the only `NO REWIND` entry.
 
-Regenerating a reply is **tool-less**: the request carries the transcript and
-any earlier tool results, but offers no tools, so it cannot write a second time
-or run an SSH command again. That also means a pure-text reply after a mutating
-tool can be retried. It does not undo what already happened.
+Regenerating a reply has two forms:
+
+- **Answer again** (the refresh icon on the newest answer) is **tool-less**: the
+  request carries the transcript and any earlier tool results, but offers no
+  tools, so it cannot write a second time or run an SSH command again.
+- **Regenerate from…** can restart at the user message or after any completed
+  tool group in the last turn. The prefix and its tool results stay; everything
+  after the chosen point is deleted, the workspace is restored to that
+  checkpoint, and the request runs **with tools**. A point is disabled if the
+  discarded suffix contains an irreversible tool.
 
 The last user message has an **Edit** action. It rewinds the conversation to
 before that message, removes the message and everything after it, and restores
 the text and attachments to the composer. If the turn wrote local files, the
-pre-turn workspace snapshot is restored **before** any rows are deleted, so the
-files and the transcript move together. A turn's changed files are listed under
-its answer (`+`/`~`/`-` paths) and repeated in the confirmation. A turn that ran
-SSH is **not** offered for rollback: its remote effects cannot be undone, and
-deleting the rows would leave the change behind. Regeneration remains available
-there because it does
-not run tools.
+pre-turn start checkpoint is restored **before** any rows are deleted. A turn's
+changed files are listed under its answer (`+`/`~`/`-` paths) and repeated in
+the confirmation. A turn that ran SSH is **not** offered for rollback.
+
+Checkpoints are content-addressed per turn and per completed tool group; the
+chat menu shows how many turns and bytes are stored and lets you keep 1, 3, 5 or
+10 turns. Rewinding one turn deletes only that turn's checkpoints, leaving older
+ones intact.
 
 **Search and fetch are paid, and that is why they are separate tools.** Both
 call DeepSeek's own APIs directly (`/v1/tools/search`, `/v1/tools/fetch`),

@@ -100,13 +100,15 @@ Two more that are stated as behaviour rather than as policy:
   conversation is stuck. The gauge exists to make that wall visible before it is
   hit; it does not remove it (`README.md:81-92`).
 - **Rollback moves the transcript and the local workspace together.** The last
-  user message has **Edit**: a pre-turn snapshot is restored, then that message
+  user message has **Edit**: its start checkpoint is restored, then that message
   and everything after it are deleted, and the text/attachments go back to the
   composer. A turn containing an irreversible tool (SSH) is **not** offered for
-  rollback, because its remote effects cannot be undone and deleting the rows
-  would leave them behind. Regeneration remains available: it is tool-less and
-  keeps the transcript and tool results, so it cannot write or run SSH again.
-  Earlier behaviour that refused every reply in a mutating turn is gone.
+  rollback, because its remote effects cannot be undone. Separately, the newest
+  answer can be regenerated tool-lessly, and **Regenerate from…** can restart
+  after any completed tool group in the last turn: the prefix is kept, the
+  suffix is deleted, its checkpoint is restored, and the request runs with
+  tools. Checkpoints are content-addressed; the chat menu shows the stored turn
+  count and size and lets the user keep 1/3/5/10 turns.
 
 ## The vocabulary this codebase uses
 
@@ -116,7 +118,7 @@ Worth settling before reading the rest, because the words are overloaded:
 | --- | --- |
 | **assistant** / **agent** | A stored person(a): name, system prompt, model, reasoning effort, and an allowed-tool selection. Managed on the Agents screen. |
 | **conversation** | One chat, its branch, and its workspace folder. Copies the assistant's settings at creation so editing an assistant cannot change what an existing conversation may do. |
-| **branch** | A regeneration is stored as a sibling branch; the user can switch between them. |
+| **branch** | A regenerated final answer is stored as a sibling branch; the user can switch between them. A mid-turn **Regenerate from…** replaces the suffix instead, because its tool results would no longer match the restored workspace. |
 | **workspace** | The per-conversation folder, and the sandbox boundary. |
 | **turn** | One user message and everything the model and its tools did in response. |
 | **mutates** | "Replaying this turn with tools would change something." A record, not a blanket regeneration gate. |

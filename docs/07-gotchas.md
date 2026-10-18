@@ -611,23 +611,26 @@ message and descendants and restored the composer, but files written by the turn
 stayed written and SSH commands stayed run. That is not a rollback; it is
 hiding the evidence. The correction is structural:
 
-- before the first **reversible mutating** tool of a turn, copy the workspace to
-  `filesDir/rollback/<conversation>/<last-user-id>`; if the copy fails, refuse
-  the mutation;
-- rollback restores that snapshot **before** deleting any rows; a failed restore
+- before the first **reversible mutating** tool of a turn, capture a
+  content-addressed `start` checkpoint under
+  `filesDir/rollback/<conversation>/<user-id>/`; if it fails, refuse the
+  mutation; after each completed tool group capture another checkpoint;
+- rollback restores `start` **before** deleting any rows; a failed restore
   leaves the conversation intact;
 - `ssh_exec` is tagged `reversible = false`; a turn containing it gets no Edit,
-  only the reason. Regeneration is still available and tool-less.
+  only the reason. Regenerate is still available.
 
-Snapshots are one per conversation, replaced on the next send and removed by a
-successful rollback or conversation deletion. A snapshot's existence is also
+Snapshots are per turn and per tool group. The chat menu shows the stored turn
+count and bytes and sets retention (1/3/5/10); pruning keeps the newest turns
+and compacts unreferenced blobs. Rewinding a turn deletes only that turn's
+directory, leaving older snapshots intact. A checkpoint's existence is also
 treated as evidence of a mutation, because a process can die after the file
 changed and before `markMutated` was written; relying on the row alone would
 recreate the same half-rollback.
 
 Verified on the pad with a throwaway conversation: a real `write_file` created
-`notes.txt`; Edit restored the empty workspace snapshot, removed `notes.txt`,
-deleted the turn, restored the prompt, and removed the snapshot directory.
+`notes.txt`; Edit restored the empty `start` checkpoint, removed `notes.txt`,
+deleted the turn, and restored the prompt.
 
 ### B19. Rewind was described only in prose, and the changed files were invisible
 
@@ -643,7 +646,7 @@ Three related UI failures, reported together:
   changed paths are now compared against the snapshot by content hash, stored
   on the final assistant row (`messages.changedFilesJson`, schema v10), shown
   under the answer as `+`/`~`/`- path`, and listed in the confirmation dialog.
-  The comparison is content-based because a copied snapshot does not preserve
+  The comparison is content-based because checkpoints store hashes, not
   modification times.
 - Agent answers were still 640dp chat bubbles. User messages remain bubbles
   because they are short; an assistant answer is the document, so it has no
@@ -656,6 +659,32 @@ assistant text ran to the transcript edge. On the phone AVD the assistant
 answer did the same while the user bubble stayed capped; the tool editor showed
 `REWIND` on file tools and `REMOTE` + `NO REWIND` on `ssh_exec`. The persisted
 list survived a force-stop and relaunch.
+
+### B20. Regeneration could only retry the last text, and one snapshot overwrote all history
+
+The next report was about control and history:
+
+- The refresh button could only produce another **final text** answer. It could
+  not resume from after the first tool call, or before the second, even when
+  everything discarded was reversible. The answer is a checkpoint picker:
+  `Regenerate from…` lists `From your message` and each completed tool group.
+  Selecting one restores its checkpoint, deletes the suffix, and reruns **with
+  tools**. A suffix containing SSH disables the point.
+- One snapshot per conversation meant the previous turn disappeared on the next
+  send, and there was no way to see or choose how much history was kept.
+  Checkpoints are now content-addressed per turn and per tool group; the chat
+  menu reports `N turns · bytes` and offers 1/3/5/10.
+- Rewinding called a full-conversation discard, deleting every snapshot. It now
+  deletes only the rewound turn's directory. A later regeneration of that turn
+  trims manifests the rewritten transcript no longer references, so the turn's
+  checkpoints are replaced rather than accumulating or truncating older turns.
+
+Verified on the pad with two tool rounds: the picker showed `After tool group 1:
+write_file` and `…2…`; selecting group 1 restored `a.txt` without `b.txt`,
+deleted the old suffix, and reran with tools. The second turn was then rewound:
+snapshot count went `2 turns` → `1 turn`, proving only the rewound turn was
+discarded. The old second-group manifest was replaced, leaving `start` plus the
+two current group manifests.
 
 ---
 
