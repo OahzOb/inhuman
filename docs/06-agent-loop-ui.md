@@ -197,6 +197,14 @@ user keep 1/3/5/10 turns. Rewinding one turn replaces only that turn; older
 turns are not truncated. A mid-turn regeneration trims manifests the rewritten
 transcript no longer references, so that turn's checkpoints are replaced.
 
+The two regeneration paths have different cache behaviour, and the usage line
+says so. The final-answer refresh is tool-less, so it removes the tool
+definitions; a request that was cached with tools is a different prefix and will
+usually show `cache 0%` (measured 2201→191 prompt tokens). A checkpoint
+regeneration keeps the tools and the prefix, so it can hit (measured
+`cache 93%`). Zero is displayed rather than hidden; the expanded line shows
+`from cache N of M`.
+
 The final assistant row carries the turn's changed paths (`changedFilesJson`,
 schema v10), computed by hashing the workspace against `start`. They are shown
 under the answer and listed in the Edit confirmation.

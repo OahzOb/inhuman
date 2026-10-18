@@ -96,13 +96,16 @@ fun UsageLine(usage: UsageUi, modifier: Modifier = Modifier) {
  * Order is deliberate: speed first, because it is what someone notices; then
  * the cache, because it is what surprises them on a bill; then tokens.
  */
-private fun summaryOf(u: UsageUi): String {
+internal fun summaryOf(u: UsageUi): String {
 	val parts = mutableListOf<String>()
 
 	u.tokensPerSecond?.let { parts += "%.1f tok/s".format(it) }
 	u.completionTokens?.let { parts += "$it out" }
 	u.promptTokens?.let { parts += "$it in" }
-	u.cacheHitRatio?.takeIf { it > 0 }?.let { parts += "cache %.0f%%".format(it * 100) }
+	// Zero is shown, not omitted: a missing "cache" span read as "the cache
+	// feature broke" after a regenerate, when the honest answer was that this
+	// request hit nothing. The detail row still spells out the split.
+	u.cacheHitRatio?.let { parts += "cache %.0f%%".format(it * 100) }
 
 	return parts.joinToString(" · ")
 }

@@ -143,6 +143,23 @@ conversation that reaches the context ceiling gets stuck
 KV-cache isolation and content-safety scoping, so one conversation's cache is
 not shared with another (`ChatTypes.kt:152-159`).
 
+### Cache is a prefix, and the request shape is part of it
+
+DeepSeek's context cache is automatic and prefix-based; `prompt_cache_hit_tokens`
+is the part reused, and there is no explicit "write cache" call. A different
+prefix — even one that is a subset of an earlier prompt — is a different
+request.
+
+This shows up in the two regeneration paths. A final-answer retry is tool-less,
+so it removes the tool definitions and the assistant/tool suffix. The same turn
+was measured at `prompt=2201 cache=2048` with tools and `prompt=191 cache=0`
+without them: the smaller prompt did not match the cached tool-bearing prefix.
+`Regenerate from…` keeps the tools and the prefix up to a checkpoint; the same
+conversation measured `prompt=2204 cache=93%` there. Neither path "rewrites the
+whole cache"; it either reuses a matching prefix or creates a new one. Zero is
+shown as `cache 0%` in the usage summary, and the expanded row spells out
+`from cache N of M`.
+
 ## The DeepSeek adapter
 
 `core/ai/src/main/kotlin/com/inhuman/core/ai/provider/deepseek/`.
