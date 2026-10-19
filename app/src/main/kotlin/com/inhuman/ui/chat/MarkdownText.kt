@@ -6,12 +6,64 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
+import com.mikepenz.markdown.compose.components.markdownComponents
+import com.mikepenz.markdown.compose.elements.MarkdownTable
+import com.mikepenz.markdown.compose.elements.MarkdownTableHeader
+import com.mikepenz.markdown.compose.elements.MarkdownTableRow
 import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.m3.elements.MarkdownCheckBox
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.rememberMarkdownState
 import com.mikepenz.markdown.model.rememberStreamingMarkdownState
 import kotlinx.coroutines.channels.Channel
+
+/**
+ * Table cells that wrap instead of truncating.
+ *
+ * The renderer's 0.45.0 defaults are `maxLines = 1` and
+ * `TextOverflow.Ellipsis` for every cell (`MarkdownTableHeader` /
+ * `MarkdownTableRow`). With the library's fixed 160dp column, any cell longer
+ * than a few words became "…", while the table itself still scrolled
+ * horizontally -- scrolling only helps if there is content left to scroll to.
+ *
+ * `Int.MAX_VALUE` lets the cell grow downwards, and `Clip` is the belt to that
+ * braces: with unlimited lines there is nothing to ellipsize. The rest of the
+ * components are the library defaults, except the checkbox: `markdownComponents()`
+ * defaults to the base renderer's checkbox, while the m3 `Markdown` entry point
+ * supplies its own. Replacing the table must not silently downgrade that.
+ */
+private val chatMarkdownComponents = markdownComponents(
+	checkbox = { model -> MarkdownCheckBox(model.content, model.node, model.typography.text) },
+	table = { model ->
+		MarkdownTable(
+			content = model.content,
+			node = model.node,
+			style = model.typography.table,
+			headerBlock = { content, header, tableWidth, style ->
+				MarkdownTableHeader(
+					content = content,
+					header = header,
+					tableWidth = tableWidth,
+					style = style,
+					maxLines = Int.MAX_VALUE,
+					overflow = TextOverflow.Clip,
+				)
+			},
+			rowBlock = { content, row, tableWidth, style ->
+				MarkdownTableRow(
+					content = content,
+					header = row,
+					tableWidth = tableWidth,
+					style = style,
+					maxLines = Int.MAX_VALUE,
+					overflow = TextOverflow.Clip,
+				)
+			},
+		)
+	},
+)
 
 /**
  * Renders assistant text as Markdown.
@@ -141,10 +193,16 @@ fun MarkdownText(
 		}
 		// Positional, not named: the m3 artifact carries four `Markdown`
 		// overloads (String, MarkdownState, State, StreamingMarkdownState) and
-		// naming parameters does not disambiguate them here -- the compiler
-		// picked the `MarkdownState` one and rejected the argument. The order
-		// is state, colors, typography, modifier.
-		Markdown(streaming, colors, typography, modifier)
+		// the compiler rejected the named form here once already. Only
+		// `components` is named, and the first argument's type selects the
+		// streaming overload.
+		Markdown(
+			streaming,
+			colors,
+			typography,
+			modifier,
+			components = chatMarkdownComponents,
+		)
 		return
 	}
 
@@ -170,5 +228,6 @@ fun MarkdownText(
 		modifier = modifier,
 		colors = colors,
 		typography = typography,
+		components = chatMarkdownComponents,
 	)
 }

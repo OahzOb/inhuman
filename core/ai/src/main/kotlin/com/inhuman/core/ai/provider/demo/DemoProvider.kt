@@ -254,6 +254,12 @@ class DemoProvider(
 			  the answer rather than merged into it.
 			- This reply is Markdown parsed *while it arrives*.
 
+			| Tool | Mutates | Cost |
+			| --- | --- | --- |
+			| `read_file` | no | free |
+			| `web_search` | no | paid per successful call, so a failed request costs nothing |
+			| `ssh_exec` | yes, and not reversible | free, but the command runs on another machine |
+
 			```
 			a fence that is open, and not yet parseable,
 			for as long as the tokens keep arriving

@@ -251,16 +251,17 @@ when there is no window (`:87-93`). `TokenFormat` avoids `String.format` on
 purpose — Turkish locale (`:122-124`). That rule is **not** followed at
 `UsageLine.kt:102,114,143-144` and `ChatScreen.kt:1039`.
 
-### `MarkdownText` (`app/src/main/kotlin/com/inhuman/ui/chat/MarkdownText.kt:63-149`)
+### `MarkdownText` (`app/src/main/kotlin/com/inhuman/ui/chat/MarkdownText.kt:118-233`)
 
 While streaming: `rememberStreamingMarkdownState()` plus a manual
 `for (delta in deltas) streaming.append(delta)` loop, because
 `collectAsStreamingMarkdownState` exists in the artifact but is not visible
-through this module's Kotlin metadata (`:98-107`). The `Markdown` call is
-**positional** because four overloads defeat named arguments (`:117-122`).
+through this module's Kotlin metadata (`:154-161`). The streaming `Markdown`
+call is still **positional** because four overloads defeat named arguments;
+only `components` is named (`:199-205`).
 
-The flicker fix is `retainState = true` on the non-streaming path (`:126-141`).
-The switch its doc comment (`:48-52`) describes now happens: when the stream
+The flicker fix is `retainState = true` on the non-streaming path (`:224`).
+The switch its doc comment (`:100-106`) describes now happens: when the stream
 ends, `ChatViewModel` updates the reply with `deltas = null` alongside
 `isStreaming = false` (`ChatViewModel.kt:1009-1021`), so the finished reply is
 handed to the plain renderer and `retainState` applies to it too.
@@ -268,12 +269,23 @@ handed to the plain renderer and `retainState` applies to it too.
 **A rotation mid-stream no longer loses the text received before it.** The delta
 channel is a queue with no replay, and a rebuilt composition starts with an empty
 streaming state — so `MarkdownText` appends the message's `text` through a
-`DeltaCursor` before it starts following the channel (`:113-132`); the cursor
+`DeltaCursor` before it starts following the channel (`:165-190`); the cursor
 emits only what the renderer does not already have. Verified by reading the code;
 the cursor's rewind cases have unit tests, but the composition itself has no
 device observation, because this happens inside a stream.
 
-No LaTeX and no Mermaid, deliberately (`MarkdownText.kt:54-61`). For LaTeX the
+**Table cells wrap rather than truncate.** The renderer's 0.45.0 defaults are
+`maxLines = 1` and `TextOverflow.Ellipsis` for every cell, so with its fixed
+160dp column any cell longer than a few words became "…" — while the table
+itself still scrolled horizontally, and scrolling only helps if there is content
+left to scroll to. `chatMarkdownComponents` (`:37-66`) replaces only the `table`
+component: the header and row blocks pass `maxLines = Int.MAX_VALUE` and
+`Clip`. It also re-supplies the m3 checkbox, because `markdownComponents()`
+would otherwise fall back to the base renderer's. Verified on both AVDs: the
+tablet renders the full two-line cost cell, and the phone scrolls the same
+table horizontally and shows that cell wrapped, not ellipsized.
+
+No LaTeX and no Mermaid, deliberately (`MarkdownText.kt:110-115`). For LaTeX the
 licence is not the obstacle (JLaTeXMath carries a linking exception); the fonts
 and the notices file are — see the root `README.md`.
 
