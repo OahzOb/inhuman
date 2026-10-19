@@ -3,6 +3,7 @@ package com.inhuman.ui.chat
 import android.content.ClipData
 import android.content.ClipboardManager
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -40,6 +41,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Stop
@@ -1357,6 +1359,15 @@ private fun MessageBubble(
 	}
 	val context = LocalContext.current
 
+	// Per-message view state, not stored: "show me the Markdown" and "repair the
+	// unclosed fence for display" are ways of reading this answer, not edits to
+	// it. A branch switch gets a different id and therefore fresh state.
+	var showSource by remember(message.id) { mutableStateOf(false) }
+	var forceMarkdown by remember(message.id) { mutableStateOf(false) }
+	val openFenceState = remember(message.plainText, message.isStreaming) {
+		if (!message.fromUser && !message.isStreaming) openFence(message.plainText) else null
+	}
+
 	// A tool result is machinery, not speech.
 	//
 	// It is rendered as one collapsed line rather than as a bubble, because it
@@ -1476,22 +1487,80 @@ private fun MessageBubble(
 				// The answer. Everything above is working-out; this is the part
 				// that was asked for, and it is the only part that is always
 				// visible.
-				message.parts
-					.filter { it.kind == AssistantPart.Kind.Text }
-					.forEach { part ->
+				val textParts = message.parts.filter { it.kind == AssistantPart.Kind.Text }
+				if (showSource) {
+					// The raw Markdown, for the cases where rendering is the
+					// thing that is wrong: an unclosed fence, a table the
+					// renderer lays out badly, a construct the library does not
+					// know. Selectable, because the point is to get the text out.
+					SelectionContainer {
+						Text(
+							text = message.plainText,
+							style = MaterialTheme.typography.bodySmall,
+							fontFamily = FontFamily.Monospace,
+							color = onColor,
+							modifier = Modifier
+								.fillMaxWidth()
+								.horizontalScroll(rememberScrollState())
+								.background(
+									MaterialTheme.colorScheme.surfaceVariant,
+									RoundedCornerShape(8.dp),
+								)
+								.padding(8.dp),
+						)
+					}
+				} else {
+					textParts.forEach { part ->
+						// A display-only repair. In the common failure the model
+						// wrote one opening fence too many and then continued
+						// with Markdown; appending a close at the end would
+						// leave all of that inside the block. Dropping the
+						// unmatched opening line is what lets the rest render.
+						// The stored message is untouched.
+						val text = if (!message.fromUser && forceMarkdown) {
+							withoutOpenFence(part.text) ?: part.text
+						} else {
+							part.text
+						}
 						if (message.fromUser) {
 							// The user's own text is rendered literally. They
 							// typed it; interpreting their asterisks as
 							// formatting would silently change what they said.
 							Text(
-								text = part.text,
+								text = text,
 								style = MaterialTheme.typography.bodyLarge,
 								color = onColor,
 							)
 						} else {
-							MarkdownText(text = part.text, deltas = message.deltas)
+							MarkdownText(text = text, deltas = message.deltas)
 						}
 					}
+				}
+
+				if (openFenceState != null && !showSource) {
+					Row(
+						modifier = Modifier.fillMaxWidth(),
+						verticalAlignment = Alignment.CenterVertically,
+					) {
+						Text(
+							text = if (forceMarkdown) {
+								"Unclosed code fence. This view removes the stray opening " +
+									"fence for display; the stored reply is unchanged."
+							} else {
+								"Unclosed code fence, so the rest of this reply is shown as code."
+							},
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.weight(1f),
+						)
+						TextButton(
+							onClick = { forceMarkdown = !forceMarkdown },
+							contentPadding = PaddingValues(horizontal = 8.dp),
+						) {
+							Text(if (forceMarkdown) "Show original" else "Render rest")
+						}
+					}
+				}
 
 				// Attachment names, so a message that was mostly a picture does
 				// not look like it had no content.
@@ -1554,6 +1623,22 @@ private fun MessageBubble(
 				enabled = !message.isStreaming,
 				modifier = Modifier.padding(top = 6.dp),
 			)
+		}
+
+		// Raw Markdown is always one tap away. The answer above is rendered by
+		// a library, and when that library is wrong -- or the model emitted a
+		// fence it never closed -- the transcript still has to be readable.
+		if (!message.fromUser && !message.isStreaming && message.plainText.isNotBlank()) {
+			TextButton(
+				onClick = { showSource = !showSource },
+				contentPadding = PaddingValues(horizontal = 8.dp),
+				modifier = Modifier.padding(top = 2.dp),
+			) {
+				Text(
+					if (showSource) "Rendered" else "Source",
+					style = MaterialTheme.typography.labelLarge,
+				)
+			}
 		}
 
 		// Copy is offered on every completed assistant reply, not only the
@@ -1817,8 +1902,7 @@ private fun Composer(
 }
 
 /** Sizes as a person reads them, not as a byte count. */
-private fun humanSize(bytes: Long): String = when {
-	bytes < 1024 -> "$bytes B"
+private fun humanSize(bytes: Long): String = when {	bytes < 1024 -> "$bytes B"
 	bytes < 1024 * 1024 -> "${bytes / 1024} KB"
 	else -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0)
 }

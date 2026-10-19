@@ -287,6 +287,19 @@ would otherwise fall back to the base renderer's. Verified on both AVDs: the
 tablet renders the full two-line cost cell, and the phone scrolls the same
 table horizontally and shows that cell wrapped, not ellipsized.
 
+**Malformed Markdown stays readable, and is never silently rewritten.** If a
+finished reply leaves a fence open, `openFence` (`MarkdownFence.kt`) finds the
+unmatched opening line and the answer shows a small banner: the rest is being
+displayed as code. **Render rest** removes that stray opening fence for the
+rendered view only; **Source** switches the answer to the raw Markdown,
+selectable in a monospace block. The stored message is untouched in both cases,
+which is the point: a transcript is a record of what the model said, not a
+document the app is entitled to repair. Appending a closing fence at the end was
+the first idea and is wrong for the shape that prompted this — a model that
+writes one opening fence too many and then continues with headings and a table;
+the close must be removed, not moved to EOF. `MarkdownFenceTest` covers the
+paired, unclosed, info-string and longer-close cases.
+
 No LaTeX and no Mermaid, deliberately (`MarkdownText.kt:110-115`). For LaTeX the
 licence is not the obstacle (JLaTeXMath carries a linking exception); the fonts
 and the notices file are — see the root `README.md`.

@@ -106,7 +106,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :app:testDebugUnitTest --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 323 tests in 35 suites, 0 failures, 1 skipped** — the skip is
+**BUILD SUCCESSFUL, 329 tests in 36 suites, 0 failures, 1 skipped** — the skip is
 `DeepSeekWebLiveTest`, which talks to the real paid Search and Fetch APIs and
 needs `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 
@@ -114,7 +114,7 @@ needs `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 | --- | --- | --- |
 | `:core:ai` | 18 | 186 (1 skipped) |
 | `:core:files` | 5 | 57 |
-| `:app` | 7 | 47 |
+| `:app` | 8 | 53 |
 | `:core:common` | 2 | 16 |
 | `:core:data` | 3 | 17 |
 
@@ -155,7 +155,7 @@ throughout.
 | Startup, dependency wiring, navigation, Back, ViewModel keys | `app/src/main/kotlin/com/inhuman/MainActivity.kt` |
 | Streaming, tool loop, approval, cancellation, regenerate, context gauge | `app/src/main/kotlin/com/inhuman/ui/chat/ChatViewModel.kt` (the file everything routes through) |
 | Visible chat layout, bubbles, composer, tool rows, the dialog | `app/src/main/kotlin/com/inhuman/ui/chat/ChatScreen.kt` |
-| Incremental Markdown, the delta channel, the renderer switch | `ui/chat/MarkdownText.kt`, `ui/chat/DeltaCursor.kt` |
+| Incremental Markdown, the delta channel, the renderer switch, unclosed fences | `ui/chat/MarkdownText.kt`, `ui/chat/DeltaCursor.kt`, `ui/chat/MarkdownFence.kt` |
 | The context ring and its three cases | `ui/chat/ContextUsage.kt`, `ui/chat/ContextGauge.kt` |
 | Assistants and the tool picker | `ui/agents/AgentsScreen.kt`, `ui/agents/AgentsViewModel.kt` |
 | The conversation list, pinning, delete confirmation | `ui/ConversationsScreen.kt`, `ui/ConversationsViewModel.kt` |
