@@ -29,6 +29,21 @@ interface ConversationDao {
 	suspend fun byId(id: String): ConversationEntity?
 
 	/**
+	 * Look up by the id the documents provider publishes.
+	 *
+	 * A conversation row carries two UUIDs: `id`, the transcript's key, and
+	 * `workspaceId`, the directory's name -- and the document id
+	 * `WorkspaceDocumentsProvider` publishes for the folder. They are generated
+	 * separately and are not interchangeable. The provider used [byId] for a
+	 * document id, which matched nothing: a re-queried folder lost its title, and
+	 * the delete/rename refusal never fired for the ids the provider itself
+	 * issued. The unique index on `workspaceId` (`Entities.kt`) makes this lookup
+	 * as cheap as the primary-key one.
+	 */
+	@Query("SELECT * FROM conversations WHERE workspaceId = :workspaceId LIMIT 1")
+	suspend fun byWorkspaceId(workspaceId: String): ConversationEntity?
+
+	/**
 	 * Every conversation, for the documents provider.
 	 *
 	 * A separate query from [observeAll] because that one is a `Flow` for the

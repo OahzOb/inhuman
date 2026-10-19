@@ -42,7 +42,9 @@ import java.io.FileNotFoundException
  * Every method runs on a **Binder thread pool thread**, and DocumentsUI calls
  * them synchronously while drawing. Doing unbounded work here does not merely
  * make this app slow -- it hangs the *file manager*. So listings are capped,
- * and `runBlocking` appears only around queries that are indexed lookups.
+ * and `runBlocking` appears only around small conversation-table reads: a
+ * workspace-id lookup on its unique index, and the root listing's `all()` scan
+ * (one row per conversation).
  *
  * ## Document ids
  *
@@ -228,9 +230,16 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
 			return
 		}
 
-		// A bare workspace id is a conversation, and therefore a directory.
+		// A bare id is a **workspace** id, not a conversation id: that is what
+		// `includeConversation` publishes, and the document-id scheme above is
+		// built on it. Looking it up with `byId` matched the conversation row's
+		// own id, which is a different UUID, so a re-queried conversation folder
+		// fell through to `includeFile` and reported the raw UUID as its display
+		// name. `isConversationDirectory` had the same mismatch, which is how
+		// its delete/rename refusal came to be dead for the ids this provider
+		// actually issues.
 		if (!documentId.contains('/')) {
-			val conversation = runBlocking { db.conversations().byId(documentId) }
+			val conversation = runBlocking { db.conversations().byWorkspaceId(documentId) }
 			if (conversation != null) {
 				includeConversation(cursor, conversation)
 				return
@@ -275,15 +284,19 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
 	/**
 	 * Whether this id names a conversation directory rather than a file.
 	 *
-	 * A bare id with no separator is a conversation; anything with a separator
-	 * is a path inside one. The flags above should stop the Files app offering
-	 * rename or delete here at all, so this is the second line: a provider that
-	 * can be driven by an intent or a third-party file manager should not rely
-	 * on a UI honouring a flag.
+	 * A bare id with no separator is a conversation's **workspace** id -- the id
+	 * [includeConversation] publishes -- not the conversation row's own id.
+	 * Checking it with `byId` compared it with a different UUID, so the refusal
+	 * below never fired for the ids this provider actually issues.
+	 *
+	 * The flags above should stop the Files app offering rename or delete here
+	 * at all, so this is the second line: a provider that can be driven by an
+	 * intent or a caller that ignores a flag should not rely on a UI honouring
+	 * it.
 	 */
 	private fun isConversationDirectory(documentId: String): Boolean {
 		if (documentId == ROOT_ID || documentId.contains('/')) return false
-		return runBlocking { db.conversations().byId(documentId) } != null
+		return runBlocking { db.conversations().byWorkspaceId(documentId) } != null
 	}
 
 	private fun fileFlags(): Int =

@@ -31,9 +31,9 @@ and a future session that trusts them will start from a false premise:
 | "the chat screen applies [the cap] to the transcript *and* to the composer strip" | `AGENTS.md:130-138` | True of the composer strip and the error row only. User messages are bubbles capped at 640dp; assistant replies have no bubble and fill the list width. See [06](06-agent-loop-ui.md). |
 | "`writeText` is wrapped in `NonCancellable`" | `AGENTS.md:151` (now corrected) | It is the row insert at `ChatViewModel.kt:1040`, not the tool-layer `writeText`. |
 
-The tool table at `README.md:42-49` is worth trusting: eleven tools, including
-`read_time`, `web_search` and `web_fetch`. What has drifted is the *prose*
-around mechanisms rather than the lists.
+The tool table at `README.md:50-58` is worth trusting: twelve tools, including
+`read_time`, `web_search`, `web_fetch` and `ssh_exec`. What has drifted is the
+*prose* around mechanisms rather than the lists.
 
 The pattern is worth naming, because it is the one thing this docs set exists to
 prevent: **a description of a mechanism outlives the mechanism.** When a count, a
@@ -49,7 +49,7 @@ citation.
 | [01-overview.md](01-overview.md) | What is this, which module holds what, what does the app actually do today, what is deliberately missing |
 | [02-architecture.md](02-architecture.md) | Module graph, dependency rule, how the app is wired at start-up, navigation, build toolchain, build/verify commands |
 | [03-ai-provider.md](03-ai-provider.md) | The provider interface and stream types, the DeepSeek adapter, SSE decoding, demo mode, `web_search`/`web_fetch` and **the paid APIs behind them** |
-| [04-data-persistence.md](04-data-persistence.md) | Room schema and its 8 versions, repositories, ordering rules, API-key storage, `DocumentsProvider`, orphan sweeps |
+| [04-data-persistence.md](04-data-persistence.md) | Room schema v10 and its ten exported versions, repositories, ordering rules, API-key storage, `DocumentsProvider`, orphan sweeps |
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the 8 file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | The turn lifecycle, tool-call execution, the approval gate, cancellation, context gauge, Compose layout rules |
 | [07-gotchas.md](07-gotchas.md) | The load-bearing invariants, and the mistakes that already cost someone a day |
@@ -127,7 +127,7 @@ why the pure-invariant tests (`DeltaCursor`, `ContextUsage`, `activePathOf`)
 carry arguments the device could not make — see
 [02-architecture.md](02-architecture.md).
 
-Three suites do **not** run on the JVM, and are not in the table above because
+Five suites do **not** run on the JVM, and are not in the table above because
 they only run against a device:
 
 | Suite | Why it needs a device |
@@ -135,11 +135,13 @@ they only run against a device:
 | `app/src/androidTest/…/SessionLogReadBenchmark` | How long a session log takes to read on ARM64 — the number a port's cold start depends on |
 | `app/src/androidTest/…/JavaScriptSandboxProbe` | Whether the platform JavaScript sandbox is available, and what it withholds (`fetch`, `require`, `process`) |
 | `core/data/src/androidTest/…/MigrationTest` | Room migrations against a real SQLite — the JVM tests cover the pure branch walk, not the schema |
+| `core/data/src/androidTest/…/ConversationLookupTest` | The `id` / `workspaceId` distinction the documents provider's folder lookup depends on; both are UUIDs, and the wrong one returns null rather than failing |
+| `core/data/src/androidTest/…/WorkspaceDocumentsProviderTest` | The provider's actual folder ids: a re-queried folder keeps its title, and delete/rename are refused |
 
 Run them with `:app:connectedDebugAndroidTest` / `:core:data:connectedDebugAndroidTest`,
 or `adb shell am instrument`. The first two have their measured results in
-[port-assessment.md](port-assessment.md); the third is the evidence behind
-[07-gotchas.md](07-gotchas.md) B8.
+[port-assessment.md](port-assessment.md); the last three are the evidence behind
+[07-gotchas.md](07-gotchas.md) B8 and B6.
 
 ## Which files own which behaviour
 

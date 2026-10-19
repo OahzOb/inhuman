@@ -20,7 +20,9 @@ only reach a machine whose address and credentials the user supplies. With SSH
 off — the default — the paragraph above is true as written. See
 [03-ai-provider.md](03-ai-provider.md) and [08-port-philosophy.md](08-port-philosophy.md) §1.2.1.
 
-Single user, single device, DeepSeek only. Closed source.
+Single user, single device, DeepSeek only. Open source under Apache-2.0
+(`LICENSE`): the fence around a conversation is a security claim, and an
+unauditable one would be worth very little (`README.md:359-363`).
 
 ## Shape of the repository
 
@@ -64,9 +66,13 @@ Confirmed by `README.md:17-29` and by the code:
 - Approval rules can tighten what the assistant may do, per tool, per assistant
   or per path; the default asks nothing, including for deletion
   ([09-approvals.md](09-approvals.md)).
-- Answers can be regenerated — except when the turn changed something; the guard
-  is derived from the transcript, so it lifts on the next turn that changes
-  nothing ([07-gotchas.md](07-gotchas.md) B1).
+- Answers can be retried. **Answer again** keeps the tool **definitions** so the
+  request prefix can still hit the context cache, but appends a transient
+  system instruction forbidding a call; the app refuses any call before
+  execution, so nothing is written or sent over SSH. **Regenerate from…** can
+  restart after any completed tool group in the last turn: the prefix and its
+  results stay, the suffix is deleted and its checkpoint restored, and the
+  request runs **with tools** ([07-gotchas.md](07-gotchas.md) B20, B23).
 - Per-conversation model and reasoning effort, read from the provider.
 - Image attachments.
 - A context gauge above the composer.
@@ -79,13 +85,18 @@ incremental and is visible in `git log`.
 
 ## What is deliberately absent
 
-From `README.md:284-297`; these are decisions, not gaps. Do not "fix" them
+From `README.md:335-357`; these are decisions, not gaps. Do not "fix" them
 without a conversation:
 
 - **No Linux/PRoot environment.** Per-conversation files need no shell. PRoot
   also runs at the app's own UID, so "sandboxed" Linux code could read the
   conversation database and the stored API key.
-- **No LaTeX.** The only viable Android renderer is GPLv2.
+- **No LaTeX.** The obstacle is not the renderer's licence, which this file used
+  to name: JLaTeXMath carries a linking exception that permits use here, and the
+  app is Apache-2.0. The cost is the fonts it bundles — some GPLv2, some OFL,
+  some under the Knuth Licence — and the `THIRD-PARTY-NOTICES` maintenance that
+  follows from shipping them (`README.md:337-350`). Markdown and code
+  highlighting cover the common case.
 - **No `MANAGE_EXTERNAL_STORAGE`**, and no `READ/WRITE_EXTERNAL_STORAGE`.
 - **No multi-provider abstraction.** DeepSeek only. The streaming pipeline is
   transport-agnostic so a second provider is an addition rather than a rewrite,

@@ -127,11 +127,12 @@ find, rather than a row pointing at a missing directory, which nothing can.
 
 ### A15. `runBlocking` appears only around two reads in the provider
 
-`WorkspaceDocumentsProvider.kt:40-45`. Every method runs on a Binder thread that
+`WorkspaceDocumentsProvider.kt:40-50`. Every method runs on a Binder thread that
 DocumentsUI blocks on, hence `MAX_CHILDREN = 500` and the caps. The two are
-`conversations().byId(documentId)` (`:209`), a primary-key lookup, and
-`conversations().all()` (`:113`), a full scan of a table holding one row per
-conversation.
+`conversations().byWorkspaceId(documentId)` — a lookup on the unique
+`workspaceId` index, used by both `includeDocument` and
+`isConversationDirectory` — and `conversations().all()` (`:113`), a full scan of
+a table holding one row per conversation.
 
 ### A16. The demo script reads the transcript, not a counter
 
@@ -203,13 +204,21 @@ against a replay that is now structurally impossible.
 
 ### B2. The last ~40 ms of every reply was missing from the live transcript — **FIXED**
 
-`ChatViewModel.kt:867-868` says "The `finally` block publishes regardless, so the
-last partial window is never lost." **The `finally` never calls
-`publishIfDue`/`updateParts`** — only `updateMessage(… isStreaming, finishReason,
-usage)` at `:1020`. Up to 40 ms of tokens are therefore absent from `plainText`,
-from `parts` and from the delta channel after the turn ends, while the database
-row (written from the `StringBuilder`s at `:1048`) is complete. The bubble stays
-short until something reloads the transcript.
+`publishIfDue` throttles to one update per 40 ms and was a **local function
+declared inside the `try`**. The comment at the throttle claimed "the `finally`
+block publishes regardless, so the last partial window is never lost", but a
+local function is not in scope in the `finally`, so the finally only called
+`updateMessage(… isStreaming, finishReason, usage)`. Up to 40 ms of tokens were
+therefore absent from `plainText`, from `parts` and from the delta channel after
+the turn ended, while the database row (written from the same `StringBuilder`s)
+was complete. The bubble stayed a few words short until something reloaded the
+transcript, which reads as a rendering delay rather than as lost state.
+
+The fix hoists the publish into `publishParts(...)` and calls it from the
+`finally` before the channel closes (`ChatViewModel.kt:1690-1707`), so the
+throttle is no longer lossy. No test isolates the last 40 ms: the loss lives
+inside a stream, which adb cannot sample at any rate, so this rests on the code
+path rather than on a test that asserts nothing.
 
 ### B3. `MarkdownText` never switched to the plain renderer when the stream ended — **FIXED**
 
@@ -293,27 +302,35 @@ and deleting it leaves the inverse orphan the sweep cannot see.
 
 Conversation rows now carry `conversationFlags()`: create only, since creating
 files inside the directory is the case the provider exists for. `deleteDocument`
-and `renameDocument` also refuse a conversation id outright, because a flag is a
-request and a provider can be driven by an intent or a third-party file manager.
+and `renameDocument` also refuse a conversation directory outright, because a
+flag is a request and the provider should not rely on a caller honouring it.
 Deleting a conversation is still something the app does, through the repository,
 which removes files and row together.
 
-`WorkspaceDocumentsProvider.directoryFlags()` (`:234-237`) is returned for
-conversation rows too (`:190`), so the system Files app offers rename and delete on
-a conversation folder:
+**The first version of that refusal checked the wrong id, so it never fired.**
+A conversation row carries two UUIDs: `id`, the transcript's key, and
+`workspaceId`, the directory's name and the document id this provider publishes.
+The refusal called `conversations().byId(id)`, which compares against the first;
+a folder URI carries the second, so every check returned null and execution fell
+through to `resolveFile(...)`. `includeDocument`'s "a bare id is a conversation"
+branch had the same mismatch, so a re-queried conversation folder fell through
+to `includeFile` and reported its display name as a raw UUID rather than the
+title.
 
-- `renameDocument` renames the directory whose name **is** the `workspaceId`
-  (`:162-169`). The row keeps pointing at the old name, so the next tool call
-  recreates an *empty* workspace — and the renamed directory matches no row, so
-  the sweep will eventually delete the user's files.
-- `deleteDocument` deletes the workspace and leaves the row (`:156-160`) — the
-  inverse orphan, which the sweep cannot see.
+Both now use `ConversationDao.byWorkspaceId`, which hits the unique index that
+already existed on `conversations.workspaceId` (`Entities.kt`). The distinction
+is pinned by `ConversationLookupTest`: the same row is reachable by
+`byWorkspaceId("workspace-1")` and `byId("conversation-1")`, while
+`byId("workspace-1")` is null. The provider path itself is covered by
+`WorkspaceDocumentsProviderTest`: a re-queried folder keeps its title, and both
+`deleteDocument` and `renameDocument` throw `FileNotFoundException` for the id
+the provider publishes.
 
-Also: the conversation-folder branch of `includeDocument` is **dead code**, because
-`includeConversation` publishes `workspaceId` as the document id (`:184`) while
-`includeDocument` looks a bare id up with `conversations().byId(id)` (`:209`),
-which matches the conversation id — a different UUID. A re-queried conversation
-folder therefore reports its display name as a raw UUID rather than the title.
+The flags are what stop the system Files app offering rename or delete at all;
+the guard is the second line for a caller that does not honour them. The
+provider is additionally protected by `android.permission.MANAGE_DOCUMENTS`,
+which limits callers to the system, so this was defence-in-depth rather than an
+open door.
 
 ### B7. `import` was a quota side door — **FIXED**
 
@@ -368,7 +385,7 @@ So the entry cost two lines of JSON and a wrong estimate of a day's work. The
 consulted on this path, and recomputing it would need Room to export the file
 itself.
 
-**Verified:** nine device tests in `:core:data/src/androidTest/…/MigrationTest.kt`,
+**Verified:** eleven device tests in `:core:data/src/androidTest/…/MigrationTest.kt`,
 including the new schema check, plus an audit of all eight exports against the
 columns each migration adds. The other eight still build their own DDL rather than
 trusting the exports, which is the safer default even now that `1.json` is

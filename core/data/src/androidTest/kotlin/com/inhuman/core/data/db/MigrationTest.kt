@@ -187,32 +187,32 @@ class MigrationTest {
 	private fun seededDatabaseAt(version: Int): SupportSQLiteDatabase {
 		val name = "seed-v$version.db"
 		context.deleteDatabase(name)
-		val db = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory()
+		val sqlite = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory()
 			.create(
 				androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context)
 					.name(name)
 					.callback(
 						object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(version) {
-							override fun onCreate(inner: SupportSQLiteDatabase) {
-								ddlFor(version).forEach { inner.execSQL(it) }
+							override fun onCreate(db: SupportSQLiteDatabase) {
+								ddlFor(version).forEach { db.execSQL(it) }
 							}
 
-							override fun onUpgrade(inner: SupportSQLiteDatabase, old: Int, new: Int) = Unit
+							override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
 						},
 					)
 					.build(),
 			)
 			.writableDatabase
 
-		db.execSQL(
+		sqlite.execSQL(
 			"INSERT INTO conversations (id,title,workspaceId,model,createdAt,updatedAt,pinned) " +
 				"VALUES ('c1','canary','ws-canary',NULL,1700000000000,1700000000000,0)",
 		)
-		db.execSQL(
+		sqlite.execSQL(
 			"INSERT INTO messages (id,conversationId,parentId,role,content,createdAt) " +
 				"VALUES ('m1','c1',NULL,'user','the needle that must survive',1700000000001)",
 		)
-		return db
+		return sqlite
 	}
 
 	/**
