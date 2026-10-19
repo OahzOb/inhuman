@@ -21,6 +21,7 @@ import com.inhuman.core.data.Branches
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.SnapshotStore
 import com.inhuman.core.data.SnapshotStats
+import com.inhuman.core.data.SnapshotTurn
 import com.inhuman.core.data.WorkspaceChange
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
@@ -59,6 +60,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
+import java.util.Locale
 import java.util.UUID
 
 /**
@@ -80,9 +82,10 @@ import java.util.UUID
  * than in the provider because *which* tools exist and *whether a call is
  * allowed* are app policy, not transport.
  *
- * The loop is bounded by [MAX_TOOL_ROUNDS]. A model that keeps calling tools
- * would otherwise generate forever at the user's expense, and every iteration
- * re-sends the whole transcript, so an unbounded loop grows quadratically.
+ * The loop is bounded by the user's tool-round setting (default
+ * [DEFAULT_TOOL_ROUNDS]). A model that keeps calling tools would otherwise
+ * generate forever at the user's expense, and every iteration re-sends the
+ * whole transcript, so an unbounded loop grows quadratically.
  */
 class ChatViewModel(
 	private val repository: ConversationRepository,
@@ -489,6 +492,28 @@ class ChatViewModel(
 				}
 
 				is WorkspaceTransfer.Outcome.Ok -> {
+					// The send path reads images with `maxReadBytes` and skips
+					// anything larger. Importing up to `maxWriteBytes` and only
+					// discovering the mismatch at send time looked like the image
+					// had been attached and then silently vanished, so the two
+					// limits are reconciled here and the staged file is removed.
+					val imageLimit = workspace.limits.maxReadBytes
+					if (outcome.bytes > imageLimit) {
+						val staged = (workspace.resolve(outcome.relativePath) as? SessionWorkspace.Resolution.Ok)?.file
+						runCatching { staged?.delete() }
+						Diag.w(
+							"attach",
+							"refused too large path=${outcome.relativePath} " +
+								"bytes=${outcome.bytes} limit=$imageLimit",
+						)
+						_state.update {
+							it.copy(
+								error = "Images must be ${mib(imageLimit)} or smaller; " +
+									"that one is ${mib(outcome.bytes)}.",
+							)
+						}
+						return@launch
+					}
 					Diag.d(
 						"attach",
 						"imported path=${outcome.relativePath} bytes=${outcome.bytes} " +
@@ -579,11 +604,17 @@ class ChatViewModel(
 				Diag.w("rollback", "could not read snapshot state", failure)
 				false
 			}
-		val snapshotStats = runCatching { repository.snapshotStats(conversationId) }
+		val snapshotTurns = runCatching { repository.snapshotTurns(conversationId) }
 			.getOrElse { failure ->
-				Diag.w("rollback", "could not read snapshot stats", failure)
-				SnapshotStats(0, 0)
+				Diag.w("rollback", "could not list snapshots", failure)
+				emptyList<SnapshotTurn>()
 			}
+		// One read of the directories, not two: `snapshotTurns` already carries
+		// each turn's bytes, so the totals need no second traversal.
+		val snapshotStats = SnapshotStats(
+			turns = snapshotTurns.size,
+			bytes = snapshotTurns.sumOf { it.bytes },
+		)
 		// A snapshot is stronger evidence than the `mutated` row: the process
 		// can die after a tool changed the workspace and before markMutated is
 		// written. If the snapshot exists, restore it even when every row still
@@ -619,7 +650,9 @@ class ChatViewModel(
 				rollbackAvailable = rollbackAvailable,
 				rollbackBlockedReason = rollbackBlockedReason,
 				snapshotStats = snapshotStats,
+				snapshotTurns = snapshotTurns,
 				snapshotRetention = snapshotRetention(),
+				toolRoundLimit = toolRoundLimit(),
 				regenerationPoints = regenerationPoints,
 				// Read off the rebuilt list: the remaining transcript-derived
 				// values have to agree with the messages that are on screen.
@@ -866,8 +899,12 @@ class ChatViewModel(
 		val hasSnapshot = lastUser != null && runCatching {
 			repository.hasStartCheckpoint(conversationId, lastUser.id)
 		}.getOrDefault(false)
-		val snapshotStats = runCatching { repository.snapshotStats(conversationId) }
-			.getOrElse { SnapshotStats(0, 0) }
+		val snapshotTurns = runCatching { repository.snapshotTurns(conversationId) }
+			.getOrElse { emptyList<SnapshotTurn>() }
+		val snapshotStats = SnapshotStats(
+			turns = snapshotTurns.size,
+			bytes = snapshotTurns.sumOf { it.bytes },
+		)
 		val mutated = lastTurn.any { it.mutated } || hasSnapshot
 		val rollbackAvailable = lastUser != null && !irreversible && (!mutated || hasSnapshot)
 		val rollbackBlockedReason = when {
@@ -887,7 +924,9 @@ class ChatViewModel(
 				rollbackAvailable = rollbackAvailable,
 				rollbackBlockedReason = rollbackBlockedReason,
 				snapshotStats = snapshotStats,
+				snapshotTurns = snapshotTurns,
 				snapshotRetention = snapshotRetention(),
+				toolRoundLimit = toolRoundLimit(),
 				regenerationPoints = regenerationPoints,
 				context = contextOf(it.messages),
 			)
@@ -1033,6 +1072,54 @@ class ChatViewModel(
 		viewModelScope.launch {
 			repository.pruneSnapshots(conversationId, keep)
 			reload()
+		}
+	}
+
+	/** How many tool rounds one turn may run before it stops and says so. */
+	private fun toolRoundLimit(): Int =
+		secure.get(SecureStore.KEY_TOOL_ROUNDS)?.toIntOrNull()
+			?.coerceIn(MIN_TOOL_ROUNDS, MAX_TOOL_ROUNDS)
+			?: DEFAULT_TOOL_ROUNDS
+
+	fun setToolRoundLimit(rounds: Int) {
+		val limit = rounds.coerceIn(MIN_TOOL_ROUNDS, MAX_TOOL_ROUNDS)
+		secure.put(SecureStore.KEY_TOOL_ROUNDS, limit.toString())
+		_state.update { it.copy(toolRoundLimit = limit) }
+		Diag.i("turn", "tool round limit set to $limit")
+	}
+
+	/**
+	 * Rename this conversation.
+	 *
+	 * The title is generated from the first message and is not always a good
+	 * summary; the row is what the user scans later, so it has to be fixable.
+	 * The repository method already existed and had no caller.
+	 */
+	fun renameConversation(title: String) {
+		val next = title.trim()
+		if (next.isEmpty() || next == _state.value.title) return
+		viewModelScope.launch {
+			runCatching { repository.rename(conversationId, next) }
+				.onSuccess {
+					_state.update { it.copy(title = next) }
+					Diag.i("chat", "renamed conv=${Diag.shortId(conversationId)}")
+				}
+				.onFailure { failure ->
+					Diag.w("chat", "rename failed conv=${Diag.shortId(conversationId)}", failure)
+					_state.update { it.copy(error = "Could not rename the conversation.") }
+				}
+		}
+	}
+
+	/** Turn demo mode on from the chat, where the disabled composer explains itself. */
+	fun enableDemoMode() {
+		secure.put(SecureStore.KEY_DEMO_MODE, "1")
+		viewModelScope.launch {
+			refreshConfiguration()
+			// The model list and vision flag were published before demo was on;
+			// without this the demo model is text-only to the attach button.
+			publishModelState()
+			Diag.i("config", "demo mode enabled from chat")
 		}
 	}
 
@@ -1399,17 +1486,20 @@ class ChatViewModel(
 			emptyList()
 		}
 		val toolSpecs = tools.map { spec(it) }
+		// Read once for the whole turn: changing the setting mid-stream must not
+		// move the ceiling under a loop that is already running.
+		val maxRounds = toolRoundLimit()
 		Diag.i(
 			"turn",
 			"run start provider=${provider.id} " +
 				"model=${model ?: agent?.model ?: DEFAULT_MODEL} thinking=$thinking " +
 				"effort=${reasoningEffort ?: "-"} tools=${tools.size} " +
 				"suppressTools=$suppressToolCalls " +
-				"maxRounds=$MAX_TOOL_ROUNDS demo=$demo",
+				"maxRounds=$maxRounds demo=$demo",
 		)
 
 		var rounds = 0
-		while (rounds < MAX_TOOL_ROUNDS) {
+		while (rounds < maxRounds) {
 			rounds++
 			val outcome = streamOneTurn(provider, tools, toolSpecs, suppressToolCalls)
 
@@ -1457,8 +1547,9 @@ class ChatViewModel(
 		_state.update {
 			it.copy(
 				isStreaming = false,
-				error = "Stopped after $MAX_TOOL_ROUNDS tool rounds. " +
-					"The assistant may be looping; send another message to continue.",
+				error = "Stopped after $maxRounds tool rounds. " +
+					"The assistant may be looping; raise the limit in the chat menu, " +
+					"or send another message to continue.",
 			)
 		}
 	}
@@ -2873,8 +2964,14 @@ class ChatViewModel(
 		 * A model that keeps calling tools would otherwise generate forever at
 		 * the user's expense, and because every round re-sends the whole
 		 * transcript the cost of a runaway loop grows quadratically.
+		 *
+		 * 8 was hardcoded and is too low once an SSH call and a couple of file
+		 * reads share a turn, so the default is now a setting. The bounds stay:
+		 * this is a budget, not an "unlimited" mode.
 		 */
-		const val MAX_TOOL_ROUNDS = 8
+		const val DEFAULT_TOOL_ROUNDS = 8
+		const val MIN_TOOL_ROUNDS = 4
+		const val MAX_TOOL_ROUNDS = 64
 
 		/**
 		 * Appended only to a final-answer retry, not stored.
@@ -2898,6 +2995,9 @@ class ChatViewModel(
 		const val STREAM_PUBLISH_INTERVAL_MS = 40L
 	}
 }
+
+private fun mib(bytes: Long): String =
+	String.format(Locale.US, "%.1f MiB", bytes / (1024.0 * 1024.0))
 
 private fun roleFromWire(value: String): Role = when (value) {
 	"system" -> Role.System

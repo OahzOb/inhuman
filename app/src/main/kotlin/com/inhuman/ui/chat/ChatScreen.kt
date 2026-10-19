@@ -1,5 +1,7 @@
 package com.inhuman.ui.chat
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.rememberScrollState
@@ -15,6 +17,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -79,6 +82,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.data.Branches
 import com.inhuman.core.data.SnapshotStats
+import com.inhuman.core.data.SnapshotTurn
 import com.inhuman.core.data.WorkspaceChange
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
@@ -88,6 +92,8 @@ import com.inhuman.ui.common.RewindBadge
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import java.text.DateFormat
+import java.util.Date
 
 /**
  * One conversation.
@@ -208,6 +214,12 @@ fun ChatScreen(
 	val snapshotRetention by viewModel.state
 		.map { it.snapshotRetention }
 		.collectAsStateWithLifecycle(3)
+	val snapshotTurns by viewModel.state
+		.map { it.snapshotTurns }
+		.collectAsStateWithLifecycle(emptyList<SnapshotTurn>())
+	val toolRoundLimit by viewModel.state
+		.map { it.toolRoundLimit }
+		.collectAsStateWithLifecycle(8)
 	val pendingSshConsent by viewModel.state
 		.map { it.pendingSshConsent }
 		.collectAsStateWithLifecycle(null)
@@ -216,13 +228,16 @@ fun ChatScreen(
 	var rollbackFiles by remember { mutableStateOf<List<WorkspaceChange>>(emptyList()) }
 	var showRegeneratePicker by remember { mutableStateOf(false) }
 	var showSnapshotDialog by remember { mutableStateOf(false) }
+	var showToolLimitDialog by remember { mutableStateOf(false) }
+	var showRenameDialog by remember { mutableStateOf(false) }
+	var renameInput by remember { mutableStateOf("") }
 
 	// Reported upward so the app's single Back handler knows a dialog is up.
 	// Both this and the approval gate are transient questions that Back should
 	// answer by dismissing, not by navigating away from.
 	val anyDialogOpen = showModelPicker || pendingApproval != null ||
 		pendingSshConsent != null || rollbackTarget != null || showRegeneratePicker ||
-		showSnapshotDialog
+		showSnapshotDialog || showToolLimitDialog || showRenameDialog
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
 	// Re-read the key and demo setting whenever this screen appears. The view
@@ -413,6 +428,30 @@ fun ChatScreen(
 								},
 							)
 							DropdownMenuItem(
+								text = {
+									Column {
+										Text("Tool calls per turn")
+										Text(
+											text = "$toolRoundLimit rounds before the turn stops",
+											style = MaterialTheme.typography.bodySmall,
+											color = MaterialTheme.colorScheme.onSurfaceVariant,
+										)
+									}
+								},
+								onClick = {
+									showChatMenu = false
+									showToolLimitDialog = true
+								},
+							)
+							DropdownMenuItem(
+								text = { Text("Rename conversation") },
+								onClick = {
+									showChatMenu = false
+									renameInput = title
+									showRenameDialog = true
+								},
+							)
+							DropdownMenuItem(
 								text = { Text("Revoke SSH access") },
 								enabled = sshAllowed,
 								onClick = {
@@ -559,6 +598,20 @@ fun ChatScreen(
 				modifier = Modifier.fillMaxWidth(),
 				horizontalAlignment = Alignment.CenterHorizontally,
 			) {
+				// Demo mode is otherwise buried in Settings, and the disabled
+				// composer's "Add an API key" is the moment a new user needs it.
+				if (!configured) {
+					TextButton(
+						onClick = viewModel::enableDemoMode,
+						modifier = Modifier
+							.widthIn(max = Layout.ReadableMeasure)
+							.fillMaxWidth()
+							.padding(horizontal = comfortableGutter()),
+					) {
+						Text("Try demo mode — no key, no network")
+					}
+				}
+
 				error?.let { message ->
 					Row(
 						// Constrain first, fill second: see the note on the
@@ -823,6 +876,31 @@ fun ChatScreen(
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
+					if (snapshotTurns.isNotEmpty()) {
+						Column(
+							modifier = Modifier
+								.heightIn(max = 240.dp)
+								.verticalScroll(rememberScrollState()),
+							verticalArrangement = Arrangement.spacedBy(6.dp),
+						) {
+							snapshotTurns.forEachIndexed { index, turn ->
+								Column {
+									Text(
+										text = "Snapshot ${snapshotTurns.size - index} · " +
+											"${turn.checkpoints} checkpoint" +
+											(if (turn.checkpoints == 1) "" else "s"),
+										style = MaterialTheme.typography.labelLarge,
+									)
+									Text(
+										text = "${formatSnapshotTime(turn.createdAt)} · " +
+											humanSize(turn.bytes),
+										style = MaterialTheme.typography.bodySmall,
+										color = MaterialTheme.colorScheme.onSurfaceVariant,
+									)
+								}
+							}
+						}
+					}
 					Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
 						listOf(1, 3, 5, 10).forEach { turns ->
 							TextButton(
@@ -845,6 +923,86 @@ fun ChatScreen(
 			},
 			confirmButton = {
 				TextButton(onClick = { showSnapshotDialog = false }) { Text("Close") }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+
+	if (showToolLimitDialog) {
+		AlertDialog(
+			onDismissRequest = { showToolLimitDialog = false },
+			title = { Text("Tool calls per turn") },
+			text = {
+				Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+					Text(
+						"How many model round trips one turn may run before it stops. " +
+							"A round is one model response plus the tool calls it asked for; " +
+							"raising this does not change which tools are allowed.",
+					)
+					Text(
+						"Current: $toolRoundLimit per turn",
+						style = MaterialTheme.typography.labelLarge,
+						color = MaterialTheme.colorScheme.primary,
+					)
+					listOf(4, 8, 16, 24, 32, 64).chunked(3).forEach { row ->
+						Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+							row.forEach { rounds ->
+								TextButton(
+									onClick = {
+										viewModel.setToolRoundLimit(rounds)
+										showToolLimitDialog = false
+									},
+									contentPadding = PaddingValues(horizontal = 10.dp),
+								) {
+									Text(
+										text = "$rounds",
+										style = MaterialTheme.typography.labelLarge,
+										color = if (rounds == toolRoundLimit) {
+											MaterialTheme.colorScheme.primary
+										} else {
+											MaterialTheme.colorScheme.onSurfaceVariant
+										},
+									)
+								}
+							}
+						}
+					}
+				}
+			},
+			confirmButton = {
+				TextButton(onClick = { showToolLimitDialog = false }) { Text("Close") }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+
+	if (showRenameDialog) {
+		AlertDialog(
+			onDismissRequest = { showRenameDialog = false },
+			title = { Text("Rename conversation") },
+			text = {
+				OutlinedTextField(
+					value = renameInput,
+					onValueChange = { renameInput = it },
+					label = { Text("Title") },
+					singleLine = true,
+				)
+			},
+			confirmButton = {
+				TextButton(
+					onClick = {
+						viewModel.renameConversation(renameInput)
+						showRenameDialog = false
+					},
+					enabled = renameInput.isNotBlank(),
+				) { Text("Save") }
+			},
+			dismissButton = {
+				TextButton(onClick = { showRenameDialog = false }) { Text("Cancel") }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -1197,6 +1355,7 @@ private fun MessageBubble(
 	} else {
 		MaterialTheme.colorScheme.onSurface
 	}
+	val context = LocalContext.current
 
 	// A tool result is machinery, not speech.
 	//
@@ -1395,6 +1554,24 @@ private fun MessageBubble(
 				enabled = !message.isStreaming,
 				modifier = Modifier.padding(top = 6.dp),
 			)
+		}
+
+		// Copy is offered on every completed assistant reply, not only the
+		// newest: the answer someone wants to quote is often not the last one.
+		if (!message.fromUser && !message.isStreaming && message.plainText.isNotBlank()) {
+			IconButton(
+				onClick = { copyReply(context, message.plainText) },
+				modifier = Modifier
+					.padding(top = 2.dp)
+					.size(32.dp),
+			) {
+				Icon(
+					imageVector = Icons.Outlined.ContentCopy,
+					contentDescription = "Copy reply",
+					tint = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier.size(16.dp),
+				)
+			}
 		}
 
 		// Regenerate, on the newest reply only.
@@ -1643,7 +1820,18 @@ private fun Composer(
 private fun humanSize(bytes: Long): String = when {
 	bytes < 1024 -> "$bytes B"
 	bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-	else -> String.format("%.1f MB", bytes / 1024.0 / 1024.0)
+	else -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0)
+}
+
+/** Locale-aware timestamp for one retained snapshot turn. */
+private fun formatSnapshotTime(millis: Long): String =
+	DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+		.format(Date(millis))
+
+/** Put one reply on the clipboard, with a label the paste target can show. */
+private fun copyReply(context: android.content.Context, text: String) {
+	val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
+	clipboard.setPrimaryClip(ClipData.newPlainText("Reply", text))
 }
 
 /**

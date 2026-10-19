@@ -7,7 +7,7 @@ provider that answers it.
 ## The schema, version 10
 
 `InhumanDatabase` (`core/data/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 9`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 10`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/data/schemas/` by KSP — configured in `core/data/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
@@ -281,10 +281,13 @@ view model, and retaining the Activity leaked a destroyed view hierarchy
   prompt appears on foreground (`:92-96`).
 - `get` returns null if the value is missing, is not exactly two `:`-separated
   parts, or on **any** exception during decrypt (`:114-136`). That is the
-  intended recovery path, not a swallowed bug: `app/src/main/AndroidManifest.xml`
-  sets `android:allowBackup="true"` with no extraction rules, so a restored
-  backup carries the ciphertext while the Keystore key cannot come with it. Null
-  re-prompts the user; an exception would fail to start.
+  intended recovery path, not a swallowed bug: the Keystore key can be
+  invalidated by removing the device credential, and a blob can be corrupt.
+  `android:allowBackup="false"` means Auto Backup no longer carries the
+  ciphertext off the device at all; the null contract stays because an explicit
+  export/restore could still move the file, and because key invalidation is
+  independent of how the prefs arrived. Null re-prompts the user; an exception
+  would fail to start.
 - The `SecretKey` handle is cached per process under `@Volatile` + `synchronized`
   (`:68-77`). The previous version did a Keystore round trip on the main thread
   both on screen open and on Send. The ciphertext is still decrypted on every
@@ -311,6 +314,11 @@ filesDir/rollback/<conversationId>/<user-id>/
 joins the id (`core/data/src/main/kotlin/com/inhuman/core/data/db/Database.kt:81-88`).
 The name is the opaque `workspaceId`, never the title.
 
+Android Auto Backup is deliberately disabled (`android:allowBackup="false"`):
+these directories, the database, rollback snapshots, diagnostics and any SSH
+identity file kept in a workspace are private content, and backup would upload
+them. Moving a device is an explicit export, not an invisible copy.
+
 ### Rollback checkpoints
 
 `Database.rollbackDir` is outside `conversations/` on purpose: checkpoints are
@@ -327,7 +335,8 @@ workspaces. Symlinks are refused. Restore validates every blob before deleting
 anything, then rebuilds the workspace; `deleteSubtree`/`deleteDescendants` runs
 only after a successful restore.
 
-The chat menu shows stored turns and bytes. Retention (1/3/5/10 turns) is in
+The chat menu lists the retained turns (checkpoint count, bytes, timestamp) and
+the total. Retention (1/3/5/10 turns) is in
 `SecureStore.KEY_SNAPSHOT_TURNS`; pruning keeps the newest N turn directories,
 always including the current one, and compacts unreferenced blobs. Rewinding a
 turn deletes only that turn's directory, leaving older snapshots intact. A

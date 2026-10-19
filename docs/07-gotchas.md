@@ -637,9 +637,9 @@ hiding the evidence. The correction is structural:
 - `ssh_exec` is tagged `reversible = false`; a turn containing it gets no Edit,
   only the reason. Regenerate is still available.
 
-Snapshots are per turn and per tool group. The chat menu shows the stored turn
-count and bytes and sets retention (1/3/5/10); pruning keeps the newest turns
-and compacts unreferenced blobs. Rewinding a turn deletes only that turn's
+Snapshots are per turn and per tool group. The chat menu lists each stored turn
+with its checkpoint count, bytes and timestamp, totals them, and sets retention
+(1/3/5/10); pruning keeps the newest turns and compacts unreferenced blobs. Rewinding a turn deletes only that turn's
 directory, leaving older snapshots intact. A checkpoint's existence is also
 treated as evidence of a mutation, because a process can die after the file
 changed and before `markMutated` was written; relying on the row alone would
@@ -690,7 +690,7 @@ The next report was about control and history:
 - One snapshot per conversation meant the previous turn disappeared on the next
   send, and there was no way to see or choose how much history was kept.
   Checkpoints are now content-addressed per turn and per tool group; the chat
-  menu reports `N turns · bytes` and offers 1/3/5/10.
+  menu lists each turn's checkpoints/bytes and offers 1/3/5/10.
 - Rewinding called a full-conversation discard, deleting every snapshot. It now
   deletes only the rewound turn's directory. A later regeneration of that turn
   trims manifests the rewritten transcript no longer references, so the turn's

@@ -190,7 +190,14 @@ private fun InhumanRoot() {
 	when {
 		showSettings -> {
 			val factory = remember(secure, agents, repository) {
-				viewModelFactory { SettingsViewModel(secure, agents, repository) }
+				viewModelFactory {
+					SettingsViewModel(
+						secure,
+						agents,
+						repository,
+						File(context.applicationContext.filesDir, "ssh/known_hosts"),
+					)
+				}
 			}
 			val vm: SettingsViewModel = viewModel(factory = factory)
 			SettingsScreen(viewModel = vm, onBack = { showSettings = false })

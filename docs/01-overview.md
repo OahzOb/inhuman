@@ -120,8 +120,9 @@ Two more that are stated as behaviour rather than as policy:
   refuses any call before execution. **Regenerate from…** can restart after any
   completed tool group in the last turn: the prefix is kept, the suffix is
   deleted, its checkpoint is restored, and the request runs with tools.
-  Checkpoints are content-addressed; the chat menu shows the stored turn count
-  and size and lets the user keep 1/3/5/10 turns.
+  Checkpoints are content-addressed; the chat menu lists each retained turn with
+  its checkpoint count, size and timestamp, and lets the user keep 1/3/5/10
+  turns. The same menu sets the per-turn tool-round limit.
 
 ## The vocabulary this codebase uses
 

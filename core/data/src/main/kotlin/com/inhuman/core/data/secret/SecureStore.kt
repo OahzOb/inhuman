@@ -201,5 +201,15 @@ class SecureStore(
 		 * current turn is safe to undo.
 		 */
 		const val KEY_SNAPSHOT_TURNS = "rollback.snapshot_turns"
+
+		/**
+		 * How many tool-call rounds one turn may run.
+		 *
+		 * A loop budget, not a capability: every tool still goes through the
+		 * assistant's selection and the approval policy. Stored globally
+		 * because the alternative -- another conversation column and a schema
+		 * migration -- buys little for a setting a user changes rarely.
+		 */
+		const val KEY_TOOL_ROUNDS = "tools.max_rounds"
 	}
 }

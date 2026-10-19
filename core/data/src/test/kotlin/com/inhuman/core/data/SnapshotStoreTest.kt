@@ -86,4 +86,24 @@ class SnapshotStoreTest {
 		assertEquals(1, SnapshotStore.stats(turns).turns)
 		assertFalse(File(first, "meta.json").exists())
 	}
+
+	@Test
+	fun `turns lists each retained turn with its checkpoints, newest first`() {
+		val root = tempDir("snapshot-ws")
+		val turns = tempDir("snapshot-turns")
+		File(root, "a.txt").writeText("one")
+		val first = SnapshotStore.turnDir(turns, "turn-1")
+		assertTrue(SnapshotStore.capture(root, first, SnapshotStore.START))
+		assertTrue(SnapshotStore.capture(root, first, "after-write"))
+		Thread.sleep(5)
+		val second = SnapshotStore.turnDir(turns, "turn-2")
+		assertTrue(SnapshotStore.capture(root, second, SnapshotStore.START))
+
+		val listed = SnapshotStore.turns(turns)
+		assertEquals(listOf("turn-2", "turn-1"), listed.map { it.token })
+		assertEquals(1, listed[0].checkpoints)
+		assertEquals(2, listed[1].checkpoints)
+		assertTrue(listed[1].bytes > 0)
+		assertEquals(2, SnapshotStore.stats(turns).turns)
+	}
 }

@@ -383,8 +383,9 @@ class ConversationRepository(
 		)
 	}
 
-	suspend fun snapshotStats(conversationId: String): SnapshotStats =
-		withContext(Dispatchers.IO) { SnapshotStore.stats(rollbackDir(conversationId)) }
+	/** The retained turns, newest first, for the snapshots dialog. */
+	suspend fun snapshotTurns(conversationId: String): List<SnapshotTurn> =
+		withContext(Dispatchers.IO) { SnapshotStore.turns(rollbackDir(conversationId)) }
 
 	/** Keep only the newest [keepTurns] turns, including the current one. */
 	suspend fun pruneSnapshots(conversationId: String, keepTurns: Int) =

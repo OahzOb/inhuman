@@ -12,6 +12,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.File
+
+/** One host key the SSH client pinned on first use. */
+data class KnownHost(val host: String, val fingerprint: String)
 
 data class SettingsUiState(
 	/** What is in the field, which is not the same as what is stored. */
@@ -41,6 +45,10 @@ data class SettingsUiState(
 	 * everyone who never expressed an opinion.
 	 */
 	val approvalRules: Map<String, ToolPolicy> = emptyMap(),
+	/** Host keys pinned by the SSH client, in file order. */
+	val knownHosts: List<KnownHost> = emptyList(),
+	/** Result of the last forget action, shown in the host-key dialog. */
+	val knownHostsStatus: String? = null,
 )
 
 /**
@@ -56,6 +64,8 @@ class SettingsViewModel(
 	private val secure: SecureStore,
 	private val agents: AgentRepository,
 	private val repository: ConversationRepository,
+	/** `filesDir/ssh/known_hosts`; the same file `SshClient` pins into. */
+	private val knownHostsFile: File,
 ) : ViewModel() {
 
 	private val _state = MutableStateFlow(SettingsUiState())
@@ -73,6 +83,56 @@ class SettingsViewModel(
 			sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
 		)
 		loadRules()
+		loadKnownHosts()
+	}
+
+	/**
+	 * The TOFU host keys, read from the same line format `SshClient` writes:
+	 * `<host> <SHA256:fingerprint>`.
+	 *
+	 * A malformed line is skipped rather than failing the screen; the file is
+	 * only ever written by the app, and a bad line is not a reason to hide the
+	 * good ones.
+	 */
+	private fun loadKnownHosts() {
+		val hosts = runCatching {
+			if (!knownHostsFile.isFile) {
+				emptyList()
+			} else {
+				knownHostsFile.readLines().mapNotNull { line ->
+					val trimmed = line.trim()
+					if (trimmed.isEmpty() || trimmed.startsWith("#")) return@mapNotNull null
+					val parts = trimmed.split(' ', limit = 2)
+					if (parts.size == 2) KnownHost(parts[0], parts[1]) else null
+				}
+			}
+		}.getOrElse {
+			Diag.w("ssh", "known_hosts read failed", it)
+			emptyList()
+		}
+		_state.value = _state.value.copy(knownHosts = hosts)
+	}
+
+	/**
+	 * Forget every pinned host key.
+	 *
+	 * The next connection to each host pins whatever key it presents. That is
+	 * the only in-app recovery when a server legitimately changes its key: the
+	 * verifier is fail-closed, and without this the user's only options were
+	 * clearing app data or `adb`.
+	 */
+	fun forgetKnownHosts() {
+		val removed = runCatching { !knownHostsFile.exists() || knownHostsFile.delete() }
+			.getOrDefault(false)
+		Diag.i("ssh", "forget pinned host keys removed=$removed")
+		_state.value = _state.value.copy(
+			knownHosts = emptyList(),
+			knownHostsStatus = if (removed) {
+				"Pinned host keys forgotten. The next connection to each host will pin a new key."
+			} else {
+				"Could not remove the host-key file."
+			},
+		)
 	}
 
 	private fun loadRules() {

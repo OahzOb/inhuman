@@ -22,12 +22,13 @@ growing, and because `isStreaming` was cleared the composer unlocked, so a secon
 turn could start while the first was still writing into the same message tree
 (`:721-728`).
 
-### `runTurn` (`:751-789`)
+### `runTurn` (`:1444-1524`)
 
 Builds the provider (`DemoProvider()` or `DeepSeekProvider(apiKey!!)`),
-`buildTools()`, and loops up to **`MAX_TOOL_ROUNDS = 8`** (`:1527`). Empty
+`buildTools()`, and loops up to the user's **tool-round limit** (chat menu →
+Tool calls per turn; default `DEFAULT_TOOL_ROUNDS = 8`, bounded 4–64). Empty
 `toolCalls` ends the turn; falling out of the loop sets an explicit error
-("Stopped after 8 tool rounds…", `:782-788`) rather than ending silently.
+("Stopped after N tool rounds…") rather than ending silently.
 
 ### `streamOneTurn` (`:802-1081`)
 
@@ -192,10 +193,11 @@ only irreversible tool: a turn containing it shows the reason and **no Edit**.
 A checkpoint after an SSH call can still be selected if only reversible work is
 discarded; the SSH call stays in the prefix.
 
-The chat menu shows how many turn checkpoints and bytes are stored and lets the
-user keep 1/3/5/10 turns. Rewinding one turn replaces only that turn; older
-turns are not truncated. A mid-turn regeneration trims manifests the rewritten
-transcript no longer references, so that turn's checkpoints are replaced.
+The chat menu lists every retained turn with its checkpoint count, size and
+timestamp, plus the total, and lets the user keep 1/3/5/10 turns. Rewinding one
+turn replaces only that turn; older turns are not truncated. A mid-turn
+regeneration trims manifests the rewritten transcript no longer references, so
+that turn's checkpoints are replaced.
 
 The two regeneration paths have different cache behaviour, and the usage line
 says so. The final-answer refresh keeps the tool definitions and appends a
@@ -571,7 +573,7 @@ it; the sandbox's no-network rule applies to code the model writes), and
 | `DeltaCursorTest` | The property "the pieces joined are the whole reply, however it is cut", over every chunk size; no emission when nothing is new; no duplicate on a replayed prefix; a restart on shrink; the `initialText` start; silence for an empty reply. |
 | `ContextUsageTest` | Window-without-measurement is known but not computable; no window ⇒ no fraction and `summary` is a bare count; neither ⇒ nothing drawn; 25% of 1M ⇒ `262K / 1M`; a non-zero amount never shows 0%; over-window clamps to 100% / 0 left; `contextWindow = 0` treated as absent; `TokenFormat` grouping, including "10K" for 9,960 and never a comma. |
 | `WireHistoryTest` | A dangling assistant `tool_calls` gets its missing tool result inserted **before** the next user message, not at the end; a complete block and a call-free assistant message are untouched. Also that SSH tool arguments lose `password`/`privateKey`/`passphrase` before storage, including the wrapped form. This is the HTTP-400-on-every-later-turn repair and the credential-persistence guard. |
-| `SnapshotStoreTest` | `start` and a later tool checkpoint restore their own file versions; added/deleted/modified paths are diffed by content; stats count turns and pruning keeps the newest. This is the file half of checkpointed rollback. |
+| `SnapshotStoreTest` | `start` and a later tool checkpoint restore their own file versions; added/deleted/modified paths are diffed by content; stats count turns and pruning keeps the newest; `turns` lists each retained turn with its checkpoint count, newest first. This is the file half of checkpointed rollback. |
 
 These are pure JVM logic for the reason `AGENTS.md` gives: the device cannot
 observe these states, so the argument has to live in a test.

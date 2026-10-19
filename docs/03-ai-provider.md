@@ -117,6 +117,11 @@ it do file IO, make it untestable without a filesystem, and put the read inside
 the transport where the workspace sandbox has not been consulted. Bytes are read
 at the moment history is assembled, through the sandbox.
 
+The attach path refuses an image larger than `maxReadBytes` (1 MiB) **at import
+time** and deletes the staged copy. It used to accept up to `maxWriteBytes`
+(4 MiB) and then have `loadImages` skip the file, so a 2 MiB image looked
+attached and was silently dropped when sent.
+
 **Capabilities are checked before the image is ever built**
 (`ChatTypes.kt:56-61`). Sending an image to a text-only model returns **200** and
 the model answers about `[Unsupported Image]` while sounding like it looked.
@@ -544,14 +549,20 @@ The client is deliberately narrow:
 - password auth, OpenSSH v1 private-key auth, optional passphrase;
 - TOFU known hosts in `filesDir/ssh/known_hosts`, written as standard
   `host:port SHA256:…`; a changed key fails closed; an optional
-  `hostKeyFingerprint` argument overrides first use and is stored;
+  `hostKeyFingerprint` argument overrides first use and is stored. Settings →
+  Pinned host keys lists them and can forget them, which is the only in-app
+  recovery when a server legitimately changes its key;
 - no host inventory and no credential store; SSH tool-call arguments are
   redacted before the transcript is persisted.
 
 `SshExecTool` (`tools/SshExecTool.kt`) takes `host`, `port`, `username`,
 `command`, and one of `password`, `privateKey` (OpenSSH text) or `identityFile`
-(a workspace-relative path read through `SessionWorkspace`). The file path is
-the recommended route. A password/key supplied as a **tool argument** is sent to
+(a workspace-relative path read through `SessionWorkspace`). The file path keeps
+the key out of the tool arguments that are sent to DeepSeek. It is **not** a
+secret store — the file is workspace content, so the model can also call
+`read_file` on it, and the transcript would then hold the key. The app has no
+separate credential store; do not leave long-lived keys in a workspace if that
+distinction matters. A password/key supplied as a **tool argument** is sent to
 DeepSeek with the request but is removed before the tool-call row is persisted;
 the stored transcript keeps host, user, command and `identityFile`, not the
 secret. Text the user typed into a message is still stored verbatim — that is

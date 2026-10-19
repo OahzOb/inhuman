@@ -23,6 +23,15 @@ data class SnapshotStats(
 	val bytes: Long,
 )
 
+/** One retained turn, as the chat menu lists it. */
+data class SnapshotTurn(
+	/** The user message id the turn is anchored to. */
+	val token: String,
+	val createdAt: Long,
+	val checkpoints: Int,
+	val bytes: Long,
+)
+
 /** How many changed paths a stored summary carries; a workspace can hold thousands. */
 private const val MAX_RECORDED_CHANGES = 100
 
@@ -209,14 +218,36 @@ object SnapshotStore {
 	}
 
 	fun stats(conversationDir: File): SnapshotStats {
-		val dirs = conversationDir.listFiles()
-			.orEmpty()
-			.filter { it.isDirectory && File(it, "manifests").isDirectory }
+		val turns = turns(conversationDir)
 		return SnapshotStats(
-			turns = dirs.size,
-			bytes = dirs.sumOf { sizeOf(it) },
+			turns = turns.size,
+			bytes = turns.sumOf { it.bytes },
 		)
 	}
+
+	/**
+	 * The retained turns, newest first.
+	 *
+	 * The chat menu shows these rather than only a count: "3 turns" does not
+	 * tell a user which turns can still be rewound, and the newest turn is the
+	 * one a rollback would touch. Only directories with a `manifests/` folder
+	 * count -- a half-written turn is not restorable.
+	 */
+	fun turns(conversationDir: File): List<SnapshotTurn> =
+		conversationDir.listFiles()
+			.orEmpty()
+			.filter { it.isDirectory && File(it, "manifests").isDirectory }
+			.map { dir ->
+				SnapshotTurn(
+					token = dir.name,
+					createdAt = metaOf(dir)?.createdAt ?: dir.lastModified(),
+					checkpoints = File(dir, "manifests").listFiles()
+						.orEmpty()
+						.count { it.isFile && it.name.endsWith(".json") },
+					bytes = sizeOf(dir),
+				)
+			}
+			.sortedWith(compareByDescending<SnapshotTurn> { it.createdAt }.thenByDescending { it.token })
 
 	/**
 	 * Keep only the newest [keepTurns] turn directories. Current turn is

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
@@ -74,6 +75,7 @@ fun SettingsScreen(
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	var revealed by remember { mutableStateOf(false) }
+	var showHostKeysDialog by remember { mutableStateOf(false) }
 
 	Scaffold(
 		topBar = {
@@ -282,6 +284,20 @@ fun SettingsScreen(
 						onCheckedChange = viewModel::setSshToolEnabled,
 					)
 				}
+				// TOFU is fail-closed, so a legitimately changed host key needs a
+				// way out that is not "clear app data".
+				TextButton(
+					onClick = { showHostKeysDialog = true },
+					enabled = state.knownHosts.isNotEmpty(),
+				) {
+					Text(
+						if (state.knownHosts.isEmpty()) {
+							"No pinned host keys yet"
+						} else {
+							"Pinned host keys (${state.knownHosts.size})"
+						},
+					)
+				}
 			}
 
 			ApprovalRulesSection(
@@ -291,6 +307,56 @@ fun SettingsScreen(
 
 			DiagnosticsSection()
 		}
+	}
+
+	if (showHostKeysDialog) {
+		AlertDialog(
+			onDismissRequest = { showHostKeysDialog = false },
+			title = { Text("Pinned host keys") },
+			text = {
+				Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+					Text(
+						"First-use fingerprints. Nothing here is configured by the app; " +
+							"a changed key fails closed until the old one is forgotten.",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					Column(
+						modifier = Modifier
+							.heightIn(max = 280.dp)
+							.verticalScroll(rememberScrollState()),
+						verticalArrangement = Arrangement.spacedBy(8.dp),
+					) {
+						state.knownHosts.forEach { host ->
+							Column {
+								Text(host.host, style = MaterialTheme.typography.labelLarge)
+								Text(
+									host.fingerprint,
+									style = MaterialTheme.typography.bodySmall,
+									color = MaterialTheme.colorScheme.onSurfaceVariant,
+								)
+							}
+						}
+					}
+					state.knownHostsStatus?.let { message ->
+						Text(
+							message,
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+				}
+			},
+			confirmButton = {
+				TextButton(onClick = { viewModel.forgetKnownHosts() }) { Text("Forget all") }
+			},
+			dismissButton = {
+				TextButton(onClick = { showHostKeysDialog = false }) { Text("Close") }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
 	}
 }
 

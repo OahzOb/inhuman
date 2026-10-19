@@ -2,6 +2,7 @@ package com.inhuman.ui.chat
 
 import com.inhuman.core.data.Branches
 import com.inhuman.core.data.SnapshotStats
+import com.inhuman.core.data.SnapshotTurn
 import com.inhuman.core.data.WorkspaceChange
 
 /**
@@ -65,8 +66,12 @@ data class ChatUiState(
 	val rollbackBlockedReason: String? = null,
 	/** Turns and bytes currently stored for this conversation. */
 	val snapshotStats: SnapshotStats = SnapshotStats(0, 0),
+	/** The retained turns, newest first; the chat menu lists them. */
+	val snapshotTurns: List<SnapshotTurn> = emptyList(),
 	/** Configured number of turns to keep, current turn included. */
 	val snapshotRetention: Int = 3,
+	/** How many tool rounds one turn may run before it stops. */
+	val toolRoundLimit: Int = 8,
 	/** Places in the last turn a tool-using regeneration may start. */
 	val regenerationPoints: List<RegenerationPoint> = emptyList(),
 	/**
