@@ -1,6 +1,9 @@
 package com.inhuman.ui.files
 
+import android.content.ContentResolver
 import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -22,8 +25,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.outlined.Delete
@@ -39,12 +44,15 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +63,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
@@ -63,7 +72,10 @@ import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.ui.chat.MarkdownText
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import java.io.IOException
 
 /**
  * Whether a preview should be parsed as Markdown rather than shown literally.
@@ -109,9 +121,10 @@ fun FilesScreen(
 
 	var pendingDelete by remember { mutableStateOf<FileEntryUi?>(null) }
 	var importError by remember { mutableStateOf<String?>(null) }
+	var showDownloadDialog by remember { mutableStateOf(false) }
 
 	val anyDialogOpen = pendingDelete != null || importError != null ||
-		state.error != null || state.preview != null
+		state.error != null || state.preview != null || showDownloadDialog
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
 	// Which file the export launcher was fired for.
@@ -186,6 +199,9 @@ fun FilesScreen(
 					}
 				},
 				actions = {
+					IconButton(onClick = { showDownloadDialog = true }) {
+						Icon(Icons.Filled.Download, contentDescription = "Download from a URL")
+					}
 					IconButton(onClick = { importer.launch(arrayOf("*/*")) }) {
 						Icon(Icons.Filled.Upload, contentDescription = "Import a file")
 					}
@@ -350,6 +366,365 @@ fun FilesScreen(
 			containerColor = MaterialTheme.colorScheme.surface,
 		)
 	}
+
+	if (showDownloadDialog) {
+		DownloadDialog(
+			viewModel = viewModel,
+			onDismiss = { showDownloadDialog = false },
+		)
+	}
+}
+
+/**
+ * Download one URL, either into the conversation or into a folder the user
+ * picks through SAF.
+ *
+ * ## Why the destination is a choice
+ *
+ * The workspace is the sandbox; a PDF or zip the user wants to keep should not
+ * have to live inside a conversation, and moving it out later is an extra step.
+ * `ACTION_OPEN_DOCUMENT_TREE` is the only way to write to shared storage
+ * without asking for `MANAGE_EXTERNAL_STORAGE` or a legacy storage permission;
+ * the app still holds no broad file permission.
+ *
+ * ## Why there is no size limit
+ *
+ * The user asked for the file, and the dialog shows the size the server
+ * reports. The workspace quota remains the limit when saving there; a chosen
+ * folder is limited by the file system. The transfer is streamed, so a large
+ * file does not have to fit in memory.
+ */
+@Composable
+private fun DownloadDialog(
+	viewModel: FilesViewModel,
+	onDismiss: () -> Unit,
+) {
+	val context = LocalContext.current
+	val scope = rememberCoroutineScope()
+
+	var url by remember { mutableStateOf("") }
+	var toWorkspace by remember { mutableStateOf(true) }
+	var folderUri by remember { mutableStateOf<Uri?>(null) }
+	var folderLabel by remember { mutableStateOf<String?>(null) }
+	var busy by remember { mutableStateOf(false) }
+	var cancelled by remember { mutableStateOf(false) }
+	var progress by remember { mutableStateOf(0L) }
+	var total by remember { mutableStateOf<Long?>(null) }
+	var status by remember { mutableStateOf<String?>(null) }
+	var error by remember { mutableStateOf<String?>(null) }
+	var job by remember { mutableStateOf<Job?>(null) }
+	var active by remember { mutableStateOf<UrlDownloader.DownloadResponse?>(null) }
+
+	val folderPicker = rememberLauncherForActivityResult(
+		ActivityResultContracts.OpenDocumentTree(),
+	) { uri ->
+		if (uri != null) {
+			runCatching {
+				context.contentResolver.takePersistableUriPermission(
+					uri,
+					Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+				)
+			}
+			folderUri = uri
+			folderLabel = uri.lastPathSegment
+				?.substringAfterLast(':')
+				?.ifBlank { null }
+				?: "Selected folder"
+		}
+	}
+
+	fun cancel() {
+		cancelled = true
+		job?.cancel()
+		job = null
+		runCatching { active?.close() }
+		active = null
+	}
+
+	fun start() {
+		val target = url.trim()
+		if (target.isEmpty()) {
+			error = "Enter a URL first."
+			return
+		}
+		if (!toWorkspace && folderUri == null) {
+			error = "Choose a folder first."
+			return
+		}
+		error = null
+		status = null
+		cancelled = false
+		progress = 0L
+		total = null
+		busy = true
+
+		var lastReported = 0L
+		fun report(bytes: Long) {
+			// Compose state on every 64 KiB chunk would recompose the dialog
+			// thousands of times for a large file; four updates a megabyte is
+			// enough to see progress and cheap enough to forget.
+			if (bytes - lastReported >= 256 * 1024) {
+				lastReported = bytes
+				progress = bytes
+			}
+		}
+
+		job = scope.launch {
+			try {
+				UrlDownloader.open(target).use { opened ->
+					active = opened
+					total = opened.contentLength
+					// A URL ending in `/` has no file name; the MIME type is
+					// enough to give the saved file an extension, which is what
+					// makes it openable from the file browser.
+					val displayName = withExtension(opened.fileName, opened.mimeType)
+					if (toWorkspace) {
+						val result = viewModel.saveDownload(
+							fileName = displayName,
+							contentLength = opened.contentLength,
+							open = { opened.body },
+							onProgress = ::report,
+						)
+						result.onSuccess { saved ->
+							progress = saved.bytes
+							status = "Saved to workspace: ${saved.relativePath} (${human(saved.bytes)})"
+						}.onFailure { failure ->
+							error = failure.message ?: "Download failed."
+						}
+					} else {
+						val tree = folderUri ?: throw IOException("Choose a folder first.")
+						val resolver = context.contentResolver
+						val parent = DocumentsContract.buildDocumentUriUsingTree(
+							tree,
+							DocumentsContract.getTreeDocumentId(tree),
+						)
+						val document = createDocumentUnique(
+							resolver = resolver,
+							parent = parent,
+							mimeType = opened.mimeType,
+							fileName = displayName,
+						)
+						try {
+							val output = resolver.openOutputStream(document)
+								?: throw IOException("Could not open the chosen folder.")
+							output.use { out ->
+								CountingInputStream(opened.body, ::report).use { input ->
+									input.copyTo(out)
+								}
+							}
+							// A small file never crosses report()'s 256 KiB
+							// threshold, so `progress` is still zero; the size
+							// shown has to fall back to the Content-Length.
+							val savedBytes = total ?: progress
+							status = "Saved $displayName (${human(savedBytes)}) to " +
+								(folderLabel ?: "the chosen folder")
+						} catch (failure: Exception) {
+							runCatching { DocumentsContract.deleteDocument(resolver, document) }
+							throw failure
+						}
+					}
+				}
+			} catch (_: CancellationException) {
+				status = "Download cancelled."
+			} catch (failure: Exception) {
+				if (cancelled) {
+					status = "Download cancelled."
+				} else {
+					error = failure.message ?: "Download failed."
+				}
+			} finally {
+				active = null
+				busy = false
+				job = null
+			}
+		}
+	}
+
+	// A download can outlive a dismissed dialog if the user rotates or leaves
+	// the screen; closing the source is what stops the socket and the file.
+	DisposableEffect(Unit) {
+		onDispose { cancel() }
+	}
+
+	AlertDialog(
+		onDismissRequest = {
+			if (!busy) {
+				cancel()
+				onDismiss()
+			}
+		},
+		title = { Text("Download from a URL") },
+		text = {
+			Column(
+				modifier = Modifier.verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(8.dp),
+			) {
+				OutlinedTextField(
+					value = url,
+					onValueChange = {
+						url = it
+						error = null
+					},
+					label = { Text("https://…") },
+					singleLine = true,
+					keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+					enabled = !busy,
+					modifier = Modifier.fillMaxWidth(),
+				)
+
+				Text("Save to", style = MaterialTheme.typography.labelLarge)
+				Row(verticalAlignment = Alignment.CenterVertically) {
+					RadioButton(
+						selected = toWorkspace,
+						onClick = { if (!busy) toWorkspace = true },
+						enabled = !busy,
+					)
+					Text("Conversation workspace")
+				}
+				Text(
+					"downloads/ inside this conversation. It counts against the " +
+						"workspace quota and is visible in Files.",
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier.padding(start = 40.dp),
+				)
+
+				Row(verticalAlignment = Alignment.CenterVertically) {
+					RadioButton(
+						selected = !toWorkspace,
+						onClick = { if (!busy) toWorkspace = false },
+						enabled = !busy,
+					)
+					Text("Another folder")
+				}
+				if (!toWorkspace) {
+					TextButton(
+						onClick = { folderPicker.launch(null) },
+						enabled = !busy,
+					) {
+						Text(folderLabel?.let { "Folder: $it" } ?: "Choose folder…")
+					}
+					Text(
+						"Uses the system folder picker. The app does not gain " +
+							"general storage permission.",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.padding(start = 40.dp),
+					)
+				}
+
+				val size = total
+				if (size != null) {
+					Text(
+						"Size: ${human(size)}",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				} else if (busy) {
+					Text(
+						"Size not reported by the server.",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
+
+				if (busy) {
+					val knownTotal = total
+					Text(
+						if (knownTotal != null) {
+							"Downloading ${human(progress)} of ${human(knownTotal)}"
+						} else {
+							"Downloading ${human(progress)}"
+						},
+						style = MaterialTheme.typography.bodySmall,
+					)
+				}
+
+				status?.let {
+					Text(
+						it,
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.primary,
+					)
+				}
+				error?.let {
+					Text(
+						it,
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.error,
+					)
+				}
+			}
+		},
+		confirmButton = {
+			if (busy) {
+				TextButton(onClick = { cancel() }) { Text("Cancel") }
+			} else {
+				TextButton(
+					onClick = { start() },
+					enabled = url.isNotBlank() && (toWorkspace || folderUri != null),
+				) { Text("Download") }
+			}
+		},
+		dismissButton = {
+			TextButton(
+				onClick = {
+					cancel()
+					onDismiss()
+				},
+				enabled = !busy,
+			) { Text("Close") }
+		},
+		containerColor = MaterialTheme.colorScheme.surface,
+		titleContentColor = MaterialTheme.colorScheme.onSurface,
+		textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+	)
+}
+
+/**
+ * Give a name without an extension one, from the response MIME type.
+ *
+ * `https://example.com/` has no last path segment, so the downloader falls back
+ * to "download". The content is HTML, and a file called `download` is harder to
+ * open from a file manager than `download.html`. A name that already carries an
+ * extension is never rewritten.
+ */
+private fun withExtension(name: String, mimeType: String): String {
+	if (name.contains('.')) return name
+	val extension = android.webkit.MimeTypeMap.getSingleton()
+		.getExtensionFromMimeType(mimeType)
+		?.takeIf { it.isNotBlank() }
+		?: return name
+	return "$name.$extension"
+}
+
+/**
+ * Create a document in a SAF tree, adding a suffix if the name is taken.
+ *
+ * `DocumentsContract.createDocument` does not replace an existing file; it
+ * throws or returns null. Failing the whole download because the folder already
+ * has `report.pdf` would be a poor outcome for a user who picked that folder.
+ */
+private fun createDocumentUnique(
+	resolver: ContentResolver,
+	parent: Uri,
+	mimeType: String,
+	fileName: String,
+): Uri {
+	var candidate = fileName
+	for (attempt in 1..50) {
+		val created = runCatching {
+			DocumentsContract.createDocument(resolver, parent, mimeType, candidate)
+		}.getOrNull()
+		if (created != null) return created
+		val dot = fileName.lastIndexOf('.')
+		candidate = if (dot > 0) {
+			fileName.substring(0, dot) + " ($attempt)" + fileName.substring(dot)
+		} else {
+			"$fileName ($attempt)"
+		}
+	}
+	throw IOException("Could not create a file in the chosen folder.")
 }
 
 @Composable

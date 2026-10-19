@@ -211,21 +211,45 @@ ours: the grant can be revoked, the source can be deleted, and a file a tool mus
 read has to be a real path anyway (`:10-16`).
 
 - `import` resolves through the same gate (`:42-45`), streams 64 KiB at a time,
-  and enforces **only** `maxWriteBytes`, checked as it goes rather than after,
-  because discovering the limit was exceeded once the whole thing is on disk
-  means the disk already paid for it (`:57-67`).
-- **`import` is a quota side door**: no `maxTotalBytes`, no `maxFileCount`, no
-  free-space check. Imports can push a workspace over its totals.
-- Any exception deletes the target, because a partial file is worse than none —
-  it looks like a successful import of a truncated document (`:74-79`). Note the
-  corollary: if the destination resolved to an existing **empty directory**,
-  `outputStream()` throws and the target is that directory, which is then
-  deleted.
-- `export` has **no read ceiling** (`:90-119`).
+  and enforces a **per-file ceiling** (default `maxWriteBytes`) while it streams,
+  then every quota — `maxTotalBytes`, `maxFileCount` and reserved free space —
+  before the staging file is renamed into place. The per-file ceiling is a
+  parameter: tool writes and attachments use the 4 MiB default, a user download
+  passes the space left in the workspace so a PDF or zip is not refused for being
+  larger than a tool write, without letting it walk past the workspace ceiling.
+- A failure deletes the **staging file only**. The destination that was already
+  there is untouched; the earlier implementation deleted the target on every
+  error path, which lost an existing file when an import failed halfway.
+- `export` has **no read ceiling**.
 - `uniqueName` appends " (2)" rather than overwriting, because a user importing
   twice usually means two files and silently replacing the first is how work
   disappears (`:125-147`). At `n > 200` it returns a name **without
   collision-checking it** (`:144`).
+
+### Download from a URL
+
+A second user-facing path, next to import/export: **Files → Download from a
+URL**. The user types the URL; the app opens it and streams the bytes to one of
+two destinations:
+
+- **the conversation workspace**, under `downloads/`, through
+  `WorkspaceTransfer.import` with the remaining quota as its ceiling;
+- **a folder the user picks** through `ACTION_OPEN_DOCUMENT_TREE`, written with
+  `DocumentsContract.createDocument`. The app gains no general storage
+  permission, and `MANAGE_EXTERNAL_STORAGE` remains refused.
+
+There is **no arbitrary download size cap**: the dialog shows the server's
+`Content-Length` and the bytes received, the workspace quota is the limit when
+saving there, and the file system is the limit for a chosen folder. The transfer
+is streamed, never held in memory.
+
+It is deliberately **not a tool**. The agent cannot call it, and no prompt can
+reach it; the URL comes from the user. `UrlDownloader` nonetheless refuses
+private, loopback, link-local and multicast addresses (checked again after each
+redirect through a custom `Dns`), because "the user typed it" is not a defence
+against a link to `127.0.0.1` or a router's admin page. Only `http`/`https` are
+accepted, credentials in the URL are refused, and a hostile
+`Content-Disposition` name is sanitised before it reaches either destination.
 
 ## The design layer, and the 640dp cap
 

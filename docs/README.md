@@ -106,17 +106,17 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :app:testDebugUnitTest --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 317 tests in 34 suites, 0 failures, 1 skipped** — the skip is
+**BUILD SUCCESSFUL, 323 tests in 35 suites, 0 failures, 1 skipped** — the skip is
 `DeepSeekWebLiveTest`, which talks to the real paid Search and Fetch APIs and
 needs `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 
 | Module | Suites | Tests |
 | --- | --- | --- |
 | `:core:ai` | 18 | 186 (1 skipped) |
-| `:core:files` | 5 | 56 |
-| `:app` | 6 | 43 |
+| `:core:files` | 5 | 57 |
+| `:app` | 7 | 47 |
 | `:core:common` | 2 | 16 |
-| `:core:data` | 3 | 16 |
+| `:core:data` | 3 | 17 |
 
 The count grows with every fix that lands with a test, so treat the total as a
 baseline to re-measure rather than a fact to quote: the command above is the
@@ -160,6 +160,7 @@ throughout.
 | Assistants and the tool picker | `ui/agents/AgentsScreen.kt`, `ui/agents/AgentsViewModel.kt` |
 | The conversation list, pinning, delete confirmation | `ui/ConversationsScreen.kt`, `ui/ConversationsViewModel.kt` |
 | Browsing, import, export, file preview | `ui/files/FilesScreen.kt`, `ui/files/FilesViewModel.kt` |
+| Downloading a URL; SSRF, redirect and file-name rules | `ui/files/UrlDownloader.kt` |
 | The API key field, demo mode, "Test connection" | `ui/settings/SettingsScreen.kt`, `ui/chat/SettingsViewModel.kt` |
 | Anything a model can call; `mutates`; approval policy | `core/ai/src/main/kotlin/com/inhuman/core/ai/Tool.kt` |
 | Which tools exist at all; the static catalogue | `core/ai/…/tools/ToolCatalog.kt` |

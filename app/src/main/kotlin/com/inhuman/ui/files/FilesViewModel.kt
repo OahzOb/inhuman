@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
+import java.io.InputStream
 import java.text.DateFormat
 import java.util.Date
 
@@ -71,6 +73,9 @@ data class FilePreview(
 	val text: String,
 	val truncated: Boolean = false,
 )
+
+/** Where a download landed inside the workspace. */
+data class DownloadSave(val relativePath: String, val bytes: Long)
 
 /**
  * The workspace, as a browser.
@@ -320,6 +325,52 @@ class FilesViewModel(
 	}
 
 	/**
+	 * Save a user-initiated download into this conversation's workspace.
+	 *
+	 * The workspace's own quota still applies: "no download limit" means no
+	 * arbitrary cap on top of the storage the user actually has, not permission
+	 * to walk past the sandbox's 256 MiB ceiling. The per-file `maxWriteBytes`
+	 * limit is deliberately not used here -- a downloaded PDF or zip is not a
+	 * tool write -- so the ceiling is the space left in the workspace.
+	 *
+	 * @return the workspace-relative path and size, or a message to show.
+	 */
+	suspend fun saveDownload(
+		fileName: String,
+		contentLength: Long?,
+		open: () -> InputStream,
+		onProgress: (Long) -> Unit,
+	): Result<DownloadSave> = withContext(Dispatchers.IO) {
+		val ws = workspace()
+			?: return@withContext Result.failure(IOException("This conversation no longer exists."))
+		val transfer = WorkspaceTransfer(ws)
+		val free = (ws.limits.maxTotalBytes - ws.usage().bytes).coerceAtLeast(0)
+		if (free <= 0) {
+			return@withContext Result.failure(IOException("The conversation's workspace is full."))
+		}
+		if (contentLength != null && contentLength > free) {
+			return@withContext Result.failure(
+				IOException(
+					"The download is ${humanBytes(contentLength)}, but the workspace has only " +
+						"${humanBytes(free)} free. Choose a folder instead, or make room.",
+				),
+			)
+		}
+		val target = "downloads/" + transfer.uniqueName(fileName)
+		val counted = CountingInputStream(open(), onProgress)
+		when (val outcome = transfer.import(target, maxBytes = free) { counted }) {
+			is WorkspaceTransfer.Outcome.Ok -> {
+				Diag.i("download", "saved path=${outcome.relativePath} bytes=${outcome.bytes}")
+				refresh()
+				Result.success(DownloadSave(outcome.relativePath, outcome.bytes))
+			}
+
+			is WorkspaceTransfer.Outcome.Failed ->
+				Result.failure(IOException(outcome.reason))
+		}
+	}
+
+	/**
 	 * Write a workspace file out through a destination the caller opens.
 	 *
 	 * @return null on success, or a message to show.
@@ -344,6 +395,12 @@ class FilesViewModel(
 
 	fun suggestedName(relativePath: String): String =
 		relativePath.substringAfterLast('/').ifBlank { "file" }
+
+	private fun humanBytes(bytes: Long): String = when {
+		bytes < 1024 -> "$bytes B"
+		bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+		else -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0)
+	}
 
 	private fun mimeTypeOf(file: File): String {
 		if (file.isDirectory) return "vnd.android.document/directory"

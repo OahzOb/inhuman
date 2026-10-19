@@ -54,7 +54,8 @@ Confirmed by `README.md:17-29` and by the code:
 - A conversation can be started against a chosen assistant.
 - Replies stream, with reasoning shown and a live token/usage breakdown.
 - The model **and the user** can read and write files in the conversation's
-  folder; files can also be browsed, imported and exported.
+  folder; files can also be browsed, imported, exported, and downloaded from a
+  URL into the workspace or a folder the user picks.
 - The model can search the web and fetch a page through DeepSeek's paid Search
   and Fetch APIs, using the same key as the conversation
   ([03-ai-provider.md](03-ai-provider.md)).
@@ -148,10 +149,10 @@ other — see [06-agent-loop-ui.md](06-agent-loop-ui.md) and the long argument i
 `web_search` and `web_fetch` are **DeepSeek's paid APIs**, not free helpers. Each
 is one HTTP request to `https://api.deepseek.com/v1/tools/...`, billed per
 successful call (¥5 per 1,000 at the time of writing) on the same account as the
-conversation. They are not model turns any more, and the app never opens a page
-itself: DeepSeek performs the search and the fetch, so the sandbox still has no
-network path of its own. The mechanism and the cost rules are in
-[03-ai-provider.md](03-ai-provider.md).
+conversation. They are not model turns any more, and for these tools the app
+never opens a page itself: DeepSeek performs the search and the fetch, so the
+sandbox still has no network path of its own. The mechanism and the cost rules
+are in [03-ai-provider.md](03-ai-provider.md).
 
 The second non-obvious thing: **`ssh_exec` is not a local file tool.** It runs on
 another machine, so its effects are not a workspace copy and cannot be undone by

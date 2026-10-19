@@ -496,9 +496,10 @@ sends:
   `[truncated at 20000 characters]`. A clean ending would make a truncated page
   look complete.
 - Blank content is an error, not a successful fetch of an empty page.
-- **The app never opens the page.** DeepSeek performs the request; the sandbox
-  still has no network path of its own, and a URL cannot make the device fetch
-  anything.
+- **This tool never opens the page.** DeepSeek performs the request; the sandbox
+  still has no network path of its own, and a URL cannot make the agent fetch
+  anything. The user-initiated download in Files is a separate, user-owned path;
+  the agent cannot invoke it.
 
 ### The tool wrappers
 

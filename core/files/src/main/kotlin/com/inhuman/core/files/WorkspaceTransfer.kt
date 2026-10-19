@@ -50,9 +50,15 @@ class WorkspaceTransfer(
 	 * @param destinationPath where to put it, relative to the workspace root.
 	 *   Resolved through the sandbox like any other path, so an import cannot
 	 *   land outside the conversation.
+	 * @param maxBytes per-file ceiling, or null for "only the workspace quota
+	 *   applies". Tool writes and attachments use the default `maxWriteBytes`;
+	 *   a user-initiated download passes the space left in the quota so it is
+	 *   not artificially limited to 4 MiB, while still not being able to walk
+	 *   past the workspace's own ceiling.
 	 */
 	fun import(
 		destinationPath: String,
+		maxBytes: Long? = workspace.limits.maxWriteBytes,
 		open: () -> InputStream,
 	): Outcome {
 		val target = when (val r = workspace.resolve(destinationPath)) {
@@ -95,9 +101,9 @@ class WorkspaceTransfer(
 						// length up front, and discovering the limit was exceeded
 						// only once the whole thing is on disk means the disk
 						// already paid for it.
-						if (total > workspace.limits.maxWriteBytes) {
+						if (maxBytes != null && total > maxBytes) {
 							return Outcome.Failed(
-								"file is larger than the ${workspace.limits.maxWriteBytes}-byte limit",
+								"file is larger than the $maxBytes-byte limit",
 							)
 						}
 						output.write(buffer, 0, read)

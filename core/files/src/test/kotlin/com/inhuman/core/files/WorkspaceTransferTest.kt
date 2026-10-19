@@ -43,6 +43,22 @@ class WorkspaceTransferTest {
 	private fun bytes(count: Int) = ByteArrayInputStream(ByteArray(count) { 'x'.code.toByte() })
 
 	@Test
+	fun `the per-file ceiling is a parameter and null removes only that ceiling`() {
+		val ws = openWorkspace(WorkspaceLimits(maxWriteBytes = 4))
+		val transfer = transfer(ws)
+
+		assertTrue(
+			"the default still applies to a tool-sized import",
+			transfer.import("tool.bin") { bytes(5) } is WorkspaceTransfer.Outcome.Failed,
+		)
+		assertTrue(
+			"a user download can raise the per-file ceiling",
+			transfer.import("download.bin", maxBytes = null) { bytes(5) }
+				is WorkspaceTransfer.Outcome.Ok,
+		)
+	}
+
+	@Test
 	fun `a failed import does not delete the file that was already there`() {
 		val ws = openWorkspace()
 		val transfer = transfer(ws)
