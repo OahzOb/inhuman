@@ -52,7 +52,7 @@ class ContextUsageTest {
 		assertEquals(0.25f, usage.fraction!!, 0.0001f)
 		assertEquals(25, usage.percent)
 		assertEquals(786_432L, usage.remainingTokens)
-		assertEquals("262K / 1M", usage.summary)
+		assertEquals("25% · 262K / 1M", usage.summary)
 	}
 
 	@Test

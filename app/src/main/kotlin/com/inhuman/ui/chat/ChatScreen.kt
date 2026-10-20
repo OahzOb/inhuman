@@ -20,6 +20,9 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -627,6 +630,7 @@ fun ChatScreen(
 							isLastAssistantMessage = !message.fromUser && !message.isToolResult &&
 								message.id == lastAssistantId,
 							isLastUserMessage = message.fromUser && message.id == lastUserId,
+							hasAssistantReply = lastAssistantId != null,
 							canRollback = rollbackAvailable,
 							rollbackBlockedReason = rollbackBlockedReason,
 							isStreaming = isStreaming,
@@ -634,12 +638,23 @@ fun ChatScreen(
 							hasRegenerationPoints = regenerationPoints.size > 1,
 							onShowRegenerationPoints = { showRegeneratePicker = true },
 							onRollback = {
-								rollbackTarget = message
-								rollbackFiles = messages
-									.dropWhile { it.id != message.id }
-									.lastOrNull { !it.fromUser && !it.isToolResult }
-									?.changedFiles
-									.orEmpty()
+								// The rewind control now lives on the latest assistant
+								// reply, but the operation still targets the user message
+								// that opened the turn: `rollbackTo` only accepts a user
+								// message id.
+								val target = if (message.fromUser) {
+									message
+								} else {
+									messages.lastOrNull { it.fromUser && it.id == lastUserId }
+								}
+								target?.let { userMessage ->
+									rollbackTarget = userMessage
+									rollbackFiles = messages
+										.dropWhile { it.id != userMessage.id }
+										.lastOrNull { !it.fromUser && !it.isToolResult }
+										?.changedFiles
+										.orEmpty()
+								}
 							},
 							// Both ids go up: the alternative being switched to is
 							// not on the active path, so the view model cannot find
@@ -1534,6 +1549,7 @@ private fun MessageBubble(
 	message: ChatMessageUi,
 	isLastAssistantMessage: Boolean,
 	isLastUserMessage: Boolean,
+	hasAssistantReply: Boolean,
 	canRollback: Boolean,
 	rollbackBlockedReason: String?,
 	isStreaming: Boolean,
@@ -1838,99 +1854,118 @@ private fun MessageBubble(
 			)
 		}
 
-		// Raw Markdown is always one tap away. The answer above is rendered by
-		// a library, and when that library is wrong -- or the model emitted a
-		// fence it never closed -- the transcript still has to be readable.
-		if (!message.fromUser && !message.isStreaming && message.plainText.isNotBlank()) {
-			TextButton(
-				onClick = { showSource = !showSource },
-				contentPadding = PaddingValues(horizontal = 8.dp),
+		// One compact action bar per message. These used to be a stack of
+		// TextButtons, each in its own Column slot, so a reply with source,
+		// copy and regenerate pushed the transcript down by three rows. Icons
+		// keep the same actions in one line and let the answer stay the object
+		// on the page.
+		val hasTextActions = !message.fromUser &&
+			!message.isStreaming &&
+			message.plainText.isNotBlank()
+		val showRegenerate = isLastAssistantMessage && !message.isStreaming && !isStreaming
+		val showRewind = !isStreaming && canRollback && when {
+			// Usually rewind sits on the newest assistant reply, so it shares
+			// the row with copy and regenerate. The user-message case is only
+			// the fallback for a turn that has no reply yet.
+			message.fromUser -> isLastUserMessage && !hasAssistantReply
+			else -> isLastAssistantMessage
+		}
+		val showRollbackBlocked = !isStreaming &&
+			rollbackBlockedReason != null &&
+			(isLastAssistantMessage || (isLastUserMessage && !hasAssistantReply))
+
+		if (hasTextActions || showRegenerate || showRewind) {
+			Row(
 				modifier = Modifier.padding(top = 2.dp),
+				horizontalArrangement = Arrangement.spacedBy(2.dp),
+				verticalAlignment = Alignment.CenterVertically,
 			) {
-				Text(
-					if (showSource) "Rendered" else "Source",
-					style = MaterialTheme.typography.labelLarge,
-				)
-			}
-		}
+				if (hasTextActions) {
+					IconButton(
+						onClick = { showSource = !showSource },
+						modifier = Modifier.size(32.dp),
+					) {
+						Icon(
+							imageVector = Icons.Outlined.Code,
+							contentDescription = if (showSource) {
+								"Show rendered reply"
+							} else {
+								"Show Markdown source"
+							},
+							tint = if (showSource) {
+								MaterialTheme.colorScheme.primary
+							} else {
+								MaterialTheme.colorScheme.onSurfaceVariant
+							},
+							modifier = Modifier.size(17.dp),
+						)
+					}
+					IconButton(
+						onClick = { copyReply(context, message.plainText) },
+						modifier = Modifier.size(32.dp),
+					) {
+						Icon(
+							imageVector = Icons.Outlined.ContentCopy,
+							contentDescription = "Copy reply",
+							tint = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.size(16.dp),
+						)
+					}
+				}
 
-		// Copy is offered on every completed assistant reply, not only the
-		// newest: the answer someone wants to quote is often not the last one.
-		if (!message.fromUser && !message.isStreaming && message.plainText.isNotBlank()) {
-			IconButton(
-				onClick = { copyReply(context, message.plainText) },
-				modifier = Modifier
-					.padding(top = 2.dp)
-					.size(32.dp),
-			) {
-				Icon(
-					imageVector = Icons.Outlined.ContentCopy,
-					contentDescription = "Copy reply",
-					tint = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.size(16.dp),
-				)
-			}
-		}
+				if (showRegenerate) {
+					IconButton(
+						onClick = onRegenerate,
+						modifier = Modifier.size(32.dp),
+					) {
+						Icon(
+							// Refresh rather than a rerun arrow: the action
+							// produces another answer, and existing answers stay
+							// reachable through the branch switcher.
+							imageVector = Icons.Outlined.Refresh,
+							contentDescription = "Answer again",
+							tint = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.size(18.dp),
+						)
+					}
+					if (hasRegenerationPoints) {
+						IconButton(
+							onClick = onShowRegenerationPoints,
+							modifier = Modifier.size(32.dp),
+						) {
+							Icon(
+								imageVector = Icons.Outlined.History,
+								contentDescription = "Regenerate from a checkpoint",
+								tint = MaterialTheme.colorScheme.onSurfaceVariant,
+								modifier = Modifier.size(18.dp),
+							)
+						}
+					}
+				}
 
-		// Regenerate, on the newest reply only.
-		//
-		// Offered here rather than on every reply: regenerating mid-conversation
-		// would discard everything after it, and a control that silently deletes
-		// the rest of a transcript is not one to put within reach of a mis-tap.
-		//
-		// The view model keeps the tool definitions (for prefix-cache matching)
-		// but appends a transient instruction and refuses any returned call, so
-		// the refresh is safe even when earlier calls used SSH or wrote files.
-		if (isLastAssistantMessage && !message.isStreaming && !isStreaming) {
-			IconButton(
-				onClick = onRegenerate,
-				modifier = Modifier
-					.padding(top = 2.dp)
-					.size(32.dp),
-			) {
-				Icon(
-					// Refresh rather than a rerun arrow: the action produces
-					// another answer, not a replay of this one, and the
-					// existing answers stay reachable through the branch
-					// switcher beside it.
-					imageVector = Icons.Outlined.Refresh,
-					contentDescription = "Answer again",
-					tint = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.size(18.dp),
-				)
-			}
-			if (hasRegenerationPoints) {
-				TextButton(
-					onClick = onShowRegenerationPoints,
-					contentPadding = PaddingValues(horizontal = 8.dp),
-					modifier = Modifier.padding(top = 2.dp),
-				) {
-					Text("Regenerate from…", style = MaterialTheme.typography.labelLarge)
+				if (showRewind) {
+					IconButton(
+						onClick = onRollback,
+						modifier = Modifier.size(32.dp),
+					) {
+						Icon(
+							imageVector = Icons.AutoMirrored.Outlined.Undo,
+							contentDescription = "Rewind to before this message",
+							tint = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.size(18.dp),
+						)
+					}
 				}
 			}
 		}
 
-		// Rewind is offered on the last user message, because that is the only
-		// place where "before this message" is synonymous with "before this
-		// turn". It restores the text and attachments to the composer; the
-		// view model deletes the message and everything below it.
-		if (isLastUserMessage && !isStreaming) {
-			if (canRollback) {
-				TextButton(
-					onClick = onRollback,
-					contentPadding = PaddingValues(horizontal = 8.dp),
-					modifier = Modifier.padding(top = 2.dp),
-				) {
-					Text("Edit", style = MaterialTheme.typography.labelLarge)
-				}
-			} else if (rollbackBlockedReason != null) {
-				Text(
-					text = rollbackBlockedReason,
-					style = MaterialTheme.typography.labelLarge,
-					color = MaterialTheme.colorScheme.error,
-					modifier = Modifier.padding(top = 4.dp),
-				)
-			}
+		if (showRollbackBlocked) {
+			Text(
+				text = rollbackBlockedReason.orEmpty(),
+				style = MaterialTheme.typography.labelLarge,
+				color = MaterialTheme.colorScheme.error,
+				modifier = Modifier.padding(top = 2.dp),
+			)
 		}
 	}
 }

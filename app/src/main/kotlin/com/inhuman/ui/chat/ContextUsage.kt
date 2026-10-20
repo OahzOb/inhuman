@@ -84,12 +84,19 @@ data class ContextUsage(
 			return (w - used).coerceAtLeast(0L)
 		}
 
-	/** "412K / 1M", for the one-line form beside the ring. */
+	/**
+	 * "25% · 262K / 1M", for the one-line form beside the ring.
+	 *
+	 * The percentage leads because that is the question the gauge answers; the
+	 * token counts follow for someone who wants to see the arithmetic. With no
+	 * window there is no honest percentage, so the compact count stands alone.
+	 */
 	val summary: String?
 		get() {
 			val used = usedTokens ?: return null
 			val w = window ?: return TokenFormat.compact(used)
-			return "${TokenFormat.compact(used)} / ${TokenFormat.compact(w)}"
+			val pct = percent ?: return null
+			return "$pct% · ${TokenFormat.compact(used)} / ${TokenFormat.compact(w)}"
 		}
 }
 

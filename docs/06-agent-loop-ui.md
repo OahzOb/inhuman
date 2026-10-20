@@ -171,15 +171,18 @@ captures another checkpoint keyed by the last tool-result id. If the start
 capture fails, the mutation is refused rather than run without an undo record.
 Read-only turns need no checkpoint.
 
-The last user message has **Edit**: it restores `start`, then deletes that
-message and every descendant, clears the parent's selected child, and puts the
-text and attachments back in the composer. A restore failure leaves the rows
-untouched. Only that turn's checkpoint directory is deleted; older turns remain
-according to the retention setting.
+The last turn has **Rewind** (an undo icon) on the newest answer's action row,
+beside Source, Copy and Regenerate. For a turn whose answer has not arrived yet,
+the same icon falls back to the last user message. It restores `start`, then
+deletes that message and every descendant, clears the parent's selected child,
+and puts the text and attachments back in the composer. A restore failure leaves
+the rows untouched. Only that turn's checkpoint directory is deleted; older turns
+remain according to the retention setting.
 
 The newest answer's refresh icon keeps the tools for cache purposes but
-suppresses calls. Beside it, **Regenerate from…** lists the user message and
-every completed tool-group boundary in the last turn. Selecting one:
+suppresses calls. Beside it, the history icon (**Regenerate from…**) lists the
+user message and every completed tool-group boundary in the last turn. Selecting
+one:
 
 - restores its checkpoint (or `start` for a read-only group before the first
   write), then deletes everything below the boundary and asks the model again
@@ -189,7 +192,7 @@ every completed tool-group boundary in the last turn. Selecting one:
 - is disabled when the discarded suffix contains an irreversible tool.
 
 `Tool.reversible` / `ToolCatalog.Entry.reversible` is the gate. `ssh_exec` is the
-only irreversible tool: a turn containing it shows the reason and **no Edit**.
+only irreversible tool: a turn containing it shows the reason and **no Rewind**.
 A checkpoint after an SSH call can still be selected if only reversible work is
 discarded; the SSH call stays in the prefix.
 
@@ -210,7 +213,7 @@ expanded line shows `from cache N of M`.
 
 The final assistant row carries the turn's changed paths (`changedFilesJson`,
 schema v10), computed by hashing the workspace against `start`. They are shown
-under the answer and listed in the Edit confirmation.
+under the answer and listed in the Rewind confirmation.
 
 `ConversationRepository.deleteSubtree` walks the conversation rows and deletes
 the root plus descendants in one transaction; `deleteDescendants` keeps the
@@ -291,7 +294,7 @@ table horizontally and shows that cell wrapped, not ellipsized.
 finished reply leaves a fence open, `openFence` (`MarkdownFence.kt`) finds the
 unmatched opening line and the answer shows a small banner: the rest is being
 displayed as code. **Render rest** removes that stray opening fence for the
-rendered view only; **Source** switches the answer to the raw Markdown,
+rendered view only; the Source icon switches the answer to the raw Markdown,
 selectable in a monospace block. The stored message is untouched in both cases,
 which is the point: a transcript is a record of what the model said, not a
 document the app is entitled to repair. Appending a closing fence at the end was
@@ -437,8 +440,10 @@ next thing being produced.
 ### The gauge
 
 `ContextGauge.kt`: draws nothing when `!isKnown` (`:61`), goes red at ≥90%
-(`:66-70`), 20dp ring with a 2.5dp stroke. Tapping opens a panel with the
-measured figures and the caveat "Measured from the last reply sent."
+(`:66-70`), 20dp ring with a 2.5dp stroke. The one-line summary leads with the
+percentage, then the compact counts (`25% · 262K / 1M`); without a reported
+window there is no percentage and only the count is shown. Tapping opens a panel
+with the measured figures and the caveat "Measured from the last reply sent."
 (`:161-186`). `contextOf` scans backwards for the last reply that reported
 `promptTokens` (`:323-330`) — which is why the figure is one turn behind, and the
 panel says so.
@@ -578,7 +583,7 @@ never enters a request. The empty state says "workspace" rather than
 "conversation's folder" when opened without a conversation.
 
 A `.md` or `.markdown` preview is rendered through the same `MarkdownText` the
-transcript uses, with **Source** / **Rendered** as a toggle: the default is the
+transcript uses, with the Source icon as a rendered/raw toggle: the default is the
 readable form, and the raw file is one tap away for a fence that does not close
 or a table the renderer lays out badly. `isMarkdownName` decides by extension
 rather than MIME, because providers disagree about the MIME type of `.md` and the
@@ -655,7 +660,7 @@ it; the sandbox's no-network rule applies to code the model writes), and
 | Test | Asserts |
 | --- | --- |
 | `DeltaCursorTest` | The property "the pieces joined are the whole reply, however it is cut", over every chunk size; no emission when nothing is new; no duplicate on a replayed prefix; a restart on shrink; the `initialText` start; silence for an empty reply. |
-| `ContextUsageTest` | Window-without-measurement is known but not computable; no window ⇒ no fraction and `summary` is a bare count; neither ⇒ nothing drawn; 25% of 1M ⇒ `262K / 1M`; a non-zero amount never shows 0%; over-window clamps to 100% / 0 left; `contextWindow = 0` treated as absent; `TokenFormat` grouping, including "10K" for 9,960 and never a comma. |
+| `ContextUsageTest` | Window-without-measurement is known but not computable; no window ⇒ no fraction and `summary` is a bare count; neither ⇒ nothing drawn; 25% of 1M ⇒ `25% · 262K / 1M`; a non-zero amount never shows 0%; over-window clamps to 100% / 0 left; `contextWindow = 0` treated as absent; `TokenFormat` grouping, including "10K" for 9,960 and never a comma. |
 | `WireHistoryTest` | A dangling assistant `tool_calls` gets its missing tool result inserted **before** the next user message, not at the end; a complete block and a call-free assistant message are untouched. Also that SSH tool arguments lose `password`/`privateKey`/`passphrase` before storage, including the wrapped form. This is the HTTP-400-on-every-later-turn repair and the credential-persistence guard. |
 | `SnapshotStoreTest` | `start` and a later tool checkpoint restore their own file versions; added/deleted/modified paths are diffed by content; stats count turns and pruning keeps the newest; `turns` lists each retained turn with its checkpoint count, newest first. This is the file half of checkpointed rollback. |
 

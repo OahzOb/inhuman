@@ -29,13 +29,13 @@ import androidx.compose.ui.unit.dp
 /**
  * How full the context window is, as a ring.
  *
- * ## Why a ring rather than a percentage in the corner
+ * ## Why a ring and a short percentage
  *
  * The question this answers is "how much room is left", and that is a question
- * about a proportion, which a shape answers at a glance and a number does not.
- * It also has to be ignored most of the time: a conversation at a few percent
- * should cost the eye nothing, and a filled arc is quieter than "3%" sitting
- * beside the composer forever.
+ * about a proportion, which a shape answers at a glance. The percentage beside
+ * it is the exact-at-a-glance form for someone who watches the number; the ring
+ * still carries the same fact when the label is skimmed past. Both are compact
+ * and quiet at a few percent.
  *
  * ## Why it is tappable
  *
