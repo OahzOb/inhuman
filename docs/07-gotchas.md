@@ -815,6 +815,33 @@ on the deep signal-orange background, with a monochrome layer for themed icons.
 The foreground stays inside the adaptive safe zone, because the first version's
 dot was clipped by a circular mask.
 
+### B26. Fast scrolling in the transcript snapped/skipped — **FIXED**
+
+The follow logic had three compounding problems. `onPreScroll` compared the
+source to `NestedScrollSource.UserInput`, but current Compose reports a manual
+drag/fling as `Drag`/`Fling`; following therefore stayed on. The auto-scroll
+effect was also keyed on the last visible row's height and offset, which change
+*during* the programmatic scroll, so each scroll cancelled and restarted the
+effect. Finally, an `atBottom` effect re-armed following when a fast fling passed
+through the bottom for a frame.
+
+The result was a list that moved under the gesture and then jumped back. Now any
+source except `SideEffect` turns following off, one stable layout observer with
+`conflate()` replaces the geometry-keyed effect, and reaching the bottom is only
+recognised after the scroll ends. `scrollToLatest` also skips `scrollToItem`
+when the newest row is already visible, so a streaming tick no longer jumps to
+that row's top before scrolling back down.
+
+### B27. Backup import wrote the database into `filesDir` — **FIXED**
+
+The restore copied the staged database to `filesDir/inhuman.db`, while Room
+opens `context.getDatabasePath(...)` under `databases/`. The first round-trip
+looked successful because the original database was still in place and Room kept
+opening it; a clean install followed by the same backup restored zero
+conversations. `applyPendingRestore` now swaps the database under `databases/`
+(and creates that directory when absent), and a clean-install restore was
+verified to recover 1 conversation / 18 messages / 1 summary.
+
 ---
 
 ## C. Comments that contradict the code

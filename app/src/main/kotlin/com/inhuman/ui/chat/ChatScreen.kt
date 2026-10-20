@@ -110,6 +110,8 @@ import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.RemoteBadge
 import com.inhuman.ui.common.RewindBadge
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.text.DateFormat
@@ -215,11 +217,7 @@ fun ChatScreen(
 	// lambda keeps the invalidation inside the list, which is where the change
 	// is, and leaves the chrome alone. Compose tracks reads rather than fields,
 	// so this is the whole of the fix.
-	val messageCount by viewModel.state.map { it.messages.size }.collectAsStateWithLifecycle(0)
 	val lastMessageId by viewModel.state.map { it.messages.lastOrNull()?.id }.collectAsStateWithLifecycle(null)
-	val lastMessageLength by viewModel.state
-		.map { it.messages.lastOrNull()?.plainText?.length ?: 0 }
-		.collectAsStateWithLifecycle(0)
 	val isStreaming by viewModel.state.map { it.isStreaming }.collectAsStateWithLifecycle(false)
 	// The foreground service can keep working without this grant; asking for it
 	// is about making the ongoing notice visible, not about correctness.
@@ -333,19 +331,12 @@ fun ChatScreen(
 		}
 	}
 
-	// Height of the last visible row. A reasoning/tool accordion expanding or
-	// collapsing changes layout without changing the message count or the
-	// answer's text length, which is why the follow effect used to miss it.
-	val lastItemHeight by remember {
-		derivedStateOf {
-			listState.layoutInfo.visibleItemsInfo.lastOrNull()?.size ?: 0
-		}
-	}
-	val lastItemOffset by remember {
-		derivedStateOf {
-			listState.layoutInfo.visibleItemsInfo.lastOrNull()?.offset ?: 0
-		}
-	}
+	// Height of the last visible row was once used as a follow trigger. It is
+	// deliberately gone: during a programmatic scroll the last visible row
+	// changes, so the key changes *because of* the scroll, cancelling and
+	// restarting the effect. That is the visible "jump/skip" this code used to
+	// produce. The observer below treats geometry as data, not as a key.
+
 
 	// Whether the view should keep following the newest content.
 	//
@@ -363,7 +354,12 @@ fun ChatScreen(
 	val followConnection = remember {
 		object : NestedScrollConnection {
 			override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-				if (source == NestedScrollSource.UserInput && !programmaticScroll) {
+				// `UserInput` was the old name for a drag. Compose now reports
+				// `Drag` / `Fling`; comparing only against `UserInput` left
+				// `followLatest` true during a manual fling, so the layout
+				// observer immediately pulled the list back to the bottom.
+				// SideEffect is the only source that is ours.
+				if (source != NestedScrollSource.SideEffect && !programmaticScroll) {
 					followLatest = false
 				}
 				return Offset.Zero
@@ -379,12 +375,43 @@ fun ChatScreen(
 			}
 		}
 	}
-	LaunchedEffect(atBottom) {
-		// Reaching the bottom is itself the signal, not only the end of a
-		// gesture. A fling can finish with `atBottom` still catching up, and a
-		// new user message can shift the layout after the scroll-end event.
-		if (atBottom) followLatest = true
+	// One layout observer, not a LaunchedEffect keyed on geometry. The old keys
+	// changed *because of* the programmatic scroll itself, so each scroll
+	// cancelled and restarted the effect -- the visible jump/skip. This
+	// collector is stable; `conflate` keeps only the newest layout while a
+	// scroll is running, so it cannot cancel that scroll.
+	LaunchedEffect(listState) {
+		snapshotFlow {
+			val info = listState.layoutInfo
+			val last = info.visibleItemsInfo.lastOrNull()
+			Triple(info.totalItemsCount, last?.index ?: -1, last?.let { it.offset + it.size } ?: 0)
+		}
+			.distinctUntilChanged()
+			.conflate()
+			.collect {
+				// Let the row settle first; a token that is still streaming will
+				// emit again and be handled on the next pass.
+				delay(24)
+				if (followLatest && !programmaticScroll && !listState.isScrollInProgress &&
+					!atBottom
+				) {
+					val lastIndex = listState.layoutInfo.totalItemsCount - 1
+					if (lastIndex >= 0) {
+						programmaticScroll = true
+						try {
+							listState.scrollToLatest(lastIndex)
+						} finally {
+							programmaticScroll = false
+						}
+					}
+				}
+			}
 	}
+	// There is deliberately no `LaunchedEffect(atBottom) { followLatest = true }`
+	// here. A fast fling passes through the bottom for a frame, which turned
+	// following back on mid-gesture and let the next content tick yank the list
+	// away from where the user had stopped. Reaching the bottom is recognised
+	// once the scroll is no longer in progress, above.
 
 	// Which message the regenerate control belongs to. Computed from the tail
 	// key rather than the list, so the scan does not re-run several times a
@@ -395,24 +422,6 @@ fun ChatScreen(
 		val messages = viewModel.state.value.messages
 		lastAssistantId = messages.lastOrNull { !it.fromUser && !it.isToolResult }?.id
 		lastUserId = messages.lastOrNull { it.fromUser }?.id
-	}
-	LaunchedEffect(messageCount, lastMessageLength, lastItemHeight, lastItemOffset) {
-		if (messageCount > 0 && followLatest && !programmaticScroll) {
-			// scrollToItem, not animateScrollToItem: the list is already growing
-			// under the user's eyes, and an animation racing the arrival of the
-			// next chunk is what makes streaming look unsteady.
-			//
-			// `lastItemHeight` / `lastItemOffset` are part of the key because a
-			// live reasoning or tool section can expand without adding a message
-			// or a character to the answer. The offset also catches a preceding
-			// row growing, which shifts the last row without resizing it.
-			programmaticScroll = true
-			try {
-				listState.scrollToLatest(messageCount - 1)
-			} finally {
-				programmaticScroll = false
-			}
-		}
 	}
 
 	Scaffold(
@@ -800,7 +809,13 @@ fun ChatScreen(
 				Composer(
 					value = input,
 					onValueChange = viewModel::onInputChange,
-					onSend = viewModel::send,
+					onSend = {
+						// Sending is an explicit request to show the new turn.
+						// If the reader had scrolled up, this re-arms following
+						// before the new message is laid out.
+						followLatest = true
+						viewModel.send()
+					},
 					onStop = viewModel::stop,
 					isStreaming = isStreaming,
 					enabled = configured,
@@ -1626,13 +1641,20 @@ private fun SshConsentDialog(
  * Put the end of [lastIndex] at the viewport bottom.
  *
  * `scrollToItem` alone aligns the item's **top**, which for a reply taller than
- * the viewport leaves the newest tokens below the fold. The follow effect used
- * to call only that, so a long streaming answer could look like it was not
- * following even when the scroll ran. The finite `scrollBy` steps finish the
- * job and avoid `scrollOffset = Int.MAX_VALUE`.
+ * the viewport leaves the newest tokens below the fold. The finite `scrollBy`
+ * steps finish the job and avoid `scrollOffset = Int.MAX_VALUE`. The
+ * `scrollToItem` is skipped when the newest row is already visible, because
+ * otherwise every streaming tick jumped to its top and immediately scrolled
+ * back down.
  */
 private suspend fun LazyListState.scrollToLatest(lastIndex: Int) {
-	scrollToItem(lastIndex)
+	// If the newest row is already visible, do not call `scrollToItem`: that
+	// aligns its *top* with the viewport top and then the scrollBy below has to
+	// run back down. During streaming this happened on every content tick and
+	// read as a jump even though the final position was correct.
+	if (layoutInfo.visibleItemsInfo.lastOrNull()?.index != lastIndex) {
+		scrollToItem(lastIndex)
+	}
 	var steps = 0
 	while (canScrollForward && steps++ < 20) {
 		scrollBy(10_000f)

@@ -244,11 +244,18 @@ class BackupRepository(
 				return
 			}
 			val files = context.filesDir
-			val currentDb = File(files, InhumanDatabase.NAME)
-			val oldDb = File(files, "${InhumanDatabase.NAME}.pre-restore")
+			// Room's database is under `databases/`, not `files/`. Writing the
+			// restored file to filesDir made the first import appear to work
+			// only because the original database was still open; a clean install
+			// then restored nothing.
+			val databaseDir = context.getDatabasePath(InhumanDatabase.NAME).parentFile
+				?: File(files, "databases").apply { mkdirs() }
+			databaseDir.mkdirs()
+			val currentDb = File(databaseDir, InhumanDatabase.NAME)
+			val oldDb = File(databaseDir, "${InhumanDatabase.NAME}.pre-restore")
 			val currentWorkspaces = Database.workspacesRoot(context)
 			val oldWorkspaces = File(files, "conversations.pre-restore")
-			val nextDb = File(files, "${InhumanDatabase.NAME}.restore")
+			val nextDb = File(databaseDir, "${InhumanDatabase.NAME}.restore")
 			val nextWorkspaces = File(files, "conversations.restore")
 			var movedDb = false
 			var movedWorkspaces = false

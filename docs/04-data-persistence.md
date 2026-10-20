@@ -503,8 +503,10 @@ Import is deliberately two-phase:
    copies the staged files beside the current ones, renames the current database
    and workspace directory aside, installs the staged pair, and only deletes the
    old copies after both renames succeed. A failure restores the old pair. The
-   app then starts Room normally, so migrations run against the restored
-   database.
+   database is installed under `context.getDatabasePath("inhuman.db")` —
+   `databases/`, **not** `filesDir`; the first version wrote it to `filesDir`,
+   which a clean install exposed as a no-op. The app then starts Room normally,
+   so migrations run against the restored database.
 
 The UI says the app must restart for this reason. There is no hot restore: no
 open Room connection is ever replaced underneath its callers.
