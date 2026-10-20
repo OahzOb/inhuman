@@ -33,7 +33,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -60,6 +59,7 @@ import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.SectionHeading
 import com.inhuman.core.design.StatusDot
+import com.inhuman.core.design.WorkbenchSwitch
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.diagnostics.AppDiagnostics
 import com.inhuman.ui.chat.ProviderDraft
@@ -283,7 +283,7 @@ fun SettingsScreen(
 				Row(
 					modifier = Modifier.fillMaxWidth(),
 					horizontalArrangement = Arrangement.SpaceBetween,
-					verticalAlignment = Alignment.CenterVertically,
+					verticalAlignment = Alignment.Top,
 				) {
 					Column(modifier = Modifier.weight(1f)) {
 						Text(
@@ -308,9 +308,10 @@ fun SettingsScreen(
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
 					}
-					Switch(
+					WorkbenchSwitch(
 						checked = state.demoMode,
 						onCheckedChange = viewModel::setDemoMode,
+						modifier = Modifier.padding(top = 2.dp),
 					)
 				}
 			}
@@ -331,7 +332,7 @@ fun SettingsScreen(
 				Row(
 					modifier = Modifier.fillMaxWidth(),
 					horizontalArrangement = Arrangement.SpaceBetween,
-					verticalAlignment = Alignment.CenterVertically,
+					verticalAlignment = Alignment.Top,
 				) {
 					Column(modifier = Modifier.weight(1f)) {
 						Text(
@@ -352,9 +353,10 @@ fun SettingsScreen(
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
 					}
-					Switch(
+					WorkbenchSwitch(
 						checked = state.sshToolEnabled,
 						onCheckedChange = viewModel::setSshToolEnabled,
+						modifier = Modifier.padding(top = 2.dp),
 					)
 				}
 				// TOFU is fail-closed, so a legitimately changed host key needs a
@@ -613,7 +615,7 @@ private fun ProviderEditorDialog(
 					verticalAlignment = Alignment.CenterVertically,
 				) {
 					Text("Request stream usage", style = MaterialTheme.typography.bodyMedium)
-					Switch(
+					WorkbenchSwitch(
 						checked = draft.includeStreamUsage,
 						onCheckedChange = { checked ->
 							onUpdate { it.copy(includeStreamUsage = checked) }

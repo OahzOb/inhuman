@@ -13,7 +13,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -27,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.common.diag.Diag
+import com.inhuman.core.design.WorkbenchSwitch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -230,7 +230,7 @@ fun ModelPickerDialog(
 								color = MaterialTheme.colorScheme.onSurfaceVariant,
 							)
 						}
-						Switch(
+						WorkbenchSwitch(
 							checked = currentThinking,
 							onCheckedChange = { chat.setThinking(it) },
 						)

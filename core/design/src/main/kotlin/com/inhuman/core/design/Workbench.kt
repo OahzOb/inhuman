@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -164,6 +166,39 @@ fun SectionHeading(
 			)
 		}
 	}
+}
+
+/**
+ * A switch with an explicit thumb/track contrast contract.
+ *
+ * The Material default derives the checked thumb from `onPrimary`. In this
+ * palette that is deliberately a dark ink in the dark scheme and warm paper in
+ * the light one, so on some surfaces the thumb can read as part of the track.
+ * The working rule here is simpler: the thumb is always the app background, the
+ * track is the signal accent, and the border is the accent. That is legible in
+ * both schemes and stays legible if the accent changes.
+ */
+@Composable
+fun WorkbenchSwitch(
+	checked: Boolean,
+	onCheckedChange: ((Boolean) -> Unit)?,
+	modifier: Modifier = Modifier,
+	enabled: Boolean = true,
+) {
+	Switch(
+		checked = checked,
+		onCheckedChange = onCheckedChange,
+		modifier = modifier,
+		enabled = enabled,
+		colors = SwitchDefaults.colors(
+			checkedThumbColor = MaterialTheme.colorScheme.background,
+			checkedTrackColor = MaterialTheme.colorScheme.primary,
+			checkedBorderColor = MaterialTheme.colorScheme.primary,
+			uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+			uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+			uncheckedBorderColor = MaterialTheme.colorScheme.outline,
+		),
+	)
 }
 
 /** A compact label/value pair used in the home rail and chat welcome. */
