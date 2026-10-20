@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
@@ -385,67 +386,87 @@ private fun CreateSheet(
 		containerColor = MaterialTheme.colorScheme.surface,
 		shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
 	) {
+		var choosingWorkspace by remember { mutableStateOf(false) }
 		Column(
 			modifier = Modifier
 				.fillMaxWidth()
-				.widthIn(max = 760.dp)
+				.widthIn(max = 640.dp)
 				.padding(horizontal = 24.dp)
-				.padding(bottom = 24.dp)
-				.verticalScroll(rememberScrollState()),
-			verticalArrangement = Arrangement.spacedBy(10.dp),
+				.padding(bottom = 24.dp),
+			verticalArrangement = Arrangement.spacedBy(4.dp),
 		) {
-			Eyebrow("Create")
-			Text(
-				text = "Start from a workspace.",
-				style = MaterialTheme.typography.headlineMedium,
-				color = MaterialTheme.colorScheme.onSurface,
-			)
-			Text(
-				text = "Every conversation gets a workspace. Start in a fresh " +
-					"temporary one, or choose a permanent workspace that already " +
-					"holds your files.",
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-			)
-			Spacer(Modifier.height(8.dp))
-			Eyebrow("Conversation")
-			CreateChoice(
-				title = "Temporary workspace",
-				detail = "One conversation. Deleted with it.",
-				onClick = { onConversation(null) },
-			)
-			workspaces.forEach { workspace ->
-				CreateChoice(
-					title = workspace.name,
-					detail = "Permanent workspace · keeps its files",
-					onClick = { onConversation(workspace.id) },
-				)
-			}
-			if (workspaces.isEmpty()) {
-				Text(
-					text = "No permanent workspaces yet.",
-					style = MaterialTheme.typography.bodySmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.padding(start = 2.dp, bottom = 2.dp),
-				)
-			}
-			Spacer(Modifier.height(6.dp))
-			Hairline()
-			Spacer(Modifier.height(6.dp))
-			Eyebrow("Workspace")
-			CreateChoice(
-				title = "New workspace",
-				detail = "A shared folder for several conversations.",
-				onClick = onNewWorkspace,
-				leadingIcon = {
-					Icon(
-						Icons.Outlined.CreateNewFolder,
-						contentDescription = null,
-						tint = MaterialTheme.colorScheme.primary,
-						modifier = Modifier.size(18.dp),
+			if (choosingWorkspace) {
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					IconButton(
+						onClick = { choosingWorkspace = false },
+						modifier = Modifier.size(32.dp),
+					) {
+						Icon(
+							Icons.AutoMirrored.Filled.ArrowBack,
+							contentDescription = "Back",
+							modifier = Modifier.size(18.dp),
+						)
+					}
+					Spacer(Modifier.width(6.dp))
+					Text(
+						text = "Choose a workspace",
+						style = MaterialTheme.typography.titleLarge,
+						color = MaterialTheme.colorScheme.onSurface,
 					)
-				},
-			)
+				}
+				Spacer(Modifier.height(8.dp))
+				if (workspaces.isEmpty()) {
+					Text(
+						text = "No permanent workspaces yet.",
+						style = MaterialTheme.typography.bodyMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.padding(bottom = 4.dp),
+					)
+				} else {
+					workspaces.forEach { workspace ->
+						CreateChoice(
+							title = workspace.name,
+							detail = "Permanent workspace",
+							onClick = { onConversation(workspace.id) },
+						)
+					}
+					Spacer(Modifier.height(8.dp))
+					Hairline()
+				}
+				CreateChoice(
+					title = "New workspace",
+					detail = "Create a shared folder for files.",
+					onClick = onNewWorkspace,
+				)
+			} else {
+				Text(
+					text = "Create",
+					style = MaterialTheme.typography.headlineMedium,
+					color = MaterialTheme.colorScheme.onSurface,
+				)
+				Spacer(Modifier.height(8.dp))
+				CreateChoice(
+					title = "New conversation",
+					detail = "Start in a temporary workspace.",
+					onClick = { onConversation(null) },
+					leadingIcon = Icons.Filled.Add,
+				)
+				CreateChoice(
+					title = "New workspace",
+					detail = "Create a shared folder for files.",
+					onClick = onNewWorkspace,
+					leadingIcon = Icons.Outlined.CreateNewFolder,
+				)
+				CreateChoice(
+					title = "Choose a workspace",
+					detail = "Start a conversation in an existing workspace.",
+					onClick = { choosingWorkspace = true },
+					leadingIcon = Icons.Outlined.FolderOpen,
+				)
+			}
 		}
 	}
 }
@@ -455,7 +476,7 @@ private fun CreateChoice(
 	title: String,
 	detail: String,
 	onClick: () -> Unit,
-	leadingIcon: (@Composable () -> Unit)? = null,
+	leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
 ) {
 	Row(
 		modifier = Modifier
@@ -465,7 +486,12 @@ private fun CreateChoice(
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		if (leadingIcon != null) {
-			leadingIcon()
+			Icon(
+				leadingIcon,
+				contentDescription = null,
+				tint = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier.size(18.dp),
+			)
 			Spacer(Modifier.width(10.dp))
 		} else {
 			StatusDot(MaterialTheme.colorScheme.primary, size = 5.dp)
