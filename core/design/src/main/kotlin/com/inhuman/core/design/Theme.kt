@@ -1,42 +1,115 @@
 package com.inhuman.core.design
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+// Small named constants keep the two schemes from drifting at the one place
+// where Material's defaults would reintroduce a generic purple.
+private val ColorOnAccent = Color(0xFF24110A)
+private val ColorSecondaryLight = Color(0xFF3E665C)
+private val ColorTertiaryLight = Color(0xFF94621F)
+private val ColorDarkSecondaryContainer = Color(0xFF4A2418)
+private val ColorDarkTertiaryContainer = Color(0xFF3A2A16)
+private val ColorDarkErrorContainer = Color(0xFF4A1E1A)
+private val ColorLightTertiaryContainer = Color(0xFFE8D7BD)
+private val ColorLightErrorContainer = Color(0xFFF3D6D0)
+private val ColorLightOnErrorContainer = Color(0xFF5A1D16)
 
 private val DarkScheme = darkColorScheme(
 	primary = Accent,
-	onPrimary = Ink900,
+	onPrimary = ColorOnAccent,
 	primaryContainer = AccentDim,
 	onPrimaryContainer = Ink50,
+
+	secondary = Ok,
+	onSecondary = Ink900,
+	secondaryContainer = ColorDarkSecondaryContainer,
+	onSecondaryContainer = Ink50,
+	tertiary = Warn,
+	onTertiary = Ink900,
+	tertiaryContainer = ColorDarkTertiaryContainer,
+	onTertiaryContainer = Warn,
 
 	background = Ink900,
 	onBackground = Ink200,
 	surface = Ink850,
 	onSurface = Ink50,
 	surfaceVariant = Ink800,
-	onSurfaceVariant = Ink200,
+	onSurfaceVariant = Ink300,
+	surfaceTint = Color.Transparent,
+	surfaceDim = Ink900,
+	surfaceBright = Ink800,
+	surfaceContainerLowest = Ink900,
+	surfaceContainerLow = Ink900,
+	surfaceContainer = Ink850,
+	surfaceContainerHigh = Ink800,
+	surfaceContainerHighest = Ink700,
 	outline = Ink700,
 	outlineVariant = Ink700,
+	inverseSurface = Ink50,
+	inverseOnSurface = Ink900,
+	inversePrimary = AccentDim,
 
 	error = Danger,
 	onError = Ink900,
-	tertiary = Warn,
+	errorContainer = ColorDarkErrorContainer,
+	onErrorContainer = Danger,
 )
 
 private val LightScheme = lightColorScheme(
-	primary = AccentDim,
+	primary = AccentDeep,
 	onPrimary = Paper100,
+	primaryContainer = Paper300,
+	onPrimaryContainer = PaperInk,
+
+	secondary = ColorSecondaryLight,
+	onSecondary = Paper100,
+	secondaryContainer = Paper300,
+	onSecondaryContainer = PaperInk,
+	tertiary = ColorTertiaryLight,
+	onTertiary = Paper100,
+	tertiaryContainer = ColorLightTertiaryContainer,
+	onTertiaryContainer = PaperInk,
+
 	background = Paper100,
 	onBackground = PaperInk,
 	surface = Paper200,
 	onSurface = PaperInk,
 	surfaceVariant = Paper300,
-	onSurfaceVariant = PaperInk,
+	onSurfaceVariant = PaperMuted,
+	surfaceTint = Color.Transparent,
+	surfaceDim = Paper200,
+	surfaceBright = Paper100,
+	surfaceContainerLowest = Paper100,
+	surfaceContainerLow = Paper100,
+	surfaceContainer = Paper200,
+	surfaceContainerHigh = Paper300,
+	surfaceContainerHighest = Paper300,
 	outline = Paper300,
-	error = Danger,
+	outlineVariant = Paper300,
+	inverseSurface = PaperInk,
+	inverseOnSurface = Paper100,
+	inversePrimary = AccentDim,
+
+	error = DangerDeep,
+	onError = Paper100,
+	errorContainer = ColorLightErrorContainer,
+	onErrorContainer = ColorLightOnErrorContainer,
+)
+
+private val InhumanShapes = Shapes(
+	extraSmall = RoundedCornerShape(3.dp),
+	small = RoundedCornerShape(6.dp),
+	medium = RoundedCornerShape(10.dp),
+	large = RoundedCornerShape(16.dp),
+	extraLarge = RoundedCornerShape(22.dp),
 )
 
 /**
@@ -53,6 +126,7 @@ fun InhumanTheme(
 	MaterialTheme(
 		colorScheme = if (darkTheme) DarkScheme else LightScheme,
 		typography = InhumanTypography,
+		shapes = InhumanShapes,
 		content = content,
 	)
 }

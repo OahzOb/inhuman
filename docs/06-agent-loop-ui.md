@@ -317,24 +317,26 @@ transcript is the only fast-changing value.
 ### Layout, and where the axis breaks
 
 The transcript is a `LazyColumn` with `comfortableGutter()` padding and
-`Space.BetweenMessages` between items (`:310-317`). Below it, a
-`Column(horizontalAlignment = CenterHorizontally)` holds the error row and the
-composer, each `widthIn(max = ReadableMeasure).fillMaxWidth()` (`:349-351`,
-`:387-389`) — **constrain first, fill second**, with the measurement in the
-comment: the wrong order put the field at 2208px on a 1280dp tablet while the
-messages stopped at 1232.
+`Space.BetweenMessages` between items, capped at **900dp** and centred on the
+window. A new conversation gets a left-aligned welcome panel inside the same
+measure: provider, model and workspace are read as metadata rather than as a
+chat greeting.
 
-**Assistant answers are the document, not a bubble.** User messages remain
-capped at `ReadableMeasure` (640dp) and aligned to the end, because they are
-short remarks. An assistant reply has no bubble, no background and no 640dp cap:
-it fills the list width, so prose, code and tables get the tablet's horizontal
-room. Tool-result rows stay capped as machinery. The composer and error row are
-still centred at 640dp; on a tablet that means they do not share an axis with
-the answer, deliberately.
+**Assistant answers are the document, not a bubble.** User messages are capped
+at **560dp** and aligned to the end, with a `YOU` label and a hairline-bordered
+surface. An assistant reply has no bubble, no background and a **900dp** measure:
+prose, code and tables get room, but a 1,200dp line is not allowed to become a
+wall. Tool-result rows use the same 900dp measure. The composer and error row are
+centred at 900dp too, so on a tablet the transcript and the input share an axis.
 
-The cap was inert at seven other sites; all now constrain first and fill second,
-and the 576dp tablet measurement is in
-[07-gotchas.md](07-gotchas.md) B5.
+The 640dp `ReadableMeasure` still governs forms and settings screens; the chat
+column is wider because it contains code and tables, not just prose. The cap was
+inert at seven other sites; all now constrain first and fill second, and the
+576dp tablet measurement is in [07-gotchas.md](07-gotchas.md) B5.
+
+**The composer must not consume `safeDrawing` before `imePadding()`.** That
+inset includes the IME; consuming it first left the composer under the keyboard.
+This was found by opening the keyboard, not by reading the modifier chain.
 
 ### Scrolling
 

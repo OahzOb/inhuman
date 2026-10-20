@@ -1564,7 +1564,11 @@ class ChatViewModel(
 		}
 
 		val turnModel = model ?: agent?.model
-			?: agents.models(providerId).getOrNull()?.firstOrNull()?.id
+			?: if (demo) {
+				demoModelsIfEnabled(true)?.firstOrNull()?.id
+			} else {
+				agents.models(providerId).getOrNull()?.firstOrNull()?.id
+			}
 		if (turnModel == null) {
 			_state.update {
 				it.copy(

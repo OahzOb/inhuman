@@ -4,6 +4,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -12,19 +15,23 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
@@ -32,15 +39,12 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,15 +54,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.data.db.ConversationEntity
+import com.inhuman.core.design.Eyebrow
 import com.inhuman.core.design.FormFactor
+import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.InhumanTheme
 import com.inhuman.core.design.Layout
+import com.inhuman.core.design.MetaLine
+import com.inhuman.core.design.StatusDot
+import com.inhuman.core.design.WorkbenchGrid
+import com.inhuman.core.design.Wordmark
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.core.design.currentFormFactor
 import com.inhuman.core.design.prefersFabForPrimaryAction
@@ -112,37 +121,18 @@ fun ConversationsScreen(
 
 	val formFactor = currentFormFactor()
 	val useFab = prefersFabForPrimaryAction()
+	val wide = formFactor != FormFactor.Compact
 
 	Scaffold(
 		topBar = {
-			TopAppBar(
-				title = { Text("inhuman", style = MaterialTheme.typography.titleMedium) },
-				actions = {
-					// On a phone the FAB carries the primary action, so the top
-					// bar keeps only the title and this.
-					IconButton(onClick = onOpenWorkspaces) {
-						Icon(Icons.Outlined.FolderOpen, contentDescription = "Workspaces")
-					}
-					IconButton(onClick = onNewWorkspace) {
-						Icon(Icons.Outlined.CreateNewFolder, contentDescription = "New workspace")
-					}
-					IconButton(onClick = onOpenAgents) {
-						Icon(Icons.Outlined.Person, contentDescription = "Assistants")
-					}
-					IconButton(onClick = onOpenSettings) {
-						Icon(Icons.Outlined.Settings, contentDescription = "Settings")
-					}
-					if (!useFab) {
-						IconButton(onClick = { viewModel.startNewConversation() }) {
-							Icon(Icons.Filled.Add, contentDescription = "New conversation")
-						}
-					}
-				},
-				colors = TopAppBarDefaults.topAppBarColors(
-					containerColor = MaterialTheme.colorScheme.background,
-					titleContentColor = MaterialTheme.colorScheme.onBackground,
-					actionIconContentColor = MaterialTheme.colorScheme.onBackground,
-				),
+			HomeHeader(
+				wide = wide,
+				useFab = useFab,
+				onOpenWorkspaces = onOpenWorkspaces,
+				onNewWorkspace = onNewWorkspace,
+				onOpenAgents = onOpenAgents,
+				onOpenSettings = onOpenSettings,
+				onNewConversation = { viewModel.startNewConversation() },
 			)
 		},
 		floatingActionButton = {
@@ -151,7 +141,7 @@ fun ConversationsScreen(
 					onClick = { viewModel.startNewConversation() },
 					containerColor = MaterialTheme.colorScheme.primary,
 					contentColor = MaterialTheme.colorScheme.onPrimary,
-					shape = RoundedCornerShape(16.dp),
+					shape = MaterialTheme.shapes.medium,
 				) {
 					Icon(Icons.Filled.Add, contentDescription = "New conversation")
 				}
@@ -163,8 +153,6 @@ fun ConversationsScreen(
 			modifier = Modifier
 				.fillMaxSize()
 				.padding(inner)
-				.windowInsetsPadding(WindowInsets.safeDrawing),
-			contentAlignment = Alignment.Center,
 		) {
 			when {
 				// Nothing is shown until the first read completes, so an empty
@@ -172,16 +160,43 @@ fun ConversationsScreen(
 				// is about to appear.
 				!state.loaded -> Unit
 
-				state.conversations.isEmpty() -> EmptyState(
-					formFactor = formFactor,
-					onNewConversation = { viewModel.startNewConversation() },
-				)
+				wide -> Row(modifier = Modifier.fillMaxSize()) {
+					HomeRail(
+						conversationCount = state.conversations.size,
+						modifier = Modifier
+							.width(320.dp)
+							.fillMaxSize(),
+					)
+					Box(
+						modifier = Modifier
+							.fillMaxSize()
+							.weight(1f),
+					) {
+						ConversationPanel(
+							conversations = state.conversations,
+							workspaceNames = state.workspaceNames,
+							onOpen = onOpenConversation,
+							onTogglePin = viewModel::setPinned,
+							onRequestDelete = { pendingDelete = it },
+							onNewConversation = { viewModel.startNewConversation() },
+							onOpenWorkspaces = onOpenWorkspaces,
+							onOpenAssistants = onOpenAgents,
+							showStartButton = true,
+						)
+					}
+				}
 
-				else -> ConversationList(
+				else -> ConversationPanel(
 					conversations = state.conversations,
+					workspaceNames = state.workspaceNames,
 					onOpen = onOpenConversation,
 					onTogglePin = viewModel::setPinned,
 					onRequestDelete = { pendingDelete = it },
+					onNewConversation = { viewModel.startNewConversation() },
+					onOpenWorkspaces = onOpenWorkspaces,
+					onOpenAssistants = onOpenAgents,
+					showStartButton = false,
+					modifier = Modifier.fillMaxSize(),
 				)
 			}
 		}
@@ -339,8 +354,234 @@ fun ConversationsScreen(
 }
 
 @Composable
+private fun HomeHeader(
+	wide: Boolean,
+	useFab: Boolean,
+	onOpenWorkspaces: () -> Unit,
+	onNewWorkspace: () -> Unit,
+	onOpenAgents: () -> Unit,
+	onOpenSettings: () -> Unit,
+	onNewConversation: () -> Unit,
+) {
+	var menu by remember { mutableStateOf(false) }
+	Column(modifier = Modifier.statusBarsPadding()) {
+		Row(
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(horizontal = comfortableGutter(), vertical = 14.dp),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+				Wordmark()
+				Text(
+					text = "PRIVATE AGENT WORKBENCH",
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+			Spacer(Modifier.weight(1f))
+			if (wide) {
+				HeaderTextAction("Workspaces", Icons.Outlined.FolderOpen, onOpenWorkspaces)
+				HeaderTextAction("Assistants", Icons.Outlined.Person, onOpenAgents)
+				HeaderTextAction("Settings", Icons.Outlined.Settings, onOpenSettings)
+				IconButton(onClick = onNewWorkspace) {
+					Icon(
+						Icons.Outlined.CreateNewFolder,
+						contentDescription = "New workspace",
+						tint = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
+				Button(
+					onClick = onNewConversation,
+					shape = MaterialTheme.shapes.small,
+					contentPadding = PaddingValues(horizontal = 16.dp, vertical = 9.dp),
+				) {
+					Icon(
+						Icons.Filled.Add,
+						contentDescription = null,
+						modifier = Modifier.size(16.dp),
+					)
+					Spacer(Modifier.width(6.dp))
+					Text("New conversation", style = MaterialTheme.typography.labelLarge)
+				}
+			} else {
+				IconButton(onClick = onOpenWorkspaces) {
+					Icon(Icons.Outlined.FolderOpen, contentDescription = "Workspaces")
+				}
+				Box {
+					IconButton(onClick = { menu = true }) {
+						Icon(Icons.Filled.MoreVert, contentDescription = "More")
+					}
+					DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+						DropdownMenuItem(
+							text = { Text("New workspace") },
+							leadingIcon = {
+								Icon(Icons.Outlined.CreateNewFolder, contentDescription = null)
+							},
+							onClick = {
+								menu = false
+								onNewWorkspace()
+							},
+						)
+						DropdownMenuItem(
+							text = { Text("Assistants") },
+							leadingIcon = { Icon(Icons.Outlined.Person, contentDescription = null) },
+							onClick = {
+								menu = false
+								onOpenAgents()
+							},
+						)
+						DropdownMenuItem(
+							text = { Text("Settings") },
+							leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
+							onClick = {
+								menu = false
+								onOpenSettings()
+							},
+						)
+					}
+				}
+			}
+		}
+		Hairline()
+	}
+}
+
+@Composable
+private fun HeaderTextAction(
+	label: String,
+	icon: androidx.compose.ui.graphics.vector.ImageVector,
+	onClick: () -> Unit,
+) {
+	TextButton(
+		onClick = onClick,
+		colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+			contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		),
+	) {
+		Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+		Spacer(Modifier.width(6.dp))
+		Text(label, style = MaterialTheme.typography.labelLarge)
+	}
+}
+
+@Composable
+private fun HomeRail(
+	conversationCount: Int,
+	modifier: Modifier = Modifier,
+) {
+	Box(modifier.background(MaterialTheme.colorScheme.surface)) {
+		WorkbenchGrid(Modifier.fillMaxSize())
+		Column(
+			modifier = Modifier
+				.fillMaxSize()
+				.padding(horizontal = 32.dp, vertical = 36.dp),
+			verticalArrangement = Arrangement.spacedBy(14.dp),
+		) {
+			Eyebrow("Workbench / 01")
+			Text(
+				text = "A private agent\nwith a desk.",
+				style = MaterialTheme.typography.displaySmall,
+				color = MaterialTheme.colorScheme.onBackground,
+			)
+			Text(
+				text = "Chat, files and tools in one place. Each conversation keeps " +
+					"its own folder; the assistant cannot reach anything outside it.",
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			Spacer(Modifier.height(18.dp))
+			MetaLine("Files", "App-private workspace")
+			MetaLine("Tools", "Files, web, SSH on demand")
+			MetaLine("Model", "Your configured provider")
+			Spacer(Modifier.weight(1f))
+			Hairline()
+			Spacer(Modifier.height(12.dp))
+			Row(
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.spacedBy(8.dp),
+			) {
+				StatusDot(MaterialTheme.colorScheme.secondary)
+				Eyebrow(
+					text = if (conversationCount == 1) "01 thread stored" else
+						twoDigits(conversationCount) + " threads stored",
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+		}
+	}
+}
+
+@Composable
+private fun ConversationPanel(
+	conversations: List<ConversationEntity>,
+	workspaceNames: Map<String, String>,
+	onOpen: (String) -> Unit,
+	onTogglePin: (ConversationEntity, Boolean) -> Unit,
+	onRequestDelete: (ConversationEntity) -> Unit,
+	onNewConversation: () -> Unit,
+	onOpenWorkspaces: () -> Unit,
+	onOpenAssistants: () -> Unit,
+	showStartButton: Boolean,
+	modifier: Modifier = Modifier,
+) {
+	val compact = currentFormFactor() == FormFactor.Compact
+	Box(
+		modifier = modifier,
+		contentAlignment = Alignment.TopCenter,
+	) {
+		if (conversations.isEmpty()) {
+			WorkbenchGrid(Modifier.fillMaxSize())
+		}
+		Column(
+			modifier = Modifier
+				.widthIn(max = 760.dp)
+				.fillMaxWidth()
+				.padding(
+					horizontal = if (compact) comfortableGutter() else 32.dp,
+					vertical = if (compact) 20.dp else 36.dp,
+				),
+			verticalArrangement = Arrangement.spacedBy(0.dp),
+		) {
+			Row(
+				modifier = Modifier.fillMaxWidth(),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				Eyebrow("Conversations")
+				Spacer(Modifier.weight(1f))
+				Text(
+					text = twoDigits(conversations.size),
+					style = MaterialTheme.typography.labelMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+			Spacer(Modifier.height(10.dp))
+			Hairline()
+			Spacer(Modifier.height(if (conversations.isEmpty()) 34.dp else 4.dp))
+			if (conversations.isEmpty()) {
+				EmptyState(
+					showStartButton = showStartButton,
+					onNewConversation = onNewConversation,
+					onOpenWorkspaces = onOpenWorkspaces,
+					onOpenAssistants = onOpenAssistants,
+				)
+			} else {
+				ConversationList(
+					conversations = conversations,
+					workspaceNames = workspaceNames,
+					onOpen = onOpen,
+					onTogglePin = onTogglePin,
+					onRequestDelete = onRequestDelete,
+				)
+			}
+		}
+	}
+}
+
+@Composable
 private fun ConversationList(
 	conversations: List<ConversationEntity>,
+	workspaceNames: Map<String, String>,
 	onOpen: (String) -> Unit,
 	onTogglePin: (ConversationEntity, Boolean) -> Unit,
 	onRequestDelete: (ConversationEntity) -> Unit,
@@ -350,87 +591,123 @@ private fun ConversationList(
 	val now = rememberNowMillis()
 
 	LazyColumn(
-		modifier = Modifier
-			// Constrain first, fill second: `fillMaxSize()` is greedy and
-			// consumes the incoming maximum, so swapping these two made the cap
-			// inert and the list ran the full tablet width.
-			.widthIn(max = Layout.ReadableMeasure)
-			.fillMaxSize(),
-		contentPadding = PaddingValues(
-			horizontal = comfortableGutter(),
-			vertical = 8.dp,
-		),
-		verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
+		modifier = Modifier.fillMaxSize(),
+		contentPadding = PaddingValues(vertical = 0.dp),
+		verticalArrangement = Arrangement.spacedBy(0.dp),
 	) {
-		items(conversations, key = { it.id }) { conversation ->
+		itemsIndexed(conversations, key = { _, conversation -> conversation.id }) { index, conversation ->
 			ConversationRow(
+				index = index,
 				conversation = conversation,
+				workspace = workspaceNames[conversation.workspaceId],
 				now = now,
 				onClick = { onOpen(conversation.id) },
 				onTogglePin = { onTogglePin(conversation, !conversation.pinned) },
 				onDelete = { onRequestDelete(conversation) },
 			)
+			Hairline()
 		}
 	}
 }
 
 @Composable
 private fun ConversationRow(
+	index: Int,
 	conversation: ConversationEntity,
+	workspace: String?,
 	now: Long,
 	onClick: () -> Unit,
 	onTogglePin: () -> Unit,
 	onDelete: () -> Unit,
 ) {
+	var menu by remember { mutableStateOf(false) }
 	Row(
 		modifier = Modifier
 			.fillMaxWidth()
-			.background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
 			.clickable(onClick = onClick)
-			// 8dp rather than 12. Two lines of text give this row ~100dp of
-			// content already, so the padding was a quarter of the row for no
-			// separation it did not already have from the gap below it.
-			.padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+			.padding(vertical = 14.dp),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
+		Text(
+			text = twoDigits(index + 1),
+			modifier = Modifier.width(38.dp),
+			style = MaterialTheme.typography.labelSmall,
+			color = if (conversation.pinned) {
+				MaterialTheme.colorScheme.primary
+			} else {
+				MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+			},
+		)
 		Column(
 			modifier = Modifier.weight(1f),
-			verticalArrangement = Arrangement.spacedBy(2.dp),
+			verticalArrangement = Arrangement.spacedBy(4.dp),
 		) {
+			Row(verticalAlignment = Alignment.CenterVertically) {
+				Text(
+					text = conversation.title,
+					style = MaterialTheme.typography.bodyLarge,
+					color = MaterialTheme.colorScheme.onBackground,
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis,
+					modifier = Modifier.weight(1f, fill = false),
+				)
+				if (conversation.pinned) {
+					Spacer(Modifier.width(8.dp))
+					Icon(
+						imageVector = Icons.Outlined.PushPin,
+						contentDescription = null,
+						tint = MaterialTheme.colorScheme.primary,
+						modifier = Modifier.size(13.dp),
+					)
+				}
+			}
 			Text(
-				text = conversation.title,
-				style = MaterialTheme.typography.bodyLarge,
-				color = MaterialTheme.colorScheme.onSurface,
+				text = buildString {
+					append(formatTimestamp(conversation.updatedAt, now))
+					if (!workspace.isNullOrBlank() && workspace != conversation.title) {
+						append("  ·  ")
+						append(workspace)
+					}
+				},
+				style = MaterialTheme.typography.labelSmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
 				maxLines = 1,
 				overflow = TextOverflow.Ellipsis,
 			)
-			Text(
-				text = formatTimestamp(conversation.updatedAt, now),
-				style = MaterialTheme.typography.labelLarge,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-			)
 		}
-
-		IconButton(onClick = onTogglePin) {
-			Icon(
-				imageVector = Icons.Outlined.PushPin,
-				contentDescription = if (conversation.pinned) "Unpin" else "Pin",
-				tint = if (conversation.pinned) {
-					MaterialTheme.colorScheme.primary
-				} else {
-					MaterialTheme.colorScheme.outline
-				},
-				modifier = Modifier.size(18.dp),
-			)
-		}
-
-		IconButton(onClick = onDelete) {
-			Icon(
-				Icons.Outlined.Delete,
-				contentDescription = "Delete conversation",
-				tint = MaterialTheme.colorScheme.error,
-				modifier = Modifier.size(18.dp),
-			)
+		Box {
+			IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
+				Icon(
+					Icons.Filled.MoreVert,
+					contentDescription = "Conversation actions",
+					tint = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier.size(18.dp),
+				)
+			}
+			DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+				DropdownMenuItem(
+					text = { Text(if (conversation.pinned) "Unpin" else "Pin") },
+					leadingIcon = { Icon(Icons.Outlined.PushPin, contentDescription = null) },
+					onClick = {
+						menu = false
+						onTogglePin()
+					},
+				)
+				DropdownMenuItem(
+					text = { Text("Delete") },
+					leadingIcon = {
+						Icon(
+							Icons.Outlined.Delete,
+							contentDescription = null,
+							tint = MaterialTheme.colorScheme.error,
+						)
+					},
+					onClick = {
+						menu = false
+						onDelete()
+					},
+				)
+			}
 		}
 	}
 }
@@ -452,6 +729,8 @@ private fun ConversationRow(
  * to the main thread, which is where composition runs.
  */
 private val absoluteDate: DateFormat = DateFormat.getDateInstance(DateFormat.MEDIUM)
+
+private fun twoDigits(value: Int): String = value.toString().padStart(2, '0')
 
 private fun formatTimestamp(millis: Long, now: Long): String {
 	val age = now - millis
@@ -484,68 +763,62 @@ private fun rememberNowMillis(): Long {
 
 @Composable
 private fun EmptyState(
-	formFactor: FormFactor,
+	showStartButton: Boolean,
 	onNewConversation: () -> Unit,
+	onOpenWorkspaces: () -> Unit,
+	onOpenAssistants: () -> Unit,
 ) {
 	Column(
-		modifier = Modifier
-			// Constrain first, fill second. The cap is what makes the tablet
-			// layout readable rather than merely wide; on a phone it is inert.
-			// The order matters: `fillMaxWidth()` is greedy and consumes the
-			// incoming maximum, so with these swapped the comment described a
-			// behaviour the code did not have.
-			.widthIn(max = Layout.ReadableMeasure)
-			.fillMaxWidth()
-			.padding(horizontal = comfortableGutter()),
-		horizontalAlignment = Alignment.CenterHorizontally,
+		modifier = Modifier.fillMaxWidth(),
+		horizontalAlignment = Alignment.Start,
 		verticalArrangement = Arrangement.spacedBy(12.dp),
 	) {
-		Icon(
-			imageVector = Icons.Outlined.FolderOpen,
-			contentDescription = null,
-			tint = MaterialTheme.colorScheme.outline,
-			modifier = Modifier.size(if (formFactor == FormFactor.Compact) 40.dp else 48.dp),
-		)
+		Eyebrow("No sessions yet")
 		Text(
-			text = "No conversations yet",
-			style = MaterialTheme.typography.titleMedium,
+			text = "Start with a\nclean desk.",
+			style = MaterialTheme.typography.headlineMedium,
 			color = MaterialTheme.colorScheme.onBackground,
-			textAlign = TextAlign.Center,
 		)
 		Text(
-			text = "Each conversation gets its own folder. " +
-				"The assistant can read and write files inside it, and nowhere else. " +
-				"That is enforced in code, not requested in a prompt.",
+			text = "Each conversation gets its own folder. The assistant can read " +
+				"and write inside it, and nowhere else — enforced in code, not asked " +
+				"for in a prompt.",
 			style = MaterialTheme.typography.bodyMedium,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
-			textAlign = TextAlign.Center,
 		)
-		if (formFactor != FormFactor.Compact) {
-			FilledTonalButton(
+		if (showStartButton) {
+			Button(
 				onClick = onNewConversation,
-				modifier = Modifier.padding(top = 8.dp),
-				shape = RoundedCornerShape(10.dp),
-				contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
+				modifier = Modifier.padding(top = 6.dp),
+				shape = MaterialTheme.shapes.small,
+				contentPadding = PaddingValues(horizontal = 18.dp, vertical = 11.dp),
 			) {
-				Text("Start a conversation")
+				Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+				Spacer(Modifier.width(7.dp))
+				Text("New conversation", style = MaterialTheme.typography.labelLarge)
 			}
+		}
+		Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+			TextButton(onClick = onOpenWorkspaces) { Text("Workspaces") }
+			TextButton(onClick = onOpenAssistants) { Text("Assistants") }
 		}
 	}
 }
 
-@Preview(name = "Empty", showBackground = true, backgroundColor = 0xFF0B0D10, widthDp = 411, heightDp = 900)
+@Preview(name = "Empty", showBackground = true, backgroundColor = 0xFFF3EFE5, widthDp = 411, heightDp = 900)
 @Composable
 private fun ConversationsEmptyPreview() {
-	InhumanTheme(darkTheme = true) {
+	InhumanTheme(darkTheme = false) {
 		// A preview cannot construct a real view model; the empty state is
 		// previewed directly instead.
 		Box(
 			Modifier
 				.fillMaxSize()
-				.background(MaterialTheme.colorScheme.background),
-			contentAlignment = Alignment.Center,
+				.background(MaterialTheme.colorScheme.background)
+				.padding(20.dp),
+			contentAlignment = Alignment.TopStart,
 		) {
-			EmptyState(FormFactor.Compact) {}
+			EmptyState(true, {}, {}, {})
 		}
 	}
 }

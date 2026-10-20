@@ -28,7 +28,7 @@ and a future session that trusts them will start from a false premise:
 | Claim | Where | Reality |
 | --- | --- | --- |
 | The cap makes a tablet layout readable | `WideDialog.kt:89-93`, `ConversationsScreen.kt:452-457`, `SettingsScreen.kt:96-100` | **Was** inert at those sites — the fill modifier came first. **Fixed**, and verified by measurement on the tablet AVD. See [07-gotchas.md](07-gotchas.md) B5. |
-| "the chat screen applies [the cap] to the transcript *and* to the composer strip" | `AGENTS.md:130-138` | True of the composer strip and the error row only. User messages are bubbles capped at 640dp; assistant replies have no bubble and fill the list width. See [06](06-agent-loop-ui.md). |
+| "the chat screen applies [the cap] to the transcript *and* to the composer strip" | `AGENTS.md` | True for the transcript and composer, which share the 900dp `ChatMeasure`. User messages are 560dp bubbles; assistant replies have no bubble and a 900dp measure. Forms/settings still use 640dp. See [06](06-agent-loop-ui.md). |
 | "`writeText` is wrapped in `NonCancellable`" | `AGENTS.md:151` (now corrected) | It is the row insert at `ChatViewModel.kt:1040`, not the tool-layer `writeText`. |
 
 The tool table at `README.md:50-58` is worth trusting: twelve tools, including
@@ -183,7 +183,7 @@ throughout.
 | Assistants' persistence and the model cache | `core/data/…/AgentRepository.kt` |
 | The API key at rest | `core/data/…/secret/SecureStore.kt` |
 | What the system Files app can do to a workspace | `core/data/…/provider/WorkspaceDocumentsProvider.kt` |
-| 640dp, gutters, spacing, theme, dialog chrome | `core/design/src/main/kotlin/com/inhuman/core/design/` |
+| Theme, type, hairlines, measure, wordmark | `core/design/src/main/kotlin/com/inhuman/core/design/` |
 | Driving the app and reading its UI | `tools/build-and-shot.ps1`, `tools/device-flow.ps1`, `tools/UiDump.psm1` |
 
 Three files carry more weight than their size suggests, and breaking either of

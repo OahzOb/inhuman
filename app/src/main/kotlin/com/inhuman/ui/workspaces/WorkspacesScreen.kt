@@ -9,9 +9,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -40,7 +38,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.design.Layout
+import com.inhuman.core.design.Eyebrow
+import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.ui.common.WorkbenchBackButton
 import java.text.DateFormat
 import java.util.Date
 
@@ -67,17 +68,20 @@ fun WorkspacesScreen(
 
 	Scaffold(
 		topBar = {
-			TopAppBar(
-				title = { Text("Workspaces", style = MaterialTheme.typography.titleMedium) },
-				navigationIcon = {
-					IconButton(onClick = onBack) { Text("‹", style = MaterialTheme.typography.titleLarge) }
-				},
-				colors = TopAppBarDefaults.topAppBarColors(
-					containerColor = MaterialTheme.colorScheme.background,
-					titleContentColor = MaterialTheme.colorScheme.onBackground,
-					navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
-				),
-			)
+			Column {
+				TopAppBar(
+					title = { Text("Workspaces", style = MaterialTheme.typography.titleLarge) },
+					navigationIcon = {
+						WorkbenchBackButton(onClick = onBack)
+					},
+					colors = TopAppBarDefaults.topAppBarColors(
+						containerColor = MaterialTheme.colorScheme.background,
+						titleContentColor = MaterialTheme.colorScheme.onBackground,
+						navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+					),
+				)
+				Hairline()
+			}
 		},
 		floatingActionButton = {
 			FloatingActionButton(
@@ -85,6 +89,9 @@ fun WorkspacesScreen(
 					newName = "New workspace"
 					showCreate = true
 				},
+				containerColor = MaterialTheme.colorScheme.primary,
+				contentColor = MaterialTheme.colorScheme.onPrimary,
+				shape = MaterialTheme.shapes.medium,
 			) {
 				Icon(Icons.Filled.Add, contentDescription = "New workspace")
 			}
@@ -94,8 +101,7 @@ fun WorkspacesScreen(
 		Column(
 			modifier = Modifier
 				.fillMaxSize()
-				.padding(inner)
-				.windowInsetsPadding(WindowInsets.safeDrawing),
+				.padding(inner),
 			verticalArrangement = Arrangement.spacedBy(10.dp),
 		) {
 			state.error?.let { message ->
@@ -118,15 +124,24 @@ fun WorkspacesScreen(
 			if (!state.loading && state.workspaces.isEmpty()) {
 				Box(
 					modifier = Modifier.fillMaxSize(),
-					contentAlignment = Alignment.Center,
+					contentAlignment = Alignment.TopCenter,
 				) {
 					Column(
-						horizontalAlignment = Alignment.CenterHorizontally,
-						verticalArrangement = Arrangement.spacedBy(6.dp),
+						modifier = Modifier
+							.widthIn(max = 640.dp)
+							.fillMaxWidth()
+							.padding(horizontal = comfortableGutter(), vertical = 32.dp),
+						verticalArrangement = Arrangement.spacedBy(12.dp),
 					) {
-						Text("No workspaces yet", style = MaterialTheme.typography.titleMedium)
+						Eyebrow("Workspaces / shared")
 						Text(
-							"Create one to keep files across conversations.",
+							text = "Shared folders,\nnot shared chats.",
+							style = MaterialTheme.typography.headlineMedium,
+							color = MaterialTheme.colorScheme.onBackground,
+						)
+						Text(
+							text = "A permanent workspace keeps its files across conversations. " +
+								"Use one when several threads need the same documents.",
 							style = MaterialTheme.typography.bodyMedium,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
@@ -142,6 +157,7 @@ fun WorkspacesScreen(
 				) {
 					items(state.workspaces, key = { it.workspace.id }) { row ->
 						WorkspaceListRow(row = row, onClick = { onOpenWorkspace(row.workspace.id) })
+						Hairline()
 					}
 				}
 			}

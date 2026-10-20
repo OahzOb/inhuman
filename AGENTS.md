@@ -125,25 +125,52 @@ composer whose send button sits in a corner nobody looks at. That is worse than
 the phone layout, not better.
 
 The rule this project arrived at: **cap the measure, centre what is capped.**
-`Layout.ReadableMeasure` (640dp) is the cap. On a phone the cap is inert —
-`screenWidthDp` never reaches 640 — so the same code is correct at both sizes
+`Layout.ReadableMeasure` (640dp) governs forms, settings and short prose. The chat
+transcript is wider — 900dp — because it contains code and tables, and user
+messages are narrower still at 560dp. On a phone every cap is inert
+(`screenWidthDp` never reaches it), so the same code is correct at both sizes
 without a form-factor branch. Prefer that shape: a maximum that binds on the
 large screen and does nothing on the small one.
 
 Two corrections to what this file used to claim, both verified — see
 `docs/07-gotchas.md` B5:
 
-- The chat screen caps the **composer strip and the error row** on that axis,
-  not the answer. Assistant replies have no bubble and no 640dp cap: they fill
-  the list width so code and tables get the tablet's room. User messages remain
-  bubbles capped at 640dp and aligned to the end; tool-result rows stay capped.
-  The composer is centred, so it does not share an axis with the answer.
+- The chat transcript and composer share a **900dp** axis. Assistant replies have
+  no bubble and no 640dp cap, but they do not run the full tablet width either;
+  user messages are 560dp bubbles aligned to the end. On a tablet the home screen
+  becomes two columns: a 320dp workbench rail and a conversation list capped at
+  760dp.
 - The cap **was inert at seven call sites** in five files (the conversations
   list, the agents list, files, settings, `WideDialog`), because they chained
   `fillMaxWidth`/`fillMaxSize` *before* `widthIn`. **Fixed**, and verified by
   measuring the rendered column on the tablet AVD: 576dp, centred. Three of
   those sites had carried a comment claiming the cap was what made the tablet
   layout readable — the comment was describing behaviour the code did not have.
+
+**The composer must not consume `safeDrawing` before `imePadding()`.** That inset
+contains the IME; consuming it first leaves the composer under the keyboard. This
+was found by opening the keyboard on the phone AVD, not by reading the chain.
+
+### Visual language: Graphite Workbench
+
+The app is a working tool, not a chat template. The visual system is deliberately
+small:
+
+- **Warm paper (light) / warm graphite (dark)**, with a single burnt-orange
+  signal accent used for the primary action, section codes and the assistant
+  marker. Light uses a deeper accent so text and buttons keep contrast on paper.
+- **Mono is for metadata**, not body text: wordmark, section codes, timestamps,
+  model/workspace lines. Body text stays 16sp/26sp sans.
+- **Hairlines, not cards**, separate list rows and sections. Corners are 3–10dp;
+  dialog-large surfaces use 22dp. A filled card is for an actual raised object,
+  not for every row.
+- **Grid only on empty canvases**, at 12% alpha. It gives a large tablet empty
+  state a sense of place; it is not wallpaper.
+- Shared components live in `core/design/…/Workbench.kt`: `Wordmark`, `Eyebrow`,
+  `Hairline`, `StatusDot`, `WorkbenchGrid`, `SectionHeading`, `MetaLine`.
+
+When changing a screen, reach for those before adding a literal colour, radius or
+spacing value.
 
 **A modifier-order trap, hit once already:** `Modifier.fillMaxWidth()` is
 greedy and consumes the incoming maximum, so `.fillMaxWidth().widthIn(max = …)`

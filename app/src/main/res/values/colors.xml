@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+	<!-- Keep the launch frame on paper, not the platform's default black. -->
+	<color name="window_background">#F3EFE5</color>
+	<!-- The deep light-scheme accent: an icon is read at small sizes, so the
+	     background carries the signal and the foreground stays cream. -->
+	<color name="icon_background">#B74720</color>
+</resources>

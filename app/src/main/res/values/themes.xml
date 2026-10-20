@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 	<!--
-	  A bare Material3 parent. The real theme is defined in Compose
-	  (InhumanTheme); this XML style only exists because the manifest needs
-	  something to point at before Compose takes over, and because the system
-	  draws the window background before the first frame.
+	  The real theme is defined in Compose (InhumanTheme); this XML style only
+	  exists because the manifest needs something before Compose takes over, and
+	  because the system draws the window background before the first frame. It
+	  uses a color resource so values-night can match the graphite scheme instead
+	  of flashing the platform's black (or white) launch frame.
 	-->
 	<style name="Theme.Inhuman" parent="android:Theme.Material.NoActionBar">
-		<item name="android:windowBackground">@android:color/background_dark</item>
+		<item name="android:windowBackground">@color/window_background</item>
 		<item name="android:navigationBarColor">@android:color/transparent</item>
 		<item name="android:statusBarColor">@android:color/transparent</item>
 	</style>

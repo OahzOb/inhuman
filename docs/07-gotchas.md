@@ -788,6 +788,33 @@ any call before execution, so the cache is not paid for with a replayed write.
 If the model violates the instruction, the turn stops with an error; nothing is
 executed.
 
+### B24. The composer sat under the keyboard, and Material's purple leaked through the theme — **FIXED**
+
+Two failures found by opening the app rather than by reading the modifier chain.
+
+The chat column applied `windowInsetsPadding(WindowInsets.safeDrawing)` before
+`imePadding()`. `safeDrawing` includes the IME inset, so the first modifier
+consumed exactly the inset the second needed; with the keyboard open, the
+composer stayed behind it. Removing the redundant `safeDrawing` padding fixed the
+phone layout. The same over-padding was making every other screen's content start
+one status bar too low; it has been removed from those too.
+
+Separately, the new warm scheme still showed a lavender `FilterChip` and a
+generic purple dialog. `InhumanTheme` set `primary`, `background`, `surface` and
+a few roles, but Material reads `secondaryContainer` for a selected chip and the
+`surfaceContainer*` family for menus/dialogs. An unset role is not "neutral": it
+falls back to Material's stock purple. All container roles are now filled in both
+schemes. The check is visual: a selected chip must be beige/orange, never
+lavender.
+
+### B25. The launcher icon was still the Android robot — **FIXED**
+
+The manifest had no `android:icon`, so the system supplied the default robot on a
+blue grid. The app now ships an adaptive icon: the wordmark's cream lowercase `i`
+on the deep signal-orange background, with a monochrome layer for themed icons.
+The foreground stays inside the adaptive safe zone, because the first version's
+dot was clipped by a circular mask.
+
 ---
 
 ## C. Comments that contradict the code
@@ -803,9 +830,7 @@ staying as history.
 | `SessionWorkspace.kt:20-22`: "[root] is never exposed" | `rootPath()` exposes it (`:175-184`) — deliberately, for `StatFs`, with the argument written out. |
 | `SessionWorkspace.kt:26-33`: a symlink "can never be swapped in between the check and the open()" | The walk refuses to *traverse* links; nothing stops another same-UID writer creating one, and there is no re-check or `O_NOFOLLOW` at open. |
 | `Tool.kt:81-82`: "Anything that writes, deletes or reaches outside the workspace should override this" | **No tool overrides `needsApproval` to return true**, `delete_file` included — it returns `false` (`FileTools.kt:355`). The advice is now historical: approval is decided by the user's configured rules, and `needsApproval` survives as an unused "must always ask" hook. |
-| `AgentsScreen.kt:723-738`: "Hand-rolled rather than pulling in the FlowRow API" | It calls `androidx.compose.foundation.layout.FlowRow`. |
 | `ChatScreen.kt:419-422`: raw JSON is "practically useless" | The dialog prints the raw `argumentsJson` seven lines later (`:429-443`). |
-| `themes.xml:9`: "a bare Material3 parent" | It is the platform `android:Theme.Material.NoActionBar`, with a hard-coded dark `windowBackground` while a light scheme exists. |
 
 ---
 

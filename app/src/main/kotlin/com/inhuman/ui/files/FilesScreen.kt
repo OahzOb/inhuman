@@ -20,10 +20,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -73,9 +71,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.core.design.Eyebrow
+import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.Layout
+import com.inhuman.core.design.WorkbenchGrid
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.ui.chat.MarkdownText
+import com.inhuman.ui.common.WorkbenchBackButton
 import com.inhuman.ui.common.openWorkspaceInFiles
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -181,47 +183,52 @@ fun FilesScreen(
 
 	Scaffold(
 		topBar = {
-			TopAppBar(
-				title = {
-					Column {
-						Text(
-							text = if (state.currentPath.isEmpty()) "Files" else state.currentPath.substringAfterLast('/'),
-							style = MaterialTheme.typography.titleMedium,
-							maxLines = 1,
-							overflow = TextOverflow.Ellipsis,
+			Column {
+				TopAppBar(
+					title = {
+						Column {
+							Text(
+								text = if (state.currentPath.isEmpty()) "Files" else state.currentPath.substringAfterLast('/'),
+								style = MaterialTheme.typography.titleLarge,
+								maxLines = 1,
+								overflow = TextOverflow.Ellipsis,
+							)
+							Text(
+								// The quota, shown because a user who hits it deserves
+								// to know it is a limit rather than a bug.
+								text = "${state.fileCount}/${state.maxFiles} files · ${human(state.usedBytes)} of ${human(state.totalBytes)}",
+								style = MaterialTheme.typography.labelSmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+							)
+						}
+					},
+					navigationIcon = {
+						WorkbenchBackButton(
+							onClick = {
+								if (state.currentPath.isEmpty()) onBack() else viewModel.navigateUp()
+							},
 						)
-						Text(
-							// The quota, shown because a user who hits it deserves
-							// to know it is a limit rather than a bug.
-							text = "${state.fileCount}/${state.maxFiles} files · ${human(state.usedBytes)} of ${human(state.totalBytes)}",
-							style = MaterialTheme.typography.labelLarge,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-						)
-					}
-				},
-				navigationIcon = {
-					IconButton(onClick = { if (state.currentPath.isEmpty()) onBack() else viewModel.navigateUp() }) {
-						Text("‹", style = MaterialTheme.typography.titleLarge)
-					}
-				},
-				actions = {
-					IconButton(onClick = { showPath = true }) {
-						Icon(Icons.Outlined.Folder, contentDescription = "Workspace location")
-					}
-					IconButton(onClick = { showDownloadDialog = true }) {
-						Icon(Icons.Filled.Download, contentDescription = "Download from a URL")
-					}
-					IconButton(onClick = { importer.launch(arrayOf("*/*")) }) {
-						Icon(Icons.Filled.Upload, contentDescription = "Import a file")
-					}
-				},
-				colors = TopAppBarDefaults.topAppBarColors(
-					containerColor = MaterialTheme.colorScheme.background,
-					titleContentColor = MaterialTheme.colorScheme.onBackground,
-					navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
-					actionIconContentColor = MaterialTheme.colorScheme.onBackground,
-				),
-			)
+					},
+					actions = {
+						IconButton(onClick = { showPath = true }) {
+							Icon(Icons.Outlined.Folder, contentDescription = "Workspace location")
+						}
+						IconButton(onClick = { showDownloadDialog = true }) {
+							Icon(Icons.Filled.Download, contentDescription = "Download from a URL")
+						}
+						IconButton(onClick = { importer.launch(arrayOf("*/*")) }) {
+							Icon(Icons.Filled.Upload, contentDescription = "Import a file")
+						}
+					},
+					colors = TopAppBarDefaults.topAppBarColors(
+						containerColor = MaterialTheme.colorScheme.background,
+						titleContentColor = MaterialTheme.colorScheme.onBackground,
+						navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+						actionIconContentColor = MaterialTheme.colorScheme.onBackground,
+					),
+				)
+				Hairline()
+			}
 		},
 		containerColor = MaterialTheme.colorScheme.background,
 	) { inner ->
@@ -229,37 +236,44 @@ fun FilesScreen(
 			modifier = Modifier
 				.fillMaxSize()
 				.padding(inner)
-				.windowInsetsPadding(WindowInsets.safeDrawing),
 		) {
 			when {
 				state.loading -> Unit
 
-				state.entries.isEmpty() -> Column(
-					modifier = Modifier
-						.fillMaxSize()
-						.padding(horizontal = comfortableGutter()),
-					verticalArrangement = Arrangement.Center,
-					horizontalAlignment = Alignment.CenterHorizontally,
+				state.entries.isEmpty() -> Box(
+					modifier = Modifier.fillMaxSize(),
+					contentAlignment = Alignment.TopCenter,
 				) {
-					Text(
-						text = if (state.rulesEnabled) {
-							"This conversation's folder is empty"
-						} else {
-							"This workspace is empty"
-						},
-						style = MaterialTheme.typography.bodyLarge,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-					)
-					Text(
-						text = if (state.rulesEnabled) {
-							"Ask the assistant to create something, or import a file."
-						} else {
-							"Import a file, download from a URL, or start a conversation here."
-						},
-						style = MaterialTheme.typography.bodyMedium,
-						color = MaterialTheme.colorScheme.outline,
-						modifier = Modifier.padding(top = 6.dp),
-					)
+					WorkbenchGrid(Modifier.fillMaxSize())
+					Column(
+						modifier = Modifier
+							.widthIn(max = 640.dp)
+							.fillMaxWidth()
+							.padding(horizontal = comfortableGutter(), vertical = 32.dp),
+						verticalArrangement = Arrangement.spacedBy(10.dp),
+					) {
+						Eyebrow("Workspace / Empty")
+						Text(
+							text = if (state.rulesEnabled) {
+								"Nothing here yet."
+							} else {
+								"This workspace is empty."
+							},
+							style = MaterialTheme.typography.headlineMedium,
+							color = MaterialTheme.colorScheme.onBackground,
+						)
+						Text(
+							text = if (state.rulesEnabled) {
+								"Ask the assistant to create a file, or use the import " +
+									"and download actions above."
+							} else {
+								"Import a file, download from a URL, or start a conversation " +
+									"in this workspace."
+							},
+							style = MaterialTheme.typography.bodyMedium,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
 				}
 
 				else -> LazyColumn(

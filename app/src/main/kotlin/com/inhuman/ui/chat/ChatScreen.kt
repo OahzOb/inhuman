@@ -10,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.geometry.Offset
@@ -24,16 +25,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -43,7 +44,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,6 +56,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -60,6 +65,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -86,8 +92,15 @@ import com.inhuman.core.data.Branches
 import com.inhuman.core.data.SnapshotStats
 import com.inhuman.core.data.SnapshotTurn
 import com.inhuman.core.data.WorkspaceChange
+import com.inhuman.core.design.Eyebrow
+import com.inhuman.core.design.FormFactor
+import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.Layout
+import com.inhuman.core.design.MetaLine
+import com.inhuman.core.design.StatusDot
+import com.inhuman.core.design.WorkbenchGrid
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.core.design.currentFormFactor
 import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.RemoteBadge
 import com.inhuman.ui.common.RewindBadge
@@ -371,105 +384,91 @@ fun ChatScreen(
 
 	Scaffold(
 		topBar = {
-			TopAppBar(
-				title = {
-					// Tapping the title opens the model controls. The title is
-					// the only thing in the bar that is not already a button, and
-					// putting the current model under it means the settings are
-					// visible without being in the way -- which matters because
-					// they change what an answer costs.
-					Column(
-						modifier = Modifier.clickable { showModelPicker = true },
-					) {
-						Text(
-							text = title,
-							style = MaterialTheme.typography.titleMedium,
-							maxLines = 1,
-							overflow = TextOverflow.Ellipsis,
-						)
-						Text(
-							text = buildString {
-								append(providerName)
-								append(" · ")
-								append(modelLabel)
-								if (thinking) {
-									append(" · thinking")
-									reasoningEffort?.let { append(" ($it)") }
-								}
-							},
-							style = MaterialTheme.typography.labelLarge,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-							maxLines = 1,
-							overflow = TextOverflow.Ellipsis,
-						)
-					}
-				},
-				navigationIcon = {
-					IconButton(onClick = onBack) { Text("‹", style = MaterialTheme.typography.titleLarge) }
-				},
-				actions = {
-					TextButton(onClick = onOpenFiles) { Text("Files") }
-					TextButton(onClick = onOpenSettings) { Text("Key") }
-					Box {
-						IconButton(onClick = { showChatMenu = true }) {
+			Column {
+				TopAppBar(
+					title = {
+						// Tapping the title opens the model controls. The title is
+						// the only thing in the bar that is not already a button, and
+						// putting the current model under it means the settings are
+						// visible without being in the way -- which matters because
+						// they change what an answer costs.
+						Column(
+							modifier = Modifier.clickable { showModelPicker = true },
+							verticalArrangement = Arrangement.spacedBy(2.dp),
+						) {
+							Text(
+								text = title,
+								style = MaterialTheme.typography.titleMedium,
+								maxLines = 1,
+								overflow = TextOverflow.Ellipsis,
+							)
+							Row(
+								verticalAlignment = Alignment.CenterVertically,
+								horizontalArrangement = Arrangement.spacedBy(6.dp),
+							) {
+								StatusDot(MaterialTheme.colorScheme.primary, size = 5.dp)
+								Text(
+									text = buildString {
+										append(providerName)
+										append(" / ")
+										append(modelLabel)
+										if (thinking) {
+											append(" / thinking")
+											reasoningEffort?.let { append(" $it") }
+										}
+									},
+									style = MaterialTheme.typography.labelSmall,
+									color = MaterialTheme.colorScheme.onSurfaceVariant,
+									maxLines = 1,
+									overflow = TextOverflow.Ellipsis,
+								)
+							}
+						}
+					},
+					navigationIcon = {
+						IconButton(onClick = onBack) {
 							Icon(
-								imageVector = Icons.Filled.MoreVert,
-								contentDescription = "More",
+								Icons.AutoMirrored.Filled.ArrowBack,
+								contentDescription = "Back",
+								modifier = Modifier.size(20.dp),
 							)
 						}
-						DropdownMenu(
-							expanded = showChatMenu,
-							onDismissRequest = { showChatMenu = false },
-						) {
-							DropdownMenuItem(
-								text = {
-									Column {
-										Text("Rollback snapshots")
-										Text(
-											text = "${snapshotStats.turns} " +
-												"turn${if (snapshotStats.turns == 1) "" else "s"} · " +
-												humanSize(snapshotStats.bytes),
-											style = MaterialTheme.typography.bodySmall,
-											color = MaterialTheme.colorScheme.onSurfaceVariant,
-										)
-									}
-								},
-								onClick = {
-									showChatMenu = false
-									showSnapshotDialog = true
-								},
+					},
+					actions = {
+						IconButton(onClick = onOpenFiles) {
+							Icon(
+								Icons.Outlined.FolderOpen,
+								contentDescription = "Files",
+								modifier = Modifier.size(20.dp),
 							)
-							DropdownMenuItem(
-								text = {
-									Column {
-										Text("Tool calls per turn")
-										Text(
-											text = "$toolRoundLimit rounds before the turn stops",
-											style = MaterialTheme.typography.bodySmall,
-											color = MaterialTheme.colorScheme.onSurfaceVariant,
-										)
-									}
-								},
-								onClick = {
-									showChatMenu = false
-									showToolLimitDialog = true
-								},
+						}
+						IconButton(onClick = onOpenSettings) {
+							Icon(
+								Icons.Outlined.Key,
+								contentDescription = "Provider and keys",
+								modifier = Modifier.size(20.dp),
 							)
-							DropdownMenuItem(
-								text = { Text("Rename conversation") },
-								onClick = {
-									showChatMenu = false
-									renameInput = title
-									showRenameDialog = true
-								},
-							)
-							if (!workspaceIsPermanent) {
+						}
+						Box {
+							IconButton(onClick = { showChatMenu = true }) {
+								Icon(
+									imageVector = Icons.Filled.MoreVert,
+									contentDescription = "More",
+									modifier = Modifier.size(20.dp),
+								)
+							}
+							DropdownMenu(
+								expanded = showChatMenu,
+								onDismissRequest = { showChatMenu = false },
+							) {
 								DropdownMenuItem(
 									text = {
 										Column {
-											Text("Save workspace as permanent")
+											Text("Rollback snapshots")
 											Text(
-												text = "Keep its files after this conversation is deleted",
+												text = "${snapshotStats.turns} " +
+													"turn${if (snapshotStats.turns == 1) "" else "s"} · " +
+													humanSize(snapshotStats.bytes),
 												style = MaterialTheme.typography.bodySmall,
 												color = MaterialTheme.colorScheme.onSurfaceVariant,
 											)
@@ -477,28 +476,72 @@ fun ChatScreen(
 									},
 									onClick = {
 										showChatMenu = false
-										workspaceNameInput = workspaceName.ifBlank { title }
-										showSaveWorkspaceDialog = true
+										showSnapshotDialog = true
+									},
+								)
+								DropdownMenuItem(
+									text = {
+										Column {
+											Text("Tool calls per turn")
+											Text(
+												text = "$toolRoundLimit rounds before the turn stops",
+												style = MaterialTheme.typography.bodySmall,
+												color = MaterialTheme.colorScheme.onSurfaceVariant,
+											)
+										}
+									},
+									onClick = {
+										showChatMenu = false
+										showToolLimitDialog = true
+									},
+								)
+								DropdownMenuItem(
+									text = { Text("Rename conversation") },
+									onClick = {
+										showChatMenu = false
+										renameInput = title
+										showRenameDialog = true
+									},
+								)
+								if (!workspaceIsPermanent) {
+									DropdownMenuItem(
+										text = {
+											Column {
+												Text("Save workspace as permanent")
+												Text(
+													text = "Keep its files after this conversation is deleted",
+													style = MaterialTheme.typography.bodySmall,
+													color = MaterialTheme.colorScheme.onSurfaceVariant,
+												)
+											}
+										},
+										onClick = {
+											showChatMenu = false
+											workspaceNameInput = workspaceName.ifBlank { title }
+											showSaveWorkspaceDialog = true
+										},
+									)
+								}
+								DropdownMenuItem(
+									text = { Text("Revoke SSH access") },
+									enabled = sshAllowed,
+									onClick = {
+										showChatMenu = false
+										viewModel.revokeSshAccess()
 									},
 								)
 							}
-							DropdownMenuItem(
-								text = { Text("Revoke SSH access") },
-								enabled = sshAllowed,
-								onClick = {
-									showChatMenu = false
-									viewModel.revokeSshAccess()
-								},
-							)
 						}
-					}
-				},
-				colors = TopAppBarDefaults.topAppBarColors(
-					containerColor = MaterialTheme.colorScheme.background,
-					titleContentColor = MaterialTheme.colorScheme.onBackground,
-					navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
-				),
-			)
+					},
+					colors = TopAppBarDefaults.topAppBarColors(
+						containerColor = MaterialTheme.colorScheme.background,
+						titleContentColor = MaterialTheme.colorScheme.onBackground,
+						navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+						actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+					),
+				)
+				Hairline()
+			}
 		},
 		containerColor = MaterialTheme.colorScheme.background,
 	) { inner ->
@@ -521,9 +564,9 @@ fun ChatScreen(
 			modifier = Modifier
 				.fillMaxSize()
 				.padding(inner)
-				.windowInsetsPadding(WindowInsets.safeDrawing)
-				// imePadding, so the composer rides above the keyboard instead
-				// of being covered by it.
+				// Do not consume safeDrawing before this. `safeDrawing` includes
+				// the IME inset, and consuming it here left `.imePadding()` with
+				// nothing to measure -- the composer stayed under the keyboard.
 				.imePadding(),
 		) {
 			// Read inside this lambda, so a new message or a streamed token
@@ -537,10 +580,17 @@ fun ChatScreen(
 				.map { ContextUsage(it.context.usedTokens, it.context.contextWindow) }
 				.collectAsStateWithLifecycle(ContextUsage(null, null))
 
-			Box(modifier = Modifier.weight(1f)) {
+			Box(
+				modifier = Modifier.weight(1f),
+				contentAlignment = Alignment.TopCenter,
+			) {
+				if (messages.isEmpty()) {
+					WorkbenchGrid(Modifier.fillMaxSize())
+				}
 				LazyColumn(
 					state = listState,
 					modifier = Modifier
+						.widthIn(max = Layout.ChatMeasure)
 						.fillMaxSize()
 						.nestedScroll(followConnection),
 					contentPadding = PaddingValues(
@@ -549,6 +599,26 @@ fun ChatScreen(
 					),
 					verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 				) {
+					if (messages.isEmpty()) {
+						item(key = "welcome") {
+							ChatWelcome(
+								providerName = providerName,
+								modelLabel = modelLabel,
+								workspaceName = if (workspaceIsPermanent) {
+									workspaceName.ifBlank { "Permanent workspace" }
+								} else {
+									"Temporary workspace"
+								},
+								configured = configured,
+								onEnableDemo = viewModel::enableDemoMode,
+								onOpenFiles = onOpenFiles,
+								modifier = Modifier
+									.widthIn(max = 760.dp)
+									.fillMaxWidth()
+									.padding(top = if (currentFormFactor() == FormFactor.Compact) 20.dp else 48.dp),
+							)
+						}
+					}
 					items(messages, key = { it.id }) { message ->
 						MessageBubble(
 							message = message,
@@ -629,9 +699,10 @@ fun ChatScreen(
 				modifier = Modifier.fillMaxWidth(),
 				horizontalAlignment = Alignment.CenterHorizontally,
 			) {
-				// Demo mode is otherwise buried in Settings, and the disabled
-				// composer's "Add an API key" is the moment a new user needs it.
-				if (!configured) {
+				// Demo mode is otherwise buried in Settings. The welcome panel
+				// already offers it on an empty transcript; this strip is for a
+				// conversation that has messages and still has no key.
+				if (!configured && messages.isNotEmpty()) {
 					TextButton(
 						onClick = viewModel::enableDemoMode,
 						modifier = Modifier
@@ -648,7 +719,7 @@ fun ChatScreen(
 						// Constrain first, fill second: see the note on the
 						// composer's modifier.
 						modifier = Modifier
-							.widthIn(max = Layout.ReadableMeasure)
+							.widthIn(max = Layout.ChatMeasure)
 							.fillMaxWidth()
 							.padding(horizontal = comfortableGutter(), vertical = 4.dp),
 						verticalAlignment = Alignment.CenterVertically,
@@ -686,7 +757,7 @@ fun ChatScreen(
 					// first and filling second is what makes the maximum mean
 					// anything.
 					modifier = Modifier
-						.widthIn(max = Layout.ReadableMeasure)
+						.widthIn(max = Layout.ChatMeasure)
 						.fillMaxWidth(),
 				)
 			}
@@ -1086,6 +1157,68 @@ fun ChatScreen(
  * plainly that allowing it allows every later SSH call in the conversation.
  */
 @Composable
+private fun ChatWelcome(
+	providerName: String,
+	modelLabel: String,
+	workspaceName: String,
+	configured: Boolean,
+	onEnableDemo: () -> Unit,
+	onOpenFiles: () -> Unit,
+	modifier: Modifier = Modifier,
+) {
+	Column(
+		modifier = modifier,
+		verticalArrangement = Arrangement.spacedBy(14.dp),
+	) {
+		Row(
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.spacedBy(8.dp),
+		) {
+			StatusDot(MaterialTheme.colorScheme.primary)
+			Eyebrow("New session / ready")
+		}
+		Text(
+			text = "What should we\nwork on?",
+			style = MaterialTheme.typography.displaySmall,
+			color = MaterialTheme.colorScheme.onBackground,
+		)
+		Text(
+			text = "This conversation has its own workspace. Ask for a file, a " +
+				"search, or a plan — the assistant sees paths only relative to it.",
+			style = MaterialTheme.typography.bodyLarge,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			modifier = Modifier.widthIn(max = Layout.UserBubbleMeasure),
+		)
+		Spacer(Modifier.height(10.dp))
+		Hairline(Modifier.widthIn(max = Layout.UserBubbleMeasure))
+		Spacer(Modifier.height(2.dp))
+		MetaLine("Model", "$providerName / $modelLabel", Modifier.widthIn(max = Layout.UserBubbleMeasure))
+		MetaLine("Workspace", workspaceName, Modifier.widthIn(max = Layout.UserBubbleMeasure))
+		Row(
+			horizontalArrangement = Arrangement.spacedBy(8.dp),
+			modifier = Modifier.padding(top = 4.dp),
+		) {
+			if (!configured) {
+				Button(
+					onClick = onEnableDemo,
+					shape = MaterialTheme.shapes.small,
+					contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+				) {
+					Text("Try demo mode", style = MaterialTheme.typography.labelLarge)
+				}
+			}
+			OutlinedButton(
+				onClick = onOpenFiles,
+				shape = MaterialTheme.shapes.small,
+				contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+			) {
+				Text("Open files", style = MaterialTheme.typography.labelLarge)
+			}
+		}
+	}
+}
+
+@Composable
 private fun SshConsentDialog(
 	consent: SshConsent,
 	onAllow: () -> Unit,
@@ -1411,16 +1544,6 @@ private fun MessageBubble(
 	onSelectBranch: (String?, String) -> Unit,
 ) {
 	val alignment = if (message.fromUser) Alignment.End else Alignment.Start
-	val bubbleColor = if (message.fromUser) {
-		MaterialTheme.colorScheme.primaryContainer
-	} else {
-		MaterialTheme.colorScheme.surface
-	}
-	val onColor = if (message.fromUser) {
-		MaterialTheme.colorScheme.onPrimaryContainer
-	} else {
-		MaterialTheme.colorScheme.onSurface
-	}
 	val context = LocalContext.current
 
 	// Per-message view state, not stored: "show me the Markdown" and "repair the
@@ -1458,7 +1581,7 @@ private fun MessageBubble(
 			trailing = summaryCount,
 			paid = paid,
 			modifier = Modifier
-				.widthIn(max = Layout.ReadableMeasure)
+				.widthIn(max = Layout.ChatMeasure)
 				// No vertical padding of its own. The collapsed header already
 				// carries its own inset, and the 2dp that used to be here was
 				// part of a measured 47px gap between two one-line rows.
@@ -1477,18 +1600,44 @@ private fun MessageBubble(
 	Column(
 		modifier = Modifier.fillMaxWidth(),
 		horizontalAlignment = alignment,
+		verticalArrangement = Arrangement.spacedBy(6.dp),
 	) {
+		Row(
+			modifier = Modifier.fillMaxWidth(),
+			horizontalArrangement = if (message.fromUser) Arrangement.End else Arrangement.Start,
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			if (!message.fromUser) {
+				StatusDot(MaterialTheme.colorScheme.primary, size = 5.dp)
+				Spacer(Modifier.width(7.dp))
+			}
+			Eyebrow(
+				text = if (message.fromUser) "You" else "Assistant",
+				color = if (message.fromUser) {
+					MaterialTheme.colorScheme.onSurfaceVariant
+				} else {
+					MaterialTheme.colorScheme.primary
+				},
+			)
+		}
 		Box(
 			modifier = if (message.fromUser) {
 				Modifier
-					.widthIn(max = Layout.ReadableMeasure)
-					.background(bubbleColor, RoundedCornerShape(14.dp))
-					.padding(horizontal = 12.dp, vertical = 8.dp)
+					.widthIn(max = Layout.UserBubbleMeasure)
+					.background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.medium)
+					.border(
+						1.dp,
+						MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
+						MaterialTheme.shapes.medium,
+					)
+					.padding(horizontal = 14.dp, vertical = 11.dp)
 			} else {
 				// An assistant answer is the document, not a remark in a chat:
-				// no bubble, no 640dp cap. On a tablet that is the difference
-				// between a paragraph and a column with room for code and tables.
-				Modifier.fillMaxWidth()
+				// no bubble. It gets a wide measure for code and tables, but not
+				// the full tablet width -- a 1,200dp paragraph is a wall.
+				Modifier
+					.widthIn(max = Layout.ChatMeasure)
+					.fillMaxWidth()
 			},
 		) {
 			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
@@ -1562,7 +1711,7 @@ private fun MessageBubble(
 							text = message.plainText,
 							style = MaterialTheme.typography.bodySmall,
 							fontFamily = FontFamily.Monospace,
-							color = onColor,
+							color = MaterialTheme.colorScheme.onSurface,
 							modifier = Modifier
 								.fillMaxWidth()
 								.horizontalScroll(rememberScrollState())
@@ -1593,7 +1742,7 @@ private fun MessageBubble(
 							Text(
 								text = text,
 								style = MaterialTheme.typography.bodyLarge,
-								color = onColor,
+								color = MaterialTheme.colorScheme.onSurface,
 							)
 						} else {
 							MarkdownText(text = text, deltas = message.deltas)
@@ -1633,7 +1782,7 @@ private fun MessageBubble(
 						Text(
 							text = "📎 ${attachment.displayName}",
 							style = MaterialTheme.typography.labelLarge,
-							color = onColor,
+							color = MaterialTheme.colorScheme.onSurface,
 						)
 					}
 				}
@@ -1840,6 +1989,7 @@ private fun Composer(
 	modifier: Modifier = Modifier,
 ) {
 	Column(modifier = modifier) {
+		Hairline()
 		// Above the field and right-aligned, so it reads as a status of the
 		// conversation rather than as a control on the message being written.
 		// It draws nothing at all when the provider reports nothing to draw.
@@ -1895,7 +2045,7 @@ private fun Composer(
 		Row(
 			modifier = Modifier
 				.fillMaxWidth()
-				.padding(horizontal = comfortableGutter(), vertical = 8.dp),
+				.padding(horizontal = comfortableGutter(), vertical = 10.dp),
 			verticalAlignment = Alignment.Bottom,
 			horizontalArrangement = Arrangement.spacedBy(8.dp),
 		) {
@@ -1931,11 +2081,13 @@ private fun Composer(
 			onValueChange = onValueChange,
 			modifier = Modifier.weight(1f),
 			placeholder = {
-				Text(if (enabled) "Message" else "Add an API key to start")
+				Text(
+					if (enabled) "Message the assistant…" else "Add an API key to start",
+				)
 			},
 			enabled = enabled && !isStreaming,
 			maxLines = 6,
-			shape = RoundedCornerShape(20.dp),
+			shape = MaterialTheme.shapes.small,
 			keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
 			keyboardActions = KeyboardActions(),
 		)
@@ -1944,7 +2096,10 @@ private fun Composer(
 		// Reaching for a separate stop control mid-generation is worse than
 		// having the same target do the obvious thing.
 		if (isStreaming) {
-			FilledIconButton(onClick = onStop) {
+			FilledIconButton(
+				onClick = onStop,
+				shape = MaterialTheme.shapes.small,
+			) {
 				Icon(Icons.Filled.Stop, contentDescription = "Stop")
 			}
 		} else {
@@ -1953,6 +2108,7 @@ private fun Composer(
 				// An image alone is sendable: "what is this?" is implied, and
 				// requiring text would make attaching one a two-step job.
 				enabled = enabled && (value.isNotBlank() || attachments.isNotEmpty()),
+				shape = MaterialTheme.shapes.small,
 				colors = IconButtonDefaults.filledIconButtonColors(
 					containerColor = MaterialTheme.colorScheme.primary,
 					contentColor = MaterialTheme.colorScheme.onPrimary,

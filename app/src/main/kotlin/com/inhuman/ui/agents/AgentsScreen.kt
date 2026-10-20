@@ -11,16 +11,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -69,9 +68,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.data.db.AgentEntity
+import com.inhuman.core.design.Eyebrow
+import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.ui.common.FlowRowCompat
+import com.inhuman.ui.common.WorkbenchBackButton
 import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.PaidToolsNotice
 import com.inhuman.ui.common.RemoteBadge
@@ -109,26 +111,27 @@ fun AgentsScreen(
 
 	Scaffold(
 		topBar = {
-			TopAppBar(
-				title = { Text("Assistants", style = MaterialTheme.typography.titleMedium) },
-				navigationIcon = {
-					IconButton(onClick = onBack) {
-						Text("‹", style = MaterialTheme.typography.titleLarge)
-					}
-				},
-				colors = TopAppBarDefaults.topAppBarColors(
-					containerColor = MaterialTheme.colorScheme.background,
-					titleContentColor = MaterialTheme.colorScheme.onBackground,
-					navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
-				),
-			)
+			Column {
+				TopAppBar(
+					title = { Text("Assistants", style = MaterialTheme.typography.titleLarge) },
+					navigationIcon = {
+						WorkbenchBackButton(onClick = onBack)
+					},
+					colors = TopAppBarDefaults.topAppBarColors(
+						containerColor = MaterialTheme.colorScheme.background,
+						titleContentColor = MaterialTheme.colorScheme.onBackground,
+						navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+					),
+				)
+				Hairline()
+			}
 		},
 		floatingActionButton = {
 			FloatingActionButton(
 				onClick = viewModel::create,
 				containerColor = MaterialTheme.colorScheme.primary,
 				contentColor = MaterialTheme.colorScheme.onPrimary,
-				shape = RoundedCornerShape(16.dp),
+				shape = MaterialTheme.shapes.medium,
 			) {
 				Icon(Icons.Filled.Add, contentDescription = "New assistant")
 			}
@@ -138,26 +141,44 @@ fun AgentsScreen(
 		Box(
 			modifier = Modifier
 				.fillMaxSize()
-				.padding(inner)
-				.windowInsetsPadding(WindowInsets.safeDrawing),
+				.padding(inner),
+			contentAlignment = Alignment.TopCenter,
 		) {
 			LazyColumn(
 				modifier = Modifier
-					// Constrain first, fill second: `fillMaxSize()` is greedy and
-					// consumes the incoming maximum, so swapping these two made
-					// the cap inert and the list ran the full tablet width.
-					.widthIn(max = Layout.ReadableMeasure)
+					.widthIn(max = 760.dp)
 					.fillMaxSize(),
-				contentPadding = PaddingValues(horizontal = comfortableGutter(), vertical = 8.dp),
-				verticalArrangement = Arrangement.spacedBy(6.dp),
+				contentPadding = PaddingValues(horizontal = comfortableGutter(), vertical = 20.dp),
+				verticalArrangement = Arrangement.spacedBy(0.dp),
 			) {
+				item(key = "header") {
+					Row(
+						modifier = Modifier
+							.fillMaxWidth()
+							.padding(bottom = 10.dp),
+						verticalAlignment = Alignment.CenterVertically,
+					) {
+						Eyebrow("Assistant profiles")
+						Spacer(Modifier.weight(1f))
+						Text(
+							text = state.agents.size.toString().padStart(2, '0'),
+							style = MaterialTheme.typography.labelMedium,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+					Hairline()
+				}
 				items(state.agents, key = { it.id }) { agent ->
 					AgentRow(
 						agent = agent,
+						providerName = state.providers
+							.firstOrNull { it.id == agent.providerId }?.name
+							?: "Provider",
 						modelLabel = viewModel.modelDisplayName(agent.model),
 						onEdit = { viewModel.edit(agent) },
 						onDelete = if (agent.isDefault) null else { { pendingDelete = agent } },
 					)
+					Hairline()
 				}
 			}
 		}
@@ -199,6 +220,7 @@ fun AgentsScreen(
 @Composable
 private fun AgentRow(
 	agent: AgentEntity,
+	providerName: String,
 	modelLabel: String,
 	onEdit: () -> Unit,
 	onDelete: (() -> Unit)?,
@@ -206,40 +228,39 @@ private fun AgentRow(
 	Column(
 		modifier = Modifier
 			.fillMaxWidth()
-			.background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
 			.clickable(onClick = onEdit)
-			.padding(14.dp),
-		verticalArrangement = Arrangement.spacedBy(6.dp),
+			.padding(vertical = 14.dp),
+		verticalArrangement = Arrangement.spacedBy(5.dp),
 	) {
 		Row(verticalAlignment = Alignment.CenterVertically) {
 			Text(
 				text = agent.name.ifBlank { "(unnamed)" },
 				style = MaterialTheme.typography.titleMedium,
-				color = MaterialTheme.colorScheme.onSurface,
+				color = MaterialTheme.colorScheme.onBackground,
 				modifier = Modifier.weight(1f),
 				maxLines = 1,
 				overflow = TextOverflow.Ellipsis,
 			)
 			if (agent.isDefault) {
 				Text(
-					text = "default",
-					style = MaterialTheme.typography.labelLarge,
+					text = "DEFAULT",
+					style = MaterialTheme.typography.labelSmall,
 					color = MaterialTheme.colorScheme.primary,
 					modifier = Modifier
 						.background(
 							MaterialTheme.colorScheme.primaryContainer,
-							RoundedCornerShape(6.dp),
+							RoundedCornerShape(4.dp),
 						)
-						.padding(horizontal = 8.dp, vertical = 2.dp),
+						.padding(horizontal = 6.dp, vertical = 3.dp),
 				)
 			}
 			onDelete?.let {
-				IconButton(onClick = it) {
+				IconButton(onClick = it, modifier = Modifier.size(32.dp)) {
 					Icon(
 						Icons.Filled.Delete,
 						contentDescription = "Delete",
-						tint = MaterialTheme.colorScheme.error,
-						modifier = Modifier.size(18.dp),
+						tint = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.size(17.dp),
 					)
 				}
 			}
@@ -249,13 +270,15 @@ private fun AgentRow(
 		// opening either.
 		Text(
 			text = buildString {
+				append(providerName)
+				append(" / ")
 				append(modelLabel)
 				if (agent.thinking) {
 					append(" · thinking")
 					agent.reasoningEffort?.let { append(" ($it)") }
 				}
 			},
-			style = MaterialTheme.typography.labelLarge,
+			style = MaterialTheme.typography.labelSmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 
@@ -265,7 +288,7 @@ private fun AgentRow(
 			text = agent.systemPrompt,
 			style = MaterialTheme.typography.bodyMedium,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
-			maxLines = 3,
+			maxLines = 2,
 			overflow = TextOverflow.Ellipsis,
 		)
 	}

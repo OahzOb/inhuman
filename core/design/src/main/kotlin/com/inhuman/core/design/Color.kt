@@ -5,31 +5,39 @@ import androidx.compose.ui.graphics.Color
 /**
  * A deliberately small palette.
  *
- * A chat app is mostly text on a near-black background, so the accent colour is
- * spent in very few places: the send button, a selected conversation, and the
- * streaming indicator. Everything else is a neutral step.
+ * A chat app is mostly text on a quiet background, so the accent is spent in
+ * very few places: the primary action, a selected row, the send control, and a
+ * live status dot. The neutrals are warm rather than blue-grey; blue-grey reads
+ * as a stock developer tool, while a warm graphite/paper pair gives the same
+ * restraint a little more character.
  */
 
-// Dark scheme -- the app's default, because a chat app is read at night.
-val Ink900 = Color(0xFF0B0D10)   // app background
-val Ink850 = Color(0xFF111418)   // message surface
-val Ink800 = Color(0xFF16191E)   // raised surface (composer, sheets)
-val Ink700 = Color(0xFF232830)   // dividers, inactive outlines
-val Ink500 = Color(0xFF6B7280)   // secondary text
-val Ink200 = Color(0xFFB7BDC7)   // primary text, softened
-val Ink50 = Color(0xFFF2F4F7)    // primary text, emphasis
+// Dark scheme -- the working default. Graphite with a warm bone foreground.
+val Ink900 = Color(0xFF0E0F0E)   // app background
+val Ink850 = Color(0xFF151715)   // surface
+val Ink800 = Color(0xFF1D201D)   // raised surface
+val Ink700 = Color(0xFF30342E)   // dividers, inactive outlines
+val Ink500 = Color(0xFF777B70)   // disabled text
+val Ink300 = Color(0xFFA9AB9F)   // secondary text
+val Ink200 = Color(0xFFC9C6BA)   // body text
+val Ink50 = Color(0xFFF2EEE3)    // emphasis
 
-// Accent. One hue, used sparingly.
-val Accent = Color(0xFF7AA2F7)
-val AccentDim = Color(0xFF3D5A8A)
+// Signal accent. Burnt orange, not a generic blue. The light scheme uses a
+// deeper step so links and the primary button still pass a contrast check on
+// warm paper.
+val Accent = Color(0xFFFF875B)
+val AccentDeep = Color(0xFFB74720)
+val AccentDim = Color(0xFF4A2418)
 
 // Semantic, for tool results and errors.
-val Warn = Color(0xFFE0AF68)
-val Danger = Color(0xFFF7768E)
-val Ok = Color(0xFF9ECE6A)
+val Warn = Color(0xFFE3B567)
+val Danger = Color(0xFFF27B6B)
+val DangerDeep = Color(0xFFA83226)
+val Ok = Color(0xFFA8C98B)
 
-// Light scheme -- present but not the focus; the dark palette is the design.
-val Paper100 = Color(0xFFFBFBFD)
-val Paper200 = Color(0xFFF1F2F6)
-val Paper300 = Color(0xFFE3E5EB)
-val PaperInk = Color(0xFF1B1F24)
+// Light scheme -- warm paper, ink, and the same signal accent.
+val Paper100 = Color(0xFFF3EFE5)   // app background
+val Paper200 = Color(0xFFEAE4D8)   // surface
+val Paper300 = Color(0xFFD8CFBF)   // raised surface / outline
+val PaperInk = Color(0xFF1B1A17)
+val PaperMuted = Color(0xFF6F685D)

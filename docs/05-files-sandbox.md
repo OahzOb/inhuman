@@ -287,22 +287,43 @@ against a link to `127.0.0.1` or a router's admin page. Only `http`/`https` are
 accepted, credentials in the URL are refused, and a hostile
 `Content-Disposition` name is sanitised before it reaches either destination.
 
-## The design layer, and the 640dp cap
+## The design layer
 
 `Layout` (`core/design/src/main/kotlin/com/inhuman/core/design/Layout.kt`):
 
 | Symbol | Value |
 | --- | --- |
-| `ReadableMeasure` | 640dp (`:42`) |
-| `GutterCompact` / `GutterWide` | 20dp / 32dp (`:45`, `:48`) |
-| `comfortableGutter()` | Compact → 20, otherwise 32 (`:119-120`) |
-| `prefersFabForPrimaryAction()` | Compact only (`:131-132`) |
-| `Layout.Space` | `BetweenMessages` 10, `InMessage` 6, `BetweenCollapsed` 4, `CollapsedPadding` 5 (`:61-92`) |
+| `ReadableMeasure` | 640dp — forms, settings and short prose |
+| `ChatMeasure` | 900dp — transcript and composer |
+| `UserBubbleMeasure` | 560dp |
+| `GutterCompact` / `GutterWide` | 20dp / 32dp |
+| `comfortableGutter()` | Compact → 20, otherwise 32 |
+| `prefersFabForPrimaryAction()` | Compact only |
+| `Layout.Space` | `BetweenMessages` 10, `InMessage` 6, `BetweenCollapsed` 4, `CollapsedPadding` 5 |
 
 `currentFormFactor()` reads `LocalConfiguration.current.screenWidthDp` with
-`0..599 → Compact`, `600..839 → Medium`, else `Expanded` (`:105-110`). **Medium
-behaves like Expanded** for both helpers above — a fact worth knowing before
-adding a third case.
+`0..599 → Compact`, `600..839 → Medium`, else `Expanded`. **Medium behaves like
+Expanded** for both helpers above — a fact worth knowing before adding a third
+case.
+
+### The visual system
+
+The palette is **warm paper in light, warm graphite in dark**, with one burnt
+orange signal accent (`Color.kt`). The light scheme uses `AccentDeep` for text and
+buttons so the accent still passes contrast on paper; the dark scheme uses the
+brighter `Accent` with a dark `onPrimary`. `Theme.kt` fills the Material
+`secondaryContainer`, surface-container and error-container roles as well: leaving
+them at the Material defaults reintroduced a lavender `FilterChip` and a generic
+purple dialog on the first render.
+
+`Type.kt` keeps body text at 16sp/26sp and moves `labelMedium`/`labelSmall` to
+monospace with 1sp tracking. Mono is for metadata (wordmark, section codes,
+timestamps, model/workspace lines), never for paragraphs.
+
+`Workbench.kt` holds the shared visual vocabulary: `Wordmark`, `Eyebrow`,
+`Hairline`, `StatusDot`, `WorkbenchGrid`, `SectionHeading`, `MetaLine`. A screen
+should reach for these before adding a literal colour, radius, or spacing value.
+`WorkbenchGrid` is used only on empty canvases, at 12% alpha; it is not wallpaper.
 
 ### The cap binds only when `widthIn` comes first
 
@@ -311,22 +332,12 @@ the modifier order. The measurement that made it stick: with the order reversed,
 the composer's field stretched to **2208px** on a 1280dp tablet while the messages
 above it stopped at **1232**.
 
-**Seven call sites had the order the wrong way round**, so the cap did nothing
-there and the layouts ran the full 1280dp: `WideDialog`, `AgentsScreen`,
-`FilesScreen`, `ConversationsScreen` (list and empty state) and `SettingsScreen`
-(two sites). All seven now constrain first and fill second; the chat screen's
-composer and error strip were already correct and carry the measurement above.
-
-**Verified on the tablet AVD** (2560x1600 @ 320dpi = 1280dp), measuring the
-conversations empty state through `uiautomator`:
-
-```
-text column    1152px = 576dp, centred at 1280px (the screen centre)
-```
-
-576dp is `ReadableMeasure` (640dp) less the 32dp gutter on each side, which is the
-expected result and exactly what the cap was supposed to produce. Before the fix
-this text ran the full 2560px.
+Seven call sites once had the order wrong and ran the full 1280dp. All now
+constrain first and fill second. The chat transcript, assistant replies and
+composer share `ChatMeasure` (900dp); user messages use `UserBubbleMeasure`
+(560dp); settings and forms use `ReadableMeasure` (640dp). The conversation list
+and home rail are expressed as widths in `ConversationsScreen` because they are a
+two-column layout rather than a reading measure.
 
 **Why the wrong order is silent**: `fillMaxWidth()`/`fillMaxSize()` set
 `minWidth = maxWidth = incoming max`. A following `widthIn(max = 640.dp)` can only
@@ -334,29 +345,24 @@ coerce its argument into that already-fixed range, so it clamps back to the
 incoming maximum and the cap never binds — the constraint is doing nothing at all,
 not merely producing something slightly too wide.
 
-The fix is the order, and the parent has to centre the result — which is what
-makes `ChatScreen`'s `Column(horizontalAlignment = CenterHorizontally)` and
-`ConversationsScreen`'s `Box(contentAlignment = Center)` load-bearing rather than
-cosmetic. Change one of those alignments and every capped child moves to the
-start edge.
+The parent has to centre the result. `ChatScreen` centres its 900dp transcript and
+composer; `ConversationsScreen` centres the 760dp list panel on the tablet and
+uses a 320dp rail beside it. Change the alignment and every capped child moves to
+the edge.
 
 ### The rest of the design layer
 
-- `WideDialog` (`WideDialog.kt:55-128`): `usePlatformDefaultWidth = false`, a
-  Surface with 12/24dp margin, 20dp corner radius, tonal elevation 6dp. The body
-  is bounded by `heightIn(max = maxBodyHeight)` (default 420dp) plus
-  `verticalScroll`, and the comment explains why a bound rather than a `weight`:
-  **`verticalScroll` inside an unbounded column does not clip, it overflows.**
-  Measured symptom: a multi-line text field drew its own text past its border and
-  over the label below it. The actions sit **outside** the scroll area, which is
-  what lets the body be arbitrarily long without pushing Save off the bottom.
-- `LongTextField.kt`: a collapsed preview capped at 96dp / 4 lines with ellipsis,
-  deliberately **not** scrollable; editing happens in a `WideDialog` with
-  `maxBodyHeight` 480dp and a field at `heightIn(min = 280dp)`.
-- `Theme.kt:49-52`: `InhumanTheme(darkTheme = isSystemInDarkTheme())`. **Dark is
-  the designed scheme**; the light scheme is reduced, and `LightScheme` sets no
-  `tertiary` or `onPrimaryContainer` (`Color.kt:31-35`, `Theme.kt:29-40`).
-- `Type.kt`: `bodyLarge` 16sp/26sp line height, `bodyMedium` 14sp/21sp.
+- `WideDialog` (`WideDialog.kt`): `usePlatformDefaultWidth = false`, a Surface
+  with 12/24dp margin, a 22dp corner (theme `extraLarge`), tonal elevation 6dp.
+  The body is bounded by `heightIn(max = maxBodyHeight)` plus `verticalScroll`,
+  because a `verticalScroll` inside an unbounded column overflows rather than
+  clips. Actions sit outside the scroll area.
+- `LongTextField.kt`: a collapsed preview capped at 96dp / 4 lines with ellipsis;
+  editing happens in a `WideDialog` with a field at `heightIn(min = 280dp)`.
+- `InhumanTheme(darkTheme = isSystemInDarkTheme())`: both schemes are first-class.
+  The dark scheme is no longer "the design" with a reduced light fallback.
+- `Type.kt`: body 16sp/26sp, mono labels; `displaySmall` 36sp for the workbench
+  rail and welcome headline.
 
 ## Tests in `:core:files`
 

@@ -2,24 +2,32 @@ package com.inhuman.ui.settings
 
 import android.content.Context
 import android.content.Intent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -47,7 +55,11 @@ import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.ProviderKinds
 import com.inhuman.core.data.db.ProviderReasoning
+import com.inhuman.core.design.Eyebrow
+import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.Layout
+import com.inhuman.core.design.SectionHeading
+import com.inhuman.core.design.StatusDot
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.diagnostics.AppDiagnostics
 import com.inhuman.ui.chat.ProviderDraft
@@ -74,19 +86,26 @@ fun SettingsScreen(
 
 	Scaffold(
 		topBar = {
-			TopAppBar(
-				title = { Text("Settings", style = MaterialTheme.typography.titleMedium) },
-				navigationIcon = {
-					IconButton(onClick = onBack) {
-						Text("‹", style = MaterialTheme.typography.titleLarge)
-					}
-				},
-				colors = TopAppBarDefaults.topAppBarColors(
-					containerColor = MaterialTheme.colorScheme.background,
-					titleContentColor = MaterialTheme.colorScheme.onBackground,
-					navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
-				),
-			)
+			Column {
+				TopAppBar(
+					title = { Text("Settings", style = MaterialTheme.typography.titleLarge) },
+					navigationIcon = {
+						IconButton(onClick = onBack) {
+							Icon(
+								Icons.AutoMirrored.Filled.ArrowBack,
+								contentDescription = "Back",
+								modifier = Modifier.size(20.dp),
+							)
+						}
+					},
+					colors = TopAppBarDefaults.topAppBarColors(
+						containerColor = MaterialTheme.colorScheme.background,
+						titleContentColor = MaterialTheme.colorScheme.onBackground,
+						navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+					),
+				)
+				Hairline()
+			}
 		},
 		containerColor = MaterialTheme.colorScheme.background,
 	) { inner ->
@@ -94,9 +113,9 @@ fun SettingsScreen(
 			modifier = Modifier
 				.fillMaxSize()
 				.padding(inner)
-				.windowInsetsPadding(WindowInsets.safeDrawing)
 				.verticalScroll(rememberScrollState())
 				.padding(horizontal = comfortableGutter(), vertical = 12.dp),
+			horizontalAlignment = Alignment.CenterHorizontally,
 			verticalArrangement = Arrangement.spacedBy(10.dp),
 		) {
 			Column(
@@ -106,51 +125,27 @@ fun SettingsScreen(
 					// was inert and the field stretched across 1280dp.
 					.widthIn(max = Layout.ReadableMeasure)
 					.fillMaxWidth(),
-				verticalArrangement = Arrangement.spacedBy(6.dp),
+				verticalArrangement = Arrangement.spacedBy(10.dp),
 			) {
-				Text(
-					text = "Model providers",
-					style = MaterialTheme.typography.titleMedium,
-					color = MaterialTheme.colorScheme.onBackground,
-				)
-				Text(
-					text = "Each assistant chooses a provider. Keys are stored encrypted " +
-						"with the Android Keystore and are sent only to that provider.",
-					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				SectionHeading(
+					code = "01 / Models",
+					title = "Providers",
+					detail = "Each assistant chooses a provider. Keys are stored with the " +
+						"Android Keystore and sent only to that provider.",
 				)
 				state.providers.forEach { provider ->
-					OutlinedButton(
+					ProviderRow(
+						name = provider.name,
+						baseUrl = provider.baseUrl,
+						hasKey = viewModel.hasProviderKey(provider.id),
 						onClick = { viewModel.editProvider(provider) },
-						modifier = Modifier.fillMaxWidth(),
-					) {
-						Column(
-							modifier = Modifier.fillMaxWidth(),
-							verticalArrangement = Arrangement.spacedBy(2.dp),
-						) {
-							Text(provider.name, style = MaterialTheme.typography.titleSmall)
-							Text(
-								text = provider.baseUrl,
-								style = MaterialTheme.typography.bodySmall,
-								color = MaterialTheme.colorScheme.onSurfaceVariant,
-							)
-							Text(
-								text = if (viewModel.hasProviderKey(provider.id)) {
-									"Key saved"
-								} else {
-									"No key"
-								},
-								style = MaterialTheme.typography.labelSmall,
-								color = MaterialTheme.colorScheme.onSurfaceVariant,
-							)
-						}
-					}
+					)
+					Hairline()
 				}
-				Row(
-					horizontalArrangement = Arrangement.spacedBy(8.dp),
-					verticalAlignment = Alignment.CenterVertically,
-				) {
-					TextButton(onClick = viewModel::addProvider) { Text("Add provider") }
+				TextButton(onClick = viewModel::addProvider) {
+					Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+					Spacer(Modifier.width(6.dp))
+					Text("Add provider", style = MaterialTheme.typography.labelLarge)
 				}
 				state.providerStatus?.let { status ->
 					Text(
@@ -165,30 +160,22 @@ fun SettingsScreen(
 				}
 			}
 
-			HorizontalDivider(
-				modifier = Modifier.padding(vertical = 8.dp),
-				color = MaterialTheme.colorScheme.outlineVariant,
-			)
+			Hairline(Modifier.padding(vertical = 14.dp))
 
 			Column(
 				modifier = Modifier
 					.widthIn(max = Layout.ReadableMeasure)
 					.fillMaxWidth(),
-				verticalArrangement = Arrangement.spacedBy(6.dp),
+				verticalArrangement = Arrangement.spacedBy(8.dp),
 			) {
-				Text(
-					text = "Web tools",
-					style = MaterialTheme.typography.titleMedium,
-					color = MaterialTheme.colorScheme.onBackground,
+				SectionHeading(
+					code = "02 / Web",
+					title = "Web tools",
+					detail = "web_search and web_fetch use their own keys, not the chat " +
+						"provider's. Pick a backend for each; calls are billed by the service " +
+						"you choose.",
 				)
-				Text(
-					text = "web_search and web_fetch use their own keys, separate from any " +
-						"chat provider. This also works when the chat model is another " +
-						"provider. Calls are billed by the selected service.",
-					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-				Text("Search backend", style = MaterialTheme.typography.labelLarge)
+				Eyebrow("Search backend")
 				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 					FilterChip(
 						selected = state.webSearchBackend == "deepseek",
@@ -201,7 +188,7 @@ fun SettingsScreen(
 						label = { Text("Exa") },
 					)
 				}
-				Text("Fetch backend", style = MaterialTheme.typography.labelLarge)
+				Eyebrow("Fetch backend")
 				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 					FilterChip(
 						selected = state.webFetchBackend == "deepseek",
@@ -252,7 +239,10 @@ fun SettingsScreen(
 						color = MaterialTheme.colorScheme.error,
 					)
 				}
-				TextButton(onClick = viewModel::saveWebTools) { Text("Save web keys") }
+				Button(
+					onClick = viewModel::saveWebTools,
+					shape = MaterialTheme.shapes.small,
+				) { Text("Save web keys") }
 				Text(
 					text = "There is no test button: validating these keys would spend a real search.",
 					style = MaterialTheme.typography.labelSmall,
@@ -470,6 +460,58 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun ProviderRow(
+	name: String,
+	baseUrl: String,
+	hasKey: Boolean,
+	onClick: () -> Unit,
+) {
+	Row(
+		modifier = Modifier
+			.fillMaxWidth()
+			.clickable(onClick = onClick)
+			.padding(vertical = 11.dp),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		StatusDot(
+			if (hasKey) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline,
+			size = 7.dp,
+		)
+		Spacer(Modifier.width(12.dp))
+		Column(
+			modifier = Modifier.weight(1f),
+			verticalArrangement = Arrangement.spacedBy(3.dp),
+		) {
+			Text(
+				text = name,
+				style = MaterialTheme.typography.titleMedium,
+				color = MaterialTheme.colorScheme.onBackground,
+			)
+			Text(
+				text = baseUrl,
+				style = MaterialTheme.typography.labelSmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 1,
+			)
+		}
+		Eyebrow(
+			text = if (hasKey) "Key" else "No key",
+			color = if (hasKey) {
+				MaterialTheme.colorScheme.onSurfaceVariant
+			} else {
+				MaterialTheme.colorScheme.error
+			},
+		)
+		Icon(
+			Icons.AutoMirrored.Filled.KeyboardArrowRight,
+			contentDescription = null,
+			tint = MaterialTheme.colorScheme.onSurfaceVariant,
+			modifier = Modifier.size(18.dp),
+		)
+	}
+}
+
+@Composable
 private fun ProviderEditorDialog(
 	draft: ProviderDraft,
 	onUpdate: ((ProviderDraft) -> ProviderDraft) -> Unit,
@@ -609,7 +651,9 @@ private fun ProviderEditorDialog(
 				}
 			}
 		},
-		confirmButton = { TextButton(onClick = onSave) { Text("Save") } },
+		confirmButton = {
+			Button(onClick = onSave, shape = MaterialTheme.shapes.small) { Text("Save") }
+		},
 		dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
 		containerColor = MaterialTheme.colorScheme.surface,
 		titleContentColor = MaterialTheme.colorScheme.onSurface,

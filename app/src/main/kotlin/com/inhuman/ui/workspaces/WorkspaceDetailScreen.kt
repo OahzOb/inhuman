@@ -13,9 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -58,6 +56,7 @@ import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.ui.common.WorkbenchBackButton
 import com.inhuman.ui.common.openWorkspaceInFiles
 import java.text.DateFormat
 import java.util.Date
@@ -100,13 +99,13 @@ fun WorkspaceDetailScreen(
 				title = {
 					Text(
 						text = workspace?.name ?: "Workspace",
-						style = MaterialTheme.typography.titleMedium,
+						style = MaterialTheme.typography.titleLarge,
 						maxLines = 1,
 						overflow = TextOverflow.Ellipsis,
 					)
 				},
 				navigationIcon = {
-					IconButton(onClick = onBack) { Text("‹", style = MaterialTheme.typography.titleLarge) }
+					WorkbenchBackButton(onClick = onBack)
 				},
 				actions = {
 					Box {
@@ -145,7 +144,6 @@ fun WorkspaceDetailScreen(
 			modifier = Modifier
 				.fillMaxSize()
 				.padding(inner)
-				.windowInsetsPadding(WindowInsets.safeDrawing)
 				.verticalScroll(rememberScrollState())
 				.padding(horizontal = comfortableGutter()),
 			verticalArrangement = Arrangement.spacedBy(12.dp),

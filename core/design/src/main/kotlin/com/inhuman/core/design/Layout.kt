@@ -41,6 +41,19 @@ object Layout {
 	 */
 	val ReadableMeasure: Dp = 640.dp
 
+	/**
+	 * The chat column.
+	 *
+	 * Wider than prose because a reply contains code and tables, but not the
+	 * full tablet width: at 1280dp a paragraph set to the edge is a wall. The
+	 * composer and the transcript share this axis so they do not look like two
+	 * unrelated columns.
+	 */
+	val ChatMeasure: Dp = 900.dp
+
+	/** A user's own message: a short remark, not a document. */
+	val UserBubbleMeasure: Dp = 560.dp
+
 	/** Gutter for phone-width layouts. */
 	val GutterCompact: Dp = 20.dp
 
