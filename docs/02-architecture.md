@@ -122,6 +122,22 @@ records its origin, so Back returns to the workspace rather than the home list.
 Registering one handler per screen would fire several on a single press and jump
 two or three levels at once.
 
+### Process lifetime
+
+A streaming turn starts `TurnForegroundService` through the
+`onStreamingChanged` callback passed to `ChatViewModel` at wiring time. The
+callback lives in `MainActivity` and uses the application context, not a screen's
+composition: navigating back while a reply runs must not stop the service and
+leave the turn to be killed. The service stops on the next `false` and in
+`ChatViewModel.onCleared`. It is a `dataSync` service with a low-importance,
+silent notification; denying `POST_NOTIFICATIONS` hides the notice but does not
+stop the service.
+
+A pending backup restore is applied in `InhumanApp.onCreate`, before any
+repository opens Room, because replacing a live database under an open connection
+is not safe. Navigation and repositories then start against the restored file
+normally.
+
 ### Start-up sweep
 
 One `LaunchedEffect` at the root sweeps workspace directories that no

@@ -50,7 +50,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -125,10 +127,25 @@ class ChatViewModel(
 	 * after being switched off is a gate that opens the wrong way.
 	 */
 	private val sshToolEnabled: () -> Boolean = { false },
+	/**
+	 * Called whenever a stream starts or stops.
+	 *
+	 * The app layer owns the foreground service; the view model deliberately
+	 * knows nothing about Android services or notifications.
+	 */
+	private val onStreamingChanged: (Boolean) -> Unit = {},
 ) : ViewModel() {
 
 	private val _state = MutableStateFlow(ChatUiState())
 	val state: StateFlow<ChatUiState> = _state.asStateFlow()
+
+	init {
+		viewModelScope.launch {
+			_state.map { it.isStreaming }
+				.distinctUntilChanged()
+				.collect { onStreamingChanged(it) }
+		}
+	}
 
 	private var conversation: ConversationEntity? = null
 	/** The provider profile this conversation copied at creation. */
@@ -3233,6 +3250,13 @@ class ChatViewModel(
 		FinishReason.ContentFilter -> "filtered"
 		FinishReason.Cancelled -> "stopped"
 		FinishReason.Unknown -> "ended early"
+	}
+
+	override fun onCleared() {
+		// A cleared view model cannot deliver a later "false"; stop the
+		// foreground service here rather than leaving it until the process dies.
+		onStreamingChanged(false)
+		super.onCleared()
 	}
 
 	companion object {

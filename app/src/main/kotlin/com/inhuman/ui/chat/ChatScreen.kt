@@ -1,7 +1,10 @@
 package com.inhuman.ui.chat
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.scrollBy
@@ -13,6 +16,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -194,7 +198,9 @@ fun ChatScreen(
 			}
 		}
 	}
-
+	val notificationPermission = rememberLauncherForActivityResult(
+		ActivityResultContracts.RequestPermission(),
+	) { /* The service still runs if denied; only the notice is hidden. */ }
 	// ## Why the transcript is read down there and not here
 	//
 	// The scaffold below wants six values that change on a human timescale: a
@@ -215,6 +221,18 @@ fun ChatScreen(
 		.map { it.messages.lastOrNull()?.plainText?.length ?: 0 }
 		.collectAsStateWithLifecycle(0)
 	val isStreaming by viewModel.state.map { it.isStreaming }.collectAsStateWithLifecycle(false)
+	// The foreground service can keep working without this grant; asking for it
+	// is about making the ongoing notice visible, not about correctness.
+	LaunchedEffect(isStreaming) {
+		if (isStreaming && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+			ContextCompat.checkSelfPermission(
+				ctx,
+				Manifest.permission.POST_NOTIFICATIONS,
+			) != PackageManager.PERMISSION_GRANTED
+		) {
+			notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+		}
+	}
 	val sshAllowed by viewModel.state.map { it.sshAllowed }.collectAsStateWithLifecycle(false)
 	val rollbackAvailable by viewModel.state
 		.map { it.rollbackAvailable }

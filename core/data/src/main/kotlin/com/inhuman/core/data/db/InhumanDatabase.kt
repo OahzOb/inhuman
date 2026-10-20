@@ -393,6 +393,9 @@ abstract class InhumanDatabase : RoomDatabase() {
 	companion object {
 		const val NAME = "inhuman.db"
 
+		/** Mirrors the Room annotation; backups record it without reflection. */
+		const val VERSION = 13
+
 		/**
 		 * 1 -> 2: tool-call columns.
 		 *

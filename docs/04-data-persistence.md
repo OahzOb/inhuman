@@ -483,6 +483,32 @@ Three properties worth knowing:
 throws because there is no workspace to create into; creation is offered inside
 a workspace folder.
 
+## Encrypted backup
+
+`BackupRepository.kt`. Export snapshots the database with `VACUUM INTO` (a
+standalone, checkpointed copy, not a live file plus WAL), zips it with
+`filesDir/conversations`, and encrypts the ZIP with AES-256-GCM and
+PBKDF2-HMAC-SHA256 (210,000 iterations). The header carries the magic, salt and
+IV; the passphrase is never stored. API keys are **not** in the archive because
+they live in the Keystore-backed `SecureStore`. Rollback snapshots are omitted;
+import clears the current snapshot directory rather than offering a rewind to
+files that are no longer present.
+
+Import is deliberately two-phase:
+
+1. The archive is decrypted into `filesDir/backup-restore-staging` and validated
+   (SQLite header, path traversal, only `inhuman.db` / `conversations/*`). A
+   marker records that a restore is pending.
+2. `InhumanApp.onCreate` calls `applyPendingRestore` **before** Room opens. It
+   copies the staged files beside the current ones, renames the current database
+   and workspace directory aside, installs the staged pair, and only deletes the
+   old copies after both renames succeed. A failure restores the old pair. The
+   app then starts Room normally, so migrations run against the restored
+   database.
+
+The UI says the app must restart for this reason. There is no hot restore: no
+open Room connection is ever replaced underneath its callers.
+
 ## Tests in this module
 
 Three JVM files and four device files:

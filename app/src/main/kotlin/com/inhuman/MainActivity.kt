@@ -1,6 +1,7 @@
 package com.inhuman
 
 import android.os.Bundle
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -16,9 +17,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.content.ContextCompat
 import com.inhuman.core.ai.ssh.SshClient
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.AgentRepository
+import com.inhuman.core.data.BackupRepository
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.core.design.InhumanTheme
@@ -75,6 +78,7 @@ private fun InhumanRoot() {
 	val secure = remember { SecureStore(context) }
 	val repository = remember { ConversationRepository(context) }
 	val agents = remember { AgentRepository(context, secure) }
+	val backup = remember { BackupRepository(context) }
 
 	// Clear out workspace directories that no conversation refers to.
 	//
@@ -231,6 +235,7 @@ private fun InhumanRoot() {
 						secure,
 						agents,
 						repository,
+						backup,
 						File(context.applicationContext.filesDir, "ssh/known_hosts"),
 					)
 				}
@@ -315,6 +320,17 @@ private fun InhumanRoot() {
 						),
 						sshToolEnabled = {
 							secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1"
+						},
+						onStreamingChanged = { streaming ->
+							val app = context.applicationContext
+							val intent = Intent(app, TurnForegroundService::class.java)
+							runCatching {
+								if (streaming) {
+									ContextCompat.startForegroundService(app, intent)
+								} else {
+									app.stopService(intent)
+								}
+							}
 						},
 					)
 				}

@@ -333,6 +333,52 @@ Screenshots land in `.shots/` at 2560x1600, with a 900px copy beside them and a
 mean-brightness figure, so an all-black frame (sleeping or locked device) can
 never pass silently.
 
+### Release build
+
+Release signing is local and deliberately not in the repository. Create
+`keystore.properties` at the project root (and a keystore beside it, both
+gitignored) with:
+
+```properties
+storeFile=keystore/inhuman-release.jks
+storePassword=…
+keyAlias=inhuman
+keyPassword=…
+```
+
+Then:
+
+```powershell
+.\gradlew.bat :app:assembleRelease
+# app/build/outputs/apk/release/app-release.apk
+```
+
+If the properties file is absent, the release build falls back to the debug
+signing key so a fresh clone can still build; that build cannot update a
+production signing identity. The release version is `0.2.0` / versionCode 2.
+`lintVital` is skipped in this offline environment (`checkReleaseBuilds =
+false`); run lint separately when the network is available.
+
+### Backup and long turns
+
+Settings → **03 / Backup** writes one AES-256-GCM encrypted file of the
+database and every workspace file, using PBKDF2-HMAC-SHA256 (210,000 iterations).
+The passphrase is never stored and cannot be recovered. **API keys are not in the
+backup** — they are Keystore-backed and not portable. Rollback snapshots are also
+omitted; import clears them rather than offering a rewind to files that are not
+present.
+
+Import decrypts and validates into a staging directory while the app runs, then
+asks for a restart. The swap happens in `InhumanApp.onCreate`, before Room opens,
+with the current database and workspace directory renamed aside until the new
+ones are in place. A failure restores the old ones.
+
+A streaming reply starts a `dataSync` foreground service (`TurnForegroundService`)
+from the chat view model's `onStreamingChanged`, so screen-off does not let
+Android kill a long model/tool turn. It stops as soon as `isStreaming` is false.
+On Android 13+ the notification permission is requested on the first turn; if it
+is denied the service still runs, only the notice is hidden.
+
 ### Emulator
 
 ```

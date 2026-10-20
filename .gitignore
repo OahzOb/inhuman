@@ -8,6 +8,11 @@ build/
 # versioning -- they are regenerated on demand.
 .shots/
 
+# Release signing material. The keystore and its password must never enter the
+# repository; losing them means no future update can be installed over this one.
+keystore/
+keystore.properties
+
 # The SDK location, which differs per machine.
 local.properties
 

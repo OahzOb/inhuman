@@ -15,7 +15,7 @@ architecture from scratch:
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
 | `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the `ssh_exec` transport** |
-| `docs/04-data-persistence.md` | Room schema v12, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider` |
+| `docs/04-data-persistence.md` | Room schema v13, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
@@ -292,6 +292,15 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   effectively bricked.
 - **The quota check walks the tree once**, via `SessionWorkspace.usage()`.
   Asking for bytes and count separately traversed the workspace twice per write.
+- **Backup import swaps files before Room opens.** A staged backup is decrypted
+  and validated while the app runs, then `InhumanApp.onCreate` replaces the
+  database and workspace directory before any repository opens Room. The current
+  files are renamed aside first and restored if the swap fails. Never perform
+  this while a Room connection is open. API keys are intentionally absent.
+- **The foreground service follows `isStreaming`.** `ChatViewModel` reports the
+  transition; `MainActivity` starts/stops `TurnForegroundService`. Do not tie
+  it to a screen's composition, or navigating back would stop the service while
+  the turn keeps billing.
 - **Diagnostics never records a key, a prompt or file content, and never throws
   into the call site.** A logger that can fail a turn is a second bug; one that
   keeps the user's text is a leak with a retention policy. `docs/10-diagnostics.md`
@@ -317,10 +326,15 @@ warning output is empty as well as the error output — this tree currently
 compiles clean, and that is worth keeping.
 
 One test is skipped by design: `DeepSeekWebLiveTest` talks to the real Search and
-Fetch APIs and needs a key (and spends money). Everything else above runs on the
-JVM. The `:core:data` instrumentation suite (migrations, workspace lifetime,
-provider profiles, the documents provider) needs a device; its list and current
-count are in `docs/README.md`.
+Fetch APIs and needs a key (and spends money). `RealProviderProbeTest` runs only
+when the device already has a DeepSeek key; it makes one `/models` call and is a
+no-op otherwise. The `:core:data` instrumentation suite (migrations, workspace
+lifetime, provider profiles, the documents provider) needs a device; its list and
+current count are in `docs/README.md`.
+
+Release builds sign from `keystore.properties` when present and fall back to the
+debug key otherwise. The keystore and properties are gitignored; losing them
+means no future release can update an installed build.
 
 ---
 

@@ -4,6 +4,10 @@ import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import android.net.Uri
+import android.os.Process
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -83,6 +87,34 @@ fun SettingsScreen(
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	var showHostKeysDialog by remember { mutableStateOf(false) }
+	var backupMode by remember { mutableStateOf<BackupMode?>(null) }
+	var backupUri by remember { mutableStateOf<Uri?>(null) }
+	var showBackupPassphrase by remember { mutableStateOf(false) }
+	var backupPassphrase by remember { mutableStateOf("") }
+	var backupPassphraseConfirm by remember { mutableStateOf("") }
+
+	val exportLauncher = rememberLauncherForActivityResult(
+		ActivityResultContracts.CreateDocument("application/octet-stream"),
+	) { uri ->
+		if (uri != null) {
+			backupMode = BackupMode.Export
+			backupUri = uri
+			backupPassphrase = ""
+			backupPassphraseConfirm = ""
+			showBackupPassphrase = true
+		}
+	}
+	val importLauncher = rememberLauncherForActivityResult(
+		ActivityResultContracts.OpenDocument(),
+	) { uri ->
+		if (uri != null) {
+			backupMode = BackupMode.Import
+			backupUri = uri
+			backupPassphrase = ""
+			backupPassphraseConfirm = ""
+			showBackupPassphrase = true
+		}
+	}
 
 	Scaffold(
 		topBar = {
@@ -375,6 +407,68 @@ fun SettingsScreen(
 				}
 			}
 
+			SectionHeading(
+				code = "03 / Backup",
+				title = "Backup",
+				detail = "An encrypted file of every conversation, workspace file, " +
+					"assistant and policy. API keys are deliberately not included.",
+				modifier = Modifier.widthIn(max = Layout.ReadableMeasure),
+			)
+			Row(
+				modifier = Modifier
+					.widthIn(max = Layout.ReadableMeasure)
+					.fillMaxWidth(),
+				horizontalArrangement = Arrangement.spacedBy(10.dp),
+			) {
+				OutlinedButton(
+					onClick = { exportLauncher.launch("inhuman-backup") },
+					enabled = !state.backupBusy,
+					shape = MaterialTheme.shapes.small,
+				) { Text("Export backup") }
+				OutlinedButton(
+					onClick = { importLauncher.launch(arrayOf("*/*")) },
+					enabled = !state.backupBusy,
+					shape = MaterialTheme.shapes.small,
+				) { Text("Import backup") }
+			}
+			Text(
+				text = "Export asks for a passphrase and writes one encrypted file. " +
+					"Import replaces the current data only after the app restarts.",
+				modifier = Modifier
+					.widthIn(max = Layout.ReadableMeasure)
+					.fillMaxWidth(),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			state.backupStatus?.let { status ->
+				Text(
+					text = status,
+					modifier = Modifier
+						.widthIn(max = Layout.ReadableMeasure)
+						.fillMaxWidth(),
+					style = MaterialTheme.typography.bodyMedium,
+					color = if (state.backupStatusIsError) {
+						MaterialTheme.colorScheme.error
+					} else {
+						MaterialTheme.colorScheme.primary
+					},
+				)
+			}
+			if (state.backupNeedsRestart) {
+				Button(
+					onClick = { Process.killProcess(Process.myPid()) },
+					shape = MaterialTheme.shapes.small,
+				) { Text("Restart now") }
+			}
+			if (state.backupBusy) {
+				Text(
+					text = "Working…",
+					style = MaterialTheme.typography.labelMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+			Hairline(Modifier.widthIn(max = Layout.ReadableMeasure))
+
 			state.status?.let { status ->
 				Text(
 					text = status,
@@ -449,6 +543,88 @@ fun SettingsScreen(
 		)
 	}
 
+	if (showBackupPassphrase && backupMode != null && backupUri != null) {
+		val mode = backupMode!!
+		val canSubmit = backupPassphrase.length >= 8 &&
+			(mode == BackupMode.Import || backupPassphrase == backupPassphraseConfirm)
+		AlertDialog(
+			onDismissRequest = {
+				showBackupPassphrase = false
+				backupPassphrase = ""
+				backupPassphraseConfirm = ""
+			},
+			title = {
+				Text(if (mode == BackupMode.Export) "Encrypt backup" else "Open backup")
+			},
+			text = {
+				Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+					Text(
+						text = if (mode == BackupMode.Export) {
+							"Choose a passphrase of at least 8 characters. The file " +
+								"contains conversations and workspace files; API keys are " +
+								"not included. The passphrase cannot be recovered."
+						} else {
+							"Enter the passphrase used when this backup was created. " +
+								"The current data is replaced only after the app restarts."
+						},
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					OutlinedTextField(
+						value = backupPassphrase,
+						onValueChange = { backupPassphrase = it },
+						label = { Text("Passphrase") },
+						singleLine = true,
+						visualTransformation = PasswordVisualTransformation(),
+						modifier = Modifier.fillMaxWidth(),
+					)
+					if (mode == BackupMode.Export) {
+						OutlinedTextField(
+							value = backupPassphraseConfirm,
+							onValueChange = { backupPassphraseConfirm = it },
+							label = { Text("Confirm passphrase") },
+							singleLine = true,
+							visualTransformation = PasswordVisualTransformation(),
+							modifier = Modifier.fillMaxWidth(),
+							isError = backupPassphraseConfirm.isNotEmpty() &&
+								backupPassphraseConfirm != backupPassphrase,
+						)
+					}
+				}
+			},
+			confirmButton = {
+				Button(
+					onClick = {
+						val uri = backupUri ?: return@Button
+						val passphrase = backupPassphrase.toCharArray()
+						showBackupPassphrase = false
+						backupPassphrase = ""
+						backupPassphraseConfirm = ""
+						if (mode == BackupMode.Export) {
+							viewModel.exportBackup(uri, passphrase)
+						} else {
+							viewModel.importBackup(uri, passphrase)
+						}
+					},
+					enabled = canSubmit,
+					shape = MaterialTheme.shapes.small,
+				) { Text(if (mode == BackupMode.Export) "Export" else "Import") }
+			},
+			dismissButton = {
+				TextButton(
+					onClick = {
+						showBackupPassphrase = false
+						backupPassphrase = ""
+						backupPassphraseConfirm = ""
+					},
+				) { Text("Cancel") }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+
 	state.editingProvider?.let { draft ->
 		ProviderEditorDialog(
 			draft = draft,
@@ -460,6 +636,8 @@ fun SettingsScreen(
 		)
 	}
 }
+
+private enum class BackupMode { Export, Import }
 
 @Composable
 private fun ProviderRow(

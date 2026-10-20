@@ -1,11 +1,13 @@
 package com.inhuman.ui.chat
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
 import com.inhuman.core.data.AgentRepository
+import com.inhuman.core.data.BackupRepository
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.db.ProviderIds
 import com.inhuman.core.data.db.ProviderKinds
@@ -57,6 +59,12 @@ data class SettingsUiState(
 	val hasWebExaKey: Boolean = false,
 	val webStatus: String? = null,
 	val webStatusIsError: Boolean = false,
+	/** Backup export/import progress and result. */
+	val backupBusy: Boolean = false,
+	val backupStatus: String? = null,
+	val backupStatusIsError: Boolean = false,
+	/** Set after a successful import; the app must restart to apply it. */
+	val backupNeedsRestart: Boolean = false,
 	/** Reply from the built-in scripted source instead of DeepSeek. */
 	val demoMode: Boolean = false,
 	/**
@@ -97,6 +105,7 @@ class SettingsViewModel(
 	private val secure: SecureStore,
 	private val agents: AgentRepository,
 	private val repository: ConversationRepository,
+	private val backup: BackupRepository,
 	/** `filesDir/ssh/known_hosts`; the same file `SshClient` pins into. */
 	private val knownHostsFile: File,
 ) : ViewModel() {
@@ -447,5 +456,69 @@ class SettingsViewModel(
 			webStatus = "Web tool keys saved. The tools use the backend selected above.",
 			webStatusIsError = false,
 		)
+	}
+
+	/** Export the database and workspaces to a user-chosen document. */
+	fun exportBackup(uri: Uri, passphrase: CharArray) {
+		if (_state.value.backupBusy) return
+		_state.value = _state.value.copy(
+			backupBusy = true,
+			backupStatus = null,
+			backupNeedsRestart = false,
+		)
+		viewModelScope.launch {
+			val result = runCatching { backup.export(uri, passphrase) }
+			passphrase.fill('\u0000')
+			_state.value = _state.value.copy(
+				backupBusy = false,
+				backupStatus = result.fold(
+					onSuccess = { "Backup written. Keep the passphrase: it cannot be recovered." },
+					onFailure = { failure ->
+						Diag.w("backup", "export failed", failure)
+						"Backup failed: ${failure.message ?: "unknown error"}"
+					},
+				),
+				backupStatusIsError = result.isFailure,
+			)
+		}
+	}
+
+	/**
+	 * Decrypt and validate a backup, but do not swap it in yet.
+	 *
+	 * The swap runs in `InhumanApp.onCreate` before Room is opened. Replacing a
+	 * live database under an open connection would be the data-loss path this
+	 * staging step exists to avoid.
+	 */
+	fun importBackup(uri: Uri, passphrase: CharArray) {
+		if (_state.value.backupBusy) return
+		_state.value = _state.value.copy(
+			backupBusy = true,
+			backupStatus = null,
+			backupNeedsRestart = false,
+		)
+		viewModelScope.launch {
+			val result = runCatching { backup.stageImport(uri, passphrase) }
+			passphrase.fill('\u0000')
+			_state.value = _state.value.copy(
+				backupBusy = false,
+				backupStatus = result.fold(
+					onSuccess = {
+						"Backup verified and staged. Restart the app to replace the " +
+							"current data; nothing has changed yet."
+					},
+					onFailure = { failure ->
+						Diag.w("backup", "import failed", failure)
+						"Import failed: ${failure.message ?: "wrong passphrase or damaged file"}"
+					},
+				),
+				backupStatusIsError = result.isFailure,
+				backupNeedsRestart = result.isSuccess,
+			)
+		}
+	}
+
+	fun clearBackupStatus() {
+		_state.value = _state.value.copy(backupStatus = null, backupStatusIsError = false)
 	}
 }

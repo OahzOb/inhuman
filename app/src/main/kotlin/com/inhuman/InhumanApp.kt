@@ -1,6 +1,7 @@
 package com.inhuman
 
 import android.app.Application
+import com.inhuman.core.data.BackupRepository
 import com.inhuman.diagnostics.AppDiagnostics
 
 /**
@@ -23,5 +24,8 @@ class InhumanApp : Application() {
 	override fun onCreate() {
 		super.onCreate()
 		AppDiagnostics.install(this)
+		// Before any repository opens Room. A staged backup import replaces the
+		// database file, which is only safe while no connection is open.
+		BackupRepository.applyPendingRestore(this)
 	}
 }

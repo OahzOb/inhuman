@@ -88,7 +88,12 @@ Confirmed by `README.md:17-29` and by the code:
   and its checkpoint restored, and the request runs **with tools**
   ([07-gotchas.md](07-gotchas.md) B20, B23).
 - Image attachments.
-- A context gauge above the composer.
+- A context gauge above the composer, with explicit, reversible compaction of
+  older complete turns.
+- An encrypted, passphrase-protected backup of the database and workspaces;
+  import is staged and applied before Room opens on the next launch.
+- A foreground service while a reply is streaming, so a long model/tool turn is
+  not killed when the screen goes off.
 - A local diagnostic log records turns, tool calls, HTTP failures and crashes;
   Settings → Diagnostics can show its size, share it or clear it
   ([10-diagnostics.md](10-diagnostics.md)).

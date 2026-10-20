@@ -140,10 +140,12 @@ they only run against a device:
 | `core/data/src/androidTest/…/ConversationLookupTest` | The `id` / `workspaceId` distinction the documents provider's folder lookup depends on; both are UUIDs, and the wrong one returns null rather than failing |
 | `core/data/src/androidTest/…/WorkspaceDocumentsProviderTest` | The provider's actual folder ids: a re-queried folder keeps its title, and delete/rename are refused |
 | `core/data/src/androidTest/…/ProviderProfileTest` | A conversation copies its assistant's provider; a referenced provider cannot be deleted; key slots are separate |
+| `app/src/androidTest/…/RealProviderProbeTest` | One real `GET /models` when the device already holds a DeepSeek key; a no-op without one rather than a fake pass |
 
 Run them with `:app:connectedDebugAndroidTest` / `:core:data:connectedDebugAndroidTest`,
 or `adb shell am instrument`. The `:core:data` run is **24 tests**, and the app
-suite is **5 tests**, at the time of writing. The first two have their measured
+suite is **6 tests**, at the time of
+writing. The first two have their measured
 results in [port-assessment.md](port-assessment.md); the rest are the evidence
 behind [07-gotchas.md](07-gotchas.md) B8 and B6.
 
