@@ -736,7 +736,7 @@ class ChatViewModel(
 	 * and a summary call costs money on a real provider. Demo mode uses a local
 	 * deterministic summary so the whole path stays testable offline.
 	 */
-	fun compact(keepTurns: Int = 2) {
+	fun compact(keepTurns: Int = 2, retryAfter: Boolean = false) {
 		val current = _state.value
 		if (current.isStreaming || current.isCompacting) return
 		val plan = planContextCompaction(current.messages, keepTurns)
@@ -805,7 +805,35 @@ class ChatViewModel(
 					),
 				)
 			}
+			if (retryAfter) {
+				// The failed request is retried on the compacted projection. The
+				// summary is persisted first, so a retry that fails again does not
+				// lose the work the user just paid for.
+				regenerate()
+			}
 		}
+	}
+
+	/**
+	 * Retry the failed answer without resending the user's message.
+	 *
+	 * [regenerate] keeps the tool definitions for the cache prefix but suppresses
+	 * calls, so a network failure after a write cannot execute that write twice.
+	 * It also requires an answer row to replace; a failure before one exists has
+	 * no retry button because there is nothing safe to re-run.
+	 */
+	fun retryLastTurn() {
+		if (_state.value.isStreaming || _state.value.isCompacting) return
+		if (_state.value.messages.none { !it.fromUser && !it.isToolResult }) {
+			_state.update { it.copy(error = "There is no answer to retry yet.") }
+			return
+		}
+		regenerate()
+	}
+
+	/** Compact older turns, then retry the answer that overflowed. */
+	fun compactAndRetry() {
+		compact(keepTurns = 2, retryAfter = true)
 	}
 
 	/** Return to sending the full transcript. */

@@ -38,6 +38,74 @@ data class RegenerationPoint(
 )
 
 /**
+ * The action the composer can offer beside an error.
+ *
+ * The raw provider message stays in [ChatUiState.error]; this only decides
+ * which recovery is meaningful. `Retry` reuses the existing transcript, so it
+ * cannot duplicate the user's message or re-run tools.
+ */
+enum class ChatErrorAction {
+	Retry,
+	CompactAndRetry,
+	OpenProviderSettings,
+}
+
+/**
+ * Classify an error string from the provider or the turn loop.
+ *
+ * This is deliberately string-based: the provider layer already flattens an
+ * HTTP status and its body into one message, and changing that wire contract to
+ * carry a typed error would be a larger change than the UI needs. The tests in
+ * `ChatErrorActionTest` pin the common shapes.
+ */
+fun chatErrorAction(message: String?): ChatErrorAction? {
+	val text = message?.lowercase() ?: return null
+	val contextOverflow = listOf(
+		"context length",
+		"context window",
+		"maximum context",
+		"max context",
+		"too many tokens",
+		"token limit",
+		"request too large",
+		"prompt is too long",
+	).any(text::contains)
+	if (contextOverflow) return ChatErrorAction.CompactAndRetry
+
+	val configuration = listOf(
+		"api key",
+		"invalid key",
+		"unauthorized",
+		"http 401",
+		"http 403",
+		"insufficient balance",
+		"quota",
+		"billing",
+		"choose a model",
+		"no usable model",
+	).any(text::contains)
+	if (configuration) return ChatErrorAction.OpenProviderSettings
+
+	val transient = listOf(
+		"http 429",
+		"http 500",
+		"http 502",
+		"http 503",
+		"http 504",
+		"timeout",
+		"timed out",
+		"network",
+		"connect",
+		"stream",
+		"socket",
+		"unavailable",
+		"overloaded",
+	).any(text::contains)
+	if (transient) return ChatErrorAction.Retry
+	return null
+}
+
+/**
  * The state of one conversation view.
  *
  * [isStreaming] is separate from the parts rather than inferred from them: an
@@ -133,7 +201,10 @@ data class ChatUiState(
 	val compaction: ContextCompactionUi? = null,
 	/** True while the summarizer call is running; the composer is disabled. */
 	val isCompacting: Boolean = false,
-)
+) {
+	/** What the error banner should offer, derived from [error]. */
+	val errorAction: ChatErrorAction? get() = chatErrorAction(error)
+}
 
 /**
  * The derived summary that shortens requests for one conversation.

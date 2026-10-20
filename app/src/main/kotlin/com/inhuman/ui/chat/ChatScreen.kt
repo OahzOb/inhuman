@@ -156,6 +156,7 @@ fun ChatScreen(
 		.map { it.reasoningEffort }
 		.collectAsStateWithLifecycle<String?>(null)
 	val error by viewModel.state.map { it.error }.collectAsStateWithLifecycle(null)
+	val errorAction by viewModel.state.map { it.errorAction }.collectAsStateWithLifecycle(null)
 	val pendingApproval by viewModel.state.map { it.pendingApproval }.collectAsStateWithLifecycle(null)
 
 	// The composer's own inputs. Separate reads for the same reason as the rest:
@@ -787,22 +788,57 @@ fun ChatScreen(
 				}
 
 				error?.let { message ->
-					Row(
-						// Constrain first, fill second: see the note on the
-						// composer's modifier.
+					Column(
 						modifier = Modifier
 							.widthIn(max = Layout.ChatMeasure)
 							.fillMaxWidth()
 							.padding(horizontal = comfortableGutter(), vertical = 4.dp),
-						verticalAlignment = Alignment.CenterVertically,
 					) {
-						Text(
-							text = message,
-							style = MaterialTheme.typography.bodyMedium,
-							color = MaterialTheme.colorScheme.error,
-							modifier = Modifier.weight(1f),
-						)
-						TextButton(onClick = viewModel::clearError) { Text("Dismiss") }
+						Row(
+							modifier = Modifier.fillMaxWidth(),
+							verticalAlignment = Alignment.CenterVertically,
+						) {
+							Text(
+								text = message,
+								style = MaterialTheme.typography.bodyMedium,
+								color = MaterialTheme.colorScheme.error,
+								modifier = Modifier.weight(1f),
+							)
+							TextButton(onClick = viewModel::clearError) { Text("Dismiss") }
+						}
+						Row(
+							horizontalArrangement = Arrangement.spacedBy(4.dp),
+							verticalAlignment = Alignment.CenterVertically,
+						) {
+							when (errorAction) {
+								ChatErrorAction.Retry -> TextButton(
+									onClick = viewModel::retryLastTurn,
+								) { Text("Retry") }
+
+								ChatErrorAction.CompactAndRetry -> TextButton(
+									onClick = viewModel::compactAndRetry,
+								) { Text("Compact and retry") }
+
+								ChatErrorAction.OpenProviderSettings -> TextButton(
+									onClick = {
+										viewModel.clearError()
+										onOpenSettings()
+									},
+								) { Text("Provider settings") }
+
+								null -> Unit
+							}
+							TextButton(
+								onClick = {
+									val clipboard = ctx.getSystemService(
+										ClipboardManager::class.java,
+									)
+									clipboard.setPrimaryClip(
+										ClipData.newPlainText("inhuman error", message),
+									)
+								},
+							) { Text("Copy details") }
+						}
 					}
 				}
 
