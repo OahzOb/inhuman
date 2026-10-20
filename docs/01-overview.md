@@ -117,12 +117,15 @@ without a conversation:
 
 Two more that are stated as behaviour rather than as policy:
 
-- **No compaction and no trimming.** The whole active branch is sent every turn,
-  `ChatRequest.maxTokens` is never set, and nothing is dropped. When a
-  conversation reaches the window the API returns a 400, the turn is not
-  recorded, and the next message rebuilds the same oversized history — the
-  conversation is stuck. The gauge exists to make that wall visible before it is
-  hit; it does not remove it (`README.md:81-92`).
+- **Compaction is explicit.** The whole active branch is sent unless the user
+  opens the context gauge and chooses **Compact conversation…**. That keeps the
+  last two turns verbatim, asks the model to summarize older complete turns, and
+  sends that summary instead of those rows on later requests. The original
+  transcript is never edited, a banner makes the projection visible, and **Use
+  full history** restores the full request. The summarizer costs one extra call
+  on a real provider; demo mode summarizes locally. A single recent turn larger
+  than the window can still fail, which is why the status is not "solved" — but
+  the old permanent stuck state is gone.
 - **Rollback moves the transcript and the local workspace together.** The last
   user message has **Edit your message** in Rewind: its start checkpoint is
   restored, then that message and everything after it are deleted, and the

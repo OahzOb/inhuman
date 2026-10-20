@@ -4,19 +4,35 @@ Module: `:core:data`. It re-exports `:core:files` and `:core:ai` with `api`,
 because a conversation's lifecycle spans the sandbox that guards it and the
 provider that answers it.
 
-## The schema, version 12
+## The schema, version 13
 
 `InhumanDatabase` (`core/data/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 12`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 13`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/data/schemas/` by KSP — configured in `core/data/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
 spot.
 
-Eight entities in four files: `ProviderProfileEntity`, `WorkspaceEntity`,
-`ConversationEntity`, `MessageEntity` and `AgentEntity` in `db/Entities.kt`, plus
-the three approval-policy tables (`ApprovalDefaultEntity`, `AgentApprovalEntity`,
-`PathPolicyEntity`) in `db/PolicyEntities.kt`, added by migration 7→8.
+Nine entities in four files: `ProviderProfileEntity`, `WorkspaceEntity`,
+`ConversationEntity`, `MessageEntity`, `AgentEntity` and
+`ContextSummaryEntity` in `db/Entities.kt`, plus the three approval-policy tables
+(`ApprovalDefaultEntity`, `AgentApprovalEntity`, `PathPolicyEntity`) in
+`db/PolicyEntities.kt`, added by migration 7→8.
+
+### `context_summaries` — added in 12→13
+
+| Column | Meaning |
+| --- | --- |
+| `conversationId` | Primary key. One active projection per conversation. |
+| `throughMessageId` | Last active message covered by the summary. Everything after it is sent verbatim. |
+| `summary` | Model-written (or demo-local) summary text inserted as a system message. |
+| `createdAt`, `updatedAt` | Display and debugging. |
+
+Unlike every other row in the schema, this one is **derived**: the original
+`messages` are never removed. Clearing the row restores the full-transcript
+request. A boundary that has fallen off the active branch is ignored, so a
+branch switch cannot apply a stale summary to the wrong prefix. Deleting the
+conversation cascades.
 
 ### `provider_profiles` — added in 11→12
 

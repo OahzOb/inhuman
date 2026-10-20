@@ -442,6 +442,37 @@ carries its inset (`:700-721`). They are not part of the live-section rule: a
 result can be a whole page, and expanding it while a turn runs would bury the
 next thing being produced.
 
+### Context compaction
+
+`ContextCompaction.kt` / `context_summaries` / the gauge panel. The request
+projection can replace older complete turns with a model-written summary:
+
+- **Manual, not automatic.** A summary costs a model call on a real provider and
+  changes what the model sees; the user opens it from the gauge panel and sees a
+  preview of how many messages/turns will be covered before confirming.
+- **The transcript is untouched.** Only `context_summaries` changes. A
+  `CONTEXT COMPACTED` banner and **View summary / Use full history** expose and
+  reverse it.
+- **Boundaries are turn boundaries.** `planContextCompaction` keeps the recent
+  turns verbatim (two, then one on a second pass) and summarizes complete older
+  turns. A tool call and its results are never split.
+- **The wire gets a system summary plus the suffix.** `buildWireHistory` checks
+  that `throughMessageId` is still on the active path; if it is not, the full
+  history is sent. The system prompt and summary are combined into the first
+  system message.
+- **Failure is a no-op.** No key, timeout, provider failure, blank summary or a
+  changed transcript leaves the previous projection intact and reports the cause.
+  Demo mode uses `demoCompactionSummary`, a deterministic list of questions and
+  touched files, so the path is testable offline.
+- **The summarizer never gets the whole history unbounded**:
+  `compactionTranscript` bounds the input and truncates per message. It is not
+  asked to answer the conversation, only to preserve goals, constraints,
+  decisions, paths, unresolved work and important tool results.
+
+The remaining limit is honest: if the kept recent turns alone exceed the window,
+compaction cannot make the request legal. **Compact again** narrows to one kept
+turn; a single oversized turn still has to be rewound or started fresh.
+
 ### The gauge
 
 `ContextGauge.kt`: draws nothing when `!isKnown` (`:61`), goes red at ≥90%

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +57,11 @@ fun ContextGauge(
 	usage: ContextUsage,
 	expanded: Boolean,
 	onToggle: () -> Unit,
+	compaction: ContextCompactionUi? = null,
+	isCompacting: Boolean = false,
+	onCompact: (() -> Unit)? = null,
+	onViewCompaction: () -> Unit = {},
+	onClearCompaction: () -> Unit = {},
 	modifier: Modifier = Modifier,
 ) {
 	if (!usage.isKnown) return
@@ -71,7 +77,14 @@ fun ContextGauge(
 
 	Column(modifier = modifier.fillMaxWidth()) {
 		if (expanded) {
-			ContextDetail(usage = usage)
+			ContextDetail(
+				usage = usage,
+				compaction = compaction,
+				isCompacting = isCompacting,
+				onCompact = onCompact,
+				onViewCompaction = onViewCompaction,
+				onClearCompaction = onClearCompaction,
+			)
 			Spacer(Modifier.size(4.dp))
 		}
 
@@ -146,7 +159,14 @@ private fun Ring(fraction: Float?, arc: Color, track: Color) {
  * the real thing and would be the number people quote.
  */
 @Composable
-private fun ContextDetail(usage: ContextUsage) {
+private fun ContextDetail(
+	usage: ContextUsage,
+	compaction: ContextCompactionUi?,
+	isCompacting: Boolean,
+	onCompact: (() -> Unit)?,
+	onViewCompaction: () -> Unit,
+	onClearCompaction: () -> Unit,
+) {
 	Column(
 		modifier = Modifier
 			.fillMaxWidth()
@@ -184,6 +204,55 @@ private fun ContextDetail(usage: ContextUsage) {
 		// request and someone watching it during a long turn will otherwise
 		// read the lag as a bug.
 		Detail("Measured from the last reply sent.", faint = true)
+
+		if (isCompacting) {
+			Detail("Summarizing earlier turns…")
+		} else if (compaction != null) {
+			Detail(
+				"${compaction.omittedMessages} earlier messages are summarized " +
+					"for requests. The transcript here is complete.",
+			)
+			Row(
+				horizontalArrangement = Arrangement.spacedBy(4.dp),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				onCompact?.let {
+					TextButton(
+						onClick = onCompact,
+						contentPadding = androidx.compose.foundation.layout.PaddingValues(
+							horizontal = 6.dp,
+						),
+					) {
+						Text("Compact again", style = MaterialTheme.typography.labelLarge)
+					}
+				}
+				TextButton(
+					onClick = onViewCompaction,
+					contentPadding = androidx.compose.foundation.layout.PaddingValues(
+						horizontal = 6.dp,
+					),
+				) {
+					Text("View summary", style = MaterialTheme.typography.labelLarge)
+				}
+				TextButton(
+					onClick = onClearCompaction,
+					contentPadding = androidx.compose.foundation.layout.PaddingValues(
+						horizontal = 6.dp,
+					),
+				) {
+					Text("Use full history", style = MaterialTheme.typography.labelLarge)
+				}
+			}
+		} else if (onCompact != null) {
+			TextButton(
+				onClick = onCompact,
+				contentPadding = androidx.compose.foundation.layout.PaddingValues(
+					horizontal = 6.dp,
+				),
+			) {
+				Text("Compact conversation…", style = MaterialTheme.typography.labelLarge)
+			}
+		}
 	}
 }
 

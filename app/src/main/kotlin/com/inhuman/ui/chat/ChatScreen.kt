@@ -225,6 +225,12 @@ fun ChatScreen(
 	val regenerationPoints by viewModel.state
 		.map { it.regenerationPoints }
 		.collectAsStateWithLifecycle(emptyList())
+	val compaction by viewModel.state
+		.map { it.compaction }
+		.collectAsStateWithLifecycle(null)
+	val isCompacting by viewModel.state
+		.map { it.isCompacting }
+		.collectAsStateWithLifecycle(false)
 	val snapshotStats by viewModel.state
 		.map { it.snapshotStats }
 		.collectAsStateWithLifecycle(SnapshotStats(0, 0))
@@ -252,6 +258,9 @@ fun ChatScreen(
 	// itself is outside the Scaffold content lambda and cannot see `messages`.
 	var rewindEditTarget by remember { mutableStateOf<ChatMessageUi?>(null) }
 	var rewindEditFiles by remember { mutableStateOf<List<WorkspaceChange>>(emptyList()) }
+	var showCompactPreview by remember { mutableStateOf(false) }
+	var pendingCompaction by remember { mutableStateOf<CompactionPlan?>(null) }
+	var showCompactionSummary by remember { mutableStateOf(false) }
 	var showSnapshotDialog by remember { mutableStateOf(false) }
 	var showToolLimitDialog by remember { mutableStateOf(false) }
 	var showRenameDialog by remember { mutableStateOf(false) }
@@ -264,6 +273,7 @@ fun ChatScreen(
 	// answer by dismissing, not by navigating away from.
 	val anyDialogOpen = showModelPicker || pendingApproval != null ||
 		pendingSshConsent != null || rollbackTarget != null || showRewindDialog ||
+		showCompactPreview || showCompactionSummary ||
 		showSnapshotDialog || showToolLimitDialog || showRenameDialog
 			|| showSaveWorkspaceDialog
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
@@ -604,6 +614,25 @@ fun ChatScreen(
 					),
 					verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 				) {
+					compaction?.let { activeCompaction ->
+						item(key = "compaction") {
+							CompactionBanner(
+								compaction = activeCompaction,
+								onView = { showCompactionSummary = true },
+								onClear = viewModel::clearCompaction,
+							)
+						}
+					}
+					if (isCompacting) {
+						item(key = "compacting") {
+							Text(
+								text = "Summarizing earlier turns…",
+								style = MaterialTheme.typography.labelMedium,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+								modifier = Modifier.padding(horizontal = 2.dp),
+							)
+						}
+					}
 					if (messages.isEmpty()) {
 						item(key = "welcome") {
 							ChatWelcome(
@@ -764,6 +793,20 @@ fun ChatScreen(
 					context = usage,
 					showContextDetail = showContextDetail,
 					onToggleContextDetail = { showContextDetail = !showContextDetail },
+					compaction = compaction,
+					isCompacting = isCompacting,
+					onCompact = {
+						// The first compaction keeps two turns for continuity;
+						// a second pass keeps one, which is the escape hatch when
+						// the recent turns are themselves huge.
+						pendingCompaction = planContextCompaction(
+							messages,
+							keepTurns = if (compaction == null) 2 else 1,
+						)
+						showCompactPreview = true
+					},
+					onViewCompaction = { showCompactionSummary = true },
+					onClearCompaction = viewModel::clearCompaction,
 					// ## The modifier order is load-bearing
 					//
 					// `fillMaxWidth()` is greedy: it takes the whole incoming
@@ -945,6 +988,98 @@ fun ChatScreen(
 				viewModel.regenerateFrom(point)
 			},
 		)
+	}
+
+	if (showCompactPreview) {
+		val plan = pendingCompaction
+		AlertDialog(
+			onDismissRequest = { showCompactPreview = false },
+			title = { Text(if (plan == null) "Nothing to compact yet" else "Compact conversation?") },
+			text = {
+				if (plan == null) {
+					Text(
+						"Compaction needs at least three complete turns: two recent " +
+							"turns stay verbatim, and older ones become a summary.",
+					)
+				} else {
+					Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+						Text(
+							"${plan.omittedMessages} earlier messages " +
+								"(${plan.omittedTurns} turns) will be replaced by a " +
+								"summary in future requests.",
+						)
+						Text(
+							"The last ${plan.keptTurns} turns stay verbatim. The full " +
+								"transcript remains on screen and can be restored with " +
+								"Use full history.",
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+						Text(
+							"On a real provider this uses one extra model call. " +
+								"Demo mode summarizes locally.",
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+				}
+			},
+			confirmButton = {
+				if (plan != null) {
+					TextButton(
+						onClick = {
+							showCompactPreview = false
+							viewModel.compact(plan.keptTurns)
+						},
+					) { Text("Compact") }
+				}
+			},
+			dismissButton = {
+				TextButton(onClick = { showCompactPreview = false }) { Text("Cancel") }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+
+	compaction?.let { active ->
+		if (showCompactionSummary) {
+			AlertDialog(
+				onDismissRequest = { showCompactionSummary = false },
+				title = { Text("Request summary") },
+				text = {
+					Column(
+						modifier = Modifier
+							.heightIn(max = 420.dp)
+							.verticalScroll(rememberScrollState()),
+						verticalArrangement = Arrangement.spacedBy(8.dp),
+					) {
+						Text(
+							"Used for requests only. The first ${active.omittedMessages} " +
+								"messages are still in the transcript.",
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+						Text(active.summary)
+					}
+				},
+				confirmButton = {
+					TextButton(onClick = { showCompactionSummary = false }) { Text("Close") }
+				},
+				dismissButton = {
+					TextButton(
+						onClick = {
+							showCompactionSummary = false
+							viewModel.clearCompaction()
+						},
+					) { Text("Use full history") }
+				},
+				containerColor = MaterialTheme.colorScheme.surface,
+				titleContentColor = MaterialTheme.colorScheme.onSurface,
+				textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
 	}
 
 	if (showSnapshotDialog) {
@@ -1269,6 +1404,53 @@ private fun RewindChoice(
 				color = MaterialTheme.colorScheme.error,
 				modifier = Modifier.padding(top = 2.dp),
 			)
+		}
+	}
+}
+
+@Composable
+private fun CompactionBanner(
+	compaction: ContextCompactionUi,
+	onView: () -> Unit,
+	onClear: () -> Unit,
+) {
+	Column(modifier = Modifier.fillMaxWidth()) {
+		Row(
+			modifier = Modifier
+				.fillMaxWidth()
+				.background(
+					MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+					RoundedCornerShape(8.dp),
+				)
+				.padding(start = 12.dp, end = 4.dp, top = 7.dp, bottom = 7.dp),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			StatusDot(MaterialTheme.colorScheme.primary, size = 5.dp)
+			Spacer(Modifier.width(8.dp))
+			Column(
+				modifier = Modifier.weight(1f),
+				verticalArrangement = Arrangement.spacedBy(1.dp),
+			) {
+				Text(
+					text = "CONTEXT COMPACTED",
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Text(
+					text = "${compaction.omittedMessages} earlier messages are " +
+						"summarized for requests. The transcript is complete.",
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+			TextButton(
+				onClick = onView,
+				contentPadding = PaddingValues(horizontal = 7.dp),
+			) { Text("View", style = MaterialTheme.typography.labelLarge) }
+			TextButton(
+				onClick = onClear,
+				contentPadding = PaddingValues(horizontal = 7.dp),
+			) { Text("Undo", style = MaterialTheme.typography.labelLarge) }
 		}
 	}
 }
@@ -2064,6 +2246,11 @@ private fun Composer(
 	context: ContextUsage,
 	showContextDetail: Boolean,
 	onToggleContextDetail: () -> Unit,
+	compaction: ContextCompactionUi?,
+	isCompacting: Boolean,
+	onCompact: () -> Unit,
+	onViewCompaction: () -> Unit,
+	onClearCompaction: () -> Unit,
 	modifier: Modifier = Modifier,
 ) {
 	Column(modifier = modifier) {
@@ -2075,6 +2262,11 @@ private fun Composer(
 			usage = context,
 			expanded = showContextDetail,
 			onToggle = onToggleContextDetail,
+			compaction = compaction,
+			isCompacting = isCompacting,
+			onCompact = onCompact,
+			onViewCompaction = onViewCompaction,
+			onClearCompaction = onClearCompaction,
 			modifier = Modifier.padding(horizontal = comfortableGutter(), vertical = 4.dp),
 		)
 
@@ -2136,7 +2328,7 @@ private fun Composer(
 			// there is no other place the reason could surface.
 			IconButton(
 				onClick = onAttach,
-				enabled = enabled && canAttachImages,
+				enabled = enabled && canAttachImages && !isCompacting,
 				modifier = Modifier.padding(bottom = 4.dp),
 			) {
 				Icon(
@@ -2146,7 +2338,7 @@ private fun Composer(
 					} else {
 						"This model cannot read images"
 					},
-					tint = if (enabled && canAttachImages) {
+					tint = if (enabled && canAttachImages && !isCompacting) {
 						MaterialTheme.colorScheme.onSurfaceVariant
 					} else {
 						MaterialTheme.colorScheme.outlineVariant
@@ -2163,7 +2355,7 @@ private fun Composer(
 					if (enabled) "Message the assistant…" else "Add an API key to start",
 				)
 			},
-			enabled = enabled && !isStreaming,
+			enabled = enabled && !isStreaming && !isCompacting,
 			maxLines = 6,
 			shape = MaterialTheme.shapes.small,
 			keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
@@ -2185,7 +2377,7 @@ private fun Composer(
 				onClick = onSend,
 				// An image alone is sendable: "what is this?" is implied, and
 				// requiring text would make attaching one a two-step job.
-				enabled = enabled && (value.isNotBlank() || attachments.isNotEmpty()),
+				enabled = enabled && !isCompacting && (value.isNotBlank() || attachments.isNotEmpty()),
 				shape = MaterialTheme.shapes.small,
 				colors = IconButtonDefaults.filledIconButtonColors(
 					containerColor = MaterialTheme.colorScheme.primary,

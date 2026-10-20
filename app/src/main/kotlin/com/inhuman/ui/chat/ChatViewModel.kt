@@ -34,6 +34,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import com.inhuman.core.ai.tools.FetchProvider
 import com.inhuman.core.ai.tools.SearchProvider
 import com.inhuman.core.ai.tools.SshExecTool
@@ -656,6 +657,24 @@ class ChatViewModel(
 		} else {
 			regenerationPointsFor(lastUser, lastTurn)
 		}
+		// A summary is active only while its boundary is on the active path and
+		// something follows it. A stale row from a branch that was switched away
+		// from is ignored rather than applied to the wrong prefix.
+		val compaction = runCatching { repository.contextSummary(conversationId) }
+			.getOrNull()
+			?.let { summary ->
+				val boundary = entities.indexOfFirst { it.id == summary.throughMessageId }
+				if (boundary < 0 || boundary >= entities.lastIndex) {
+					null
+				} else {
+					ContextCompactionUi(
+						throughMessageId = summary.throughMessageId,
+						summary = summary.summary,
+						omittedTurns = entities.take(boundary + 1).count { it.role == "user" },
+						omittedMessages = boundary + 1,
+					)
+				}
+			}
 		turnAnchorId = lastUser?.id
 		turnSnapshotReady = hasSnapshot
 		turnIrreversible = irreversible
@@ -684,11 +703,179 @@ class ChatViewModel(
 				snapshotRetention = snapshotRetention(),
 				toolRoundLimit = toolRoundLimit(),
 				regenerationPoints = regenerationPoints,
+				compaction = compaction,
 				// Read off the rebuilt list: the remaining transcript-derived
 				// values have to agree with the messages that are on screen.
 				context = contextOf(rebuilt),
 			)
 		}
+	}
+
+	/**
+	 * Replace the request projection with a summary of older turns.
+	 *
+	 * The original rows are untouched. This is deliberately user-triggered:
+	 * silently changing what the model was told is worse than a visible 400,
+	 * and a summary call costs money on a real provider. Demo mode uses a local
+	 * deterministic summary so the whole path stays testable offline.
+	 */
+	fun compact(keepTurns: Int = 2) {
+		val current = _state.value
+		if (current.isStreaming || current.isCompacting) return
+		val plan = planContextCompaction(current.messages, keepTurns)
+		if (plan == null) {
+			_state.update {
+				it.copy(error = "There are not enough earlier complete turns to compact.")
+			}
+			return
+		}
+		val dropped = current.messages.take(plan.boundaryIndex + 1)
+		_state.update { it.copy(isCompacting = true, error = null) }
+
+		viewModelScope.launch {
+			val demo = demoEnabled()
+			val summary = if (demo) {
+				demoCompactionSummary(dropped)
+			} else {
+				summarize(dropped)
+			}
+			if (summary == null) {
+				_state.update { it.copy(isCompacting = false) }
+				return@launch
+			}
+			val now = _state.value.messages
+			val boundary = now.indexOfFirst { it.id == plan.throughMessageId }
+			if (boundary < 0 || boundary >= now.lastIndex) {
+				_state.update {
+					it.copy(
+						isCompacting = false,
+						error = "The conversation changed while it was being summarized, " +
+							"so the summary was discarded.",
+					)
+				}
+				return@launch
+			}
+			runCatching {
+				repository.saveContextSummary(
+					conversationId = conversationId,
+					throughMessageId = plan.throughMessageId,
+					summary = summary,
+				)
+			}.onFailure { failure ->
+				Diag.w("compact", "could not save summary", failure)
+				_state.update {
+					it.copy(
+						isCompacting = false,
+						error = "Could not store the summary; the full transcript is still used.",
+					)
+				}
+				return@launch
+			}
+			Diag.i(
+				"compact",
+				"summary conv=${Diag.shortId(conversationId)} " +
+					"through=${Diag.shortId(plan.throughMessageId)} " +
+					"omitted=${plan.omittedMessages} chars=${summary.length}",
+			)
+			_state.update {
+				it.copy(
+					isCompacting = false,
+					compaction = ContextCompactionUi(
+						throughMessageId = plan.throughMessageId,
+						summary = summary,
+						omittedTurns = plan.omittedTurns,
+						omittedMessages = plan.omittedMessages,
+					),
+				)
+			}
+		}
+	}
+
+	/** Return to sending the full transcript. */
+	fun clearCompaction() {
+		if (_state.value.isStreaming || _state.value.isCompacting) return
+		viewModelScope.launch {
+			runCatching { repository.clearContextSummary(conversationId) }
+				.onFailure { Diag.w("compact", "could not clear summary", it) }
+			_state.update { it.copy(compaction = null) }
+		}
+	}
+
+	private suspend fun summarize(messages: List<ChatMessageUi>): String? {
+		if (!agents.hasKey(providerId)) {
+			_state.update {
+				it.copy(
+					isCompacting = false,
+					error = "Add an API key for $providerName first, or switch on demo mode.",
+				)
+			}
+			return null
+		}
+		val provider = agents.provider(providerId)?.let { agents.providerFromRow(it) }
+		val summaryModel = model ?: agent?.model
+			?: agents.models(providerId).getOrNull()?.firstOrNull()?.id
+		if (provider == null || summaryModel == null) {
+			_state.update {
+				it.copy(
+					isCompacting = false,
+					error = "No usable model is available to summarize this conversation.",
+				)
+			}
+			return null
+		}
+		val transcript = compactionTranscript(messages)
+		val output = StringBuilder()
+		var failure: String? = null
+		val completed = withTimeoutOrNull(90_000) {
+			provider.stream(
+				ChatRequest(
+					model = summaryModel,
+					messages = listOf(
+						ChatMessage(Role.System, COMPACTION_SYSTEM_PROMPT),
+						ChatMessage(
+							Role.User,
+							"Summarize this earlier part of the conversation:\n\n$transcript",
+						),
+					),
+					maxTokens = 900,
+					thinking = false,
+					userId = "$conversationId-compact",
+				),
+			).collect { chunk ->
+				when (chunk) {
+					is StreamChunk.TextDelta -> output.append(chunk.text)
+					is StreamChunk.Failure -> failure = chunk.message
+					else -> Unit
+				}
+			}
+			true
+		}
+		if (completed == null) {
+			_state.update {
+				it.copy(isCompacting = false, error = "The summarizer timed out; nothing changed.")
+			}
+			return null
+		}
+		if (failure != null) {
+			_state.update {
+				it.copy(
+					isCompacting = false,
+					error = "The summarizer failed: $failure. The full transcript is still used.",
+				)
+			}
+			return null
+		}
+		val summary = output.toString().trim()
+		if (summary.isBlank()) {
+			_state.update {
+				it.copy(
+					isCompacting = false,
+					error = "The summarizer returned nothing; the full transcript is still used.",
+				)
+			}
+			return null
+		}
+		return summary
 	}
 
 	/**
@@ -957,6 +1144,24 @@ class ChatViewModel(
 		} else {
 			regenerationPointsFor(lastUser, lastTurn)
 		}
+		// A summary is active only while its boundary is on the active path and
+		// something follows it. A stale row from a branch that was switched away
+		// from is ignored rather than applied to the wrong prefix.
+		val compaction = runCatching { repository.contextSummary(conversationId) }
+			.getOrNull()
+			?.let { summary ->
+				val boundary = entities.indexOfFirst { it.id == summary.throughMessageId }
+				if (boundary < 0 || boundary >= entities.lastIndex) {
+					null
+				} else {
+					ContextCompactionUi(
+						throughMessageId = summary.throughMessageId,
+						summary = summary.summary,
+						omittedTurns = entities.take(boundary + 1).count { it.role == "user" },
+						omittedMessages = boundary + 1,
+					)
+				}
+			}
 		turnAnchorId = lastUser?.id
 		turnSnapshotReady = hasSnapshot
 		turnIrreversible = irreversible
@@ -970,6 +1175,7 @@ class ChatViewModel(
 				snapshotRetention = snapshotRetention(),
 				toolRoundLimit = toolRoundLimit(),
 				regenerationPoints = regenerationPoints,
+				compaction = compaction,
 				context = contextOf(it.messages),
 			)
 		}
@@ -1265,11 +1471,13 @@ class ChatViewModel(
 		val attachments = _state.value.pendingAttachments
 		// Images alone are a complete message -- "what is this?" is often
 		// implied -- but an empty message with nothing attached is not.
-		if ((text.isEmpty() && attachments.isEmpty()) || _state.value.isStreaming) {
+		if ((text.isEmpty() && attachments.isEmpty()) || _state.value.isStreaming ||
+			_state.value.isCompacting
+		) {
 			Diag.d(
 				"turn",
 				"send ignored chars=${text.length} attachments=${attachments.size} " +
-					"streaming=${_state.value.isStreaming}",
+					"streaming=${_state.value.isStreaming} compacting=${_state.value.isCompacting}",
 			)
 			return
 		}
@@ -2831,11 +3039,30 @@ class ChatViewModel(
 		val visible = _state.value.messages.dropLast(1)
 		val out = mutableListOf<ChatMessage>()
 
-		agent?.systemPrompt?.takeIf { it.isNotBlank() }?.let {
-			out += ChatMessage(Role.System, it)
-		}
+		// A derived summary replaces an old prefix on the wire only. The rows
+		// remain in the transcript, and the boundary is checked against the
+		// active path on every build: a branch switch or a rewind makes the
+		// summary inert rather than letting it describe messages that are no
+		// longer in this conversation. The cut is always at a turn boundary, so
+		// a tool call and its results are never separated.
+		val summary = _state.value.compaction
+		val boundary = summary?.let { s ->
+			visible.indexOfFirst { it.id == s.throughMessageId }
+		} ?: -1
+		val firstSent = if (boundary in 0 until visible.lastIndex) boundary + 1 else 0
+		val activeSummary = summary.takeIf { firstSent > 0 }
 
-		for (m in visible) {
+		val system = buildString {
+			agent?.systemPrompt?.takeIf { it.isNotBlank() }?.let { append(it) }
+			if (activeSummary != null) {
+				if (isNotEmpty()) append("\n\n")
+				append("Earlier conversation summary (the messages it covers are omitted from this request):\n")
+				append(activeSummary.summary.trim())
+			}
+		}
+		if (system.isNotBlank()) out += ChatMessage(Role.System, system)
+
+		for (m in visible.drop(firstSent)) {
 			when {
 				m.toolResultFor != null -> out += ChatMessage(
 					role = Role.Tool,
@@ -3013,6 +3240,25 @@ class ChatViewModel(
 
 		/** A key file larger than this is not a key; do not read it into memory. */
 		private const val MAX_SSH_IDENTITY_BYTES = 512 * 1024
+
+		/**
+		 * Instructions for the derived-summary call.
+		 *
+		 * It is not asked to answer the conversation; inventing an answer in a
+		 * summary would put words in the model's mouth on every later turn.
+		 */
+		val COMPACTION_SYSTEM_PROMPT = """
+			You compact an earlier part of a conversation. Write a concise summary
+			that will be prepended to the recent turns later. Preserve:
+			- the user's goals, constraints and preferences;
+			- decisions and conclusions;
+			- file paths created or changed and their state;
+			- unresolved questions and next steps;
+			- tool results that still matter.
+			Do not invent facts, do not answer the questions, and do not include
+			secrets, credentials or API keys. Prefer specific names and paths over
+			vague phrasing. Use Markdown headings and short bullets.
+		""".trimIndent()
 
 		/**
 		 * Prefix on the tool result that records a refusal.

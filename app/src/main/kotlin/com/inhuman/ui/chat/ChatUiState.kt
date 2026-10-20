@@ -129,6 +129,23 @@ data class ChatUiState(
 	 * second implementation of the same arithmetic.
 	 */
 	val context: ContextUsage = ContextUsage(null, null),
+	/** An active request projection, or null when the full transcript is sent. */
+	val compaction: ContextCompactionUi? = null,
+	/** True while the summarizer call is running; the composer is disabled. */
+	val isCompacting: Boolean = false,
+)
+
+/**
+ * The derived summary that shortens requests for one conversation.
+ *
+ * The transcript on screen is still complete. [omittedMessages] and
+ * [omittedTurns] describe only what the provider will not receive.
+ */
+data class ContextCompactionUi(
+	val throughMessageId: String,
+	val summary: String,
+	val omittedTurns: Int,
+	val omittedMessages: Int,
 )
 
 /** An image staged for the next message. */

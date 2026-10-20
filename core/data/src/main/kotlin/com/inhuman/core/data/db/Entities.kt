@@ -142,6 +142,37 @@ data class AgentEntity(
 }
 
 /**
+ * One derived summary of the earlier part of a conversation.
+ *
+ * This is **not** a replacement for the transcript and not a message: every
+ * original row stays in `messages`. The summary is only a request projection
+ * marker, so a branch switch, a rewind or a bad summary can be undone without
+ * losing what was said. [throughMessageId] must be on the active path; a
+ * summary whose boundary is not found is ignored rather than applied to the
+ * wrong prefix.
+ */
+@Entity(
+	tableName = "context_summaries",
+	foreignKeys = [
+		ForeignKey(
+			entity = ConversationEntity::class,
+			parentColumns = ["id"],
+			childColumns = ["conversationId"],
+			onDelete = ForeignKey.CASCADE,
+		),
+	],
+	indices = [Index("conversationId")],
+)
+data class ContextSummaryEntity(
+	@PrimaryKey val conversationId: String,
+	/** Last active message covered by [summary]. */
+	val throughMessageId: String,
+	val summary: String,
+	val createdAt: Long,
+	val updatedAt: Long,
+)
+
+/**
  * A workspace, independent of any one conversation.
  *
  * A temporary workspace is created with its first conversation and is deleted

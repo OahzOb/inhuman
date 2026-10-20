@@ -49,7 +49,7 @@ citation.
 | [01-overview.md](01-overview.md) | What is this, which module holds what, what does the app actually do today, what is deliberately missing |
 | [02-architecture.md](02-architecture.md) | Module graph, dependency rule, how the app is wired at start-up, navigation, build toolchain, build/verify commands |
 | [03-ai-provider.md](03-ai-provider.md) | The provider interface and stream types, provider profiles, the OpenAI-compatible adapter, SSE decoding, demo mode, `web_search`/`web_fetch` and **the paid backends behind them** |
-| [04-data-persistence.md](04-data-persistence.md) | Room schema v12 and its exported versions, repositories, ordering rules, key storage, `DocumentsProvider`, orphan sweeps |
+| [04-data-persistence.md](04-data-persistence.md) | Room schema v13 and its exported versions, repositories, ordering rules, key storage, `DocumentsProvider`, orphan sweeps |
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the 8 file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | The turn lifecycle, tool-call execution, the approval gate, cancellation, context gauge, Compose layout rules |
 | [07-gotchas.md](07-gotchas.md) | The load-bearing invariants, and the mistakes that already cost someone a day |
@@ -106,7 +106,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :app:testDebugUnitTest --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 347 tests in 39 suites, 0 failures, 1 skipped** — the skip is
+**BUILD SUCCESSFUL, 353 tests in 40 suites, 0 failures, 1 skipped** — the skip is
 `DeepSeekWebLiveTest`, which talks to the real paid Search and Fetch APIs and
 needs `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 
@@ -114,7 +114,7 @@ needs `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 | --- | --- | --- |
 | `:core:ai` | 20 | 196 (1 skipped) |
 | `:core:files` | 5 | 57 |
-| `:app` | 9 | 61 |
+| `:app` | 10 | 67 |
 | `:core:common` | 2 | 16 |
 | `:core:data` | 3 | 17 |
 
@@ -135,14 +135,14 @@ they only run against a device:
 | `app/src/androidTest/…/SessionLogReadBenchmark` | How long a session log takes to read on ARM64 — the number a port's cold start depends on |
 | `app/src/androidTest/…/JavaScriptSandboxProbe` | Whether the platform JavaScript sandbox is available, and what it withholds (`fetch`, `require`, `process`) |
 | `app/src/androidTest/…/WebToolProvidersTest` | The web keys are independent: a chat key alone registers no tool, and Exa/DeepSeek select the right provider |
-| `core/data/src/androidTest/…/MigrationTest` | Room migrations against a real SQLite, including 11→12 |
+| `core/data/src/androidTest/…/MigrationTest` | Room migrations against a real SQLite, including 11→12 and 12→13 |
 | `core/data/src/androidTest/…/WorkspaceLifecycleTest` | Temporary workspaces die with their conversation; permanent ones survive and promotion does not move the directory |
 | `core/data/src/androidTest/…/ConversationLookupTest` | The `id` / `workspaceId` distinction the documents provider's folder lookup depends on; both are UUIDs, and the wrong one returns null rather than failing |
 | `core/data/src/androidTest/…/WorkspaceDocumentsProviderTest` | The provider's actual folder ids: a re-queried folder keeps its title, and delete/rename are refused |
 | `core/data/src/androidTest/…/ProviderProfileTest` | A conversation copies its assistant's provider; a referenced provider cannot be deleted; key slots are separate |
 
 Run them with `:app:connectedDebugAndroidTest` / `:core:data:connectedDebugAndroidTest`,
-or `adb shell am instrument`. The `:core:data` run is **23 tests**, and the app
+or `adb shell am instrument`. The `:core:data` run is **24 tests**, and the app
 suite is **5 tests**, at the time of writing. The first two have their measured
 results in [port-assessment.md](port-assessment.md); the rest are the evidence
 behind [07-gotchas.md](07-gotchas.md) B8 and B6.
@@ -157,10 +157,10 @@ throughout.
 | --- | --- |
 | Work out a rough plan at all | [`01-overview.md`](01-overview.md), then [`07-gotchas.md`](07-gotchas.md) |
 | Startup, dependency wiring, navigation, Back, ViewModel keys | `app/src/main/kotlin/com/inhuman/MainActivity.kt` |
-| Streaming, tool loop, approval, cancellation, regenerate, context gauge | `app/src/main/kotlin/com/inhuman/ui/chat/ChatViewModel.kt` (the file everything routes through) |
+| Streaming, tool loop, approval, cancellation, regenerate, context gauge, compaction | `app/src/main/kotlin/com/inhuman/ui/chat/ChatViewModel.kt` (the file everything routes through) |
 | Visible chat layout, bubbles, composer, tool rows, the dialog | `app/src/main/kotlin/com/inhuman/ui/chat/ChatScreen.kt` |
 | Incremental Markdown, the delta channel, the renderer switch, unclosed fences | `ui/chat/MarkdownText.kt`, `ui/chat/DeltaCursor.kt`, `ui/chat/MarkdownFence.kt` |
-| The context ring and its three cases | `ui/chat/ContextUsage.kt`, `ui/chat/ContextGauge.kt` |
+| The context ring, its three cases and the compaction projection | `ui/chat/ContextUsage.kt`, `ui/chat/ContextGauge.kt`, `ui/chat/ContextCompaction.kt` |
 | Assistants, the tool picker, system-prompt import | `ui/agents/AgentsScreen.kt`, `ui/agents/AgentsViewModel.kt`, `ui/agents/PromptImport.kt` |
 | Workspaces, lifetime, promoting a temporary one, absolute path | `ui/workspaces/WorkspacesScreen.kt`, `ui/workspaces/WorkspaceDetailScreen.kt`, `core/data/…/ConversationRepository.kt` |
 | The conversation list, pinning, delete confirmation | `ui/ConversationsScreen.kt`, `ui/ConversationsViewModel.kt` |

@@ -122,7 +122,7 @@ Exa results are used as returned. Fetch returns readable text/Markdown and
 truncates very long pages with a visible marker rather than silently cutting them
 off.
 
-### The context gauge, and what is not there
+### The context gauge, and compaction
 
 A ring sits above the composer showing how full the model's context window is;
 tapping it gives the percentage, the exact tokens used and the window size.
@@ -139,18 +139,23 @@ yet gets an empty ring. `deepseek-flash` and `deepseek-v4-pro` both report
 but a turn that reads two large files or searches eight times can move it, and
 before the gauge existed there was no way to see that happening.
 
-**There is still no compaction, and no trimming.** The whole active branch is
-sent every turn (`ChatViewModel.streamOneTurn`), `ChatRequest.maxTokens` is
-never set, and nothing is ever dropped. So when a conversation does reach the
-ceiling, the API rejects it with a 400, the app shows that error once, and the
-turn is not recorded — which means the next message rebuilds the same oversized
-history and fails the same way. The conversation is stuck, and the only exit is
-a new one.
+**Compaction is explicit and reversible.** Opening the gauge exposes **Compact
+conversation…**. It keeps the last two turns verbatim, asks the model for a
+summary of the older complete turns, and sends that summary with the recent
+turns on later requests. Every original message stays in the transcript; a
+**CONTEXT COMPACTED** banner and the gauge's **View summary / Use full history**
+controls make the projection visible and undoable. **Compact again** keeps one
+recent turn verbatim, for the case where the recent turns are themselves large.
 
-The gauge is the honest minimum: it makes the wall visible before it is hit. It
-does not remove the wall. Trimming and summarising are both real design
-decisions — one silently changes what the model was told, the other costs a
-model call and loses the original text — and neither is made by default here.
+The summary call costs one extra request on a real provider; demo mode uses a
+local deterministic summary instead. Tool groups are never split: the boundary
+is always a turn boundary. API keys are not part of the summary, and a summary
+whose boundary is no longer on the active branch is ignored rather than applied
+to the wrong prefix.
+
+This removes the old permanent stuck state: reaching the context ceiling is
+still possible if a single recent turn is larger than the window, but the older
+history can now be projected down without losing it.
 
 ---
 

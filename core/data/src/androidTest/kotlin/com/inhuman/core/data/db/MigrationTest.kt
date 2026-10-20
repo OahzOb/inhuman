@@ -69,6 +69,7 @@ class MigrationTest {
 		InhumanDatabase.MIGRATION_9_10,
 		InhumanDatabase.MIGRATION_10_11,
 		InhumanDatabase.MIGRATION_11_12,
+		InhumanDatabase.MIGRATION_12_13,
 	)
 
 	// --- building a database at an old version -------------------------------
@@ -189,6 +190,26 @@ class MigrationTest {
 			sql += "CREATE INDEX IF NOT EXISTS index_workspaces_isPermanent ON workspaces(isPermanent)"
 			sql += "DROP INDEX IF EXISTS index_conversations_workspaceId"
 			sql += "CREATE INDEX IF NOT EXISTS index_conversations_workspaceId ON conversations(workspaceId)"
+		}
+		if (version >= 12) {
+			// The 11 -> 12 test builds its source at 11 and lets the migration
+			// create these; a source built directly at 12 needs them already.
+			sql += """
+				CREATE TABLE IF NOT EXISTS provider_profiles (
+					id TEXT NOT NULL PRIMARY KEY,
+					name TEXT NOT NULL,
+					kind TEXT NOT NULL,
+					baseUrl TEXT NOT NULL,
+					reasoningMode TEXT NOT NULL DEFAULT 'none',
+					includeStreamUsage INTEGER NOT NULL DEFAULT 1,
+					manualModels TEXT NOT NULL DEFAULT '',
+					isBuiltIn INTEGER NOT NULL,
+					createdAt INTEGER NOT NULL,
+					updatedAt INTEGER NOT NULL
+				)
+			""".trimIndent()
+			sql += "ALTER TABLE agents ADD COLUMN providerId TEXT NOT NULL DEFAULT 'deepseek'"
+			sql += "ALTER TABLE conversations ADD COLUMN providerId TEXT NOT NULL DEFAULT 'deepseek'"
 		}
 		return sql
 	}
@@ -539,6 +560,22 @@ class MigrationTest {
 				)
 			}
 			db.assertCanarySurvived(12)
+		}
+	}
+
+	@Test
+	fun `12 to 13 adds the derived context summary table`() {
+		migrate(12, 13, *allMigrations.take(12).toTypedArray()).use { db ->
+			db.query(
+				"SELECT name FROM sqlite_master WHERE type = 'table' " +
+					"AND name = 'context_summaries'",
+			).use { c ->
+				assertTrue("context_summaries was not created", c.moveToFirst())
+			}
+			val columns = db.columnNames("context_summaries")
+			assertTrue("summary is missing", "summary" in columns)
+			assertTrue("throughMessageId is missing", "throughMessageId" in columns)
+			db.assertCanarySurvived(13)
 		}
 	}
 

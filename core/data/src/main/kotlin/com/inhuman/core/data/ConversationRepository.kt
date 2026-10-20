@@ -98,6 +98,37 @@ class ConversationRepository(
 		return Conversation(entity, store.activePath(all))
 	}
 
+	/** The derived request summary for a conversation, if one is active. */
+	suspend fun contextSummary(conversationId: String): com.inhuman.core.data.db.ContextSummaryEntity? =
+		db.contextSummaries().byConversation(conversationId)
+
+	/**
+	 * Replace the conversation's context projection.
+	 *
+	 * Only the summary row changes; no message is edited or deleted. A later
+	 * [clearContextSummary] therefore restores the full-transcript request.
+	 */
+	suspend fun saveContextSummary(
+		conversationId: String,
+		throughMessageId: String,
+		summary: String,
+	) {
+		val now = System.currentTimeMillis()
+		db.contextSummaries().upsert(
+			com.inhuman.core.data.db.ContextSummaryEntity(
+				conversationId = conversationId,
+				throughMessageId = throughMessageId,
+				summary = summary,
+				createdAt = now,
+				updatedAt = now,
+			),
+		)
+	}
+
+	suspend fun clearContextSummary(conversationId: String) {
+		db.contextSummaries().clear(conversationId)
+	}
+
 	/** The workspace for a conversation, opened and ready for tools. */
 	fun workspace(conversation: ConversationEntity) = workspace(conversation.workspaceId)
 

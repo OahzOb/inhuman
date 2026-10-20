@@ -264,6 +264,22 @@ interface MessageDao {
 }
 
 @Dao
+interface ContextSummaryDao {
+
+	@Query("SELECT * FROM context_summaries WHERE conversationId = :conversationId")
+	suspend fun byConversation(conversationId: String): ContextSummaryEntity?
+
+	@Insert(onConflict = OnConflictStrategy.REPLACE)
+	suspend fun upsert(summary: ContextSummaryEntity)
+
+	@Query("DELETE FROM context_summaries WHERE conversationId = :conversationId")
+	suspend fun clear(conversationId: String)
+
+	@Query("SELECT * FROM context_summaries")
+	suspend fun all(): List<ContextSummaryEntity>
+}
+
+@Dao
 interface AgentDao {
 
 	// `id` last, for the same reason as `ConversationDao.observeAll`: equal
@@ -350,6 +366,7 @@ interface PolicyDao {
 		WorkspaceEntity::class,
 		ConversationEntity::class,
 		MessageEntity::class,
+		ContextSummaryEntity::class,
 		AgentEntity::class,
 		ApprovalDefaultEntity::class,
 		AgentApprovalEntity::class,
@@ -361,7 +378,7 @@ interface PolicyDao {
 	// guessing, which is how each was caught: the app crashed on launch with
 	// "Looks like you've changed schema but forgot to update the version number"
 	// instead of quietly losing conversations.
-	version = 12,
+	version = 13,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -369,6 +386,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 	abstract fun conversations(): ConversationDao
 	abstract fun workspaces(): WorkspaceDao
 	abstract fun messages(): MessageDao
+	abstract fun contextSummaries(): ContextSummaryDao
 	abstract fun agents(): AgentDao
 	abstract fun policies(): PolicyDao
 
@@ -660,6 +678,35 @@ abstract class InhumanDatabase : RoomDatabase() {
 				connection.execSQL(
 					"ALTER TABLE conversations ADD COLUMN providerId TEXT NOT NULL " +
 						"DEFAULT '${ProviderIds.DEEPSEEK}'",
+				)
+			}
+		}
+
+		/**
+		 * 12 -> 13: derived context summaries.
+		 *
+		 * Additive and empty. The table stores only a request projection; the
+		 * message rows it references remain untouched, so an upgrade never
+		 * loses a transcript and clearing the row restores the full request.
+		 */
+		val MIGRATION_12_13 = object : Migration(12, 13) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"""
+					CREATE TABLE IF NOT EXISTS context_summaries (
+						conversationId TEXT NOT NULL PRIMARY KEY,
+						throughMessageId TEXT NOT NULL,
+						summary TEXT NOT NULL,
+						createdAt INTEGER NOT NULL,
+						updatedAt INTEGER NOT NULL,
+						FOREIGN KEY(conversationId) REFERENCES conversations(id)
+							ON UPDATE NO ACTION ON DELETE CASCADE
+					)
+					""".trimIndent(),
+				)
+				connection.execSQL(
+					"CREATE INDEX IF NOT EXISTS index_context_summaries_conversationId " +
+						"ON context_summaries (conversationId)",
 				)
 			}
 		}
