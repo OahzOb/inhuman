@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.FolderOpen
@@ -94,6 +95,7 @@ fun ConversationsScreen(
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
+	var showCreateSheet by remember { mutableStateOf(false) }
 
 	// Ask for the file count when the question is about to be shown, not when it
 	// is answered -- by then the folder is gone and there is nothing to count.
@@ -127,23 +129,21 @@ fun ConversationsScreen(
 		topBar = {
 			HomeHeader(
 				wide = wide,
-				useFab = useFab,
 				onOpenWorkspaces = onOpenWorkspaces,
-				onNewWorkspace = onNewWorkspace,
 				onOpenAgents = onOpenAgents,
 				onOpenSettings = onOpenSettings,
-				onNewConversation = { viewModel.startNewConversation() },
+				onCreate = { showCreateSheet = true },
 			)
 		},
 		floatingActionButton = {
 			if (useFab) {
 				FloatingActionButton(
-					onClick = { viewModel.startNewConversation() },
+					onClick = { showCreateSheet = true },
 					containerColor = MaterialTheme.colorScheme.primary,
 					contentColor = MaterialTheme.colorScheme.onPrimary,
 					shape = MaterialTheme.shapes.medium,
 				) {
-					Icon(Icons.Filled.Add, contentDescription = "New conversation")
+					Icon(Icons.Filled.Add, contentDescription = "Create")
 				}
 			}
 		},
@@ -178,7 +178,7 @@ fun ConversationsScreen(
 							onOpen = onOpenConversation,
 							onTogglePin = viewModel::setPinned,
 							onRequestDelete = { pendingDelete = it },
-							onNewConversation = { viewModel.startNewConversation() },
+							onCreate = { showCreateSheet = true },
 							onOpenWorkspaces = onOpenWorkspaces,
 							onOpenAssistants = onOpenAgents,
 							showStartButton = true,
@@ -192,7 +192,7 @@ fun ConversationsScreen(
 					onOpen = onOpenConversation,
 					onTogglePin = viewModel::setPinned,
 					onRequestDelete = { pendingDelete = it },
-					onNewConversation = { viewModel.startNewConversation() },
+					onCreate = { showCreateSheet = true },
 					onOpenWorkspaces = onOpenWorkspaces,
 					onOpenAssistants = onOpenAgents,
 					showStartButton = false,
@@ -200,6 +200,21 @@ fun ConversationsScreen(
 				)
 			}
 		}
+	}
+
+	if (showCreateSheet) {
+		CreateSheet(
+			workspaces = state.permanentWorkspaces,
+			onDismiss = { showCreateSheet = false },
+			onConversation = { workspaceId ->
+				showCreateSheet = false
+				viewModel.startNewConversation(workspaceId)
+			},
+			onNewWorkspace = {
+				showCreateSheet = false
+				onNewWorkspace()
+			},
+		)
 	}
 
 	// Deleting a conversation destroys its folder too, so it asks first.
@@ -353,17 +368,143 @@ fun ConversationsScreen(
 	}
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CreateSheet(
+	workspaces: List<com.inhuman.core.data.db.WorkspaceEntity>,
+	onDismiss: () -> Unit,
+	onConversation: (String?) -> Unit,
+	onNewWorkspace: () -> Unit,
+) {
+	val sheetState = androidx.compose.material3.rememberModalBottomSheetState(
+		skipPartiallyExpanded = true,
+	)
+	androidx.compose.material3.ModalBottomSheet(
+		onDismissRequest = onDismiss,
+		sheetState = sheetState,
+		containerColor = MaterialTheme.colorScheme.surface,
+		shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
+	) {
+		Column(
+			modifier = Modifier
+				.fillMaxWidth()
+				.widthIn(max = 760.dp)
+				.padding(horizontal = 24.dp)
+				.padding(bottom = 24.dp)
+				.verticalScroll(rememberScrollState()),
+			verticalArrangement = Arrangement.spacedBy(10.dp),
+		) {
+			Eyebrow("Create")
+			Text(
+				text = "Start from a workspace.",
+				style = MaterialTheme.typography.headlineMedium,
+				color = MaterialTheme.colorScheme.onSurface,
+			)
+			Text(
+				text = "Every conversation gets a workspace. Start in a fresh " +
+					"temporary one, or choose a permanent workspace that already " +
+					"holds your files.",
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			Spacer(Modifier.height(8.dp))
+			Eyebrow("Conversation")
+			CreateChoice(
+				title = "Temporary workspace",
+				detail = "One conversation. Deleted with it.",
+				onClick = { onConversation(null) },
+			)
+			workspaces.forEach { workspace ->
+				CreateChoice(
+					title = workspace.name,
+					detail = "Permanent workspace · keeps its files",
+					onClick = { onConversation(workspace.id) },
+				)
+			}
+			if (workspaces.isEmpty()) {
+				Text(
+					text = "No permanent workspaces yet.",
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier.padding(start = 2.dp, bottom = 2.dp),
+				)
+			}
+			Spacer(Modifier.height(6.dp))
+			Hairline()
+			Spacer(Modifier.height(6.dp))
+			Eyebrow("Workspace")
+			CreateChoice(
+				title = "New workspace",
+				detail = "A shared folder for several conversations.",
+				onClick = onNewWorkspace,
+				leadingIcon = {
+					Icon(
+						Icons.Outlined.CreateNewFolder,
+						contentDescription = null,
+						tint = MaterialTheme.colorScheme.primary,
+						modifier = Modifier.size(18.dp),
+					)
+				},
+			)
+		}
+	}
+}
+
+@Composable
+private fun CreateChoice(
+	title: String,
+	detail: String,
+	onClick: () -> Unit,
+	leadingIcon: (@Composable () -> Unit)? = null,
+) {
+	Row(
+		modifier = Modifier
+			.fillMaxWidth()
+			.clickable(onClick = onClick)
+			.padding(vertical = 11.dp),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		if (leadingIcon != null) {
+			leadingIcon()
+			Spacer(Modifier.width(10.dp))
+		} else {
+			StatusDot(MaterialTheme.colorScheme.primary, size = 5.dp)
+			Spacer(Modifier.width(10.dp))
+		}
+		Column(
+			modifier = Modifier.weight(1f),
+			verticalArrangement = Arrangement.spacedBy(2.dp),
+		) {
+			Text(
+				text = title,
+				style = MaterialTheme.typography.titleMedium,
+				color = MaterialTheme.colorScheme.onSurface,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis,
+			)
+			Text(
+				text = detail,
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+		Icon(
+			Icons.AutoMirrored.Filled.KeyboardArrowRight,
+			contentDescription = null,
+			tint = MaterialTheme.colorScheme.onSurfaceVariant,
+			modifier = Modifier.size(18.dp),
+		)
+	}
+}
+
 @Composable
 private fun HomeHeader(
 	wide: Boolean,
-	useFab: Boolean,
 	onOpenWorkspaces: () -> Unit,
-	onNewWorkspace: () -> Unit,
 	onOpenAgents: () -> Unit,
 	onOpenSettings: () -> Unit,
-	onNewConversation: () -> Unit,
+	onCreate: () -> Unit,
 ) {
-	var menu by remember { mutableStateOf(false) }
 	Column(modifier = Modifier.statusBarsPadding()) {
 		Row(
 			modifier = Modifier
@@ -384,15 +525,8 @@ private fun HomeHeader(
 				HeaderTextAction("Workspaces", Icons.Outlined.FolderOpen, onOpenWorkspaces)
 				HeaderTextAction("Assistants", Icons.Outlined.Person, onOpenAgents)
 				HeaderTextAction("Settings", Icons.Outlined.Settings, onOpenSettings)
-				IconButton(onClick = onNewWorkspace) {
-					Icon(
-						Icons.Outlined.CreateNewFolder,
-						contentDescription = "New workspace",
-						tint = MaterialTheme.colorScheme.onSurfaceVariant,
-					)
-				}
 				Button(
-					onClick = onNewConversation,
+					onClick = onCreate,
 					shape = MaterialTheme.shapes.small,
 					contentPadding = PaddingValues(horizontal = 16.dp, vertical = 9.dp),
 				) {
@@ -402,44 +536,20 @@ private fun HomeHeader(
 						modifier = Modifier.size(16.dp),
 					)
 					Spacer(Modifier.width(6.dp))
-					Text("New conversation", style = MaterialTheme.typography.labelLarge)
+					Text("Create", style = MaterialTheme.typography.labelLarge)
 				}
 			} else {
+				// The three destinations used to live behind a three-dot menu.
+				// On a phone the icons fit on the bar, and hiding them only made
+				// the app feel smaller.
 				IconButton(onClick = onOpenWorkspaces) {
 					Icon(Icons.Outlined.FolderOpen, contentDescription = "Workspaces")
 				}
-				Box {
-					IconButton(onClick = { menu = true }) {
-						Icon(Icons.Filled.MoreVert, contentDescription = "More")
-					}
-					DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-						DropdownMenuItem(
-							text = { Text("New workspace") },
-							leadingIcon = {
-								Icon(Icons.Outlined.CreateNewFolder, contentDescription = null)
-							},
-							onClick = {
-								menu = false
-								onNewWorkspace()
-							},
-						)
-						DropdownMenuItem(
-							text = { Text("Assistants") },
-							leadingIcon = { Icon(Icons.Outlined.Person, contentDescription = null) },
-							onClick = {
-								menu = false
-								onOpenAgents()
-							},
-						)
-						DropdownMenuItem(
-							text = { Text("Settings") },
-							leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
-							onClick = {
-								menu = false
-								onOpenSettings()
-							},
-						)
-					}
+				IconButton(onClick = onOpenAgents) {
+					Icon(Icons.Outlined.Person, contentDescription = "Assistants")
+				}
+				IconButton(onClick = onOpenSettings) {
+					Icon(Icons.Outlined.Settings, contentDescription = "Settings")
 				}
 			}
 		}
@@ -519,7 +629,7 @@ private fun ConversationPanel(
 	onOpen: (String) -> Unit,
 	onTogglePin: (ConversationEntity, Boolean) -> Unit,
 	onRequestDelete: (ConversationEntity) -> Unit,
-	onNewConversation: () -> Unit,
+	onCreate: () -> Unit,
 	onOpenWorkspaces: () -> Unit,
 	onOpenAssistants: () -> Unit,
 	showStartButton: Boolean,
@@ -561,7 +671,7 @@ private fun ConversationPanel(
 			if (conversations.isEmpty()) {
 				EmptyState(
 					showStartButton = showStartButton,
-					onNewConversation = onNewConversation,
+					onCreate = onCreate,
 					onOpenWorkspaces = onOpenWorkspaces,
 					onOpenAssistants = onOpenAssistants,
 				)
@@ -764,7 +874,7 @@ private fun rememberNowMillis(): Long {
 @Composable
 private fun EmptyState(
 	showStartButton: Boolean,
-	onNewConversation: () -> Unit,
+	onCreate: () -> Unit,
 	onOpenWorkspaces: () -> Unit,
 	onOpenAssistants: () -> Unit,
 ) {
@@ -788,14 +898,14 @@ private fun EmptyState(
 		)
 		if (showStartButton) {
 			Button(
-				onClick = onNewConversation,
+				onClick = onCreate,
 				modifier = Modifier.padding(top = 6.dp),
 				shape = MaterialTheme.shapes.small,
 				contentPadding = PaddingValues(horizontal = 18.dp, vertical = 11.dp),
 			) {
 				Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
 				Spacer(Modifier.width(7.dp))
-				Text("New conversation", style = MaterialTheme.typography.labelLarge)
+				Text("Create", style = MaterialTheme.typography.labelLarge)
 			}
 		}
 		Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

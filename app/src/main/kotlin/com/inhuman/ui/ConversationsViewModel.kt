@@ -22,6 +22,8 @@ data class ConversationsUiState(
 	/** Workspace display names and lifetime, for delete confirmations. */
 	val workspaceNames: Map<String, String> = emptyMap(),
 	val permanentWorkspaceIds: Set<String> = emptySet(),
+	/** Permanent workspaces offered by the Create sheet, in display order. */
+	val permanentWorkspaces: List<com.inhuman.core.data.db.WorkspaceEntity> = emptyList(),
 	val loaded: Boolean = false,
 	/**
 	 * Assistants to choose from, non-null only while the picker is open.
@@ -52,6 +54,14 @@ class ConversationsViewModel(
 	private val _state = MutableStateFlow(ConversationsUiState())
 	val state: StateFlow<ConversationsUiState> = _state.asStateFlow()
 
+	/**
+	 * The workspace chosen in the Create sheet, if any.
+	 *
+	 * Null means a new temporary workspace. Held until the assistant is chosen
+	 * because the conversation row cannot be created before that decision.
+	 */
+	private var pendingWorkspaceId: String? = null
+
 	init {
 		viewModelScope.launch {
 			repository.observeAll().collect { list ->
@@ -70,6 +80,9 @@ class ConversationsViewModel(
 						workspaceNames = list.associate { w -> w.id to w.name },
 						permanentWorkspaceIds = list.filter { w -> w.isPermanent }
 							.mapTo(mutableSetOf()) { w -> w.id },
+						permanentWorkspaces = list
+							.filter { w -> w.isPermanent }
+							.sortedBy { w -> w.name.lowercase() },
 					)
 				}
 			}
@@ -83,37 +96,55 @@ class ConversationsViewModel(
 	 * assistant is the first real decision about a conversation and the only one
 	 * that cannot be changed afterwards without losing the instructions the
 	 * transcript was produced under.
+	 *
+	 * @param workspaceId an existing permanent workspace, or null for a new
+	 *   temporary one.
 	 */
-	fun startNewConversation() {
+	fun startNewConversation(workspaceId: String? = null) {
+		pendingWorkspaceId = workspaceId
 		viewModelScope.launch {
 			val available = agents.all()
 			if (available.isEmpty()) {
 				// Nothing to choose from: create with no assistant rather than
 				// blocking. The default is seeded on database creation, so this
 				// is only reachable if something went wrong there.
-				create(null)
+				pendingWorkspaceId = null
+				create(null, workspaceId)
 			} else {
 				_state.update { it.copy(choosingAgent = available) }
 			}
 		}
 	}
 
-	fun cancelChoosing() = _state.update { it.copy(choosingAgent = null) }
+	fun cancelChoosing() {
+		pendingWorkspaceId = null
+		_state.update { it.copy(choosingAgent = null) }
+	}
 
 	/** Create with the chosen assistant and hand back the new id. */
 	fun chooseAgent(agent: AgentEntity?, onCreated: (String) -> Unit) {
+		val workspaceId = pendingWorkspaceId
+		pendingWorkspaceId = null
 		_state.update { it.copy(choosingAgent = null) }
-		create(agent, onCreated)
+		create(agent, workspaceId, onCreated)
 	}
 
-	private fun create(agent: AgentEntity?, onCreated: ((String) -> Unit)? = null) {
-		Diag.i("conv", "create agent=${Diag.shortId(agent?.id)}")
+	private fun create(
+		agent: AgentEntity?,
+		workspaceId: String?,
+		onCreated: ((String) -> Unit)? = null,
+	) {
+		Diag.i(
+			"conv",
+			"create agent=${Diag.shortId(agent?.id)} workspace=${Diag.shortId(workspaceId)}",
+		)
 		viewModelScope.launch {
-			val conversation = repository.create(agent = agent)
+			val conversation = repository.create(agent = agent, workspaceId = workspaceId)
 			Diag.i(
 				"conv",
 				"created id=${Diag.shortId(conversation.id)} " +
-					"agent=${Diag.shortId(conversation.agentId)}",
+					"agent=${Diag.shortId(conversation.agentId)} " +
+					"workspace=${Diag.shortId(conversation.workspaceId)}",
 			)
 			onCreated?.invoke(conversation.id)
 		}

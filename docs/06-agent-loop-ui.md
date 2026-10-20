@@ -526,8 +526,17 @@ sent.
 workspace is a container for files and conversations, not a conversation
 property:
 
-- **Workspaces** is reachable from the home top bar and from **New workspace**;
-  it lists permanent workspaces with name, conversation count, and update time.
+- **Create** is the single creation entry on the home screen: a FAB on a phone, a
+  top-bar button on a tablet. It opens a bottom sheet with **Temporary
+  workspace**, every existing permanent workspace, and **New workspace**.
+  Choosing a workspace only records it; the assistant picker follows, and the
+  conversation is inserted with that `workspaceId`. **New workspace** hands off to
+  the Workspaces screen and its name dialog.
+- **Workspaces** is reachable directly from the home top bar (the folder icon on
+  a phone, the text action on a tablet); it lists permanent workspaces with name,
+  conversation count, and update time. The home top bar no longer has an overflow
+  menu: Workspaces, Assistants and Settings are direct destinations on both form
+  factors.
 - **Workspace detail** shows usage, the session list, **Files**, and **New
   conversation**. New conversations created here use that workspace and ask for
   an assistant first, exactly like the home flow.
