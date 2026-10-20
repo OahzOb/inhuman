@@ -69,20 +69,21 @@ Every mutating tool carries a **REWIND** or **NO REWIND** badge beside its name,
 in the same row as PAID and REMOTE. The name says what the tool does; the badge
 says whether the turn can be undone. `ssh_exec` is the only `NO REWIND` entry.
 
-Regenerating a reply has two forms:
+**Rewind** is the single restart control on the newest answer. It opens a picker
+of restart points:
 
-- **Answer again** (the refresh icon on the newest answer) keeps the tool
-  **definitions** so the request prefix can still hit the provider's context cache,
-  but appends a transient instruction not to call one. If the model calls anyway,
-  the app refuses it before execution; nothing is written or sent over SSH.
-- **Regenerate from…** can restart at the user message or after any completed
-  tool group in the last turn. The prefix and its tool results stay; everything
-  after the chosen point is deleted, the workspace is restored to that
-  checkpoint, and the request runs **with tools**. A point is disabled if the
-  discarded suffix contains an irreversible tool.
+- **Answer again** keeps the tool **definitions** so the request prefix can still
+  hit the provider's context cache, but appends a transient instruction not to
+  call one. If the model calls anyway, the app refuses it before execution;
+  nothing is written or sent over SSH.
+- **From your message** or **After tool group N** restarts at that completed
+  boundary. The prefix and its tool results stay; everything after the chosen
+  point is deleted, the workspace is restored to that checkpoint, and the request
+  runs **with tools**. A point is disabled if the discarded suffix contains an
+  irreversible tool.
 
-The last user message has an **Edit** action. It rewinds the conversation to
-before that message, removes the message and everything after it, and restores
+The picker's **Edit your message** choice rewinds the conversation to before the
+last user message, removes the message and everything after it, and restores
 the text and attachments to the composer. If the turn wrote local files, the
 pre-turn start checkpoint is restored **before** any rows are deleted. A turn's
 changed files are listed under its answer (`+`/`~`/`-` paths) and repeated in

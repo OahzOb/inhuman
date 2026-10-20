@@ -662,8 +662,8 @@ hiding the evidence. The correction is structural:
   mutation; after each completed tool group capture another checkpoint;
 - rollback restores `start` **before** deleting any rows; a failed restore
   leaves the conversation intact;
-- `ssh_exec` is tagged `reversible = false`; a turn containing it gets no Edit,
-  only the reason. Regenerate is still available.
+- `ssh_exec` is tagged `reversible = false`; a turn containing it gets no
+  Edit/rollback point, only the reason. **Answer again** is still available.
 
 Snapshots are per turn and per tool group. The chat menu lists each stored turn
 with its checkpoint count, bytes and timestamp, totals them, and sets retention
@@ -711,10 +711,10 @@ The next report was about control and history:
 
 - The refresh button could only produce another **final text** answer. It could
   not resume from after the first tool call, or before the second, even when
-  everything discarded was reversible. The answer is a checkpoint picker:
-  `Regenerate from…` lists `From your message` and each completed tool group.
-  Selecting one restores its checkpoint, deletes the suffix, and reruns **with
-  tools**. A suffix containing SSH disables the point.
+  everything discarded was reversible. The answer was a checkpoint picker, now
+  surfaced inside Rewind: it lists `From your message` and each completed tool
+  group. Selecting one restores its checkpoint, deletes the suffix, and reruns
+  **with tools**. A suffix containing SSH disables the point.
 - One snapshot per conversation meant the previous turn disappeared on the next
   send, and there was no way to see or choose how much history was kept.
   Checkpoints are now content-addressed per turn and per tool group; the chat

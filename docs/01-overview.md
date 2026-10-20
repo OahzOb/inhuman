@@ -79,13 +79,14 @@ Confirmed by `README.md:17-29` and by the code:
 - Approval rules can tighten what the assistant may do, per tool, per assistant
   or per path; the default asks nothing, including for deletion
   ([09-approvals.md](09-approvals.md)).
-- Answers can be retried. **Answer again** keeps the tool **definitions** so the
-  request prefix can still hit the context cache, but appends a transient
-  system instruction forbidding a call; the app refuses any call before
-  execution, so nothing is written or sent over SSH. **Regenerate from…** can
-  restart after any completed tool group in the last turn: the prefix and its
-  results stay, the suffix is deleted and its checkpoint restored, and the
-  request runs **with tools** ([07-gotchas.md](07-gotchas.md) B20, B23).
+- Answers can be retried. **Rewind** is the single restart control. **Answer
+  again** keeps the tool **definitions** so the request prefix can still hit the
+  context cache, but appends a transient system instruction forbidding a call;
+  the app refuses any call before execution, so nothing is written or sent over
+  SSH. Other Rewind points restart after the user message or any completed tool
+  group in the last turn: the prefix and its results stay, the suffix is deleted
+  and its checkpoint restored, and the request runs **with tools**
+  ([07-gotchas.md](07-gotchas.md) B20, B23).
 - Image attachments.
 - A context gauge above the composer.
 - A local diagnostic log records turns, tool calls, HTTP failures and crashes;
@@ -123,15 +124,16 @@ Two more that are stated as behaviour rather than as policy:
   conversation is stuck. The gauge exists to make that wall visible before it is
   hit; it does not remove it (`README.md:81-92`).
 - **Rollback moves the transcript and the local workspace together.** The last
-  user message has **Edit**: its start checkpoint is restored, then that message
-  and everything after it are deleted, and the text/attachments go back to the
-  composer. A turn containing an irreversible tool (SSH) is **not** offered for
-  rollback, because its remote effects cannot be undone. Separately, the newest
-  answer can be retried from the same prefix: the tool definitions stay (so the
-  context cache can hit), a transient instruction forbids calls, and the app
-  refuses any call before execution. **Regenerate from…** can restart after any
-  completed tool group in the last turn: the prefix is kept, the suffix is
-  deleted, its checkpoint is restored, and the request runs with tools.
+  user message has **Edit your message** in Rewind: its start checkpoint is
+  restored, then that message and everything after it are deleted, and the
+  text/attachments go back to the composer. A turn containing an irreversible
+  tool (SSH) is **not** offered for rollback, because its remote effects cannot
+  be undone. Separately, the newest answer can be retried from the same prefix:
+  the tool definitions stay (so the context cache can hit), a transient
+  instruction forbids calls, and the app refuses any call before execution.
+  Other Rewind points can restart after the user message or any completed tool
+  group in the last turn: the prefix is kept, the suffix is deleted, its
+  checkpoint is restored, and the request runs with tools.
   Checkpoints are content-addressed; the chat menu lists each retained turn with
   its checkpoint count, size and timestamp, and lets the user keep 1/3/5/10
   turns. The same menu sets the per-turn tool-round limit.
@@ -145,7 +147,7 @@ Worth settling before reading the rest, because the words are overloaded:
 | **assistant** / **agent** | A stored person(a): name, system prompt, provider, model, reasoning effort, and an allowed-tool selection. Managed on the Agents screen. |
 | **provider profile** | A named OpenAI-compatible endpoint and its encrypted key. The seeded DeepSeek profile is built in; a custom profile must use HTTPS. |
 | **conversation** | One chat, its branch, and the workspace it uses. Copies the assistant's provider, model and effort at creation so editing an assistant cannot change what an existing conversation may do. |
-| **branch** | A regenerated final answer is stored as a sibling branch; the user can switch between them. A mid-turn **Regenerate from…** replaces the suffix instead, because its tool results would no longer match the restored workspace. |
+| **branch** | A regenerated final answer is stored as a sibling branch; the user can switch between them. A mid-turn **Rewind** restart point replaces the suffix instead, because its tool results would no longer match the restored workspace. |
 | **workspace** | A folder and the sandbox boundary. A **temporary** workspace is created with its one conversation and deleted with it; a **permanent** workspace survives its conversations and can be shared by several. The absolute directory is visible to the user in Files and workspace detail, but never to the agent. |
 | **turn** | One user message and everything the model and its tools did in response. |
 | **mutates** | "Replaying this turn with tools would change something." A record, not a blanket regeneration gate. |

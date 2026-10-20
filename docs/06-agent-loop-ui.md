@@ -171,25 +171,30 @@ captures another checkpoint keyed by the last tool-result id. If the start
 capture fails, the mutation is refused rather than run without an undo record.
 Read-only turns need no checkpoint.
 
-The last turn has **Rewind** (an undo icon) on the newest answer's action row,
-beside Source, Copy and Regenerate. For a turn whose answer has not arrived yet,
-the same icon falls back to the last user message. It restores `start`, then
-deletes that message and every descendant, clears the parent's selected child,
-and puts the text and attachments back in the composer. A restore failure leaves
-the rows untouched. Only that turn's checkpoint directory is deleted; older turns
-remain according to the retention setting.
+The last turn has one **Rewind** action (an undo icon) on the newest answer's
+action row, beside Source and Copy. For a turn whose answer has not arrived yet,
+the same icon falls back to the last user message. Tapping it opens a picker of
+restart points; each point is a prefix that the next request can reuse from the
+provider's cache, and everything after that point is removed:
 
-The newest answer's refresh icon keeps the tools for cache purposes but
-suppresses calls. Beside it, the history icon (**Regenerate from…**) lists the
-user message and every completed tool-group boundary in the last turn. Selecting
-one:
+- **Answer again** keeps every tool result and asks only for a new final answer.
+  The tools stay in the request for prefix-cache matching, but calls are
+  suppressed, so no SSH command, write or paid search can run again.
+- **From your message** restores the start checkpoint, removes the turn's tools
+  and answer, and runs the turn again **with tools**, so new calls are possible.
+- **After tool group N** restores that group's checkpoint, keeps the prefix and
+  its tool results, and asks again with tools. The suffix is replaced, not kept
+  as a branch, because its tool results would no longer match the restored
+  workspace.
+- **Edit your message** restores the start checkpoint, removes the user message
+  and every descendant, clears the parent's selected child, and puts the text and
+  attachments back in the composer. A restore failure leaves the rows untouched.
+  Only that turn's checkpoint directory is deleted; older turns remain according
+  to the retention setting.
 
-- restores its checkpoint (or `start` for a read-only group before the first
-  write), then deletes everything below the boundary and asks the model again
-  **with tools**;
-- keeps the prefix and its tool results; the suffix is replaced, not kept as a
-  branch, because its tool results would no longer match the restored workspace;
-- is disabled when the discarded suffix contains an irreversible tool.
+Points whose discarded suffix contains an irreversible tool are disabled with the
+reason shown. The same picker is the only place regenerate and rewind now live;
+there is no separate refresh or history icon.
 
 `Tool.reversible` / `ToolCatalog.Entry.reversible` is the gate. `ssh_exec` is the
 only irreversible tool: a turn containing it shows the reason and **no Rewind**.
@@ -563,10 +568,10 @@ property:
 
 Shared file state makes two conversation features unsafe, and the chat handles
 that explicitly: if a permanent workspace has more than one conversation,
-file rollback and **Regenerate from…** are disabled with a reason, because
-restoring one transcript's snapshot would overwrite another conversation's
-files. Snapshot capture still runs; the guard is at the restore/regenerate
-entry points.
+file rollback and the checkpoint restart points in Rewind are disabled with a
+reason, because restoring one transcript's snapshot would overwrite another
+conversation's files. Snapshot capture still runs; the guard is at the
+restore/regenerate entry points.
 
 ### Files
 

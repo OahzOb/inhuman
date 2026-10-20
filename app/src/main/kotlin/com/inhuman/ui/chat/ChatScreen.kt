@@ -21,7 +21,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Code
-import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,7 +53,6 @@ import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.MoreVert
@@ -249,7 +247,11 @@ fun ChatScreen(
 	var showChatMenu by remember { mutableStateOf(false) }
 	var rollbackTarget by remember { mutableStateOf<ChatMessageUi?>(null) }
 	var rollbackFiles by remember { mutableStateOf<List<WorkspaceChange>>(emptyList()) }
-	var showRegeneratePicker by remember { mutableStateOf(false) }
+	var showRewindDialog by remember { mutableStateOf(false) }
+	// Captured when Rewind opens, while the transcript is in scope. The dialog
+	// itself is outside the Scaffold content lambda and cannot see `messages`.
+	var rewindEditTarget by remember { mutableStateOf<ChatMessageUi?>(null) }
+	var rewindEditFiles by remember { mutableStateOf<List<WorkspaceChange>>(emptyList()) }
 	var showSnapshotDialog by remember { mutableStateOf(false) }
 	var showToolLimitDialog by remember { mutableStateOf(false) }
 	var showRenameDialog by remember { mutableStateOf(false) }
@@ -261,7 +263,7 @@ fun ChatScreen(
 	// Both this and the approval gate are transient questions that Back should
 	// answer by dismissing, not by navigating away from.
 	val anyDialogOpen = showModelPicker || pendingApproval != null ||
-		pendingSshConsent != null || rollbackTarget != null || showRegeneratePicker ||
+		pendingSshConsent != null || rollbackTarget != null || showRewindDialog ||
 		showSnapshotDialog || showToolLimitDialog || showRenameDialog
 			|| showSaveWorkspaceDialog
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
@@ -623,38 +625,37 @@ fun ChatScreen(
 						}
 					}
 					items(messages, key = { it.id }) { message ->
+						val isLastAssistant = !message.fromUser && !message.isToolResult &&
+							message.id == lastAssistantId
+						val isLastUser = message.fromUser && message.id == lastUserId
+						// Rewind is one control for every restart point in the
+						// turn. It sits on the newest answer because that is where
+						// the deepest cached prefix ends; a user row is only the
+						// fallback while no answer exists yet.
+						val showRewind = !isStreaming && (
+							isLastAssistant ||
+								(isLastUser && lastAssistantId == null && rollbackAvailable)
+							)
 						MessageBubble(
 							message = message,
-							// The newest assistant reply, which is the only one that
-							// can be regenerated without discarding what follows it.
-							isLastAssistantMessage = !message.fromUser && !message.isToolResult &&
-								message.id == lastAssistantId,
-							isLastUserMessage = message.fromUser && message.id == lastUserId,
-							hasAssistantReply = lastAssistantId != null,
-							canRollback = rollbackAvailable,
-							rollbackBlockedReason = rollbackBlockedReason,
+							isLatestAssistant = isLastAssistant,
 							isStreaming = isStreaming,
-							onRegenerate = viewModel::regenerate,
-							hasRegenerationPoints = regenerationPoints.size > 1,
-							onShowRegenerationPoints = { showRegeneratePicker = true },
-							onRollback = {
-								// The rewind control now lives on the latest assistant
-								// reply, but the operation still targets the user message
-								// that opened the turn: `rollbackTo` only accepts a user
-								// message id.
-								val target = if (message.fromUser) {
-									message
-								} else {
-									messages.lastOrNull { it.fromUser && it.id == lastUserId }
+							showRewind = showRewind,
+							onShowRewind = {
+								val target = messages.lastOrNull {
+									it.fromUser && it.id == lastUserId
 								}
-								target?.let { userMessage ->
-									rollbackTarget = userMessage
-									rollbackFiles = messages
-										.dropWhile { it.id != userMessage.id }
+								rewindEditTarget = target
+								rewindEditFiles = if (target == null) {
+									emptyList()
+								} else {
+									messages
+										.dropWhile { it.id != target.id }
 										.lastOrNull { !it.fromUser && !it.isToolResult }
 										?.changedFiles
 										.orEmpty()
 								}
+								showRewindDialog = true
 							},
 							// Both ids go up: the alternative being switched to is
 							// not on the active path, so the view model cannot find
@@ -919,55 +920,30 @@ fun ChatScreen(
 		)
 	}
 
-	if (showRegeneratePicker) {
-		AlertDialog(
-			onDismissRequest = { showRegeneratePicker = false },
-			title = { Text("Regenerate from") },
-			text = {
-				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-					Text(
-						"Everything after the selected point is removed and its " +
-							"workspace effects are restored. The request runs again " +
-							"with tools, so new tool calls are possible.",
-						style = MaterialTheme.typography.bodySmall,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-					)
-					Column(
-						modifier = Modifier
-							.heightIn(max = 420.dp)
-							.verticalScroll(rememberScrollState()),
-					) {
-						regenerationPoints.forEach { point ->
-							Column(modifier = Modifier.fillMaxWidth()) {
-								TextButton(
-									onClick = {
-										showRegeneratePicker = false
-										viewModel.regenerateFrom(point)
-									},
-									enabled = point.blockedReason == null,
-									contentPadding = PaddingValues(horizontal = 4.dp),
-								) {
-									Text(point.label)
-								}
-								point.blockedReason?.let { reason ->
-									Text(
-										text = reason,
-										style = MaterialTheme.typography.bodySmall,
-										color = MaterialTheme.colorScheme.error,
-										modifier = Modifier.padding(start = 12.dp, bottom = 4.dp),
-									)
-								}
-							}
-						}
-					}
+	if (showRewindDialog) {
+		RewindDialog(
+			showEdit = lastUserId != null,
+			canEdit = rollbackAvailable,
+			editBlockedReason = rollbackBlockedReason,
+			canAnswerAgain = lastAssistantId != null,
+			points = regenerationPoints,
+			onDismiss = { showRewindDialog = false },
+			onEdit = {
+				val target = rewindEditTarget
+				if (target != null) {
+					showRewindDialog = false
+					rollbackTarget = target
+					rollbackFiles = rewindEditFiles
 				}
 			},
-			confirmButton = {
-				TextButton(onClick = { showRegeneratePicker = false }) { Text("Cancel") }
+			onAnswerAgain = {
+				showRewindDialog = false
+				viewModel.regenerate()
 			},
-			containerColor = MaterialTheme.colorScheme.surface,
-			titleContentColor = MaterialTheme.colorScheme.onSurface,
-			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+			onPoint = { point ->
+				showRewindDialog = false
+				viewModel.regenerateFrom(point)
+			},
 		)
 	}
 
@@ -1171,6 +1147,132 @@ fun ChatScreen(
  * shown because it is the most concrete warning available, but the text says
  * plainly that allowing it allows every later SSH call in the conversation.
  */
+@Composable
+private fun RewindDialog(
+	showEdit: Boolean,
+	canEdit: Boolean,
+	editBlockedReason: String?,
+	canAnswerAgain: Boolean,
+	points: List<RegenerationPoint>,
+	onDismiss: () -> Unit,
+	onEdit: () -> Unit,
+	onAnswerAgain: () -> Unit,
+	onPoint: (RegenerationPoint) -> Unit,
+) {
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text("Rewind") },
+		text = {
+			Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+				Text(
+					text = "Choose where to ask again. The prefix through that " +
+						"point is kept, so the next request can reuse it from the " +
+						"provider's cache.",
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Column(
+					modifier = Modifier
+						.heightIn(max = 420.dp)
+						.verticalScroll(rememberScrollState()),
+				) {
+					if (canAnswerAgain) {
+						RewindChoice(
+							title = "Answer again",
+							detail = "Keep every tool result and ask only for a new " +
+								"final answer; the old answer stays as a branch.",
+							enabled = true,
+							blockedReason = null,
+							onClick = onAnswerAgain,
+						)
+					}
+
+					if (points.isNotEmpty()) {
+						Text(
+							text = "EARLIER IN THIS TURN",
+							style = MaterialTheme.typography.labelSmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
+						)
+						points.forEach { point ->
+							RewindChoice(
+								title = point.label,
+								detail = if (point.label.startsWith("From your")) {
+									"Keep your question; later calls are removed and " +
+										"the turn runs again."
+								} else {
+									"Keep these tool results; later calls are removed " +
+										"and the turn runs again."
+								},
+								enabled = point.blockedReason == null,
+								blockedReason = point.blockedReason,
+								onClick = { onPoint(point) },
+							)
+						}
+					}
+
+					if (showEdit) {
+						Hairline(Modifier.padding(top = 6.dp))
+						RewindChoice(
+							title = "Edit your message",
+							detail = "Remove this turn and put the text back in the " +
+								"composer.",
+							enabled = canEdit,
+							blockedReason = editBlockedReason,
+							onClick = onEdit,
+						)
+					}
+				}
+			}
+		},
+		confirmButton = {
+			TextButton(onClick = onDismiss) { Text("Cancel") }
+		},
+		containerColor = MaterialTheme.colorScheme.surface,
+		titleContentColor = MaterialTheme.colorScheme.onSurface,
+		textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+	)
+}
+
+@Composable
+private fun RewindChoice(
+	title: String,
+	detail: String,
+	enabled: Boolean,
+	blockedReason: String?,
+	onClick: () -> Unit,
+) {
+	Column(
+		modifier = Modifier
+			.fillMaxWidth()
+			.clickable(enabled = enabled, onClick = onClick)
+			.padding(vertical = 9.dp),
+	) {
+		Text(
+			text = title,
+			style = MaterialTheme.typography.titleMedium,
+			color = if (enabled) {
+				MaterialTheme.colorScheme.onSurface
+			} else {
+				MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+			},
+		)
+		Text(
+			text = detail,
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		blockedReason?.let { reason ->
+			Text(
+				text = reason,
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.error,
+				modifier = Modifier.padding(top = 2.dp),
+			)
+		}
+	}
+}
+
 @Composable
 private fun ChatWelcome(
 	providerName: String,
@@ -1547,16 +1649,10 @@ private fun toolResultSummary(
 @Composable
 private fun MessageBubble(
 	message: ChatMessageUi,
-	isLastAssistantMessage: Boolean,
-	isLastUserMessage: Boolean,
-	hasAssistantReply: Boolean,
-	canRollback: Boolean,
-	rollbackBlockedReason: String?,
+	isLatestAssistant: Boolean,
 	isStreaming: Boolean,
-	onRegenerate: () -> Unit,
-	hasRegenerationPoints: Boolean,
-	onShowRegenerationPoints: () -> Unit,
-	onRollback: () -> Unit,
+	showRewind: Boolean,
+	onShowRewind: () -> Unit,
 	onSelectBranch: (String?, String) -> Unit,
 ) {
 	val alignment = if (message.fromUser) Alignment.End else Alignment.Start
@@ -1677,7 +1773,7 @@ private fun MessageBubble(
 				// supersedes both.
 				val live = liveAssistantSection(
 					isStreaming = isStreaming,
-					isLatestAssistant = isLastAssistantMessage,
+					isLatestAssistant = isLatestAssistant,
 					hasReasoning = reasoning.isNotBlank(),
 					hasText = hasText,
 					toolCallCount = calls.size,
@@ -1854,27 +1950,13 @@ private fun MessageBubble(
 			)
 		}
 
-		// One compact action bar per message. These used to be a stack of
-		// TextButtons, each in its own Column slot, so a reply with source,
-		// copy and regenerate pushed the transcript down by three rows. Icons
-		// keep the same actions in one line and let the answer stay the object
-		// on the page.
+		// One compact action bar per message. Source and copy are local to the
+		// message; rewind is the single restart control for the turn.
 		val hasTextActions = !message.fromUser &&
 			!message.isStreaming &&
 			message.plainText.isNotBlank()
-		val showRegenerate = isLastAssistantMessage && !message.isStreaming && !isStreaming
-		val showRewind = !isStreaming && canRollback && when {
-			// Usually rewind sits on the newest assistant reply, so it shares
-			// the row with copy and regenerate. The user-message case is only
-			// the fallback for a turn that has no reply yet.
-			message.fromUser -> isLastUserMessage && !hasAssistantReply
-			else -> isLastAssistantMessage
-		}
-		val showRollbackBlocked = !isStreaming &&
-			rollbackBlockedReason != null &&
-			(isLastAssistantMessage || (isLastUserMessage && !hasAssistantReply))
 
-		if (hasTextActions || showRegenerate || showRewind) {
+		if (hasTextActions || showRewind) {
 			Row(
 				modifier = Modifier.padding(top = 2.dp),
 				horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -1913,59 +1995,20 @@ private fun MessageBubble(
 					}
 				}
 
-				if (showRegenerate) {
-					IconButton(
-						onClick = onRegenerate,
-						modifier = Modifier.size(32.dp),
-					) {
-						Icon(
-							// Refresh rather than a rerun arrow: the action
-							// produces another answer, and existing answers stay
-							// reachable through the branch switcher.
-							imageVector = Icons.Outlined.Refresh,
-							contentDescription = "Answer again",
-							tint = MaterialTheme.colorScheme.onSurfaceVariant,
-							modifier = Modifier.size(18.dp),
-						)
-					}
-					if (hasRegenerationPoints) {
-						IconButton(
-							onClick = onShowRegenerationPoints,
-							modifier = Modifier.size(32.dp),
-						) {
-							Icon(
-								imageVector = Icons.Outlined.History,
-								contentDescription = "Regenerate from a checkpoint",
-								tint = MaterialTheme.colorScheme.onSurfaceVariant,
-								modifier = Modifier.size(18.dp),
-							)
-						}
-					}
-				}
-
 				if (showRewind) {
 					IconButton(
-						onClick = onRollback,
+						onClick = onShowRewind,
 						modifier = Modifier.size(32.dp),
 					) {
 						Icon(
 							imageVector = Icons.AutoMirrored.Outlined.Undo,
-							contentDescription = "Rewind to before this message",
+							contentDescription = "Rewind this turn",
 							tint = MaterialTheme.colorScheme.onSurfaceVariant,
 							modifier = Modifier.size(18.dp),
 						)
 					}
 				}
 			}
-		}
-
-		if (showRollbackBlocked) {
-			Text(
-				text = rollbackBlockedReason.orEmpty(),
-				style = MaterialTheme.typography.labelLarge,
-				color = MaterialTheme.colorScheme.error,
-				modifier = Modifier.padding(top = 2.dp),
-			)
 		}
 	}
 }

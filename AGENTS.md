@@ -263,17 +263,17 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
 - **`mutates` and `needsApproval` are different questions.** The first decides
   whether replay-with-tools would change something; the second whether a call
   may happen.
-- **The final-answer retry keeps tools but suppresses calls.** The refresh icon
-  rewrites final text from existing results; keeping the definitions preserves
-  the cache prefix, while a transient system instruction and an app-side guard
-  prevent execution. `Regenerate from…` keeps a checkpointed prefix and reruns
-  **with tools**, so only a suffix whose tools are reversible may be discarded.
-  Do not collapse the two paths.
-- **Rollback restores the workspace before deleting the turn.** The last user
-  message's Edit action restores the `start` checkpoint, then removes the message
-  and all descendants and restores text/attachments. A restore failure must
-  leave the rows intact. A turn containing `reversible = false` (`ssh_exec`) gets
-  no Edit at all.
+- **The final-answer retry keeps tools but suppresses calls.** The **Answer
+  again** choice in Rewind rewrites final text from existing results; keeping the
+  definitions preserves the cache prefix, while a transient system instruction
+  and an app-side guard prevent execution. Other Rewind points keep a
+  checkpointed prefix and rerun **with tools**, so only a suffix whose tools are
+  reversible may be discarded. Do not collapse the two paths.
+- **Rollback restores the workspace before deleting the turn.** The **Edit your
+  message** choice in Rewind restores the `start` checkpoint, then removes the
+  message and all descendants and restores text/attachments. A restore failure
+  must leave the rows intact. A turn containing `reversible = false` (`ssh_exec`)
+  gets no Edit/rollback choice at all.
 - **Checkpoints are content-addressed, per turn and per completed tool group.**
   `start` plus group manifests live under
   `filesDir/rollback/<conversation>/<user-id>`. Retention is 1/3/5/10 turns; the

@@ -170,7 +170,7 @@ append a **transient** system instruction after the cached prefix, telling the
 model to answer in prose and not call one. The app refuses any call before
 execution. The same turn then measured `prompt=2148 cache=1920` (89%): the old
 prefix is reused, and the instruction plus new output are the only uncached
-tokens. `Regenerate from…` does the same without the instruction, from a
+tokens. A Rewind checkpoint point does the same without the instruction, from a
 checkpoint; the conversation measured `prompt=2204 cache=93%` there.
 
 Tool calls are ordinary serialized messages once they are on the wire; there is
