@@ -46,6 +46,7 @@ data class RegenerationPoint(
  */
 data class ChatUiState(
 	val title: String = "New conversation",
+	val providerName: String = "DeepSeek",
 	val workspaceName: String = "",
 	val workspaceIsPermanent: Boolean = false,
 	val workspaceConversationCount: Int = 1,

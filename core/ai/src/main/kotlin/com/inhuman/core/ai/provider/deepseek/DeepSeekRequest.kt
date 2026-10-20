@@ -22,31 +22,48 @@ import kotlinx.serialization.json.put
  */
 internal object DeepSeekRequest {
 
-	fun build(request: ChatRequest): JsonObject = buildJsonObject {
+	fun build(
+		request: ChatRequest,
+		reasoningMode: String = "deepseek",
+		includeStreamUsage: Boolean = true,
+	): JsonObject = buildJsonObject {
 		put("model", request.model)
 		put("stream", true)
 
 		put("messages", buildJsonArray {
-			request.messages.forEach { add(message(it)) }
+			request.messages.forEach { add(message(it, reasoningMode)) }
 		})
 
 		// Ask for usage on a streamed response. Without this the final frame
-		// carries no token counts, and the counter has nothing to show.
-		put("stream_options", buildJsonObject { put("include_usage", true) })
+		// carries no token counts, and the counter has nothing to show. Not all
+		// compatible servers accept the field, so a profile can omit it.
+		if (includeStreamUsage) {
+			put("stream_options", buildJsonObject { put("include_usage", true) })
+		}
 
 		request.temperature?.let { put("temperature", JsonPrimitive(it)) }
 		request.maxTokens?.let { put("max_tokens", JsonPrimitive(it)) }
-		request.userId?.let { put("user_id", JsonPrimitive(it)) }
+		// `user_id` is DeepSeek's cache-isolation field. An arbitrary compatible
+		// server may not know it; only the DeepSeek mode sends it.
+		if (reasoningMode == "deepseek") {
+			request.userId?.let { put("user_id", JsonPrimitive(it)) }
+		}
 
 		// DeepSeek has thinking on by default, which is the wrong default for a
 		// chat app: "hi" should not cost a paragraph of reasoning. Sent
-		// explicitly rather than left to the server.
-		request.thinking?.let { enabled ->
-			put("thinking", buildJsonObject {
-				put("type", if (enabled) "enabled" else "disabled")
-			})
+		// explicitly rather than left to the server. Other compatible servers
+		// may reject an unknown `thinking` object, so only the DeepSeek mode
+		// sends it.
+		if (reasoningMode == "deepseek") {
+			request.thinking?.let { enabled ->
+				put("thinking", buildJsonObject {
+					put("type", if (enabled) "enabled" else "disabled")
+				})
+			}
 		}
-		request.reasoningEffort?.let { put("reasoning_effort", JsonPrimitive(it)) }
+		if (reasoningMode == "deepseek" || reasoningMode == "effort") {
+			request.reasoningEffort?.let { put("reasoning_effort", JsonPrimitive(it)) }
+		}
 
 		if (request.tools.isNotEmpty()) {
 			put("tools", buildJsonArray {
@@ -64,7 +81,7 @@ internal object DeepSeekRequest {
 		}
 	}
 
-	private fun message(m: ChatMessage): JsonObject = buildJsonObject {
+	private fun message(m: ChatMessage, reasoningMode: String): JsonObject = buildJsonObject {
 		put("role", m.role.wireName)
 		// A tool result is addressed to a specific call; without the id the
 		// provider cannot match it and rejects the transcript.
@@ -130,8 +147,11 @@ internal object DeepSeekRequest {
 		}
 
 		// DeepSeek requires prior reasoning back on the wire when the earlier
-		// turn used thinking; see ChatMessage.reasoning for the measurements.
-		m.reasoning?.let { put("reasoning_content", it) }
+		// turn used thinking; an unrelated OpenAI-compatible server may reject
+		// the field.
+		if (reasoningMode == "deepseek") {
+			m.reasoning?.let { put("reasoning_content", it) }
+		}
 	}
 
 	private val Role.wireName: String

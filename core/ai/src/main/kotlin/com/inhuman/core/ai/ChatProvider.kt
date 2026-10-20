@@ -5,12 +5,12 @@ import kotlinx.coroutines.flow.Flow
 /**
  * A source of completions.
  *
- * One implementation today. This interface exists anyway, and that is a
- * deliberate exception to the rule against abstraction-for-its-own-sake: the
- * streaming pipeline below it (`SseParser` -> provider decoder ->
- * [StreamChunk]) is already transport-agnostic by construction, so a second
- * provider is genuinely an addition rather than a refactor. The interface marks
- * where the seam already is.
+ * One OpenAI-compatible implementation serves every profile today. This
+ * interface exists anyway, and that is a deliberate exception to the rule against
+ * abstraction-for-its-own-sake: the streaming pipeline below it (`SseParser` ->
+ * provider decoder -> [StreamChunk]) is already transport-agnostic by
+ * construction, so a native protocol would be genuinely an addition rather than a
+ * refactor. The interface marks where the seam already is.
  *
  * What is *not* here: retries, key management, persistence, tool execution.
  * Those are policy, and policy belongs to the layer that has the context to

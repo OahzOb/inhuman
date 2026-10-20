@@ -4,21 +4,47 @@ Module: `:core:data`. It re-exports `:core:files` and `:core:ai` with `api`,
 because a conversation's lifecycle spans the sandbox that guards it and the
 provider that answers it.
 
-## The schema, version 11
+## The schema, version 12
 
 `InhumanDatabase` (`core/data/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 11`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 12`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/data/schemas/` by KSP — configured in `core/data/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
 spot.
 
-Seven entities in four files: `WorkspaceEntity`, `ConversationEntity`,
-`MessageEntity` and `AgentEntity` in `db/Entities.kt`, plus the three
-approval-policy tables (`ApprovalDefaultEntity`, `AgentApprovalEntity`,
+Eight entities in four files: `ProviderProfileEntity`, `WorkspaceEntity`,
+`ConversationEntity`, `MessageEntity` and `AgentEntity` in `db/Entities.kt`, plus
+the three approval-policy tables (`ApprovalDefaultEntity`, `AgentApprovalEntity`,
 `PathPolicyEntity`) in `db/PolicyEntities.kt`, added by migration 7→8.
 
-### `workspaces` (`Entities.kt:90-118`) — added in 10→11
+### `provider_profiles` — added in 11→12
+
+| Column | Meaning |
+| --- | --- |
+| `id` | Stable id; `deepseek` for the seeded profile, a UUID for a custom one. It is also the SecureStore slot suffix. |
+| `name`, `kind` | Display name and `deepseek` / `openai-compatible`. |
+| `baseUrl` | HTTPS API root; `/chat/completions` and `/models` are appended to it. |
+| `reasoningMode` | `none`, `effort` or `deepseek`; which reasoning fields the endpoint accepts. |
+| `includeStreamUsage` | Whether the request asks for usage on a streamed response. |
+| `manualModels` | One fallback model id per line, for endpoints with no usable `/models`. |
+| `isBuiltIn` | The seeded DeepSeek profile cannot be deleted. |
+| `createdAt`, `updatedAt` | Ordering and display. |
+
+The key is **not** in this table. It lives in `SecureStore` under
+`provider.<id>.api_key`, except the built-in DeepSeek profile, which keeps the
+legacy `deepseek.api_key` slot so an existing install continues to work. Deleting
+a profile is refused while an assistant or conversation still references it; the
+key is removed only after the row is deleted.
+
+### `agents` / `conversations`: `providerId`
+
+`agents.providerId` selects the profile; `conversations.providerId` copies it at
+creation, beside `model`, `reasoningEffort` and `thinking`. A conversation keeps
+the provider it started with even if the assistant is later edited. Both columns
+default to `deepseek` in 11→12, so every existing row keeps working.
+
+### `workspaces` (`Entities.kt`) — added in 10→11
 
 | Column | Meaning |
 | --- | --- |
@@ -50,6 +76,7 @@ The lifetime rule is in the row, not the directory:
 | `title` | Shown in the list; for a temporary workspace, the Files app folder name follows it. |
 | `workspaceId` | The `workspaces.id` whose directory this conversation uses. Deliberately not the PK and never derived from the title. Non-unique index `index_conversations_workspaceId`. |
 | `agentId` | Nullable, indexed. Which assistant this conversation was started from. |
+| `providerId` | The `provider_profiles.id` copied at creation; default `deepseek` in 11→12. |
 | `model`, `reasoningEffort`, `thinking` | **Copied from the assistant at creation**, so editing an assistant cannot rewrite what an existing conversation does. |
 | `toolsJson` | The tool selection, also copied at creation — and for a second reason: a transcript holds calls that were legal when they ran, so the permission set that produced it has to be recoverable. |
 | `createdAt`, `updatedAt`, `pinned` | Ordering and list state. |
@@ -174,7 +201,7 @@ the messages explicitly before the row **even though the FK cascades** — the
 comment says that keeps the behaviour obvious if the cascade is ever switched
 off (`:496-502`).
 
-## Migration history 1 → 9
+## Migration history 1 → 12
 
 All hand-written. There is **no `fallbackToDestructiveMigration` anywhere** and
 the reason is stated at `MIGRATION_1_2`: it would delete every conversation on
@@ -196,6 +223,9 @@ order below.
 | 6→7 | `agents` and `conversations` gain `toolsJson TEXT NOT NULL DEFAULT ''`. `''` decodes to `null` = every tool, so pre-existing assistants keep everything. |
 | 7→8 | Three new tables and **no change to any existing one**: `approval_defaults(toolName PK, policy)`, `agent_approval(agentId, toolName PK, policy)`, `path_policy(conversationId, relPath PK, policy)`. Created empty, which is both the correct migration and the correct product default — absence of a rule means no restriction. The statements are written by hand to match what Room generates, and the safety net is Room's own schema-hash check on open. |
 | 8→9 | `conversations` gains `sshAllowed INTEGER NOT NULL DEFAULT 0`. Additive and defaulted off, so every existing conversation arrives without SSH consent. `MIGRATION_8_9` is also the first migration with no new table: the SSH feature stores no host list or credential store, only this per-conversation acknowledgement, and tool-call secrets are redacted before the message row is written. |
+| 9→10 | `messages` gains `changedFilesJson`, nullable: an old reply has no file list and must not claim one. |
+| 10→11 | `workspaces` created, one temporary row per existing conversation, and the unique `index_conversations_workspaceId` replaced by a non-unique one. No directory moves. `ownerConversationId` is the conversation id; the display name starts as its title. |
+| 11→12 | `provider_profiles` created and the built-in `deepseek` row seeded with `baseUrl = https://api.deepseek.com` and `reasoningMode = deepseek`; `agents.providerId` and `conversations.providerId` added with default `deepseek`. The legacy chat key slot is reused, so no key is copied and no key is lost. |
 
 The 7→8 comment records a product change that is *not* in the migration:
 deletion no longer asks for approval, and that lives in `DeleteFileTool`, not
@@ -208,20 +238,21 @@ real device. `seedDefaultAgent` binds parameters — the prompt contains
 apostrophes — and `INSERT OR IGNORE`s `DEFAULT_AGENT_ID`, and it is called from
 both `onCreate` and `MIGRATION_3_4`.
 
-**These now have device tests.** `core/data/src/androidTest/…/MigrationTest` runs
-all nine upgrade steps against real SQLite, plus "the exported v1 schema can
-build a database" and a policy round-trip. The 8→9 case asserts both that the
-column exists and that an existing conversation arrives with `sshAllowed = 0`;
-9→10 asserts the changed-files column exists and is null on old messages. The
-v10 schema was exercised by installing over the existing database on the pad:
-the app migrated and opened its conversation list with no data loss. The
-instrumented suite was run on both the pad and the tablet AVD:
+**These have device tests.** `core/data/src/androidTest/…/MigrationTest` runs
+every upgrade step against real SQLite, plus "the exported v1 schema can build a
+database" and a policy round-trip. The latest cases assert that 9→10 is null on
+old messages, 10→11 keeps the conversation's workspace and drops the unique
+index, and 11→12 seeds DeepSeek while pointing existing conversations at it.
+The instrumented suite was run on both AVDs after 11→12:
 
 ```
 .\gradlew.bat :core:data:connectedDebugAndroidTest
-→ 23046RP50C, 11 tests, 0 failures
-→ dsh_tablet(AVD), 11 tests, 0 failures
+→ dsh_tablet(AVD), 23 tests, 0 failures
+→ inhuman_phone(AVD), 23 tests, 0 failures
 ```
+
+The app-level suite adds 3 tests for web-key isolation; see
+[README.md](README.md).
 
 ### Two migration traps worth knowing before touching this
 
@@ -283,14 +314,20 @@ view model, and retaining the Activity leaked a destroyed view hierarchy
   `null` (`:81-98`). `null` means "every tool, including future ones" — right for
   a pre-existing assistant, wrong as a default, because it would silently grant
   capabilities that did not exist when the choice was made.
-- `providerOrNull` reads the key from `SecureStore` on **every** call and returns
-  null rather than throwing when unset (`:101-110`).
-- `models(force)` checks an in-memory cache under a `Mutex`, fetches outside the
-  lock, and caches on success only (`:118-131`). Memory-only on purpose: a stale
-  on-disk model list would keep offering models that no longer exist.
-  `invalidateModels` is called when the key changes.
-- `effortLevels(null)` is empty; otherwise the advertised list **in provider
-  order**, never mapped onto a local enum (`:146-150`).
+- `saveProvider` writes the row and, when supplied, the key; `null` leaves the
+  key alone and an empty string removes it. It drops the model cache for all
+  providers.
+- `providerFromRow` returns null when the profile has no usable key. `models`
+  checks a **per-provider** in-memory cache under a `Mutex`, fetches outside the
+  lock, and caches only on success. A failed or empty `/models` falls back to the
+  profile's manual ids, which have no context/vision metadata.
+- `invalidateModels(providerId)` drops one provider, or all when null. It is
+  called when a provider or key changes.
+- `effortLevels(modelId, providerId)` returns the advertised list **in provider
+  order**, never mapped onto a local enum.
+- `deleteProvider` refuses the built-in DeepSeek row and any profile still
+  referenced by an assistant or conversation. There is no cascade. The key is
+  removed after the row.
 
 ## `SecureStore`: where the API key lives
 
@@ -317,10 +354,13 @@ view model, and retaining the Activity leaked a destroyed view hierarchy
   both on screen open and on Send. The ciphertext is still decrypted on every
   call, so an invalidated key still fails in `doFinal` — the cache is of the
   handle, not of the plaintext.
-- Keys: `KEY_DEEPSEEK_API_KEY = "deepseek.api_key"` (`:158`) and
-  `KEY_DEMO_MODE = "demo.mode"` (`:167`) — the second is not a secret but lives
-  here deliberately, so there is one place that knows about persisted settings
-  with a secrecy requirement.
+- Keys include the legacy chat key (`deepseek.api_key`), the provider key slots
+  (`provider.<id>.api_key`), and the web-tool slots
+  (`web.deepseek.api_key`, `web.exa.api_key`, `web.search_backend`,
+  `web.fetch_backend`). The web keys are deliberately separate; a chat key never
+  authorizes a paid search. The backend preferences are not secrets but live here
+  for the same reason `demo.mode` does: one place owns persisted settings with a
+  secrecy requirement.
 
 ## The files outside Room
 

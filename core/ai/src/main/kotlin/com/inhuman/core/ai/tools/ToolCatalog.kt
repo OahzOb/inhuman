@@ -82,13 +82,13 @@ object ToolCatalog {
 		Entry("read_time", "The current date and time, and date arithmetic", mutates = false),
 		Entry(
 			"web_search",
-			"Search the web via DeepSeek's paid Search API",
+			"Search the web via the configured paid search API",
 			mutates = false,
 			paid = true,
 		),
 		Entry(
 			"web_fetch",
-			"Fetch a page via DeepSeek's paid Fetch API",
+			"Fetch a page via the configured paid fetch API",
 			mutates = false,
 			paid = true,
 		),

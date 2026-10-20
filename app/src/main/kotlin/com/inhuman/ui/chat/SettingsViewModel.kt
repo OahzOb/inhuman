@@ -7,23 +7,56 @@ import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
+import com.inhuman.core.data.db.ProviderIds
+import com.inhuman.core.data.db.ProviderKinds
+import com.inhuman.core.data.db.ProviderProfileEntity
+import com.inhuman.core.data.db.ProviderReasoning
 import com.inhuman.core.data.secret.SecureStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
+import java.net.URI
+import java.util.UUID
 
 /** One host key the SSH client pinned on first use. */
 data class KnownHost(val host: String, val fingerprint: String)
 
-data class SettingsUiState(
-	/** What is in the field, which is not the same as what is stored. */
-	val apiKeyInput: String = "",
-	val hasSavedKey: Boolean = false,
-	val isChecking: Boolean = false,
+/** One provider being edited. The key is prefilled from SecureStore. */
+data class ProviderDraft(
+	val id: String,
+	val isNew: Boolean,
+	val isBuiltIn: Boolean,
+	val name: String,
+	val kind: String,
+	val baseUrl: String,
+	val reasoningMode: String,
+	val includeStreamUsage: Boolean,
+	val manualModels: String,
+	val keyInput: String,
+	val hasKey: Boolean,
+	val testing: Boolean = false,
 	val status: String? = null,
 	val statusIsError: Boolean = false,
+)
+
+data class SettingsUiState(
+	/** Result of the last demo/SSH action. */
+	val status: String? = null,
+	val statusIsError: Boolean = false,
+	val providers: List<ProviderProfileEntity> = emptyList(),
+	val editingProvider: ProviderDraft? = null,
+	val providerStatus: String? = null,
+	val providerStatusIsError: Boolean = false,
+	val webSearchBackend: String = "deepseek",
+	val webFetchBackend: String = "deepseek",
+	val webDeepSeekKeyInput: String = "",
+	val webExaKeyInput: String = "",
+	val hasWebDeepSeekKey: Boolean = false,
+	val hasWebExaKey: Boolean = false,
+	val webStatus: String? = null,
+	val webStatusIsError: Boolean = false,
 	/** Reply from the built-in scripted source instead of DeepSeek. */
 	val demoMode: Boolean = false,
 	/**
@@ -72,16 +105,21 @@ class SettingsViewModel(
 	val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
 	init {
-		// Prefill with the stored key. It is the user's own key on their own
-		// device, behind a password-style field, so showing it is less
-		// annoying than making them re-enter it to check it is the right one.
-		val existing = secure.get(SecureStore.KEY_DEEPSEEK_API_KEY)
 		_state.value = SettingsUiState(
-			apiKeyInput = existing.orEmpty(),
-			hasSavedKey = !existing.isNullOrBlank(),
 			demoMode = secure.get(SecureStore.KEY_DEMO_MODE) == "1",
 			sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
+			webSearchBackend = secure.get(SecureStore.KEY_WEB_SEARCH_BACKEND) ?: "deepseek",
+			webFetchBackend = secure.get(SecureStore.KEY_WEB_FETCH_BACKEND) ?: "deepseek",
+			webDeepSeekKeyInput = secure.get(SecureStore.KEY_WEB_DEEPSEEK_API_KEY).orEmpty(),
+			webExaKeyInput = secure.get(SecureStore.KEY_WEB_EXA_API_KEY).orEmpty(),
+			hasWebDeepSeekKey = secure.hasUsable(SecureStore.KEY_WEB_DEEPSEEK_API_KEY),
+			hasWebExaKey = secure.hasUsable(SecureStore.KEY_WEB_EXA_API_KEY),
 		)
+		viewModelScope.launch {
+			agents.observeProviders().collect { list ->
+				_state.value = _state.value.copy(providers = list)
+			}
+		}
 		loadRules()
 		loadKnownHosts()
 	}
@@ -200,83 +238,214 @@ class SettingsViewModel(
 		}
 	}
 
-	fun onApiKeyChange(value: String) {
-		_state.value = _state.value.copy(apiKeyInput = value, status = null)
-	}
+	fun hasProviderKey(providerId: String): Boolean = agents.hasKey(providerId)
 
-	fun save() {
-		val key = _state.value.apiKeyInput.trim()
-		if (key.isEmpty()) {
-			Diag.i("settings", "API key removed")
-			secure.remove(SecureStore.KEY_DEEPSEEK_API_KEY)
-			// The model list was fetched with the old key and is now either
-			// stale or was fetched with a key that no longer exists. Dropping it
-			// is the only correct thing: a picker offering models the current
-			// key cannot reach is worse than an empty one.
-			viewModelScope.launch { agents.invalidateModels() }
-			_state.value = _state.value.copy(
-				hasSavedKey = false,
-				status = "Key removed.",
-				statusIsError = false,
-			)
-			return
+	fun addProvider() {
+		val existing = _state.value.providers.map { it.name }.toSet()
+		var name = "OpenAI-compatible"
+		var suffix = 2
+		while (name in existing) {
+			name = "OpenAI-compatible $suffix"
+			suffix += 1
 		}
-		secure.put(SecureStore.KEY_DEEPSEEK_API_KEY, key)
-		Diag.i("settings", "API key saved (encrypted)")
-		viewModelScope.launch { agents.invalidateModels() }
 		_state.value = _state.value.copy(
-			hasSavedKey = true,
-			status = "Saved, encrypted with a Keystore-held key.",
-			statusIsError = false,
+			editingProvider = ProviderDraft(
+				id = UUID.randomUUID().toString(),
+				isNew = true,
+				isBuiltIn = false,
+				name = name,
+				kind = ProviderKinds.OPENAI_COMPATIBLE,
+				baseUrl = "https://api.openai.com/v1",
+				reasoningMode = ProviderReasoning.NONE,
+				includeStreamUsage = true,
+				manualModels = "",
+				keyInput = "",
+				hasKey = false,
+			),
 		)
 	}
 
-	/**
-	 * Ask DeepSeek whether the key works.
-	 *
-	 * Reports the models it can see rather than a bare "OK", because that is
-	 * evidence rather than an assertion -- and it tells the user which models
-	 * the app knows about.
-	 */
-	fun verify() {
-		val key = secure.get(SecureStore.KEY_DEEPSEEK_API_KEY)
-		if (key.isNullOrBlank()) {
-			_state.value = _state.value.copy(
-				status = "Save a key first.",
-				statusIsError = true,
-			)
+	fun editProvider(profile: ProviderProfileEntity) {
+		val key = secure.get(agents.apiKeySlot(profile.id)).orEmpty()
+		_state.value = _state.value.copy(
+			editingProvider = ProviderDraft(
+				id = profile.id,
+				isNew = false,
+				isBuiltIn = profile.isBuiltIn,
+				name = profile.name,
+				kind = profile.kind,
+				baseUrl = profile.baseUrl,
+				reasoningMode = profile.reasoningMode,
+				includeStreamUsage = profile.includeStreamUsage,
+				manualModels = profile.manualModels,
+				keyInput = key,
+				hasKey = key.isNotBlank(),
+			),
+		)
+	}
+
+	fun updateProviderDraft(transform: (ProviderDraft) -> ProviderDraft) {
+		_state.value = _state.value.let { current ->
+			current.copy(editingProvider = current.editingProvider?.let(transform))
+		}
+	}
+
+	fun closeProviderEditor() {
+		_state.value = _state.value.copy(editingProvider = null)
+	}
+
+	fun saveProvider() {
+		val draft = _state.value.editingProvider ?: return
+		val cleanName = draft.name.trim()
+		val baseUrl = draft.baseUrl.trim().trimEnd('/')
+		val problem = when {
+			cleanName.isBlank() -> "Give the provider a name."
+			baseUrl.isBlank() -> "Enter the API base URL."
+			!validBaseUrl(baseUrl) -> "The base URL must be an https URL; HTTP would send the key in clear text."
+			else -> null
+		}
+		if (problem != null) {
+			updateProviderDraft { it.copy(status = problem, statusIsError = true) }
 			return
 		}
 
-		_state.value = _state.value.copy(isChecking = true, status = "Checking…", statusIsError = false)
-
+		val now = System.currentTimeMillis()
+		val profile = ProviderProfileEntity(
+			id = draft.id,
+			name = cleanName,
+			kind = draft.kind,
+			baseUrl = baseUrl,
+			reasoningMode = draft.reasoningMode,
+			includeStreamUsage = draft.includeStreamUsage,
+			manualModels = draft.manualModels.trim(),
+			isBuiltIn = draft.isBuiltIn,
+			createdAt = now,
+			updatedAt = now,
+		)
 		viewModelScope.launch {
-			val result = runCatching { DeepSeekProvider(apiKey = key).listModels() }
-			result.onSuccess { Diag.i("models", "connection check ok models=${it.size}") }
-				.onFailure {
-					Diag.w("models", "connection check failed: ${it.message}")
+			agents.saveProvider(profile, draft.keyInput)
+			Diag.i("settings", "provider saved id=${Diag.shortId(profile.id)}")
+			_state.value = _state.value.copy(
+				editingProvider = null,
+				providerStatus = "Saved ${profile.name}.",
+				providerStatusIsError = false,
+			)
+		}
+	}
+
+	fun deleteProvider() {
+		val draft = _state.value.editingProvider ?: return
+		if (draft.isBuiltIn) return
+		viewModelScope.launch {
+			agents.deleteProvider(draft.id)
+				.onSuccess {
+					_state.value = _state.value.copy(
+						editingProvider = null,
+						providerStatus = "Provider deleted.",
+						providerStatusIsError = false,
+					)
 				}
-			_state.value = result.fold(
+				.onFailure { failure ->
+					updateProviderDraft {
+						it.copy(
+							status = failure.message ?: "Could not delete provider.",
+							statusIsError = true,
+						)
+					}
+				}
+		}
+	}
+
+	fun testProvider() {
+		val draft = _state.value.editingProvider ?: return
+		val key = draft.keyInput.trim().ifBlank {
+			secure.get(agents.apiKeySlot(draft.id)).orEmpty()
+		}
+		if (key.isBlank()) {
+			updateProviderDraft {
+				it.copy(status = "Save a key first.", statusIsError = true)
+			}
+			return
+		}
+		updateProviderDraft { it.copy(testing = true, status = "Checking…", statusIsError = false) }
+		viewModelScope.launch {
+			val result = runCatching {
+				DeepSeekProvider(
+					apiKey = key,
+					baseUrl = draft.baseUrl.trim().trimEnd('/'),
+					id = draft.id,
+					reasoningMode = draft.reasoningMode,
+					includeStreamUsage = draft.includeStreamUsage,
+				).listModels()
+			}
+			result.fold(
 				onSuccess = { models ->
-					_state.value.copy(
-						isChecking = false,
-						statusIsError = false,
-						status = if (models.isEmpty()) {
-							"Connected, but no models were listed."
-						} else {
-							"Connected. ${models.size} model(s): " +
-								models.joinToString(", ") { it.id }
-						},
-					)
+					updateProviderDraft {
+						it.copy(
+							testing = false,
+							hasKey = true,
+							status = if (models.isEmpty()) {
+								"Connected, but no models were listed."
+							} else {
+								"Connected. ${models.size} model(s): " +
+									models.take(8).joinToString(", ") { m -> m.id }
+							},
+							statusIsError = false,
+						)
+					}
 				},
-				onFailure = { e ->
-					_state.value.copy(
-						isChecking = false,
-						statusIsError = true,
-						status = e.message ?: "Connection failed.",
-					)
+				onFailure = { failure ->
+					updateProviderDraft {
+						it.copy(
+							testing = false,
+							status = failure.message ?: "Connection failed.",
+							statusIsError = true,
+						)
+					}
 				},
 			)
 		}
+	}
+
+	private fun validBaseUrl(value: String): Boolean = runCatching {
+		val uri = URI(value)
+		uri.scheme == "https" &&
+			!uri.host.isNullOrBlank() &&
+			uri.userInfo == null &&
+			uri.rawQuery == null &&
+			uri.rawFragment == null
+	}.getOrDefault(false)
+
+	fun setWebSearchBackend(backend: String) {
+		secure.put(SecureStore.KEY_WEB_SEARCH_BACKEND, backend)
+		_state.value = _state.value.copy(webSearchBackend = backend, webStatus = null)
+	}
+
+	fun setWebFetchBackend(backend: String) {
+		secure.put(SecureStore.KEY_WEB_FETCH_BACKEND, backend)
+		_state.value = _state.value.copy(webFetchBackend = backend, webStatus = null)
+	}
+
+	fun onWebDeepSeekKeyChange(value: String) {
+		_state.value = _state.value.copy(webDeepSeekKeyInput = value, webStatus = null)
+	}
+
+	fun onWebExaKeyChange(value: String) {
+		_state.value = _state.value.copy(webExaKeyInput = value, webStatus = null)
+	}
+
+	fun saveWebTools() {
+		val deepseek = _state.value.webDeepSeekKeyInput.trim()
+		val exa = _state.value.webExaKeyInput.trim()
+		if (deepseek.isBlank()) secure.remove(SecureStore.KEY_WEB_DEEPSEEK_API_KEY)
+		else secure.put(SecureStore.KEY_WEB_DEEPSEEK_API_KEY, deepseek)
+		if (exa.isBlank()) secure.remove(SecureStore.KEY_WEB_EXA_API_KEY)
+		else secure.put(SecureStore.KEY_WEB_EXA_API_KEY, exa)
+		_state.value = _state.value.copy(
+			hasWebDeepSeekKey = deepseek.isNotBlank(),
+			hasWebExaKey = exa.isNotBlank(),
+			webStatus = "Web tool keys saved. The tools use the backend selected above.",
+			webStatusIsError = false,
+		)
 	}
 }

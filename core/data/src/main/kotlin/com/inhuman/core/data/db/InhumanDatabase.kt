@@ -56,6 +56,31 @@ interface WorkspaceDao {
 }
 
 @Dao
+interface ProviderDao {
+
+	@Query("SELECT * FROM provider_profiles ORDER BY isBuiltIn DESC, name COLLATE NOCASE ASC, id ASC")
+	fun observeAll(): Flow<List<ProviderProfileEntity>>
+
+	@Query("SELECT * FROM provider_profiles ORDER BY isBuiltIn DESC, name COLLATE NOCASE ASC, id ASC")
+	suspend fun all(): List<ProviderProfileEntity>
+
+	@Query("SELECT * FROM provider_profiles WHERE id = :id")
+	suspend fun byId(id: String): ProviderProfileEntity?
+
+	@Insert(onConflict = OnConflictStrategy.REPLACE)
+	suspend fun upsert(provider: ProviderProfileEntity)
+
+	@Query("DELETE FROM provider_profiles WHERE id = :id")
+	suspend fun delete(id: String)
+
+	@Query("SELECT COUNT(*) FROM agents WHERE providerId = :id")
+	suspend fun agentCount(id: String): Int
+
+	@Query("SELECT COUNT(*) FROM conversations WHERE providerId = :id")
+	suspend fun conversationCount(id: String): Int
+}
+
+@Dao
 interface ConversationDao {
 
 	// `id` last, as a tie-break rather than for its own sake: two rows saved in
@@ -321,6 +346,7 @@ interface PolicyDao {
 
 @Database(
 	entities = [
+		ProviderProfileEntity::class,
 		WorkspaceEntity::class,
 		ConversationEntity::class,
 		MessageEntity::class,
@@ -335,10 +361,11 @@ interface PolicyDao {
 	// guessing, which is how each was caught: the app crashed on launch with
 	// "Looks like you've changed schema but forgot to update the version number"
 	// instead of quietly losing conversations.
-	version = 11,
+	version = 12,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
+	abstract fun providers(): ProviderDao
 	abstract fun conversations(): ConversationDao
 	abstract fun workspaces(): WorkspaceDao
 	abstract fun messages(): MessageDao
@@ -590,6 +617,54 @@ abstract class InhumanDatabase : RoomDatabase() {
 		}
 
 		/**
+		 * 11 -> 12: configurable chat providers.
+		 *
+		 * The seeded DeepSeek profile keeps the legacy key slot, so existing
+		 * installs continue to chat without re-entering the key. Every existing
+		 * assistant and conversation points at it. Web-tool keys are separate
+		 * and are deliberately not copied here.
+		 */
+		val MIGRATION_11_12 = object : Migration(11, 12) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"""
+					CREATE TABLE IF NOT EXISTS provider_profiles (
+						id TEXT NOT NULL PRIMARY KEY,
+						name TEXT NOT NULL,
+						kind TEXT NOT NULL,
+						baseUrl TEXT NOT NULL,
+						reasoningMode TEXT NOT NULL DEFAULT 'none',
+						includeStreamUsage INTEGER NOT NULL DEFAULT 1,
+						manualModels TEXT NOT NULL DEFAULT '',
+						isBuiltIn INTEGER NOT NULL,
+						createdAt INTEGER NOT NULL,
+						updatedAt INTEGER NOT NULL
+					)
+					""".trimIndent(),
+				)
+				connection.execSQL(
+					"""
+					INSERT OR IGNORE INTO provider_profiles
+						(id, name, kind, baseUrl, reasoningMode, includeStreamUsage,
+						 manualModels, isBuiltIn, createdAt, updatedAt)
+					VALUES
+						('${ProviderIds.DEEPSEEK}', 'DeepSeek', '${ProviderKinds.DEEPSEEK}',
+						 'https://api.deepseek.com', '${ProviderReasoning.DEEPSEEK}', 1,
+						 '', 1, 0, 0)
+					""".trimIndent(),
+				)
+				connection.execSQL(
+					"ALTER TABLE agents ADD COLUMN providerId TEXT NOT NULL " +
+						"DEFAULT '${ProviderIds.DEEPSEEK}'",
+				)
+				connection.execSQL(
+					"ALTER TABLE conversations ADD COLUMN providerId TEXT NOT NULL " +
+						"DEFAULT '${ProviderIds.DEEPSEEK}'",
+				)
+			}
+		}
+
+		/**
 		 * The assistant every install starts with.
 		 *
 		 * Its instructions are written out rather than left blank, because an
@@ -603,6 +678,30 @@ abstract class InhumanDatabase : RoomDatabase() {
 		 * database comes into being, and a helper that only one of them could
 		 * reach is how the upgrade path came to be missing it.
 		 */
+		internal fun seedDefaultProvider(connection: SQLiteConnection) {
+			val now = System.currentTimeMillis()
+			val statement = connection.prepare(
+				"""
+				INSERT OR IGNORE INTO provider_profiles
+					(id, name, kind, baseUrl, reasoningMode, includeStreamUsage,
+					 manualModels, isBuiltIn, createdAt, updatedAt)
+				VALUES (?, ?, ?, ?, ?, 1, '', 1, ?, ?)
+				""".trimIndent(),
+			)
+			try {
+				statement.bindText(1, ProviderIds.DEEPSEEK)
+				statement.bindText(2, "DeepSeek")
+				statement.bindText(3, ProviderKinds.DEEPSEEK)
+				statement.bindText(4, "https://api.deepseek.com")
+				statement.bindText(5, ProviderReasoning.DEEPSEEK)
+				statement.bindLong(6, now)
+				statement.bindLong(7, now)
+				statement.step()
+			} finally {
+				statement.close()
+			}
+		}
+
 		internal fun seedDefaultAgent(connection: SQLiteConnection) {
 			val now = System.currentTimeMillis()
 			// Prepared and bound rather than interpolated: the instructions

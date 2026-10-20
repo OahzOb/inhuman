@@ -71,6 +71,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.ui.common.FlowRowCompat
 import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.PaidToolsNotice
 import com.inhuman.ui.common.RemoteBadge
@@ -165,13 +166,15 @@ fun AgentsScreen(
 	state.editing?.let { draft ->
 		AgentEditor(
 			draft = draft,
+			providers = state.providers,
 			models = state.models,
 			loadingModels = state.loadingModels,
 			modelsError = state.modelsError,
 			effortLevels = { viewModel.effortLevelsFor(it) },
 			onChange = viewModel::updateDraft,
+			onProviderChange = viewModel::selectProvider,
 			onRuleChange = viewModel::setDraftRule,
-			onReloadModels = { viewModel.loadModels(force = true) },
+			onReloadModels = { viewModel.loadModels(providerId = draft.providerId, force = true) },
 			onSave = viewModel::save,
 			onDismiss = viewModel::closeEditor,
 		)
@@ -271,11 +274,13 @@ private fun AgentRow(
 @Composable
 private fun AgentEditor(
 	draft: AgentDraft,
+	providers: List<com.inhuman.core.data.db.ProviderProfileEntity>,
 	models: List<com.inhuman.core.ai.RemoteModel>,
 	loadingModels: Boolean,
 	modelsError: String?,
 	effortLevels: (String?) -> List<String>,
 	onChange: ((AgentDraft) -> AgentDraft) -> Unit,
+	onProviderChange: (String) -> Unit,
 	onRuleChange: (String, ToolPolicy) -> Unit,
 	onReloadModels: () -> Unit,
 	onSave: () -> Unit,
@@ -415,6 +420,26 @@ private fun AgentEditor(
 		}
 
 		HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+		// --- provider -------------------------------------------------------
+		SectionLabel("Provider")
+		if (providers.isEmpty()) {
+			Text(
+				text = "No provider is configured. Add one in Settings.",
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		} else {
+			FlowRowCompat {
+				providers.forEach { provider ->
+					ChoiceChip(
+						label = provider.name,
+						selected = draft.providerId == provider.id,
+						onClick = { onProviderChange(provider.id) },
+					)
+				}
+			}
+		}
 
 		// --- model ----------------------------------------------------------
 		SectionLabel("Model")
@@ -961,23 +986,6 @@ private fun ChoiceChip(label: String, selected: Boolean, onClick: () -> Unit) {
 		onClick = onClick,
 		label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
 	)
-}
-
-/**
- * A wrapping row.
- *
- * Hand-rolled rather than pulling in the FlowRow API, which is still
- * experimental and would need an opt-in on every call site for one layout.
- */
-@Composable
-private fun FlowRowCompat(content: @Composable () -> Unit) {
-	androidx.compose.foundation.layout.FlowRow(
-		modifier = Modifier.fillMaxWidth(),
-		horizontalArrangement = Arrangement.spacedBy(6.dp),
-		verticalArrangement = Arrangement.spacedBy(6.dp),
-	) {
-		content()
-	}
 }
 
 /**

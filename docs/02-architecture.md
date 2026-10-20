@@ -70,23 +70,23 @@ ViewModels receive their dependencies through a hand-written
 else is invented; if you need a new dependency in a screen, add it to the
 factory call for that screen.
 
-### The web providers are built per conversation, with the key as a lambda
+### Web tools are resolved per turn from the selected backend
 
 ```kotlin
-searchProvider = DeepSeekSearchApi(
-    apiKey = { secure.get(SecureStore.KEY_DEEPSEEK_API_KEY) },
-)
-fetchProvider = DeepSeekFetchApi(
-    apiKey = { secure.get(SecureStore.KEY_DEEPSEEK_API_KEY) },
-)
+searchProvider = { WebToolProviders.search(secure) },
+fetchProvider = { WebToolProviders.fetch(secure) },
 ```
 
-`MainActivity.kt:236-252`. Both tools call DeepSeek's own paid APIs, so there is
-no second vendor and no second credential. The lambda is the point: a key
-captured at construction would be the one configured when the conversation
-opened, so a user who added a key afterwards would see "search failed" with
-nothing to suggest why, until they restarted. The same reasoning is repeated in
-both providers.
+`MainActivity` passes closures rather than provider instances. Each closure reads
+`web.search_backend` / `web.fetch_backend` and the matching key, so changing a
+backend or key in Settings takes effect on the next turn without reopening the
+conversation. A missing key returns null, and `ChatViewModel.buildTools` then
+does not register that tool at all.
+
+The chat provider has the same dynamic property through `AgentRepository`: a
+turn reads `conversations.providerId`, loads the profile and its encrypted key,
+and constructs the OpenAI-compatible provider then. Settings edits do not require
+a new ViewModel.
 
 ### Navigation is `when` over state, not a nav library
 

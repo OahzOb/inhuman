@@ -14,20 +14,15 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -43,20 +38,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.common.diag.Diag
+import com.inhuman.core.data.db.ProviderKinds
+import com.inhuman.core.data.db.ProviderReasoning
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.diagnostics.AppDiagnostics
+import com.inhuman.ui.chat.ProviderDraft
 import com.inhuman.ui.chat.SettingsViewModel
+import com.inhuman.ui.common.FlowRowCompat
 import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.PaidToolsNotice
 
@@ -74,7 +70,6 @@ fun SettingsScreen(
 	onBack: () -> Unit,
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
-	var revealed by remember { mutableStateOf(false) }
 	var showHostKeysDialog by remember { mutableStateOf(false) }
 
 	Scaffold(
@@ -114,72 +109,160 @@ fun SettingsScreen(
 				verticalArrangement = Arrangement.spacedBy(6.dp),
 			) {
 				Text(
-					text = "DeepSeek API key",
+					text = "Model providers",
 					style = MaterialTheme.typography.titleMedium,
 					color = MaterialTheme.colorScheme.onBackground,
 				)
 				Text(
-					text = "Stored encrypted, with the key held in the Android Keystore. " +
-						"It never leaves the device except to call DeepSeek.",
+					text = "Each assistant chooses a provider. Keys are stored encrypted " +
+						"with the Android Keystore and are sent only to that provider.",
 					style = MaterialTheme.typography.bodyMedium,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
-
-				OutlinedTextField(
-					value = state.apiKeyInput,
-					onValueChange = viewModel::onApiKeyChange,
-					modifier = Modifier.fillMaxWidth(),
-					singleLine = true,
-					label = { Text("sk-…") },
-					visualTransformation = if (revealed) {
-						VisualTransformation.None
-					} else {
-						PasswordVisualTransformation()
-					},
-					trailingIcon = {
-						IconButton(onClick = { revealed = !revealed }) {
-							Icon(
-								imageVector = if (revealed) Icons.Filled.VisibilityOff
-								else Icons.Filled.Visibility,
-								contentDescription = if (revealed) "Hide" else "Show",
+				state.providers.forEach { provider ->
+					OutlinedButton(
+						onClick = { viewModel.editProvider(provider) },
+						modifier = Modifier.fillMaxWidth(),
+					) {
+						Column(
+							modifier = Modifier.fillMaxWidth(),
+							verticalArrangement = Arrangement.spacedBy(2.dp),
+						) {
+							Text(provider.name, style = MaterialTheme.typography.titleSmall)
+							Text(
+								text = provider.baseUrl,
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+							)
+							Text(
+								text = if (viewModel.hasProviderKey(provider.id)) {
+									"Key saved"
+								} else {
+									"No key"
+								},
+								style = MaterialTheme.typography.labelSmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
 							)
 						}
-					},
-					keyboardOptions = KeyboardOptions(
-						keyboardType = KeyboardType.Password,
-						imeAction = ImeAction.Done,
-					),
-				)
-
+					}
+				}
 				Row(
 					horizontalArrangement = Arrangement.spacedBy(8.dp),
 					verticalAlignment = Alignment.CenterVertically,
 				) {
-					Button(
-						onClick = viewModel::save,
-						enabled = !state.isChecking,
-					) {
-						Text("Save")
-					}
-					TextButton(
-						onClick = viewModel::verify,
-						enabled = !state.isChecking && state.hasSavedKey,
-					) {
-						Text("Test connection")
-					}
-					if (state.isChecking) {
-						CircularProgressIndicator(
-							modifier = Modifier.padding(start = 4.dp),
-							strokeWidth = 2.dp,
-						)
-					}
+					TextButton(onClick = viewModel::addProvider) { Text("Add provider") }
 				}
-
-				state.status?.let { status ->
+				state.providerStatus?.let { status ->
 					Text(
 						text = status,
 						style = MaterialTheme.typography.bodyMedium,
-						color = if (state.statusIsError) {
+						color = if (state.providerStatusIsError) {
+							MaterialTheme.colorScheme.error
+						} else {
+							MaterialTheme.colorScheme.primary
+						},
+					)
+				}
+			}
+
+			HorizontalDivider(
+				modifier = Modifier.padding(vertical = 8.dp),
+				color = MaterialTheme.colorScheme.outlineVariant,
+			)
+
+			Column(
+				modifier = Modifier
+					.widthIn(max = Layout.ReadableMeasure)
+					.fillMaxWidth(),
+				verticalArrangement = Arrangement.spacedBy(6.dp),
+			) {
+				Text(
+					text = "Web tools",
+					style = MaterialTheme.typography.titleMedium,
+					color = MaterialTheme.colorScheme.onBackground,
+				)
+				Text(
+					text = "web_search and web_fetch use their own keys, separate from any " +
+						"chat provider. This also works when the chat model is another " +
+						"provider. Calls are billed by the selected service.",
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Text("Search backend", style = MaterialTheme.typography.labelLarge)
+				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+					FilterChip(
+						selected = state.webSearchBackend == "deepseek",
+						onClick = { viewModel.setWebSearchBackend("deepseek") },
+						label = { Text("DeepSeek") },
+					)
+					FilterChip(
+						selected = state.webSearchBackend == "exa",
+						onClick = { viewModel.setWebSearchBackend("exa") },
+						label = { Text("Exa") },
+					)
+				}
+				Text("Fetch backend", style = MaterialTheme.typography.labelLarge)
+				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+					FilterChip(
+						selected = state.webFetchBackend == "deepseek",
+						onClick = { viewModel.setWebFetchBackend("deepseek") },
+						label = { Text("DeepSeek") },
+					)
+					FilterChip(
+						selected = state.webFetchBackend == "exa",
+						onClick = { viewModel.setWebFetchBackend("exa") },
+						label = { Text("Exa") },
+					)
+				}
+				OutlinedTextField(
+					value = state.webDeepSeekKeyInput,
+					onValueChange = viewModel::onWebDeepSeekKeyChange,
+					modifier = Modifier.fillMaxWidth(),
+					singleLine = true,
+					label = { Text("DeepSeek web key (sk-…)") },
+					visualTransformation = PasswordVisualTransformation(),
+				)
+				Text(
+					text = if (state.hasWebDeepSeekKey) "DeepSeek web key saved" else
+						"DeepSeek web key not set",
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				OutlinedTextField(
+					value = state.webExaKeyInput,
+					onValueChange = viewModel::onWebExaKeyChange,
+					modifier = Modifier.fillMaxWidth(),
+					singleLine = true,
+					label = { Text("Exa API key") },
+					visualTransformation = PasswordVisualTransformation(),
+				)
+				Text(
+					text = if (state.hasWebExaKey) "Exa key saved" else "Exa key not set",
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				val missingSearch = state.webSearchBackend == "exa" && !state.hasWebExaKey ||
+					state.webSearchBackend == "deepseek" && !state.hasWebDeepSeekKey
+				val missingFetch = state.webFetchBackend == "exa" && !state.hasWebExaKey ||
+					state.webFetchBackend == "deepseek" && !state.hasWebDeepSeekKey
+				if (missingSearch || missingFetch) {
+					Text(
+						text = "A selected backend has no key, so its tool stays unavailable.",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.error,
+					)
+				}
+				TextButton(onClick = viewModel::saveWebTools) { Text("Save web keys") }
+				Text(
+					text = "There is no test button: validating these keys would spend a real search.",
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				state.webStatus?.let { status ->
+					Text(
+						text = status,
+						style = MaterialTheme.typography.bodyMedium,
+						color = if (state.webStatusIsError) {
 							MaterialTheme.colorScheme.error
 						} else {
 							MaterialTheme.colorScheme.primary
@@ -300,6 +383,21 @@ fun SettingsScreen(
 				}
 			}
 
+			state.status?.let { status ->
+				Text(
+					text = status,
+					modifier = Modifier
+						.widthIn(max = Layout.ReadableMeasure)
+						.fillMaxWidth(),
+					style = MaterialTheme.typography.bodyMedium,
+					color = if (state.statusIsError) {
+						MaterialTheme.colorScheme.error
+					} else {
+						MaterialTheme.colorScheme.primary
+					},
+				)
+			}
+
 			ApprovalRulesSection(
 				rules = state.approvalRules,
 				onRuleChange = viewModel::setApprovalRule,
@@ -358,6 +456,165 @@ fun SettingsScreen(
 			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 	}
+
+	state.editingProvider?.let { draft ->
+		ProviderEditorDialog(
+			draft = draft,
+			onUpdate = viewModel::updateProviderDraft,
+			onSave = viewModel::saveProvider,
+			onTest = viewModel::testProvider,
+			onDelete = viewModel::deleteProvider,
+			onDismiss = viewModel::closeProviderEditor,
+		)
+	}
+}
+
+@Composable
+private fun ProviderEditorDialog(
+	draft: ProviderDraft,
+	onUpdate: ((ProviderDraft) -> ProviderDraft) -> Unit,
+	onSave: () -> Unit,
+	onTest: () -> Unit,
+	onDelete: () -> Unit,
+	onDismiss: () -> Unit,
+) {
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text(if (draft.isNew) "Add provider" else draft.name) },
+		text = {
+			Column(
+				modifier = Modifier
+					.heightIn(max = 520.dp)
+					.verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(8.dp),
+			) {
+				OutlinedTextField(
+					value = draft.name,
+					onValueChange = { value -> onUpdate { it.copy(name = value) } },
+					modifier = Modifier.fillMaxWidth(),
+					label = { Text("Name") },
+					singleLine = true,
+				)
+				FlowRowCompat {
+					FilterChip(
+						selected = draft.kind == ProviderKinds.DEEPSEEK,
+						onClick = {
+							onUpdate {
+								it.copy(
+									kind = ProviderKinds.DEEPSEEK,
+									baseUrl = if (it.isNew) "https://api.deepseek.com" else it.baseUrl,
+									reasoningMode = ProviderReasoning.DEEPSEEK,
+								)
+							}
+						},
+						label = { Text("DeepSeek") },
+					)
+					FilterChip(
+						selected = draft.kind == ProviderKinds.OPENAI_COMPATIBLE,
+						onClick = {
+							onUpdate {
+								it.copy(
+									kind = ProviderKinds.OPENAI_COMPATIBLE,
+									baseUrl = if (it.isNew) "https://api.openai.com/v1" else it.baseUrl,
+									reasoningMode = ProviderReasoning.NONE,
+								)
+							}
+						},
+						label = { Text("OpenAI-compatible") },
+					)
+				}
+				OutlinedTextField(
+					value = draft.baseUrl,
+					onValueChange = { value -> onUpdate { it.copy(baseUrl = value) } },
+					modifier = Modifier.fillMaxWidth(),
+					label = { Text("Base URL") },
+					supportingText = { Text("Include /v1 when the provider expects it.") },
+					singleLine = true,
+				)
+				OutlinedTextField(
+					value = draft.keyInput,
+					onValueChange = { value ->
+						onUpdate { it.copy(keyInput = value, hasKey = value.isNotBlank()) }
+					},
+					modifier = Modifier.fillMaxWidth(),
+					label = { Text("API key") },
+					singleLine = true,
+					visualTransformation = PasswordVisualTransformation(),
+				)
+				Text(
+					text = if (draft.hasKey) "A key is stored for this provider." else
+						"No key stored yet.",
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Text("Reasoning fields", style = MaterialTheme.typography.labelLarge)
+				FlowRowCompat {
+					FilterChip(
+						selected = draft.reasoningMode == ProviderReasoning.NONE,
+						onClick = { onUpdate { it.copy(reasoningMode = ProviderReasoning.NONE) } },
+						label = { Text("None") },
+					)
+					FilterChip(
+						selected = draft.reasoningMode == ProviderReasoning.EFFORT,
+						onClick = { onUpdate { it.copy(reasoningMode = ProviderReasoning.EFFORT) } },
+						label = { Text("reasoning_effort") },
+					)
+					FilterChip(
+						selected = draft.reasoningMode == ProviderReasoning.DEEPSEEK,
+						onClick = { onUpdate { it.copy(reasoningMode = ProviderReasoning.DEEPSEEK) } },
+						label = { Text("DeepSeek") },
+					)
+				}
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					horizontalArrangement = Arrangement.SpaceBetween,
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					Text("Request stream usage", style = MaterialTheme.typography.bodyMedium)
+					Switch(
+						checked = draft.includeStreamUsage,
+						onCheckedChange = { checked ->
+							onUpdate { it.copy(includeStreamUsage = checked) }
+						},
+					)
+				}
+				OutlinedTextField(
+					value = draft.manualModels,
+					onValueChange = { value -> onUpdate { it.copy(manualModels = value) } },
+					modifier = Modifier.fillMaxWidth(),
+					label = { Text("Fallback model ids") },
+					supportingText = {
+						Text("One per line, used only if /models is unavailable.")
+					},
+					minLines = 2,
+				)
+				draft.status?.let { status ->
+					Text(
+						text = status,
+						style = MaterialTheme.typography.bodySmall,
+						color = if (draft.statusIsError) {
+							MaterialTheme.colorScheme.error
+						} else {
+							MaterialTheme.colorScheme.primary
+						},
+					)
+				}
+				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+					TextButton(onClick = onTest, enabled = !draft.testing) {
+						Text(if (draft.testing) "Checking…" else "Test connection")
+					}
+					if (!draft.isBuiltIn && !draft.isNew) {
+						TextButton(onClick = onDelete) { Text("Delete") }
+					}
+				}
+			}
+		},
+		confirmButton = { TextButton(onClick = onSave) { Text("Save") } },
+		dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+		containerColor = MaterialTheme.colorScheme.surface,
+		titleContentColor = MaterialTheme.colorScheme.onSurface,
+		textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+	)
 }
 
 /**

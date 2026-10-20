@@ -14,8 +14,8 @@ architecture from scratch:
 | --- | --- |
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
-| `docs/03-ai-provider.md` | Provider and stream contracts, the DeepSeek adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` APIs**, **the `ssh_exec` transport** |
-| `docs/04-data-persistence.md` | Room schema v11, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider` |
+| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the `ssh_exec` transport** |
+| `docs/04-data-persistence.md` | Room schema v12, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider` |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
@@ -75,8 +75,8 @@ has the model.
 
 **Cost is disclosed where it is chosen and where it is used.** A tool that
 spends money at a third party carries `paid = true`, a filled `PAID` badge
-beside its name, and the price above the tool list; a price in a description
-nobody opens is not disclosure. This is separate from approval — paid does not
+beside its name, and a billing notice above the tool list; a price in a
+description nobody opens is not disclosure. This is separate from approval — paid does not
 mean "ask" by default. The rule and its reasoning are
 `docs/08-port-philosophy.md` §1.4; apply it to every future paid capability, not
 just the two web tools.
@@ -175,10 +175,12 @@ adb -s <serial> install -r -t app\build\outputs\apk\debug\app-debug.apk
 
 ### Demo mode is the offline verification path
 
-With no API key, Settings → Demo mode gives a scripted provider. When the
-assistant has file tools it creates a file and then deletes it, so the tool
-loop, the results and the closing summary are all reachable with no key, no
-network and no bill. **It no longer raises an approval prompt**, because
+With no API key, Settings → Demo mode gives a scripted provider. A custom
+OpenAI-compatible provider needs only a name, an HTTPS base URL and a key; the
+assistant editor chooses it per assistant. Web tools need their own keys and are
+independent of the chat provider. When the assistant has file tools it creates a
+file and then deletes it, so the tool loop, the results and the closing summary
+are all reachable with no key, no network and no bill. **It no longer raises an approval prompt**, because
 deletion does not ask by default — configure a rule on `delete_file` if you want
 to exercise that path. **Put this in a message to get prose instead:**
 
@@ -289,9 +291,9 @@ compiles clean, and that is worth keeping.
 
 One test is skipped by design: `DeepSeekWebLiveTest` talks to the real Search and
 Fetch APIs and needs a key (and spends money). Everything else above runs on the
-JVM. The `:core:data` instrumentation suite (migrations, workspace lifetime, the
-documents provider) needs a device; its list and current count are in
-`docs/README.md`.
+JVM. The `:core:data` instrumentation suite (migrations, workspace lifetime,
+provider profiles, the documents provider) needs a device; its list and current
+count are in `docs/README.md`.
 
 ---
 

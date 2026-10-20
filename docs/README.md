@@ -48,8 +48,8 @@ citation.
 | --- | --- |
 | [01-overview.md](01-overview.md) | What is this, which module holds what, what does the app actually do today, what is deliberately missing |
 | [02-architecture.md](02-architecture.md) | Module graph, dependency rule, how the app is wired at start-up, navigation, build toolchain, build/verify commands |
-| [03-ai-provider.md](03-ai-provider.md) | The provider interface and stream types, the DeepSeek adapter, SSE decoding, demo mode, `web_search`/`web_fetch` and **the paid APIs behind them** |
-| [04-data-persistence.md](04-data-persistence.md) | Room schema v10 and its ten exported versions, repositories, ordering rules, API-key storage, `DocumentsProvider`, orphan sweeps |
+| [03-ai-provider.md](03-ai-provider.md) | The provider interface and stream types, provider profiles, the OpenAI-compatible adapter, SSE decoding, demo mode, `web_search`/`web_fetch` and **the paid backends behind them** |
+| [04-data-persistence.md](04-data-persistence.md) | Room schema v12 and its exported versions, repositories, ordering rules, key storage, `DocumentsProvider`, orphan sweeps |
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the 8 file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | The turn lifecycle, tool-call execution, the approval gate, cancellation, context gauge, Compose layout rules |
 | [07-gotchas.md](07-gotchas.md) | The load-bearing invariants, and the mistakes that already cost someone a day |
@@ -106,13 +106,13 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :app:testDebugUnitTest --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 337 tests in 37 suites, 0 failures, 1 skipped** — the skip is
+**BUILD SUCCESSFUL, 347 tests in 39 suites, 0 failures, 1 skipped** — the skip is
 `DeepSeekWebLiveTest`, which talks to the real paid Search and Fetch APIs and
 needs `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 
 | Module | Suites | Tests |
 | --- | --- | --- |
-| `:core:ai` | 18 | 186 (1 skipped) |
+| `:core:ai` | 20 | 196 (1 skipped) |
 | `:core:files` | 5 | 57 |
 | `:app` | 9 | 61 |
 | `:core:common` | 2 | 16 |
@@ -127,23 +127,25 @@ why the pure-invariant tests (`DeltaCursor`, `ContextUsage`, `activePathOf`)
 carry arguments the device could not make — see
 [02-architecture.md](02-architecture.md).
 
-Six suites do **not** run on the JVM, and are not in the table above because
+Eight suites do **not** run on the JVM, and are not in the table above because
 they only run against a device:
 
 | Suite | Why it needs a device |
 | --- | --- |
 | `app/src/androidTest/…/SessionLogReadBenchmark` | How long a session log takes to read on ARM64 — the number a port's cold start depends on |
 | `app/src/androidTest/…/JavaScriptSandboxProbe` | Whether the platform JavaScript sandbox is available, and what it withholds (`fetch`, `require`, `process`) |
-| `core/data/src/androidTest/…/MigrationTest` | Room migrations against a real SQLite — the JVM tests cover the pure branch walk, not the schema |
+| `app/src/androidTest/…/WebToolProvidersTest` | The web keys are independent: a chat key alone registers no tool, and Exa/DeepSeek select the right provider |
+| `core/data/src/androidTest/…/MigrationTest` | Room migrations against a real SQLite, including 11→12 |
 | `core/data/src/androidTest/…/WorkspaceLifecycleTest` | Temporary workspaces die with their conversation; permanent ones survive and promotion does not move the directory |
 | `core/data/src/androidTest/…/ConversationLookupTest` | The `id` / `workspaceId` distinction the documents provider's folder lookup depends on; both are UUIDs, and the wrong one returns null rather than failing |
 | `core/data/src/androidTest/…/WorkspaceDocumentsProviderTest` | The provider's actual folder ids: a re-queried folder keeps its title, and delete/rename are refused |
+| `core/data/src/androidTest/…/ProviderProfileTest` | A conversation copies its assistant's provider; a referenced provider cannot be deleted; key slots are separate |
 
 Run them with `:app:connectedDebugAndroidTest` / `:core:data:connectedDebugAndroidTest`,
-or `adb shell am instrument`. The `:core:data` run is **19 tests** at the time of
-writing. The first two have their measured results in
-[port-assessment.md](port-assessment.md); the last four are the evidence behind
-[07-gotchas.md](07-gotchas.md) B8 and B6.
+or `adb shell am instrument`. The `:core:data` run is **23 tests**, and the app
+suite is **5 tests**, at the time of writing. The first two have their measured
+results in [port-assessment.md](port-assessment.md); the rest are the evidence
+behind [07-gotchas.md](07-gotchas.md) B8 and B6.
 
 ## Which files own which behaviour
 
@@ -164,7 +166,8 @@ throughout.
 | The conversation list, pinning, delete confirmation | `ui/ConversationsScreen.kt`, `ui/ConversationsViewModel.kt` |
 | Browsing, import, export, file preview | `ui/files/FilesScreen.kt`, `ui/files/FilesViewModel.kt` |
 | Downloading a URL; SSRF, redirect and file-name rules | `ui/files/UrlDownloader.kt` |
-| The API key field, demo mode, "Test connection" | `ui/settings/SettingsScreen.kt`, `ui/chat/SettingsViewModel.kt` |
+| The provider list/editor, web backends and keys | `ui/settings/SettingsScreen.kt`, `ui/chat/SettingsViewModel.kt`, `web/WebToolProviders.kt` |
+| `web_search` / `web_fetch` — backends, response parsing, URL cleaning | `provider/deepseek/DeepSeekSearchApi.kt`, `provider/exa/ExaSearchApi.kt`, `tools/WebFetchTool.kt` |
 | Anything a model can call; `mutates`; approval policy | `core/ai/src/main/kotlin/com/inhuman/core/ai/Tool.kt` |
 | Which tools exist at all; the static catalogue | `core/ai/…/tools/ToolCatalog.kt` |
 | The eight file tools' behaviour | `core/files/src/main/kotlin/com/inhuman/core/files/tools/FileTools.kt` |
@@ -172,7 +175,7 @@ throughout.
 | A path becoming a `File`; the confinement rules | `core/files/…/SessionWorkspace.kt` |
 | Import/export and name collisions | `core/files/…/WorkspaceTransfer.kt` |
 | HTTP, SSE, the decoder, model list, chat request shape | `core/ai/src/main/kotlin/com/inhuman/core/ai/provider/deepseek/` |
-| `web_search` / `web_fetch` — the paid APIs, response parsing, URL cleaning | `provider/deepseek/DeepSeekSearchApi.kt`, `DeepSeekFetchApi.kt`, `tools/WebFetchTool.kt` |
+| Provider profiles, provider-specific model cache, key slots | `core/data/…/AgentRepository.kt`, `ui/chat/SettingsViewModel.kt` |
 | Demo mode's script and its magic words | `provider/demo/DemoProvider.kt` |
 | What was recorded before a bug, and how to get the log | `core/common/src/main/kotlin/com/inhuman/core/common/diag/`, `app/src/main/kotlin/com/inhuman/diagnostics/AppDiagnostics.kt` |
 | Tables, queries, ordering, migrations | `core/data/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`, `db/Entities.kt` |

@@ -49,9 +49,9 @@ data class FetchedPage(
  * The provider knows the API's rules, but it is replaceable; the tool must not
  * hand an obviously unusable string to a paid endpoint. `http`/`https` only,
  * no credentials, bounded length. **This tool** does not open the page itself:
- * DeepSeek does, so it is not a path from the sandbox to the device's network.
- * (The user-initiated download in Files is a separate path; the agent cannot
- * call it.)
+ * the selected backend (DeepSeek or Exa) does, so it is not a path from the
+ * sandbox to the device's network. (The user-initiated download in Files is a
+ * separate path; the agent cannot call it.)
  */
 class WebFetchTool(
 	private val provider: FetchProvider,

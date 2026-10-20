@@ -61,8 +61,8 @@ be reached without an account.
 | `write_file` `append_file` `create_directory` `move_file` | change the workspace |
 | `delete_file` | deletes from the folder; asks first only if a rule says so |
 | `read_time` | the clock, in the device zone and UTC, plus date arithmetic |
-| `web_search` | DeepSeek's paid Search API: one request, structured excerpts, no second key |
-| `web_fetch` | DeepSeek's paid Fetch API: one page as Markdown, no second key |
+| `web_search` | paid search through DeepSeek or Exa; own key, independent of the chat provider |
+| `web_fetch` | paid fetch through DeepSeek or Exa; own key, independent of the chat provider |
 | `ssh_exec` | one command on a remote machine; **off by default**, explicit assistant selection, per-conversation consent, no host config |
 
 Every mutating tool carries a **REWIND** or **NO REWIND** badge beside its name,
@@ -72,7 +72,7 @@ says whether the turn can be undone. `ssh_exec` is the only `NO REWIND` entry.
 Regenerating a reply has two forms:
 
 - **Answer again** (the refresh icon on the newest answer) keeps the tool
-  **definitions** so the request prefix can still hit DeepSeek's context cache,
+  **definitions** so the request prefix can still hit the provider's context cache,
   but appends a transient instruction not to call one. If the model calls anyway,
   the app refuses it before execution; nothing is written or sent over SSH.
 - **Regenerate from…** can restart at the user message or after any completed
@@ -93,15 +93,15 @@ chat menu shows how many turns and bytes are stored and lets you keep 1, 3, 5 or
 10 turns. Rewinding one turn deletes only that turn's checkpoints, leaving older
 ones intact.
 
-**Search and fetch are paid, and that is why they are separate tools.** Both
-call DeepSeek's own APIs directly (`/v1/tools/search`, `/v1/tools/fetch`),
-billed by DeepSeek at ¥5 per 1,000 successful calls on the account the
-conversation already uses. A search is one request, not a model turn, so what
-comes back is a structured list rather than the model's summary of one; fetch is
-how the model reads a page that list pointed at. Failed and empty requests are
-not charged, and both tools are labelled **paid** wherever a tool is chosen. No
-second vendor and no second key: the credential already configured for chatting
-is the one they use.
+**Search and fetch are paid, and their credentials are independent.** Choose
+DeepSeek or Exa separately for search and for fetch in Settings. DeepSeek calls
+`/v1/tools/search` and `/v1/tools/fetch`; Exa calls `/search` and `/contents`.
+Either way the key is a **web-tool key**, not the chat provider's key, so a
+conversation can chat on one service and search on another. A search is one
+request, not a model turn, so what comes back is a structured list rather than the
+model's summary of one; fetch is how the model reads a page that list pointed at.
+Failures and empty results are not charged by DeepSeek; Exa bills under its own
+plan. Both tools are labelled **paid** wherever a tool is chosen.
 
 **`ssh_exec` is the one tool that leaves the device.** It is off in Settings by
 default, must be selected explicitly on an assistant (the historical "all tools"
@@ -115,10 +115,11 @@ stored, but text typed into the conversation is still stored verbatim. Standard
 host-key checking is TOFU with `SHA256:` fingerprints, fail-closed on a changed
 key. Details are in [docs/03-ai-provider.md](docs/03-ai-provider.md).
 
-Search results are excerpts, not pages. The links are cleaned of campaign
-parameters before the model sees them, because it cites them back to the user;
-fetch returns Markdown and truncates very long pages with a visible marker
-rather than silently cutting them off.
+Search results are excerpts, not pages. DeepSeek search cleans campaign
+parameters from links before the model sees them, because it cites them back;
+Exa results are used as returned. Fetch returns readable text/Markdown and
+truncates very long pages with a visible marker rather than silently cutting them
+off.
 
 ### The context gauge, and what is not there
 
@@ -360,9 +361,9 @@ which this setup does not use.
   gates the former behind justifications a chat app cannot honestly make. The
   user reaches a conversation's directory through the app's own `DocumentsProvider`
   and its import/export, which needs no such permission.
-- **No multi-provider adapter layer.** DeepSeek only, for now. The streaming
-  pipeline is transport-agnostic so a second provider is an addition rather than
-  a rewrite, but no abstraction is written for a provider that does not exist.
+- **No native Anthropic or Gemini protocol adapter.** Extra LLM providers are
+  OpenAI-compatible HTTPS profiles, chosen per assistant. A provider with a
+  different wire protocol needs a decoder, not just a base URL.
 
 ## Licensing
 

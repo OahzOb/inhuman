@@ -13,7 +13,6 @@ import com.inhuman.core.ai.Tool
 import com.inhuman.core.ai.ToolSpec
 import com.inhuman.core.ai.policy.PolicySet
 import com.inhuman.core.ai.policy.ToolPolicy
-import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
 import com.inhuman.core.ai.provider.demo.DemoProvider
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.AgentRepository
@@ -108,11 +107,13 @@ class ChatViewModel(
 	 * broken, whereas a model without the tool will say it cannot search, which
 	 * is true.
 	 *
-	 * Search and fetch are separate seams because they are separate DeepSeek
-	 * APIs with different failure modes, and one can exist without the other.
+	 * Search and fetch are separate seams because they are separate paid APIs
+	 * with different failure modes, and one can exist without the other. Each
+	 * closure is evaluated per turn, so changing a web backend or key in
+	 * Settings takes effect without reopening the conversation.
 	 */
-	private val searchProvider: SearchProvider? = null,
-	private val fetchProvider: FetchProvider? = null,
+	private val searchProvider: () -> SearchProvider? = { null },
+	private val fetchProvider: () -> FetchProvider? = { null },
 	/** The SSH transport, or null when the feature is not wired. */
 	private val sshTransport: SshTransport? = null,
 	/**
@@ -129,6 +130,9 @@ class ChatViewModel(
 	val state: StateFlow<ChatUiState> = _state.asStateFlow()
 
 	private var conversation: ConversationEntity? = null
+	/** The provider profile this conversation copied at creation. */
+	private var providerId: String = com.inhuman.core.data.db.ProviderIds.DEEPSEEK
+	private var providerName: String = "DeepSeek"
 	private var streamJob: Job? = null
 	private var sshAllowed: Boolean = false
 
@@ -189,6 +193,10 @@ class ChatViewModel(
 			// started. The agent supplies the defaults it was created with.
 			agent = c?.agentId?.let { agents.byId(it) }
 				?: agents.byId(Database.DEFAULT_AGENT_ID)
+			providerId = c?.providerId ?: agent?.providerId
+				?: com.inhuman.core.data.db.ProviderIds.DEEPSEEK
+			providerName = runCatching { agents.provider(providerId)?.name }
+				.getOrNull() ?: "Provider"
 			model = c?.model ?: agent?.model
 			reasoningEffort = c?.reasoningEffort ?: agent?.reasoningEffort
 			thinking = c?.thinking ?: agent?.thinking ?: false
@@ -222,7 +230,7 @@ class ChatViewModel(
 		// this is a Keystore-backed read and the function is already on a path
 		// that runs at startup and on every configuration refresh.
 		val demo = demoEnabled()
-		val fetchedResult = runCatching { agents.models() }
+		val fetchedResult = runCatching { agents.models(providerId) }
 		fetchedResult.exceptionOrNull()?.let {
 			// The failure used to be swallowed into the fallback with no trace:
 			// a model list that never loads looks exactly like one that loaded
@@ -237,14 +245,14 @@ class ChatViewModel(
 		//
 		// "Provider default" is a real choice for *which model to send*, but it
 		// is not an answer to "which effort levels does this model have" -- and
-		// the id that will actually be sent is known: DEFAULT_MODEL, the same
-		// constant the request uses. Leaving this null made the effort control
-		// report that a model with three levels had none, because it looked up
-		// capabilities by a null id.
+		// the id that will actually be sent is the first model the provider
+		// lists when nothing explicit is chosen. Leaving this null made the
+		// effort control report that a model with three levels had none,
+		// because it looked up capabilities by a null id.
 		//
 		// The API's own default is the honest fallback when the list has not
 		// arrived: it is what the provider will use if nothing else is chosen.
-		val id = model ?: agent?.model ?: fetched?.firstOrNull()?.id ?: DEFAULT_MODEL
+		val id = model ?: agent?.model ?: fetched?.firstOrNull()?.id ?: "default"
 
 		// The entry for the model that will actually be sent: capabilities are
 		// per model, and looking them up by the choice rather than the resolved
@@ -311,7 +319,7 @@ class ChatViewModel(
 	 *
 	 * ## Why the app has to ask for this itself
 	 *
-	 * `AgentRepository.models()` builds a DeepSeek provider, and with no key
+	 * `AgentRepository.models()` builds the selected provider, and with no key
 	 * stored it returns a failure without making a request. That is right for
 	 * everything it feeds -- you cannot pick a model you have no account for --
 	 * but it left the gauge with no window in demo mode, so a demo that had
@@ -374,10 +382,11 @@ class ChatViewModel(
 	 * dialog depend on a slow network for no new information.
 	 */
 	suspend fun models(force: Boolean = false): Result<List<RemoteModel>> =
-		agents.models(force = force)
+		agents.models(providerId = providerId, force = force)
 
 	/** The models already held in memory, without making a request. */
-	suspend fun cachedModels(): List<RemoteModel> = agents.cachedModelList().orEmpty()
+	suspend fun cachedModels(): List<RemoteModel> =
+		agents.cachedModelList(providerId).orEmpty()
 
 	/**
 	 * Switch the model for this conversation only.
@@ -719,10 +728,11 @@ class ChatViewModel(
 		}
 
 		val demo = demoEnabled()
-		val apiKey = secure.get(SecureStore.KEY_DEEPSEEK_API_KEY)
-		if (!demo && apiKey.isNullOrBlank()) {
+		if (!demo && !agents.hasKey(providerId)) {
 			Diag.w("turn", "regenerate refused: no API key and demo mode off")
-			_state.update { it.copy(error = "Add a DeepSeek API key first, or switch on demo mode.") }
+			_state.update {
+				it.copy(error = "Add an API key for $providerName first, or switch on demo mode.")
+			}
 			return
 		}
 
@@ -746,7 +756,7 @@ class ChatViewModel(
 
 		val changedFiles = lastReply.changedFiles
 		streamJob = viewModelScope.launch {
-			runTurn(apiKey = apiKey, demo = demo, suppressToolCalls = true)
+			runTurn(demo = demo, suppressToolCalls = true)
 			// The files belong to the user turn, not to this particular answer:
 			// a regenerated sibling must keep the same "changed files" list.
 			if (changedFiles.isNotEmpty()) {
@@ -849,9 +859,10 @@ class ChatViewModel(
 		}
 
 		val demo = demoEnabled()
-		val apiKey = secure.get(SecureStore.KEY_DEEPSEEK_API_KEY)
-		if (!demo && apiKey.isNullOrBlank()) {
-			_state.update { it.copy(error = "Add a DeepSeek API key first, or switch on demo mode.") }
+		if (!demo && !agents.hasKey(providerId)) {
+			_state.update {
+				it.copy(error = "Add an API key for $providerName first, or switch on demo mode.")
+			}
 			return
 		}
 		val entity = conversation ?: return
@@ -893,7 +904,7 @@ class ChatViewModel(
 			}
 			turnAnchorId = lastUser.id
 			turnSnapshotReady = startAvailable
-			runTurn(apiKey = apiKey, demo = demo, includeTools = true)
+			runTurn(demo = demo, includeTools = true)
 			recordChangedFiles()
 			refreshTurnMeta()
 		}
@@ -1196,9 +1207,15 @@ class ChatViewModel(
 	 */
 	fun refreshConfiguration() {
 		val demo = demoEnabled()
-		val hasKey = secure.hasUsable(SecureStore.KEY_DEEPSEEK_API_KEY)
-		Diag.d("config", "demo=$demo hasKey=$hasKey")
-		_state.update { it.copy(demoMode = demo, configured = demo || hasKey) }
+		val hasKey = agents.hasKey(providerId)
+		Diag.d("config", "demo=$demo provider=$providerId hasKey=$hasKey")
+		_state.update {
+			it.copy(
+				demoMode = demo,
+				configured = demo || hasKey,
+				providerName = providerName,
+			)
+		}
 	}
 
 	private fun demoEnabled(): Boolean = secure.get(SecureStore.KEY_DEMO_MODE) == "1"
@@ -1258,10 +1275,11 @@ class ChatViewModel(
 		}
 
 		val demo = demoEnabled()
-		val apiKey = secure.get(SecureStore.KEY_DEEPSEEK_API_KEY)
-		if (!demo && apiKey.isNullOrBlank()) {
-			Diag.w("turn", "send refused: no API key and demo mode off")
-			_state.update { it.copy(error = "Add a DeepSeek API key first, or switch on demo mode.") }
+		if (!demo && !agents.hasKey(providerId)) {
+			Diag.w("turn", "send refused: no API key and demo mode off provider=$providerId")
+			_state.update {
+				it.copy(error = "Add an API key for $providerName first, or switch on demo mode.")
+			}
 			return
 		}
 
@@ -1320,7 +1338,7 @@ class ChatViewModel(
 				val stored = repository.conversation(conversationId)?.entity?.title
 				if (stored != null) _state.update { it.copy(title = stored) }
 			}
-			runTurn(apiKey = apiKey, demo = demo)
+			runTurn(demo = demo)
 			recordChangedFiles()
 			refreshTurnMeta()
 		}
@@ -1525,13 +1543,37 @@ class ChatViewModel(
 	 * what was asked, appends the results, and goes round again.
 	 */
 	private suspend fun runTurn(
-		apiKey: String?,
 		demo: Boolean,
 		includeTools: Boolean = true,
 		suppressToolCalls: Boolean = false,
 	) {
-		val provider: ChatProvider =
-			if (demo) DemoProvider() else DeepSeekProvider(apiKey = apiKey!!)
+		val provider: ChatProvider? =
+			if (demo) {
+				DemoProvider()
+			} else {
+				agents.provider(providerId)?.let { agents.providerFromRow(it) }
+			}
+		if (provider == null) {
+			_state.update {
+				it.copy(
+					isStreaming = false,
+					error = "No API key is configured for $providerName.",
+				)
+			}
+			return
+		}
+
+		val turnModel = model ?: agent?.model
+			?: agents.models(providerId).getOrNull()?.firstOrNull()?.id
+		if (turnModel == null) {
+			_state.update {
+				it.copy(
+					isStreaming = false,
+					error = "Choose a model for $providerName first.",
+				)
+			}
+			return
+		}
 
 		// Read once, before the tools are built, because the rule set decides
 		// what `list_files` is even allowed to show. A path the user marked
@@ -1556,7 +1598,7 @@ class ChatViewModel(
 		Diag.i(
 			"turn",
 			"run start provider=${provider.id} " +
-				"model=${model ?: agent?.model ?: DEFAULT_MODEL} thinking=$thinking " +
+				"model=$turnModel thinking=$thinking " +
 				"effort=${reasoningEffort ?: "-"} tools=${tools.size} " +
 				"suppressTools=$suppressToolCalls " +
 				"maxRounds=$maxRounds demo=$demo",
@@ -1565,7 +1607,7 @@ class ChatViewModel(
 		var rounds = 0
 		while (rounds < maxRounds) {
 			rounds++
-			val outcome = streamOneTurn(provider, tools, toolSpecs, suppressToolCalls)
+			val outcome = streamOneTurn(provider, turnModel, tools, toolSpecs, suppressToolCalls)
 
 			// The model was told not to call tools. If one arrives anyway,
 			// executing it would defeat the retry's safety, so stop with the
@@ -1631,6 +1673,7 @@ class ChatViewModel(
 	/** One model round trip: stream a reply and persist it. */
 	private suspend fun streamOneTurn(
 		provider: ChatProvider,
+		modelId: String,
 		tools: List<Tool>,
 		toolSpecs: List<ToolSpec>,
 		suppressToolCalls: Boolean = false,
@@ -1738,7 +1781,7 @@ class ChatViewModel(
 
 			provider.stream(
 				ChatRequest(
-					model = model ?: agent?.model ?: DEFAULT_MODEL,
+					model = modelId,
 					messages = history,
 					tools = toolSpecs,
 					// Taken from the assistant, and off by default: "hi" should
@@ -2539,8 +2582,8 @@ class ChatViewModel(
 			// A tool that is present and always fails teaches the model that the
 			// tool is broken and it keeps retrying; one that is absent teaches it
 			// that it cannot use it, and it says so.
-			searchProvider?.let { add(WebSearchTool(it)) }
-			fetchProvider?.let { add(WebFetchTool(it)) }
+			searchProvider()?.let { add(WebSearchTool(it)) }
+			fetchProvider()?.let { add(WebFetchTool(it)) }
 			// SSH is opt-in twice: the global setting and the assistant's
 			// explicit tool selection. `selected == null` means "all tools" for
 			// historical assistants, so it must NOT be read as consent to SSH.
@@ -2571,16 +2614,16 @@ class ChatViewModel(
 	private fun describeCall(call: ToolCallUi, args: JsonObject): String = when (call.displayName) {
 		"delete_file" -> "Delete ${stringArg(args, "path") ?: "a path"} from this conversation's folder?"
 		"write_file" -> "Write to ${stringArg(args, "path") ?: "a file"} in this conversation's folder?"
-		// Both are DeepSeek's paid APIs, and this sentence is shown only when a
-		// rule makes them ask -- which is exactly the moment the cost is worth
-		// repeating.
+		// Both spend money at the configured web backend. This sentence is shown
+		// only when a rule makes them ask -- which is exactly the moment the cost
+		// is worth repeating.
 		"web_search" -> "Search the web for \"${
 			stringArg(args, "query")?.take(80) ?: "a query"
-		}\"? (DeepSeek's paid Search API)"
+		}\"? (paid search API)"
 
 		"web_fetch" -> "Fetch ${
 			stringArg(args, "url")?.take(100) ?: "a URL"
-		}? (DeepSeek's paid Fetch API)"
+		}? (paid fetch API)"
 
 		"ssh_exec" -> "Run on ${stringArg(args, "host") ?: "a remote host"}: ${
 			stringArg(args, "command")?.take(160) ?: "a command"
@@ -2962,8 +3005,6 @@ class ChatViewModel(
 	}
 
 	companion object {
-		const val DEFAULT_MODEL = "deepseek-flash"
-
 		const val INTERRUPTED_MARKER = "[interrupted]"
 
 		/** A key file larger than this is not a key; do not read it into memory. */

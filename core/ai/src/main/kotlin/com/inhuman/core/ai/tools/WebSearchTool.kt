@@ -9,10 +9,11 @@ import kotlinx.serialization.json.JsonObject
  *
  * ## Why this is an interface
  *
- * The app has one implementation today -- DeepSeek's Search API -- but the tool
- * is written against this shape rather than against that JSON. A replacement or
- * a second provider then does not have to touch the tool loop, and the tool's
- * formatting can be tested against a fake instead of someone else's uptime.
+ * The app ships DeepSeek and Exa implementations, selected in Settings, but the
+ * tool is written against this shape rather than against either JSON. A
+ * replacement or a third provider then does not have to touch the tool loop, and
+ * the tool's formatting can be tested against a fake instead of someone else's
+ * uptime.
  *
  * ## What a provider must guarantee
  *

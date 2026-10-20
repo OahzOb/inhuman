@@ -26,7 +26,13 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
- * DeepSeek over its OpenAI-compatible endpoint.
+ * OpenAI-compatible chat over `/chat/completions`.
+ *
+ * The class and package keep the DeepSeek name because that is the seeded
+ * profile and the decoder's measured behaviour was established there. Every
+ * provider profile uses the same class with its own base URL and reasoning mode;
+ * keeping one implementation is the reason a custom profile needs no second SSE
+ * decoder.
  *
  * ## Why the raw response body rather than `okhttp-sse`
  *
@@ -45,9 +51,19 @@ class DeepSeekProvider(
 	private val apiKey: String,
 	private val baseUrl: String = DEFAULT_BASE_URL,
 	private val client: OkHttpClient = shared,
+	override val id: String = "deepseek",
+	/**
+	 * Which reasoning fields this endpoint accepts.
+	 *
+	 * `deepseek` sends `thinking`, `reasoning_effort` and replays
+	 * `reasoning_content`. `effort` sends only the standard
+	 * `reasoning_effort`. `none` sends none of them, which is the safe default
+	 * for an arbitrary OpenAI-compatible server.
+	 */
+	private val reasoningMode: String = "deepseek",
+	/** Some compatible servers reject `stream_options`; let the profile omit it. */
+	private val includeStreamUsage: Boolean = true,
 ) : ChatProvider {
-
-	override val id: String = "deepseek"
 
 	override suspend fun listModels(): List<RemoteModel> =
 		DeepSeekModels.fetch(client, baseUrl, apiKey)
@@ -64,7 +80,11 @@ class DeepSeekProvider(
 	override fun stream(request: ChatRequest): Flow<StreamChunk> = callbackFlow {
 		val startedAt = System.currentTimeMillis()
 		val payload = try {
-			DeepSeekRequest.build(request).toString()
+			DeepSeekRequest.build(
+				request = request,
+				reasoningMode = reasoningMode,
+				includeStreamUsage = includeStreamUsage,
+			).toString()
 		} catch (e: Exception) {
 			// A request that cannot be serialised never reaches the network, so
 			// there is no HTTP status to explain it. This line is the only

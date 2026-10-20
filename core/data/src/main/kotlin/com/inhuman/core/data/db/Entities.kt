@@ -10,6 +10,57 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
+/** Stable ids and wire names for the provider profiles. */
+object ProviderIds {
+	/** The seeded DeepSeek profile. It uses the legacy chat-key slot. */
+	const val DEEPSEEK = "deepseek"
+}
+
+object ProviderKinds {
+	const val DEEPSEEK = "deepseek"
+	const val OPENAI_COMPATIBLE = "openai-compatible"
+}
+
+object ProviderReasoning {
+	const val NONE = "none"
+	const val EFFORT = "effort"
+	const val DEEPSEEK = "deepseek"
+}
+
+/**
+ * A chat backend the user configured.
+ *
+ * Profiles are not secrets: the key is in `SecureStore` under a slot derived
+ * from [id]. The built-in DeepSeek profile uses the legacy
+ * `deepseek.api_key` slot so an existing install keeps working; every custom
+ * profile gets its own slot.
+ *
+ * `kind` selects the seeded URL and reasoning defaults; the request is the same
+ * OpenAI-compatible shape either way. `reasoningMode` exists because
+ * `thinking` / `reasoning_effort` / `reasoning_content` are not universal:
+ * sending a DeepSeek-specific field to a server that rejects unknown fields
+ * makes the first message fail, so a custom profile starts with `none` and the
+ * user can opt into the field its provider documents.
+ */
+@Entity(tableName = "provider_profiles")
+data class ProviderProfileEntity(
+	@PrimaryKey val id: String,
+	val name: String,
+	val kind: String = ProviderKinds.OPENAI_COMPATIBLE,
+	val baseUrl: String,
+	@ColumnInfo(defaultValue = ProviderReasoning.NONE)
+	val reasoningMode: String = ProviderReasoning.NONE,
+	@ColumnInfo(defaultValue = "1")
+	val includeStreamUsage: Boolean = true,
+	/** One model id per line, for endpoints without a usable `/models`. */
+	@ColumnInfo(defaultValue = "")
+	val manualModels: String = "",
+	/** The seeded DeepSeek profile cannot be deleted. */
+	val isBuiltIn: Boolean = false,
+	val createdAt: Long,
+	val updatedAt: Long,
+)
+
 /**
  * A configured assistant.
  *
@@ -21,11 +72,11 @@ import androidx.room.PrimaryKey
  * assistant without either one's instructions leaking into the other, and lets
  * the same assistant be reused across many conversations.
  *
- * The conversation stores a copy of the model and effort rather than reading
- * them through the agent on every turn. That copy is what makes editing an
- * agent safe: changing an agent's model must not silently rewrite the settings
- * of conversations already had with it, because a transcript is a record of
- * what was actually said.
+ * The conversation stores a copy of the provider, model and effort rather than
+ * reading them through the agent on every turn. That copy is what makes editing
+ * an agent safe: changing an agent's model must not silently rewrite the
+ * settings of conversations already had with it, because a transcript is a
+ * record of what was actually said.
  */
 @Entity(tableName = "agents")
 data class AgentEntity(
@@ -39,6 +90,9 @@ data class AgentEntity(
 	 * name is how a prompt ends up doing something nobody intended.
 	 */
 	val systemPrompt: String,
+	/** Which provider profile answers this assistant. */
+	@ColumnInfo(defaultValue = ProviderIds.DEEPSEEK)
+	val providerId: String = ProviderIds.DEEPSEEK,
 	/** Model id, or null to use whatever the provider defaults to. */
 	val model: String? = null,
 	/**
@@ -152,6 +206,9 @@ data class ConversationEntity(
 	val workspaceId: String,
 	/** The assistant this conversation was started with. */
 	val agentId: String? = null,
+	/** The provider profile this conversation uses; copied at creation. */
+	@ColumnInfo(defaultValue = ProviderIds.DEEPSEEK)
+	val providerId: String = ProviderIds.DEEPSEEK,
 	/**
 	 * Model in use, copied from the agent at creation and editable per
 	 * conversation.

@@ -68,6 +68,7 @@ class MigrationTest {
 		InhumanDatabase.MIGRATION_8_9,
 		InhumanDatabase.MIGRATION_9_10,
 		InhumanDatabase.MIGRATION_10_11,
+		InhumanDatabase.MIGRATION_11_12,
 	)
 
 	// --- building a database at an old version -------------------------------
@@ -173,6 +174,21 @@ class MigrationTest {
 		}
 		if (version >= 10) {
 			sql += "ALTER TABLE messages ADD COLUMN changedFilesJson TEXT"
+		}
+		if (version >= 11) {
+			sql += """
+				CREATE TABLE IF NOT EXISTS workspaces (
+					id TEXT NOT NULL PRIMARY KEY,
+					name TEXT NOT NULL,
+					isPermanent INTEGER NOT NULL DEFAULT 0,
+					ownerConversationId TEXT,
+					createdAt INTEGER NOT NULL,
+					updatedAt INTEGER NOT NULL
+				)
+			""".trimIndent()
+			sql += "CREATE INDEX IF NOT EXISTS index_workspaces_isPermanent ON workspaces(isPermanent)"
+			sql += "DROP INDEX IF EXISTS index_conversations_workspaceId"
+			sql += "CREATE INDEX IF NOT EXISTS index_conversations_workspaceId ON conversations(workspaceId)"
 		}
 		return sql
 	}
@@ -489,6 +505,40 @@ class MigrationTest {
 				assertTrue("the workspaceId index is missing", found)
 			}
 			db.assertCanarySurvived(11)
+		}
+	}
+
+	@Test
+	fun `11 to 12 seeds DeepSeek and points existing rows at it`() {
+		migrate(11, 12, *allMigrations.take(11).toTypedArray()).use { db ->
+			db.query(
+				"SELECT name, kind, baseUrl, reasoningMode, isBuiltIn " +
+					"FROM provider_profiles WHERE id = 'deepseek'",
+			).use { c ->
+				assertTrue("the DeepSeek provider was not seeded", c.moveToFirst())
+				assertEquals("DeepSeek", c.getString(0))
+				assertEquals("deepseek", c.getString(1))
+				assertEquals("https://api.deepseek.com", c.getString(2))
+				assertEquals("deepseek", c.getString(3))
+				assertEquals(1L, c.getLong(4))
+			}
+			assertTrue(
+				"agents.providerId is missing",
+				"providerId" in db.columnNames("agents"),
+			)
+			assertTrue(
+				"conversations.providerId is missing",
+				"providerId" in db.columnNames("conversations"),
+			)
+			db.query("SELECT providerId FROM conversations WHERE id = 'c1'").use { c ->
+				assertTrue(c.moveToFirst())
+				assertEquals(
+					"an existing conversation must keep working on DeepSeek",
+					"deepseek",
+					c.getString(0),
+				)
+			}
+			db.assertCanarySurvived(12)
 		}
 	}
 

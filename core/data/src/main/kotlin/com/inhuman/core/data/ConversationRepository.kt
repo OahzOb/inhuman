@@ -278,6 +278,7 @@ class ConversationRepository(
 			// then have to move the directory, and a failed move orphans files.
 			workspaceId = resolvedWorkspace,
 			agentId = agent?.id,
+			providerId = agent?.providerId ?: com.inhuman.core.data.db.ProviderIds.DEEPSEEK,
 			model = agent?.model,
 			reasoningEffort = agent?.reasoningEffort,
 			thinking = agent?.thinking ?: false,

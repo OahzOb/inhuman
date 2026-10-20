@@ -16,8 +16,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.inhuman.core.ai.provider.deepseek.DeepSeekFetchApi
-import com.inhuman.core.ai.provider.deepseek.DeepSeekSearchApi
 import com.inhuman.core.ai.ssh.SshClient
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.AgentRepository
@@ -38,6 +36,7 @@ import com.inhuman.ui.workspaces.WorkspaceDetailScreen
 import com.inhuman.ui.workspaces.WorkspaceDetailViewModel
 import com.inhuman.ui.workspaces.WorkspacesScreen
 import com.inhuman.ui.workspaces.WorkspacesViewModel
+import com.inhuman.web.WebToolProviders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -303,22 +302,12 @@ private fun InhumanRoot() {
 						agents = agents,
 						secure = secure,
 						conversationId = id,
-						// Both web tools call DeepSeek's own paid APIs: Search for
-						// results, Fetch for one page. No second vendor and no
-						// second credential -- the key already configured for
-						// chatting is the one they use.
-						//
-						// The key is passed as a function rather than a string.
-						// Captured at construction it would be whatever was
-						// configured when the conversation opened, so a user who
-						// added a key afterwards would get "search failed" with
-						// nothing to suggest why, until they restarted.
-						searchProvider = DeepSeekSearchApi(
-							apiKey = { secure.get(SecureStore.KEY_DEEPSEEK_API_KEY) },
-						),
-						fetchProvider = DeepSeekFetchApi(
-							apiKey = { secure.get(SecureStore.KEY_DEEPSEEK_API_KEY) },
-						),
+						// Search and fetch are separate seams with separate
+						// credentials. Both are resolved per turn, so changing a
+						// web backend or key in Settings takes effect without
+						// reopening the conversation.
+						searchProvider = { WebToolProviders.search(secure) },
+						fetchProvider = { WebToolProviders.fetch(secure) },
 						// The SSH client owns only the TOFU host-key file in
 						// app storage. It stores no hosts and no credentials.
 						sshTransport = SshClient(

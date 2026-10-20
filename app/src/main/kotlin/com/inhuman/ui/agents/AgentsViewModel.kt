@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 
 data class AgentsUiState(
 	val agents: List<AgentEntity> = emptyList(),
+	val providers: List<com.inhuman.core.data.db.ProviderProfileEntity> = emptyList(),
 	val models: List<RemoteModel> = emptyList(),
 	val loadingModels: Boolean = false,
 	/** Non-null while the model list failed, so the picker can say why. */
@@ -40,6 +41,8 @@ data class AgentDraft(
 	val isDefault: Boolean,
 	val name: String,
 	val systemPrompt: String,
+	/** Which provider profile the model id belongs to. */
+	val providerId: String = com.inhuman.core.data.db.ProviderIds.DEEPSEEK,
 	val model: String?,
 	val reasoningEffort: String?,
 	val thinking: Boolean,
@@ -73,6 +76,7 @@ data class AgentDraft(
 		id = id,
 		name = name.trim(),
 		systemPrompt = systemPrompt.trim(),
+		providerId = providerId,
 		model = model,
 		reasoningEffort = reasoningEffort,
 		thinking = thinking,
@@ -105,7 +109,14 @@ class AgentsViewModel(
 				_state.update { it.copy(agents = list) }
 			}
 		}
-		loadModels()
+		viewModelScope.launch {
+			repository.observeProviders().collect { list ->
+				_state.update { it.copy(providers = list) }
+			}
+		}
+		loadModels(
+			providerId = com.inhuman.core.data.db.ProviderIds.DEEPSEEK,
+		)
 	}
 
 	/**
@@ -115,10 +126,15 @@ class AgentsViewModel(
 	 * populated at all, and a silently empty list looks like the app is broken
 	 * rather than like it needs a key.
 	 */
-	fun loadModels(force: Boolean = false) {
+	fun loadModels(
+		providerId: String = com.inhuman.core.data.db.ProviderIds.DEEPSEEK,
+		force: Boolean = false,
+	) {
 		viewModelScope.launch {
-			_state.update { it.copy(loadingModels = true, modelsError = null) }
-			val result = repository.models(force)
+			_state.update {
+				it.copy(loadingModels = true, models = emptyList(), modelsError = null)
+			}
+			val result = repository.models(providerId = providerId, force = force)
 			result.exceptionOrNull()?.let {
 				Diag.w("models", "agents fetch failed: ${it.javaClass.simpleName}: ${it.message}")
 			}
@@ -132,6 +148,14 @@ class AgentsViewModel(
 		}
 	}
 
+	/** Changing provider invalidates the model: ids are provider-specific. */
+	fun selectProvider(providerId: String) {
+		updateDraft { draft ->
+			draft.copy(providerId = providerId, model = null, reasoningEffort = null)
+		}
+		loadModels(providerId)
+	}
+
 	fun edit(agent: AgentEntity) {
 		_state.update {
 			it.copy(
@@ -141,6 +165,7 @@ class AgentsViewModel(
 					isDefault = agent.isDefault,
 					name = agent.name,
 					systemPrompt = agent.systemPrompt,
+					providerId = agent.providerId,
 					model = agent.model,
 					reasoningEffort = agent.reasoningEffort,
 					thinking = agent.thinking,
@@ -162,6 +187,7 @@ class AgentsViewModel(
 			}
 			updateDraft { it.copy(rules = rules) }
 		}
+		loadModels(agent.providerId)
 	}
 
 	fun create() {
@@ -188,6 +214,7 @@ class AgentsViewModel(
 					// read as a broken button; it also gave a new assistant no
 					// description of the workspace until the user wrote one.
 					systemPrompt = Database.DEFAULT_SYSTEM_PROMPT,
+					providerId = com.inhuman.core.data.db.ProviderIds.DEEPSEEK,
 					model = null,
 					reasoningEffort = null,
 					thinking = false,

@@ -184,7 +184,46 @@ Neither path "rewrites the whole cache"; it either reuses a matching prefix unit
 or creates a new one. Zero is shown as `cache 0%` in the usage summary, and the
 expanded row spells out `from cache N of M`.
 
-## The DeepSeek adapter
+## Provider profiles
+
+`provider_profiles` (Room v12) holds the chat backends. The built-in `deepseek`
+row is seeded on create and by `MIGRATION_11_12`; every other row is a named
+OpenAI-compatible endpoint. A profile stores the name, kind, base URL, reasoning
+field mode, whether to request stream usage, and optional fallback model ids. The
+API key is not in Room: it lives in `SecureStore` under a slot derived from the
+profile id. The built-in DeepSeek profile reuses `deepseek.api_key`, so an
+existing install keeps chatting without re-entering it.
+
+`agents.providerId` selects the provider; `conversations.providerId` copies it at
+creation, beside the model and effort copy. Changing an assistant therefore does
+not rewrite an existing transcript's provider. The model cache in
+`AgentRepository` is keyed by provider id, because two services can offer the same
+model id with different windows and capabilities.
+
+Profiles are deliberately **OpenAI-compatible**, not a set of native SDKs. The
+request shape, SSE decoder, tool calls and usage parsing are shared with the
+DeepSeek adapter below; a native Anthropic or Gemini protocol would need its own
+decoder and is not part of this version. Base URLs must be HTTPS: HTTP would send
+the bearer key in clear text, and the app has no cleartext exception.
+
+`reasoningMode` controls three otherwise incompatible fields:
+
+| Mode | Sends | Use |
+| --- | --- | --- |
+| `none` | neither `thinking`, `reasoning_effort`, nor `reasoning_content` | safe default for an arbitrary compatible server |
+| `effort` | `reasoning_effort` only | OpenAI-style reasoning endpoints |
+| `deepseek` | all three, exactly as the DeepSeek adapter needs | built-in DeepSeek |
+
+`includeStreamUsage` controls `stream_options`; a compatible server that rejects
+the field can turn it off. `/models` is read generically, including OpenRouter's
+`architecture.context_length` / `architecture.input_modalities`; a provider with
+no usable endpoint can still be used through the profile's fallback model ids,
+which have no context-window or vision metadata until the endpoint answers. A
+compatible endpoint that reports neither field will look text-only in the app,
+because inventing vision support would send images to a model that may reject
+them.
+
+## The OpenAI-compatible adapter
 
 `core/ai/src/main/kotlin/com/inhuman/core/ai/provider/deepseek/`.
 
@@ -192,17 +231,18 @@ expanded row spells out `from cache N of M`.
 
 | Purpose | URL | Auth |
 | --- | --- | --- |
-| Chat, streaming | `https://api.deepseek.com/chat/completions` (OpenAI-compatible) | `Authorization: Bearer <key>` |
-| Model list | `https://api.deepseek.com/models` | `Authorization: Bearer <key>` |
-| Web search | `https://api.deepseek.com/v1/tools/search` (Search API) | `Authorization: Bearer <key>` |
-| Web fetch | `https://api.deepseek.com/v1/tools/fetch` (Fetch API) | `Authorization: Bearer <key>` |
+| Chat, streaming | `https://api.deepseek.com/chat/completions` (OpenAI-compatible) | `Authorization: Bearer <provider key>` |
+| Model list | `https://api.deepseek.com/models` | `Authorization: Bearer <provider key>` |
+| Web search, DeepSeek backend | `https://api.deepseek.com/v1/tools/search` (Search API) | `Authorization: Bearer <web DeepSeek key>` |
+| Web fetch, DeepSeek backend | `https://api.deepseek.com/v1/tools/fetch` (Fetch API) | `Authorization: Bearer <web DeepSeek key>` |
+| Web search, Exa backend | `https://api.exa.ai/search` | `x-api-key: <Exa key>` |
+| Web fetch, Exa backend | `https://api.exa.ai/contents` | `x-api-key: <Exa key>` |
 
-`DeepSeekProvider.DEFAULT_BASE_URL` is `https://api.deepseek.com`
-(`DeepSeekProvider.kt:166`), and the chat POST is `"$baseUrl/chat/completions"`
-with `Authorization: Bearer` (`DeepSeekProvider.kt:68-69`);
-`DeepSeekSearchApi.DEFAULT_BASE_URL` and `DeepSeekFetchApi.DEFAULT_BASE_URL` are
-the same host (`DeepSeekSearchApi.kt`, `DeepSeekFetchApi.kt`), and they append
-`/v1/tools/search` and `/v1/tools/fetch` with the same bearer header.
+`DeepSeekProvider.DEFAULT_BASE_URL` is `https://api.deepseek.com`, and the chat
+POST is `"$baseUrl/chat/completions"` with `Authorization: Bearer`. The same class
+serves every OpenAI-compatible profile: `id`, base URL and reasoning mode come
+from the profile. `DeepSeekSearchApi` and `DeepSeekFetchApi` still default to the
+DeepSeek host, but their key is the **web** key, not the chat provider's key.
 
 ### One shared OkHttp client, and why
 
@@ -411,45 +451,48 @@ Two special cases that exist for real reasons:
   Anything after the last user message is this turn's own work in progress
   (`DemoProvider.kt:131-146`).
 
-## `web_search` and `web_fetch`: DeepSeek's paid APIs
+## `web_search` and `web_fetch`: independently configured paid backends
 
-This section replaced the previous design on 2026-10-17, when DeepSeek opened its
-search engine as two ordinary JSON APIs. The history is worth one paragraph
-because it explains the shape of the code that replaced it.
+The tools are unchanged in shape: `web_search` returns titles, links and excerpts;
+`web_fetch` returns one page as Markdown. What changed is where they get it.
 
-Until then, search declared a **server-side tool** (`web_search_20250305`) on
-the Anthropic-compatible Messages API: one model call, sources returned as
-content blocks beside the model's prose. It worked, but one search cost a whole
-model turn, the results arrived mixed with text the app had to discard, and a
-DeepSeek feature was being parsed out of an Anthropic envelope. The direct APIs
-are one request each, return structured data, and are billed by request instead
-of by token.
+- **DeepSeek** and **Exa** are both supported for search and for fetch.
+- Search and fetch are selected separately, so Exa search + DeepSeek fetch is a
+  valid combination.
+- The DeepSeek web key is **not** the DeepSeek chat key. A user can chat through
+  an OpenAI-compatible profile and still use DeepSeek web tools, or chat on
+  DeepSeek and use Exa. The four slots live in `SecureStore`:
+  `web.deepseek.api_key`, `web.exa.api_key`, `web.search_backend`,
+  `web.fetch_backend`.
+- The old single-key behaviour is deliberately not copied on upgrade: it would
+  make "independent" true in name only. Settings reports which backend has no key,
+  and the tool is not registered until that backend's key exists.
+- `WebToolProviders` resolves the selected provider per turn in `MainActivity`;
+  `ChatViewModel` receives closures, not a captured instance, so changing a
+  backend or key takes effect without reopening the conversation.
 
-| Tool | Endpoint | Returns |
-| --- | --- | --- |
-| `web_search` | `POST https://api.deepseek.com/v1/tools/search` | a structured result list |
-| `web_fetch` | `POST https://api.deepseek.com/v1/tools/fetch` | one page as Markdown |
+| Tool | Backend | Endpoint | Returns |
+| --- | --- | --- | --- |
+| `web_search` | DeepSeek | `POST https://api.deepseek.com/v1/tools/search` | structured result list |
+| `web_fetch` | DeepSeek | `POST https://api.deepseek.com/v1/tools/fetch` | one page as Markdown |
+| `web_search` | Exa | `POST https://api.exa.ai/search` with `contents.text` | result text per hit |
+| `web_fetch` | Exa | `POST https://api.exa.ai/contents` with `text` | one page as text |
 
-Both take `Authorization: Bearer <key>` — the key already configured for
-chatting. There is no second vendor and no second credential.
+DeepSeek uses `Authorization: Bearer`; Exa uses `x-api-key`.
 
 ### Cost
 
-- **¥5 per 1,000 successful requests**, separately for Search and Fetch
-  (DeepSeek's published price on 2026-10-17). Only HTTP 200 responses with a
-  non-empty result/body are charged; failures, empty results and timeouts are
-  not.
-- DeepSeek's notice said server-side tool calls were free until 2026-11-01 and
-  would be billed after that. The direct APIs are billed from the first call.
-  Paying earlier was deliberate: the request is cheaper and faster than a model
-  turn, and the result is structured rather than synthesised prose.
-- The app cannot cap the bill. QPS is 5 per API per account, and the charges land
-  on the same DeepSeek account as the conversation.
+- **DeepSeek Search/Fetch** were ¥5 per 1,000 successful requests when these
+  direct APIs were adopted (2026-10-17); failures, empty results and timeouts are
+  not charged. This price is provider-specific and can change.
+- **Exa** bills per search/contents request under its own plan. The app does not
+  hardcode a price that would be wrong for a user's plan.
 - Both tools are marked `paid` in `ToolCatalog`. The assistant editor puts a
-  filled **PAID** badge beside the name and a price notice above the tool list;
-  the settings approval row carries the badge too, the approval dialog repeats
-  the paid-API sentence when a rule makes a call ask, and a tool result in the
-  transcript carries the badge on its collapsed header.
+  filled **PAID** badge beside the name and a notice above the tool list; the
+  notice says the configured search/fetch service bills per call, rather than
+  naming a fixed DeepSeek price. The settings approval row carries the badge too,
+  the approval dialog repeats the paid-API sentence when a rule makes a call ask,
+  and a tool result in the transcript carries the badge on its collapsed header.
 - Mutating tools also carry **REWIND** or **NO REWIND**, driven by
   `ToolCatalog.Entry.reversible`, in the same badge row. This is separate from
   paid: `ssh_exec` is both `REMOTE` and `NO REWIND`; a local write is `REWIND`.
@@ -460,34 +503,37 @@ chatting. There is no second vendor and no second credential.
 
 ### Search
 
-`DeepSeekSearchApi` (`core/ai/src/main/kotlin/com/inhuman/core/ai/provider/deepseek/DeepSeekSearchApi.kt`)
-sends:
+`DeepSeekSearchApi` sends `{"query": "...", "count": 5, "need_content": false}`.
+`count` is 1–50 in the API; the tool clamps `max_results` to 10 and defaults to 5.
+`need_content` is **false**: results carry a 600–800 character summary, and
+fetching every result would spend the context before the model knows which page
+matters. The parser prefers `summary` over `snippet`, maps `date` to
+`publishedAt`, and de-duplicates by URL.
+
+`cleanUrl` drops tracking parameters (`utm_*`, `gclid`, `via`, …), keeps unknown
+ones such as `page` or `ref`, and decodes HTML-escaped `&amp;` separators first.
+Without the decode every parameter is named `amp;utm_...`, matches no rule, and
+tracking survives into what the model cites. Non-2xx becomes an `IOException`
+carrying the status and the first 300 characters of the body; 402 is balance and
+429 is QPS.
+
+`ExaSearchApi` sends:
 
 ```json
-{"query": "...", "count": 5, "need_content": false}
+{"query": "...", "numResults": 5, "type": "auto",
+ "contents": {"text": {"maxCharacters": 1200}}}
 ```
 
-- `count` is 1–50 in the API; the tool's `max_results` is clamped to 10 and
-  defaults to 5 (`WebSearchTool`).
-- `need_content` is **false**. Results carry a 600–800 character `summary`
-  written for a model; fetching the full body of every result would spend the
-  context before the model knows which page matters. `web_fetch` exists for the
-  one page that does.
-- The parser prefers `summary` over `snippet`, maps `date` to `publishedAt`, and
-  de-duplicates by URL after cleaning.
-- `cleanUrl` drops tracking parameters (`utm_*`, `gclid`, `via`, …) and keeps
-  unknown ones such as `page` or `ref`, because a removed meaningful parameter
-  breaks a working link. A live response also returned URLs with **HTML-escaped
-  `&amp;` separators**; without decoding those first, every parameter is named
-  `amp;utm_...`, matches no rule, and the tracking survives into what the model
-  cites. A unit test pins the decode, and the live test is what found it.
-- Non-2xx becomes an `IOException` carrying the status and the first 300
-  characters of the body — 402 is balance, 429 is QPS, and both are actionable.
+Exa returns each hit's readable text, which satisfies the "snippet, not just a
+link" contract. The parser accepts `text`, then `summary`, then `author` as the
+excerpt; a missing excerpt is null rather than an empty string, and a result
+without a URL is dropped.
 
 ### Fetch
 
 `DeepSeekFetchApi` sends `{"url": "..."}` and receives `{"title": ..., "content":
-...}` where `content` is Markdown.
+...}` where `content` is Markdown. `ExaFetchApi` sends `{"urls": ["..."], "text":
+{"maxCharacters": 20000}}` and reads the first result's `text` and `title`.
 
 - Only absolute `http`/`https` URLs, no credentials, at most 8192 characters.
   Validation happens before the request, so an invalid URL is a free local error
@@ -496,10 +542,10 @@ sends:
   `[truncated at 20000 characters]`. A clean ending would make a truncated page
   look complete.
 - Blank content is an error, not a successful fetch of an empty page.
-- **This tool never opens the page.** DeepSeek performs the request; the sandbox
-  still has no network path of its own, and a URL cannot make the agent fetch
-  anything. The user-initiated download in Files is a separate, user-owned path;
-  the agent cannot invoke it.
+- **These tools never open the page.** The selected backend performs the request;
+  the sandbox still has no network path of its own, and a URL cannot make the
+  agent fetch anything. The user-initiated download in Files is a separate,
+  user-owned path; the agent cannot invoke it.
 
 ### The tool wrappers
 
@@ -510,10 +556,10 @@ answer ("No results for …") rather than an error. `WebFetchTool`
 (`tools/WebFetchTool.kt`) puts the title, the URL and the body in that order and
 uses the same error contract.
 
-**Both tools are registered only when their provider exists**
-(`ChatViewModel.buildTools`). A tool that is present and always fails teaches the
-model that it is broken and it keeps retrying; an absent tool teaches it that it
-cannot do that, and it says so.
+**Both tools are registered only when their selected backend has a key**
+(`ChatViewModel.buildTools` → `WebToolProviders`). A tool that is present and
+always fails teaches the model that it is broken and it keeps retrying; an absent
+tool teaches it that it cannot do that, and it says so.
 
 ### What is not here
 

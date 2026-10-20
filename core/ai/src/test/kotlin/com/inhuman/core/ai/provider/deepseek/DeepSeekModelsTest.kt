@@ -178,6 +178,19 @@ class DeepSeekModelsTest {
 	}
 
 	@Test
+	fun `openrouter architecture fields are read as a fallback`() {
+		val body = """
+			{"data":[{"id":"openai/gpt-x","name":"GPT X",
+			  "architecture":{"context_length":128000,"input_modalities":["text","image"]}}]}
+		""".trimIndent()
+
+		val model = DeepSeekModels.parse(body).single()
+
+		assertEquals(128000, model.contextWindow)
+		assertTrue(model.supportsVision)
+	}
+
+	@Test
 	fun `an empty list is empty rather than an error`() {
 		// Compared by size: JUnit's assertEquals is heavily overloaded and
 		// inference cannot resolve a bare emptyList() on either side.

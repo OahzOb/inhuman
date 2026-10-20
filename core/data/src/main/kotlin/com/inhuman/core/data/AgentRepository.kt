@@ -7,7 +7,10 @@ import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.InhumanDatabase
+import com.inhuman.core.data.db.ProviderIds
+import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.secret.SecureStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
@@ -46,7 +49,7 @@ class AgentRepository(
 	private val appContext: Context = context.applicationContext
 
 	private val modelsLock = Mutex()
-	private var cachedModels: List<RemoteModel>? = null
+	private val cachedModels = mutableMapOf<String, List<RemoteModel>>()
 
 	fun observeAll(): Flow<List<AgentEntity>> = db.agents().observeAll()
 
@@ -98,15 +101,65 @@ class AgentRepository(
 		)
 	}
 
+	fun observeProviders(): Flow<List<ProviderProfileEntity>> = db.providers().observeAll()
+
+	suspend fun providers(): List<ProviderProfileEntity> = db.providers().all()
+
+	suspend fun provider(id: String): ProviderProfileEntity? = db.providers().byId(id)
+
+	/** The secure slot a profile's key lives in. DeepSeek keeps the legacy slot. */
+	fun apiKeySlot(providerId: String): String =
+		if (providerId == ProviderIds.DEEPSEEK) SecureStore.KEY_DEEPSEEK_API_KEY
+		else "provider.$providerId.api_key"
+
+	fun hasKey(providerId: String): Boolean =
+		secure.hasUsable(apiKeySlot(providerId))
+
 	/**
-	 * The provider, if one is configured.
+	 * Insert or update a profile and, when supplied, its key.
 	 *
-	 * Returns null rather than throwing when no key is stored: "not set up yet"
-	 * is the normal state on first launch, not an error.
+	 * A null key leaves the stored key alone; an empty string removes it. That
+	 * distinction is what lets the editor show a masked existing key without
+	 * overwriting it with the mask, while still offering a clear action.
 	 */
-	private fun providerOrNull(): ChatProvider? {
-		val key = secure.get(SecureStore.KEY_DEEPSEEK_API_KEY) ?: return null
-		return DeepSeekProvider(apiKey = key)
+	suspend fun saveProvider(profile: ProviderProfileEntity, apiKey: String?) {
+		db.providers().upsert(profile)
+		if (apiKey != null) {
+			if (apiKey.isBlank()) secure.remove(apiKeySlot(profile.id))
+			else secure.put(apiKeySlot(profile.id), apiKey.trim())
+		}
+		invalidateModels()
+	}
+
+	suspend fun deleteProvider(id: String): Result<Unit> {
+		if (id == ProviderIds.DEEPSEEK) {
+			return Result.failure(IllegalStateException("The built-in DeepSeek provider cannot be deleted."))
+		}
+		val agents = db.providers().agentCount(id)
+		val conversations = db.providers().conversationCount(id)
+		if (agents > 0 || conversations > 0) {
+			return Result.failure(
+				IllegalStateException(
+					"This provider is used by $agents assistant(s) and $conversations " +
+						"conversation(s). Delete or reassign them first.",
+				),
+			)
+		}
+		db.providers().delete(id)
+		secure.remove(apiKeySlot(id))
+		invalidateModels()
+		return Result.success(Unit)
+	}
+
+	suspend fun providerFromRow(profile: ProviderProfileEntity): ChatProvider? {
+		val key = secure.get(apiKeySlot(profile.id))?.takeIf { it.isNotBlank() } ?: return null
+		return DeepSeekProvider(
+			apiKey = key,
+			baseUrl = profile.baseUrl.trimEnd('/'),
+			id = profile.id,
+			reasoningMode = profile.reasoningMode,
+			includeStreamUsage = profile.includeStreamUsage,
+		)
 	}
 
 	/**
@@ -116,32 +169,57 @@ class AgentRepository(
 	 * a request when the cache is empty, and a caller that wants "show what we
 	 * have, then refresh" must not accidentally block on that first request.
 	 */
-	suspend fun cachedModelList(): List<RemoteModel>? = modelsLock.withLock { cachedModels }
+	suspend fun cachedModelList(providerId: String = ProviderIds.DEEPSEEK): List<RemoteModel>? =
+		modelsLock.withLock { cachedModels[providerId] }
 
 	/**
 	 * The models the provider currently offers.
 	 *
-	 * @param force refetch even if a list is already held, for a pull-to-refresh
-	 *   or after the key changes.
+	 * A provider whose `/models` endpoint is missing can still be used through
+	 * the profile's manual model ids. Those are a fallback, not a substitute:
+	 * when the endpoint answers, its capabilities (context window, vision,
+	 * effort levels) are better than ids with no metadata.
 	 */
-	suspend fun models(force: Boolean = false): Result<List<RemoteModel>> {
+	suspend fun models(
+		providerId: String = ProviderIds.DEEPSEEK,
+		force: Boolean = false,
+	): Result<List<RemoteModel>> {
 		modelsLock.withLock {
-			val cached = cachedModels
+			val cached = cachedModels[providerId]
 			if (!force && cached != null) return Result.success(cached)
 		}
 
-		val provider = providerOrNull()
-			?: return Result.failure(IllegalStateException("No API key is set."))
+		val profile = db.providers().byId(providerId)
+			?: return Result.failure(IllegalStateException("Provider not found."))
+		val provider = providerFromRow(profile)
+			?: return Result.failure(IllegalStateException("No API key is set for ${profile.name}."))
+
+		val manual = profile.manualModels.lines()
+			.map { it.trim() }
+			.filter { it.isNotBlank() }
+			.map { RemoteModel(id = it, displayName = it) }
 
 		return withContext(Dispatchers.IO) {
 			runCatching { provider.listModels() }
-				.onSuccess { modelsLock.withLock { cachedModels = it } }
+				.recoverCatching { failure ->
+					if (failure is CancellationException) throw failure
+					if (manual.isNotEmpty()) manual else throw failure
+				}
+				.map { fetched ->
+					// An endpoint that answers with an empty list is as unusable as
+					// one that is missing; the fallback ids are still better than
+					// an empty picker.
+					if (fetched.isEmpty() && manual.isNotEmpty()) manual else fetched
+				}
+				.onSuccess { modelsLock.withLock { cachedModels[providerId] = it } }
 		}
 	}
 
-	/** Drop the cache, so the next read refetches. Called when the key changes. */
-	suspend fun invalidateModels() {
-		modelsLock.withLock { cachedModels = null }
+	/** Drop the cache, so the next read refetches. Called when a provider or key changes. */
+	suspend fun invalidateModels(providerId: String? = null) {
+		modelsLock.withLock {
+			if (providerId == null) cachedModels.clear() else cachedModels.remove(providerId)
+		}
 	}
 
 	/**
@@ -152,9 +230,12 @@ class AgentRepository(
 	 * another may offer a different set -- and inventing a fixed scale would
 	 * make the app send values the API does not accept.
 	 */
-	suspend fun effortLevels(modelId: String?): List<String> {
+	suspend fun effortLevels(
+		modelId: String?,
+		providerId: String = ProviderIds.DEEPSEEK,
+	): List<String> {
 		if (modelId == null) return emptyList()
-		val models = models().getOrNull().orEmpty()
+		val models = models(providerId).getOrNull().orEmpty()
 		return models.firstOrNull { it.id == modelId }?.supportedEffortLevels.orEmpty()
 	}
 }

@@ -130,6 +130,7 @@ fun ChatScreen(
 	// the handful of values the chrome genuinely depends on.
 	val title by viewModel.state.map { it.title }.collectAsStateWithLifecycle("New conversation")
 	val modelLabel by viewModel.state.map { it.modelLabel }.collectAsStateWithLifecycle("default model")
+	val providerName by viewModel.state.map { it.providerName }.collectAsStateWithLifecycle("Provider")
 	val thinking by viewModel.state.map { it.thinking }.collectAsStateWithLifecycle(false)
 	val reasoningEffort by viewModel.state
 		.map { it.reasoningEffort }
@@ -388,6 +389,8 @@ fun ChatScreen(
 						)
 						Text(
 							text = buildString {
+								append(providerName)
+								append(" · ")
 								append(modelLabel)
 								if (thinking) {
 									append(" · thinking")
@@ -1149,7 +1152,7 @@ private fun SshConsentDialog(
 				)
 				Text(
 					text = "If you paste a password or key, it becomes part of this " +
-						"conversation and is sent to DeepSeek. A key file in the workspace " +
+						"conversation and is sent to the configured model provider. A key file in the workspace " +
 						"stays on the device and is read locally. Files in the workspace can " +
 						"be sent to the remote machine.",
 					style = MaterialTheme.typography.bodyMedium,
@@ -1655,7 +1658,7 @@ private fun MessageBubble(
 		}
 
 		// Token accounting, shown only when the provider reported it. Cache hits
-		// are called out because DeepSeek bills them about 50x cheaper, so
+		// are called out because providers commonly bill them much cheaper, so
 		// seeing them is how a user knows prefix caching is working.
 		// What the turn cost. Collapsed to a single line until tapped: speed and
 		// the cache share answer the questions people actually ask, and the

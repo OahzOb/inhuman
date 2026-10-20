@@ -44,6 +44,7 @@ object Database {
 					InhumanDatabase.MIGRATION_8_9,
 					InhumanDatabase.MIGRATION_9_10,
 					InhumanDatabase.MIGRATION_10_11,
+					InhumanDatabase.MIGRATION_11_12,
 				)
 				// Deliberately no fallbackToDestructiveMigration. It would make
 				// a missing migration look like a successful upgrade while
@@ -57,6 +58,7 @@ object Database {
 						// attach to. A lazily-created default would mean the very
 						// first conversation has none, which is exactly the case
 						// the default exists for.
+						InhumanDatabase.seedDefaultProvider(connection)
 						InhumanDatabase.seedDefaultAgent(connection)
 						Diag.i("db", "created ${InhumanDatabase.NAME}")
 					}

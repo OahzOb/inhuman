@@ -176,6 +176,12 @@ class SecureStore(
 		/** Preference key for the DeepSeek API key. */
 		const val KEY_DEEPSEEK_API_KEY = "deepseek.api_key"
 
+		/** Search/fetch credentials, deliberately independent of the chat key. */
+		const val KEY_WEB_DEEPSEEK_API_KEY = "web.deepseek.api_key"
+		const val KEY_WEB_EXA_API_KEY = "web.exa.api_key"
+		const val KEY_WEB_SEARCH_BACKEND = "web.search_backend"
+		const val KEY_WEB_FETCH_BACKEND = "web.fetch_backend"
+
 		/**
 		 * Preference key for demo mode.
 		 *

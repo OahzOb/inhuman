@@ -149,6 +149,32 @@ file that is already gone.
 space on the gaps than on the things: a one-line collapsed tool result stood 53dp
 tall with an 18dp gap.
 
+### A18. Web keys are not chat keys, and there is no fallback
+
+`WebToolProviders` reads `web.deepseek.api_key` / `web.exa.api_key`, never
+`deepseek.api_key` or `provider.<id>.api_key`. A "convenience" fallback would
+silently authorize a paid service from a credential the user configured for
+something else, and rotating the chat key would change who bills the search. The
+chat key alone must leave the search tool unregistered; `WebToolProvidersTest`
+pins that.
+
+### A19. Reasoning fields are not universal
+
+`thinking`, `reasoning_effort` and `reasoning_content` are three different
+contracts. `reasoning_mode = none` must send none of them; an arbitrary
+OpenAI-compatible server that rejects unknown fields otherwise fails on the first
+message. The built-in DeepSeek profile is the only seeded row with
+`reasoning_mode = deepseek`. The wire options are pinned by
+`ProviderWireOptionsTest`.
+
+### A20. The DeepSeek key has three lives, deliberately
+
+The built-in profile keeps the legacy `deepseek.api_key` slot so an upgrade does
+not ask for the key again. Custom profiles use `provider.<uuid>.api_key`. Web
+tools use neither. Do not "simplify" these into one slot: the first is a chat
+credential, the second is a per-profile credential, and the third is a paid-tool
+credential with a different blast radius.
+
 ---
 
 ## B. Defects that were found here — and where each one now stands

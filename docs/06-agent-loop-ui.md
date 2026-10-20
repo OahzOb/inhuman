@@ -380,10 +380,10 @@ user can see what a call will actually do. For `ssh_exec` the view model supplie
 never the password or private key.
 
 `describeCall` special-cases `delete_file`, `write_file`, `web_search`,
-`web_fetch` and `ssh_exec`; the web tools also carry "(DeepSeek's paid … API)",
-because an approval prompt is exactly the moment the cost is worth repeating,
-and SSH names the host and first 160 characters of the command. Everything else
-falls back to "Run <name>?".
+`web_fetch` and `ssh_exec`; the web tools also say "(paid search/fetch API)",
+because an approval prompt is exactly the moment the cost is worth repeating, and
+SSH names the host and first 160 characters of the command. Everything else falls
+back to "Run <name>?".
 
 ### The SSH consent dialog
 
@@ -596,10 +596,15 @@ model dismisses the dialog.
 
 ### Settings
 
-`SettingsScreen.kt` / `SettingsViewModel.kt`. One API-key field
-(password-transformed, pre-filled from the store), Save (a blank value removes
-the key and calls `invalidateModels`), "Test connection" calling `GET /models`
-and reporting the models it sees, and the Demo-mode switch.
+`SettingsScreen.kt` / `SettingsViewModel.kt`. **Model providers** lists the
+profiles; each opens an editor with name, kind, HTTPS base URL, password-style
+key, reasoning-field mode, stream-usage switch and fallback model ids. Save writes
+the row and key through `AgentRepository.saveProvider`; a blank key removes it.
+"Test connection" calls `GET /models` with the unsaved values and reports what it
+sees. The built-in DeepSeek profile cannot be deleted. **Web tools** selects the
+search and fetch backend independently (DeepSeek/Exa) and stores their keys
+separately; a backend without a key shows a warning and its tool stays
+unregistered. Demo mode and the SSH switch live below those sections.
 
 **Demo mode is the offline verification path.** `demoEnabled()` reads
 `secure.get(SecureStore.KEY_DEMO_MODE) == "1"` (`ChatViewModel.kt:615`), and
@@ -619,8 +624,9 @@ message to get prose instead of a tool turn.
 
 - The composer is disabled with the placeholder "Add an API key to start"
   (`ChatScreen.kt:371`, `:1001`), and attach and send are disabled with it.
-- `send()` refuses with "Add a DeepSeek API key first, or switch on demo mode."
-  (`ChatViewModel.kt:690-695`); `regenerate()` refuses likewise.
+- `send()` refuses with "Add an API key for <provider> first, or switch on demo
+  mode." (`ChatViewModel.kt`); `regenerate()` refuses likewise. The provider name
+  comes from the conversation's copied `providerId`, not from a hardcoded vendor.
 - Demo mode counts as configured **without** a key, and the demo model list is
   fetched separately by `demoModelsIfEnabled` (`:301-302`) only so the context
   gauge has a denominator.

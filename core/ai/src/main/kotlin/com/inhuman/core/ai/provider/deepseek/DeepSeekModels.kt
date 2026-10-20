@@ -110,6 +110,13 @@ internal object DeepSeekModels {
 			val id = obj["id"].asStringOrNull() ?: return@mapNotNull null
 
 			val effort = obj["effort"]?.let { runCatching { it.jsonObject }.getOrNull() }
+			// OpenRouter and several compatible servers describe the same facts
+			// under `architecture` instead of DeepSeek's flat fields. Reading
+			// both is not cosmetic: without it every custom model looks
+			// text-only, so the attachment button is disabled for a model that
+			// accepts images.
+			val architecture = obj["architecture"]
+				?.let { runCatching { it.jsonObject }.getOrNull() }
 			RemoteModel(
 				id = id,
 				// `name` is the human-facing label ("DeepSeek-V4.1-Flash") while
@@ -117,11 +124,15 @@ internal object DeepSeekModels {
 				// id would be showing an implementation detail; sending the name
 				// would be rejected.
 				displayName = obj["name"].asStringOrNull(),
-				contextWindow = obj["context_window"].asIntOrNull(),
+				contextWindow = obj["context_window"].asIntOrNull()
+					?: architecture?.get("context_length").asIntOrNull(),
 				maxOutputTokens = obj["max_output_tokens"].asIntOrNull(),
 				inputModalities = obj["input_modalities"]
 					?.let { runCatching { it.jsonArray }.getOrNull() }
 					?.mapNotNull { it.asStringOrNull() }
+					?: architecture?.get("input_modalities")
+						?.let { runCatching { it.jsonArray }.getOrNull() }
+						?.mapNotNull { it.asStringOrNull() }
 					.orEmpty(),
 				supportedEffortLevels = effort?.get("supported_levels")
 					?.let { runCatching { it.jsonArray }.getOrNull() }

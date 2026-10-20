@@ -20,9 +20,10 @@ only reach a machine whose address and credentials the user supplies. With SSH
 off — the default — the paragraph above is true as written. See
 [03-ai-provider.md](03-ai-provider.md) and [08-port-philosophy.md](08-port-philosophy.md) §1.2.1.
 
-Single user, single device, DeepSeek only. Open source under Apache-2.0
-(`LICENSE`): the fence around a conversation is a security claim, and an
-unauditable one would be worth very little (`README.md:359-363`).
+Single user, single device. DeepSeek is the seeded provider; additional
+OpenAI-compatible profiles can be configured per assistant. Open source under
+Apache-2.0 (`LICENSE`): the fence around a conversation is a security claim, and
+an unauditable one would be worth very little (`README.md:359-363`).
 
 ## Shape of the repository
 
@@ -60,9 +61,16 @@ Confirmed by `README.md:17-29` and by the code:
   shared by several conversations, and can be created from the Workspaces
   screen or saved from a temporary conversation's menu. The user can view and
   copy the workspace's absolute app-private path; the model never sees it.
-- The model can search the web and fetch a page through DeepSeek's paid Search
-  and Fetch APIs, using the same key as the conversation
+- The model can search the web and fetch a page through **DeepSeek or Exa**,
+  selected independently for search and fetch. Each is a paid API with its own
+  key, separate from the chat provider
   ([03-ai-provider.md](03-ai-provider.md)).
+- Chat runs against a provider profile: the built-in DeepSeek endpoint or a
+  custom OpenAI-compatible HTTPS endpoint. Each assistant chooses a profile, and
+  a conversation copies it at creation; model lists and keys are per provider.
+  The same assistant can be switched later, but existing conversations keep the
+  provider they started with.
+- Per-conversation model and reasoning effort, read from the provider.
 - The model can run a command on a remote machine over SSH, but only after the
   user turns the global switch on, gives the assistant `ssh_exec`, and allows it
   once per conversation; there is no host list or credential store, and SSH
@@ -78,7 +86,6 @@ Confirmed by `README.md:17-29` and by the code:
   restart after any completed tool group in the last turn: the prefix and its
   results stay, the suffix is deleted and its checkpoint restored, and the
   request runs **with tools** ([07-gotchas.md](07-gotchas.md) B20, B23).
-- Per-conversation model and reasoning effort, read from the provider.
 - Image attachments.
 - A context gauge above the composer.
 - A local diagnostic log records turns, tool calls, HTTP failures and crashes;
@@ -103,9 +110,9 @@ without a conversation:
   follows from shipping them (`README.md:337-350`). Markdown and code
   highlighting cover the common case.
 - **No `MANAGE_EXTERNAL_STORAGE`**, and no `READ/WRITE_EXTERNAL_STORAGE`.
-- **No multi-provider abstraction.** DeepSeek only. The streaming pipeline is
-  transport-agnostic so a second provider is an addition rather than a rewrite,
-  but no abstraction is written for a provider that does not exist.
+- **No native Anthropic or Gemini protocol adapter.** Additional LLM providers
+  are OpenAI-compatible profiles; a provider with a different wire protocol
+  would need its own decoder rather than a base-URL entry.
 
 Two more that are stated as behaviour rather than as policy:
 
@@ -135,8 +142,9 @@ Worth settling before reading the rest, because the words are overloaded:
 
 | Term | Means here |
 | --- | --- |
-| **assistant** / **agent** | A stored person(a): name, system prompt, model, reasoning effort, and an allowed-tool selection. Managed on the Agents screen. |
-| **conversation** | One chat, its branch, and the workspace it uses. Copies the assistant's settings at creation so editing an assistant cannot change what an existing conversation may do. |
+| **assistant** / **agent** | A stored person(a): name, system prompt, provider, model, reasoning effort, and an allowed-tool selection. Managed on the Agents screen. |
+| **provider profile** | A named OpenAI-compatible endpoint and its encrypted key. The seeded DeepSeek profile is built in; a custom profile must use HTTPS. |
+| **conversation** | One chat, its branch, and the workspace it uses. Copies the assistant's provider, model and effort at creation so editing an assistant cannot change what an existing conversation may do. |
 | **branch** | A regenerated final answer is stored as a sibling branch; the user can switch between them. A mid-turn **Regenerate from…** replaces the suffix instead, because its tool results would no longer match the restored workspace. |
 | **workspace** | A folder and the sandbox boundary. A **temporary** workspace is created with its one conversation and deleted with it; a **permanent** workspace survives its conversations and can be shared by several. The absolute directory is visible to the user in Files and workspace detail, but never to the agent. |
 | **turn** | One user message and everything the model and its tools did in response. |
@@ -150,13 +158,12 @@ other — see [06-agent-loop-ui.md](06-agent-loop-ui.md) and the long argument i
 
 ## The non-obvious thing most people get wrong first
 
-`web_search` and `web_fetch` are **DeepSeek's paid APIs**, not free helpers. Each
-is one HTTP request to `https://api.deepseek.com/v1/tools/...`, billed per
-successful call (¥5 per 1,000 at the time of writing) on the same account as the
-conversation. They are not model turns any more, and for these tools the app
-never opens a page itself: DeepSeek performs the search and the fetch, so the
-sandbox still has no network path of its own. The mechanism and the cost rules
-are in [03-ai-provider.md](03-ai-provider.md).
+`web_search` and `web_fetch` are **paid third-party APIs**, not free helpers.
+Search and fetch each choose DeepSeek or Exa in Settings, with a key that is
+separate from the chat provider's key. The app never opens a page itself: the
+selected backend performs the request, so the sandbox still has no network path
+of its own. Prices and rate limits belong to the provider and can change; the
+mechanism is in [03-ai-provider.md](03-ai-provider.md).
 
 The second non-obvious thing: **`ssh_exec` is not a local file tool.** It runs on
 another machine, so its effects are not a workspace copy and cannot be undone by

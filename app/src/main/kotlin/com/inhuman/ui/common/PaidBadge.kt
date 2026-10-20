@@ -11,7 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * The one marker that says a tool spends money at DeepSeek.
+ * The one marker that says a tool spends money at a third party.
  *
  * ## Why a filled badge next to the name
  *
@@ -53,9 +53,9 @@ fun PaidToolsNotice(modifier: Modifier = Modifier) {
 		shape = RoundedCornerShape(8.dp),
 	) {
 		Text(
-			text = "web_search and web_fetch are DeepSeek's paid APIs: " +
-				"¥5 per 1,000 successful calls, billed to your DeepSeek account. " +
-				"The other tools do not call a paid service.",
+			text = "web_search and web_fetch call the search/fetch service configured in " +
+				"Settings. They are billed per call by that provider; the other tools do " +
+				"not call a paid service.",
 			style = MaterialTheme.typography.bodySmall,
 			modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
 		)
