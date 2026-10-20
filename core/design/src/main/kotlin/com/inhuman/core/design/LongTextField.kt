@@ -55,6 +55,9 @@ import androidx.compose.ui.unit.dp
  * is more, tap to see it" without taking the gesture.
  *
  * @param previewLines how much to show before the ellipsis.
+ * @param onImport when non-null, an Import action appears beside Write/Edit.
+ *   The caller owns the picker and the decoding; this component only offers
+ *   the place to put the button so the two fields stay aligned.
  */
 @Composable
 fun LongTextField(
@@ -67,6 +70,7 @@ fun LongTextField(
 	/** Applied to the editing field, so a monospace prompt edits as monospace. */
 	textStyle: TextStyle = LocalTextStyle.current,
 	previewMaxHeight: Dp = 96.dp,
+	onImport: (() -> Unit)? = null,
 	modifier: Modifier = Modifier,
 ) {
 	var editing by remember { mutableStateOf(false) }
@@ -81,12 +85,20 @@ fun LongTextField(
 				text = label,
 				style = MaterialTheme.typography.labelLarge,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier.weight(1f),
 			)
-			TextButton(onClick = { editing = true }) {
-				Text(
-					text = if (value.isBlank()) "Write" else "Edit",
-					style = MaterialTheme.typography.labelLarge,
-				)
+			Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+				if (onImport != null) {
+					TextButton(onClick = onImport) {
+						Text("Import", style = MaterialTheme.typography.labelLarge)
+					}
+				}
+				TextButton(onClick = { editing = true }) {
+					Text(
+						text = if (value.isBlank()) "Write" else "Edit",
+						style = MaterialTheme.typography.labelLarge,
+					)
+				}
 			}
 		}
 

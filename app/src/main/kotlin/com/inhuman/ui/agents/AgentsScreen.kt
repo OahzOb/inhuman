@@ -1,5 +1,10 @@
 package com.inhuman.ui.agents
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -54,9 +59,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -69,6 +76,15 @@ import com.inhuman.ui.common.PaidToolsNotice
 import com.inhuman.ui.common.RemoteBadge
 import com.inhuman.ui.common.RemoteToolsNotice
 import com.inhuman.ui.common.RewindBadge
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.IOException
+
+private const val PROMPT_LENGTH_HINT = 32_000
+
+/** A file read from the picker, waiting for Replace/Append. */
+private data class ImportedPrompt(val name: String, val text: String)
 
 /**
  * The assistants.
@@ -275,6 +291,37 @@ private fun AgentEditor(
 	// people do not have.
 	var showToolHelp by rememberSaveable { mutableStateOf(false) }
 
+	val context = LocalContext.current
+	val scope = rememberCoroutineScope()
+	var importError by remember { mutableStateOf<String?>(null) }
+	var importStatus by remember { mutableStateOf<String?>(null) }
+	var pendingImport by remember { mutableStateOf<ImportedPrompt?>(null) }
+
+	val promptImporter = rememberLauncherForActivityResult(
+		ActivityResultContracts.OpenDocument(),
+	) { uri ->
+		if (uri != null) {
+			val name = queryPromptName(context, uri) ?: "imported"
+			scope.launch {
+				importError = null
+				importStatus = null
+				try {
+					val text = withContext(Dispatchers.IO) {
+						readPromptFile(context, uri, name)
+					}
+					if (draft.systemPrompt.isBlank()) {
+						onChange { it.copy(systemPrompt = text) }
+						importStatus = "Imported $name (${text.length} characters)."
+					} else {
+						pendingImport = ImportedPrompt(name, text)
+					}
+				} catch (failure: Exception) {
+					importError = failure.message ?: "Could not import the file."
+				}
+			}
+		}
+	}
+
 	WideDialog(
 		onDismissRequest = onDismiss,
 		title = if (draft.isNew) "New assistant" else "Edit assistant",
@@ -307,7 +354,45 @@ private fun AgentEditor(
 			textStyle = MaterialTheme.typography.bodyMedium.copy(
 				fontFamily = FontFamily.Monospace,
 			),
+			onImport = { promptImporter.launch(arrayOf("*/*")) },
 		)
+		importError?.let {
+			Text(
+				text = it,
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.error,
+			)
+		}
+		importStatus?.let {
+			Text(
+				text = it,
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+		if (!draft.canSave) {
+			// The Save button is disabled by validation a few sections below;
+			// without this line the only feedback was a button that did nothing.
+			val missing = when {
+				draft.name.isBlank() && draft.systemPrompt.isBlank() ->
+					"a name and a system prompt"
+				draft.name.isBlank() -> "a name"
+				else -> "a system prompt"
+			}
+			Text(
+				text = "Add $missing to save.",
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.error,
+			)
+		}
+		if (draft.systemPrompt.length >= PROMPT_LENGTH_HINT) {
+			Text(
+				text = "${draft.systemPrompt.length} characters. This is sent on every " +
+					"turn and counts against the model's context window.",
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.tertiary,
+			)
+		}
 		Row(
 			modifier = Modifier.fillMaxWidth(),
 			horizontalArrangement = Arrangement.SpaceBetween,
@@ -613,6 +698,48 @@ private fun AgentEditor(
 			onDismiss = { showPreview = false },
 		)
 	}
+
+	pendingImport?.let { imported ->
+		AlertDialog(
+			onDismissRequest = { pendingImport = null },
+			title = { Text("Import system prompt") },
+			text = {
+				Text(
+					"${imported.name} is ${imported.text.length} characters. " +
+						"Replace the current prompt, or append the file to it?",
+				)
+			},
+			confirmButton = {
+				TextButton(
+					onClick = {
+						onChange { it.copy(systemPrompt = imported.text) }
+						importStatus = "Replaced with ${imported.name} " +
+							"(${imported.text.length} characters)."
+						pendingImport = null
+					},
+				) { Text("Replace") }
+			},
+			dismissButton = {
+				Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+					TextButton(
+						onClick = {
+							val current = draft.systemPrompt.trimEnd()
+							val joined = if (current.isBlank()) {
+								imported.text
+							} else {
+								"$current\n\n${imported.text}"
+							}
+							onChange { it.copy(systemPrompt = joined) }
+							importStatus = "Appended ${imported.name} " +
+								"(${imported.text.length} characters)."
+							pendingImport = null
+						},
+					) { Text("Append") }
+					TextButton(onClick = { pendingImport = null }) { Text("Cancel") }
+				}
+			},
+		)
+	}
 }
 
 /**
@@ -851,4 +978,42 @@ private fun FlowRowCompat(content: @Composable () -> Unit) {
 	) {
 		content()
 	}
+}
+
+/**
+ * The picker's label for a document, or null when the provider does not offer
+ * one. The caller falls back to "imported" so the confirmation still names
+ * something.
+ */
+private fun queryPromptName(context: Context, uri: Uri): String? = runCatching {
+	context.contentResolver.query(
+		uri,
+		arrayOf(OpenableColumns.DISPLAY_NAME),
+		null,
+		null,
+		null,
+	)?.use { cursor ->
+		val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+		if (column >= 0 && cursor.moveToFirst()) cursor.getString(column) else null
+	}
+}.getOrNull()?.takeIf { it.isNotBlank() }
+
+/**
+ * Read a picked prompt file as UTF-8.
+ *
+ * The 1 MiB ceiling is a read guard, not a prompt limit: it stops a mis-tapped
+ * video or database from being pulled into memory before the user sees what
+ * happened. A system prompt that big would not fit any context window anyway.
+ */
+private fun readPromptFile(context: Context, uri: Uri, name: String): String {
+	val mimeType = context.contentResolver.getType(uri)
+	if (!isPromptText(name, mimeType)) {
+		throw IOException("Choose a .txt or .md file.")
+	}
+
+	val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
+		readPromptBytes(input)
+	} ?: throw IOException("Could not open the file.")
+
+	return decodePromptText(bytes)
 }

@@ -106,7 +106,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :app:testDebugUnitTest --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 329 tests in 36 suites, 0 failures, 1 skipped** — the skip is
+**BUILD SUCCESSFUL, 337 tests in 37 suites, 0 failures, 1 skipped** — the skip is
 `DeepSeekWebLiveTest`, which talks to the real paid Search and Fetch APIs and
 needs `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 
@@ -114,7 +114,7 @@ needs `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 | --- | --- | --- |
 | `:core:ai` | 18 | 186 (1 skipped) |
 | `:core:files` | 5 | 57 |
-| `:app` | 8 | 53 |
+| `:app` | 9 | 61 |
 | `:core:common` | 2 | 16 |
 | `:core:data` | 3 | 17 |
 
@@ -157,7 +157,7 @@ throughout.
 | Visible chat layout, bubbles, composer, tool rows, the dialog | `app/src/main/kotlin/com/inhuman/ui/chat/ChatScreen.kt` |
 | Incremental Markdown, the delta channel, the renderer switch, unclosed fences | `ui/chat/MarkdownText.kt`, `ui/chat/DeltaCursor.kt`, `ui/chat/MarkdownFence.kt` |
 | The context ring and its three cases | `ui/chat/ContextUsage.kt`, `ui/chat/ContextGauge.kt` |
-| Assistants and the tool picker | `ui/agents/AgentsScreen.kt`, `ui/agents/AgentsViewModel.kt` |
+| Assistants, the tool picker, system-prompt import | `ui/agents/AgentsScreen.kt`, `ui/agents/AgentsViewModel.kt`, `ui/agents/PromptImport.kt` |
 | The conversation list, pinning, delete confirmation | `ui/ConversationsScreen.kt`, `ui/ConversationsViewModel.kt` |
 | Browsing, import, export, file preview | `ui/files/FilesScreen.kt`, `ui/files/FilesViewModel.kt` |
 | Downloading a URL; SSRF, redirect and file-name rules | `ui/files/UrlDownloader.kt` |

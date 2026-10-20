@@ -477,6 +477,16 @@ verbatim system prompt, optional model, optional free-text effort, thinking flag
 `LongTextField` for the prompt, model chips including "provider default",
 thinking as one row of level chips with "off", and the tool picker.
 
+**The prompt can also be imported from a file.** `Import` opens SAF and reads a
+`.txt`/`.md` as strict UTF-8, stripping a BOM; a blank file, invalid UTF-8 or a
+non-text pick is an error rather than a prompt full of replacement characters.
+The 1 MiB read ceiling is a guard against pulling a mis-tapped video into memory,
+not a prompt limit — there is no stored or sent length cap. If the prompt already
+has text, the import asks **Replace / Append / Cancel**. Files with an unknown
+extension are accepted when the provider reports a `text` MIME type, because
+Android providers disagree about `.md`; the extension check keeps those files
+usable when the MIME type is `application/octet-stream`.
+
 **Tool picker semantics, which are the subtle part:**
 
 | stored | UI reads | means |
@@ -497,8 +507,12 @@ stale or renamed name can never pass (`ToolCatalog.kt:89-92`).
 
 Deleting the default assistant is impossible in the UI **and** in the repository
 (`:133`, `AgentRepository.kt:65`). Saving requires a non-blank name *and* prompt
-(`AgentsViewModel.kt:52`). The screen's FAB is unconditional —
-`prefersFabForPrimaryAction()` is used only by ConversationsScreen (`:133`).
+(`AgentsViewModel.kt:69`). A new assistant is pre-named "New assistant" (with a
+numeric suffix if taken) and starts from `Database.DEFAULT_SYSTEM_PROMPT`, so
+Save is enabled immediately; clearing either field disables it, and the editor
+says whether the name or the prompt is missing. The screen's FAB is
+unconditional — `prefersFabForPrimaryAction()` is used only by
+ConversationsScreen (`:133`).
 
 "Preview request" shows the assembled prompt plus a model/thinking/tool footer
 (`:594-703`), which is the only place a user can see what the model is actually

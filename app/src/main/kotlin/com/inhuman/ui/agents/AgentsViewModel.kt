@@ -9,6 +9,7 @@ import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.db.AgentEntity
+import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.ToolsColumn
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -165,14 +166,28 @@ class AgentsViewModel(
 
 	fun create() {
 		val agent = repository.newAgent()
+		// A name is required to save, and a blank Name field left Save looking
+		// broken even after a prompt had been imported. Start with a usable
+		// name; it stays editable like any other field.
+		val existingNames = _state.value.agents.map { it.name }.toSet()
+		var name = "New assistant"
+		var suffix = 2
+		while (name in existingNames) {
+			name = "New assistant $suffix"
+			suffix += 1
+		}
 		_state.update {
 			it.copy(
 				editing = AgentDraft(
 					id = agent.id,
 					isNew = true,
 					isDefault = false,
-					name = "",
-					systemPrompt = "",
+					name = name,
+					// Start from the same instructions as the default assistant.
+					// A blank prompt left Save disabled with no explanation, which
+					// read as a broken button; it also gave a new assistant no
+					// description of the workspace until the user wrote one.
+					systemPrompt = Database.DEFAULT_SYSTEM_PROMPT,
 					model = null,
 					reasoningEffort = null,
 					thinking = false,
