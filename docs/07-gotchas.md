@@ -118,21 +118,24 @@ nothing. Collapsing them makes one of the two impossible to express.
 `allSelection()` returns **`null`**, not the full list. A new assistant gets the
 explicit ten-name list instead (`AgentRepository.kt:85-98`).
 
-### A14. The workspace is opened with `mkdirs()` before the row is inserted
+### A14. Workspace rows and directories are ordered for the sweep
 
-`ConversationRepository.kt:139-140`, and the delete does the reverse (directory
-first, rows second, `:147-159`). That ordering is what makes the orphan sweep
-safe: an interrupted operation leaves a directory with no row, which the sweep can
-find, rather than a row pointing at a missing directory, which nothing can.
+`ConversationRepository.create` writes the temporary workspace row first, then
+the conversation row, then `mkdirs()`; `delete` removes the directory first and
+the rows second. That ordering is what makes the orphan sweep safe: an
+interrupted operation leaves a directory with no workspace row, which the sweep
+can find, rather than a row pointing at a missing directory, which nothing can.
+A permanent workspace rows-first is also what lets an empty workspace survive
+startup.
 
 ### A15. `runBlocking` appears only around two reads in the provider
 
-`WorkspaceDocumentsProvider.kt:40-50`. Every method runs on a Binder thread that
+`WorkspaceDocumentsProvider.kt`. Every method runs on a Binder thread that
 DocumentsUI blocks on, hence `MAX_CHILDREN = 500` and the caps. The two are
-`conversations().byWorkspaceId(documentId)` — a lookup on the unique
-`workspaceId` index, used by both `includeDocument` and
-`isConversationDirectory` — and `conversations().all()` (`:113`), a full scan of
-a table holding one row per conversation.
+`workspaces().byId(documentId)` — resolving the document id that the provider
+itself publishes — and `workspaces().all()` for the root listing. Both are
+primary-key or small-table reads; a conversation lookup must not be used here
+because a permanent workspace can have several conversations.
 
 ### A16. The demo script reads the transcript, not a counter
 
@@ -292,39 +295,38 @@ text column    1152px = 576dp, centred at 1280px (the screen centre)
 the expected result and exactly what the cap was supposed to produce. Before the
 fix this text ran the full 2560px.
 
-### B6. The provider could rename or delete a conversation's folder — **FIXED**
+### B6. The provider could rename or delete a workspace folder — **FIXED**
 
-Conversation rows carried `directoryFlags()`, so the Files app offered both. A
-conversation directory's name *is* its `workspaceId`, so renaming it orphans the
-row -- the next tool call recreates an empty workspace under the old id, and the
-renamed directory matches no row, so the sweep eventually deletes the files --
-and deleting it leaves the inverse orphan the sweep cannot see.
+Folders carried `directoryFlags()`, so the Files app offered both. A workspace
+directory's name *is* its `workspaceId`, so renaming it orphans the row -- the
+next tool call recreates an empty workspace under the old id, and the renamed
+directory matches no row, so the sweep eventually deletes the files -- and
+deleting it leaves the inverse orphan the sweep cannot see.
 
-Conversation rows now carry `conversationFlags()`: create only, since creating
-files inside the directory is the case the provider exists for. `deleteDocument`
-and `renameDocument` also refuse a conversation directory outright, because a
-flag is a request and the provider should not rely on a caller honouring it.
-Deleting a conversation is still something the app does, through the repository,
-which removes files and row together.
+Workspace roots now carry `workspaceFlags()`: create only, since creating files
+inside the directory is the case the provider exists for. `deleteDocument` and
+`renameDocument` also refuse a workspace root outright, because a flag is a
+request and the provider should not rely on a caller honouring it. Deleting a
+workspace is something the app does, through the repository, which removes
+files and row together and refuses while conversations remain.
 
 **The first version of that refusal checked the wrong id, so it never fired.**
 A conversation row carries two UUIDs: `id`, the transcript's key, and
-`workspaceId`, the directory's name and the document id this provider publishes.
-The refusal called `conversations().byId(id)`, which compares against the first;
-a folder URI carries the second, so every check returned null and execution fell
-through to `resolveFile(...)`. `includeDocument`'s "a bare id is a conversation"
-branch had the same mismatch, so a re-queried conversation folder fell through
+`workspaceId`, the workspace's directory name and the document id this provider
+publishes. The refusal called `conversations().byId(id)`, which compares against
+the first; a folder URI carries the second, so every check returned null and
+execution fell through to `resolveFile(...)`. `includeDocument`'s "a bare id is a
+conversation" branch had the same mismatch, so a re-queried folder fell through
 to `includeFile` and reported its display name as a raw UUID rather than the
 title.
 
-Both now use `ConversationDao.byWorkspaceId`, which hits the unique index that
-already existed on `conversations.workspaceId` (`Entities.kt`). The distinction
-is pinned by `ConversationLookupTest`: the same row is reachable by
-`byWorkspaceId("workspace-1")` and `byId("conversation-1")`, while
-`byId("workspace-1")` is null. The provider path itself is covered by
-`WorkspaceDocumentsProviderTest`: a re-queried folder keeps its title, and both
-`deleteDocument` and `renameDocument` throw `FileNotFoundException` for the id
-the provider publishes.
+The provider now resolves a bare document id through `WorkspaceDao.byId`, and
+the root lists workspaces rather than conversations. That is the only correct
+lookup once a permanent workspace can be named by several conversations; the old
+unique `workspaceId` index is gone in schema v11. `ConversationLookupTest` still
+pins the id distinction; `WorkspaceDocumentsProviderTest` covers a re-queried
+folder keeping its name and both `deleteDocument` and `renameDocument` throwing
+`FileNotFoundException` for the id the provider publishes.
 
 The flags are what stop the system Files app offering rename or delete at all;
 the guard is the second line for a caller that does not honour them. The
@@ -774,7 +776,6 @@ staying as history.
 | `SessionWorkspace.kt:151-153`: "anything behind a symlink is not charged to its quota" | Only symlinked *directories* are skipped; symlinked files are still counted (`:158-165`). |
 | `SessionWorkspace.kt:20-22`: "[root] is never exposed" | `rootPath()` exposes it (`:175-184`) — deliberately, for `StatFs`, with the argument written out. |
 | `SessionWorkspace.kt:26-33`: a symlink "can never be swapped in between the check and the open()" | The walk refuses to *traverse* links; nothing stops another same-UID writer creating one, and there is no re-check or `O_NOFOLLOW` at open. |
-| `WorkspaceDocumentsProvider.kt:207`: "A bare workspace id is a conversation" | The lookup underneath is `byId`, which matches the *conversation* id. See B6. |
 | `Tool.kt:81-82`: "Anything that writes, deletes or reaches outside the workspace should override this" | **No tool overrides `needsApproval` to return true**, `delete_file` included — it returns `false` (`FileTools.kt:355`). The advice is now historical: approval is decided by the user's configured rules, and `needsApproval` survives as an unused "must always ask" hook. |
 | `AgentsScreen.kt:723-738`: "Hand-rolled rather than pulling in the FlowRow API" | It calls `androidx.compose.foundation.layout.FlowRow`. |
 | `ChatScreen.kt:419-422`: raw JSON is "practically useless" | The dialog prints the raw `argumentsJson` seven lines later (`:429-443`). |

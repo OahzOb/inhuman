@@ -1,8 +1,14 @@
 # inhuman
 
-An Android LLM chat client where **every conversation gets its own folder**, and
-the assistant can read and write files inside that folder — and nowhere else,
-except for the opt-in `ssh_exec` tool described below.
+An Android LLM chat client where **every conversation works inside a workspace**,
+and the assistant can read and write files inside that workspace — and nowhere
+else, except for the opt-in `ssh_exec` tool described below.
+
+A workspace is **temporary** by default: it is created with its first
+conversation and deleted with it. **Save as permanent** (or creating a workspace
+from the Workspaces screen) keeps the files after conversations are deleted and
+lets several conversations share them. The model still sees only sandbox-relative
+paths; the absolute location is a user-facing detail.
 
 The sandbox is the point. It is enforced in code, not requested in a prompt.
 
@@ -19,7 +25,8 @@ mode.
 
 Working, and installed on a phone. A conversation can be started against a
 chosen assistant, replies stream with reasoning and a live token breakdown,
-files can be read and written by both the model and the user, and answers can be
+files can be read and written by both the model and the user, workspaces can be
+temporary or permanent and shared by several conversations, and answers can be
 regenerated and compared.
 
 | Phase | Contents | State |
@@ -34,8 +41,9 @@ regenerated and compared.
 Beyond the phases: assistants with visible system prompts, per-conversation
 model and reasoning effort read from the provider, an approval gate that is
 **configurable per tool, per assistant and per path and asks nothing by
-default**, branch switching, image attachments, usage reporting, and a context
-gauge above the composer.
+default**, branch switching, image attachments, usage reporting, a context
+gauge above the composer, and temporary/permanent workspaces with the absolute
+location available to the user.
 
 **Demo mode exercises the tool loop, not just the stream.** With file tools
 switched on it creates a file and then deletes it, so the tool loop, the

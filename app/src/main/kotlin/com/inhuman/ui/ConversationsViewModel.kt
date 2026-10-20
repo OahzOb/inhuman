@@ -19,6 +19,9 @@ data class ConversationsUiState(
 	val conversations: List<ConversationEntity> = emptyList(),
 	/** Names by agent id, so a row can say which assistant it belongs to. */
 	val agentNames: Map<String, String> = emptyMap(),
+	/** Workspace display names and lifetime, for delete confirmations. */
+	val workspaceNames: Map<String, String> = emptyMap(),
+	val permanentWorkspaceIds: Set<String> = emptySet(),
 	val loaded: Boolean = false,
 	/**
 	 * Assistants to choose from, non-null only while the picker is open.
@@ -58,6 +61,17 @@ class ConversationsViewModel(
 		viewModelScope.launch {
 			agents.observeAll().collect { list ->
 				_state.update { it.copy(agentNames = list.associate { a -> a.id to a.name }) }
+			}
+		}
+		viewModelScope.launch {
+			repository.observeWorkspaces().collect { list ->
+				_state.update {
+					it.copy(
+						workspaceNames = list.associate { w -> w.id to w.name },
+						permanentWorkspaceIds = list.filter { w -> w.isPermanent }
+							.mapTo(mutableSetOf()) { w -> w.id },
+					)
+				}
 			}
 		}
 	}
@@ -150,7 +164,8 @@ class ConversationsViewModel(
 	}
 
 	/**
-	 * Delete a conversation and everything in its folder.
+	 * Delete a conversation, its messages, and—when its workspace is
+	 * temporary—the workspace and files. A permanent workspace is left intact.
 	 *
 	 * The count is cleared first: if the deletion fails, the next confirmation
 	 * should recount rather than reuse a number that was true a minute ago.

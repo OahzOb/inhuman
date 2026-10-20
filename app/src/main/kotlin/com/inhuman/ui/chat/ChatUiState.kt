@@ -46,6 +46,9 @@ data class RegenerationPoint(
  */
 data class ChatUiState(
 	val title: String = "New conversation",
+	val workspaceName: String = "",
+	val workspaceIsPermanent: Boolean = false,
+	val workspaceConversationCount: Int = 1,
 	val messages: List<ChatMessageUi> = emptyList(),
 	val input: String = "",
 	val isStreaming: Boolean = false,

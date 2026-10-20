@@ -7,16 +7,16 @@ import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.DocumentsProvider
 import android.webkit.MimeTypeMap
-import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.InhumanDatabase
+import com.inhuman.core.data.db.WorkspaceEntity
 import com.inhuman.core.files.SessionWorkspace
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.io.FileNotFoundException
 
 /**
- * Exposes every conversation's workspace to the system Files app.
+ * Exposes every workspace to the system Files app.
  *
  * ## Why this exists at all
  *
@@ -42,9 +42,9 @@ import java.io.FileNotFoundException
  * Every method runs on a **Binder thread pool thread**, and DocumentsUI calls
  * them synchronously while drawing. Doing unbounded work here does not merely
  * make this app slow -- it hangs the *file manager*. So listings are capped,
- * and `runBlocking` appears only around small conversation-table reads: a
- * workspace-id lookup on its unique index, and the root listing's `all()` scan
- * (one row per conversation).
+ * and `runBlocking` appears only around small workspace-table reads: a
+ * workspace-id lookup on the primary key, and the root listing's `all()` scan
+ * (one row per workspace).
  *
  * ## Document ids
  *
@@ -65,7 +65,7 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
 			add(DocumentsContract.Root.COLUMN_ROOT_ID, ROOT_ID)
 			add(DocumentsContract.Root.COLUMN_DOCUMENT_ID, ROOT_ID)
 			add(DocumentsContract.Root.COLUMN_TITLE, ROOT_TITLE)
-			add(DocumentsContract.Root.COLUMN_SUMMARY, "One folder per conversation")
+			add(DocumentsContract.Root.COLUMN_SUMMARY, "One folder per workspace")
 			// LOCAL_ONLY is required for the root to appear at all: without it
 			// DocumentsUI treats this as a network document and hides it.
 			add(
@@ -109,11 +109,13 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
 	private fun buildChildren(parentDocumentId: String, projection: Array<out String>?): Cursor {
 		val cursor = MatrixCursor(projection ?: DEFAULT_DOCUMENT_PROJECTION)
 
-		// The root's children are the conversations, so a browsing user sees
-		// folders named after conversations rather than opaque identifiers.
+		// The root's children are the workspaces, so a browsing user sees the
+		// same lifetime and names as the Workspaces screen. A permanent
+		// workspace may have several conversations; the folder is still one
+		// directory, not one folder per conversation.
 		if (parentDocumentId == ROOT_ID) {
-			val conversations = runBlocking { db.conversations().all() }
-			conversations.take(MAX_CHILDREN).forEach { includeConversation(cursor, it) }
+			val workspaces = runBlocking { db.workspaces().all() }
+			workspaces.take(MAX_CHILDREN).forEach { includeWorkspace(cursor, it) }
 			return cursor
 		}
 
@@ -162,8 +164,8 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
 		//
 		// Deleting a conversation is a thing the app does, through the
 		// repository, which removes the files and the row together.
-		if (isConversationDirectory(documentId)) {
-			throw FileNotFoundException("a conversation's directory cannot be deleted here: $documentId")
+		if (isWorkspaceDirectory(documentId)) {
+			throw FileNotFoundException("a workspace's directory cannot be deleted here: $documentId")
 		}
 		val file = resolveFile(documentId) ?: throw FileNotFoundException(documentId)
 		if (!file.deleteRecursively()) throw FileNotFoundException("could not delete: $documentId")
@@ -173,8 +175,8 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
 	override fun renameDocument(documentId: String, displayName: String): String {
 		// Refused for the same reason: the directory name is the `workspaceId`
 		// the row stores, so a rename silently separates the two.
-		if (isConversationDirectory(documentId)) {
-			throw FileNotFoundException("a conversation's directory cannot be renamed: $documentId")
+		if (isWorkspaceDirectory(documentId)) {
+			throw FileNotFoundException("a workspace's directory cannot be renamed here: $documentId")
 		}
 		val file = resolveFile(documentId) ?: throw FileNotFoundException(documentId)
 		val safeName = displayName.replace('/', '_').replace('\\', '_')
@@ -193,27 +195,22 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
 
 	// --- rows ----------------------------------------------------------------
 
-	private fun includeConversation(cursor: MatrixCursor, conversation: ConversationEntity) {
-		// A conversation restored from a backup may have no directory yet.
-		val dir = workspaceDir(conversation.workspaceId).apply { mkdirs() }
+	private fun includeWorkspace(cursor: MatrixCursor, workspace: WorkspaceEntity) {
+		// A workspace row can exist before its directory (a crash during
+		// creation, a restored row); opening it recreates the directory rather
+		// than making the file browser fail.
+		val dir = workspaceDir(workspace.id).apply { mkdirs() }
 		cursor.newRow().apply {
-			add(DocumentsContract.Document.COLUMN_DOCUMENT_ID, conversation.workspaceId)
-			// The generated title, so folder names match what the app shows.
-			add(DocumentsContract.Document.COLUMN_DISPLAY_NAME, conversation.title)
+			add(DocumentsContract.Document.COLUMN_DOCUMENT_ID, workspace.id)
+			add(DocumentsContract.Document.COLUMN_DISPLAY_NAME, workspace.name)
 			add(DocumentsContract.Document.COLUMN_MIME_TYPE, DocumentsContract.Document.MIME_TYPE_DIR)
-			add(DocumentsContract.Document.COLUMN_LAST_MODIFIED, conversation.updatedAt)
+			add(DocumentsContract.Document.COLUMN_LAST_MODIFIED, workspace.updatedAt)
 			add(DocumentsContract.Document.COLUMN_SIZE, dir.length())
-			// Not `directoryFlags()`: a conversation's directory name **is** its
-			// `workspaceId`, and the row keeps pointing at that name. Renaming
-			// the directory therefore orphans the row -- the next tool call
-			// recreates an empty workspace under the old id, and the renamed
-			// directory matches no row, so the orphan sweep eventually deletes
-			// the user's files. Deleting it leaves the inverse orphan: no
-			// directory, row intact, files gone and unrecoverable.
-			//
-			// Creating inside it is still offered, because that is the case this
-			// provider exists for.
-			add(DocumentsContract.Document.COLUMN_FLAGS, conversationFlags())
+			// Not `directoryFlags()`: a workspace's directory name **is** its
+			// id, and the row keeps pointing at that name. Renaming or deleting
+			// the directory would orphan the row and its files. The app owns
+			// those operations; the system file browser may only create inside.
+			add(DocumentsContract.Document.COLUMN_FLAGS, workspaceFlags())
 		}
 	}
 
@@ -230,18 +227,13 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
 			return
 		}
 
-		// A bare id is a **workspace** id, not a conversation id: that is what
-		// `includeConversation` publishes, and the document-id scheme above is
-		// built on it. Looking it up with `byId` matched the conversation row's
-		// own id, which is a different UUID, so a re-queried conversation folder
-		// fell through to `includeFile` and reported the raw UUID as its display
-		// name. `isConversationDirectory` had the same mismatch, which is how
-		// its delete/rename refusal came to be dead for the ids this provider
-		// actually issues.
+		// A bare id is a **workspace** id. Resolve it through the workspaces
+		// table, not through a conversation: several conversations may name the
+		// same workspace, and `LIMIT 1` would pick an arbitrary one.
 		if (!documentId.contains('/')) {
-			val conversation = runBlocking { db.conversations().byWorkspaceId(documentId) }
-			if (conversation != null) {
-				includeConversation(cursor, conversation)
+			val workspace = runBlocking { db.workspaces().byId(documentId) }
+			if (workspace != null) {
+				includeWorkspace(cursor, workspace)
 				return
 			}
 		}
@@ -270,33 +262,26 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
 			DocumentsContract.Document.FLAG_SUPPORTS_RENAME
 
 	/**
-	 * What the Files app may offer on a conversation's directory.
+	 * What the Files app may offer on a workspace's directory.
 	 *
-	 * Create only. The other two operations are not refused because they are
-	 * dangerous in the abstract -- they are refused because this directory's
-	 * name **is** the conversation's `workspaceId`, so renaming or removing it
-	 * breaks the link between the row and the files rather than moving them.
-	 * The flags say so rather than relying on the user not trying.
+	 * Create only. Renaming or removing the directory would break the link
+	 * between the row and the files rather than moving them; the app owns those
+	 * operations because it can update the row and the files together.
 	 */
-	private fun conversationFlags(): Int =
+	private fun workspaceFlags(): Int =
 		DocumentsContract.Document.FLAG_DIR_SUPPORTS_CREATE
 
 	/**
-	 * Whether this id names a conversation directory rather than a file.
-	 *
-	 * A bare id with no separator is a conversation's **workspace** id -- the id
-	 * [includeConversation] publishes -- not the conversation row's own id.
-	 * Checking it with `byId` compared it with a different UUID, so the refusal
-	 * below never fired for the ids this provider actually issues.
+	 * Whether this id names a workspace directory rather than a file.
 	 *
 	 * The flags above should stop the Files app offering rename or delete here
 	 * at all, so this is the second line: a provider that can be driven by an
 	 * intent or a caller that ignores a flag should not rely on a UI honouring
 	 * it.
 	 */
-	private fun isConversationDirectory(documentId: String): Boolean {
+	private fun isWorkspaceDirectory(documentId: String): Boolean {
 		if (documentId == ROOT_ID || documentId.contains('/')) return false
-		return runBlocking { db.conversations().byWorkspaceId(documentId) } != null
+		return runBlocking { db.workspaces().byId(documentId) } != null
 	}
 
 	private fun fileFlags(): Int =

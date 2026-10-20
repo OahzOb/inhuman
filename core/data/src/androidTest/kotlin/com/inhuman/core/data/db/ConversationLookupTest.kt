@@ -14,15 +14,14 @@ import org.junit.runner.RunWith
 /**
  * The two ids on a conversation are not interchangeable.
  *
- * `WorkspaceDocumentsProvider` publishes `workspaceId` as a folder's document
+ * `WorkspaceDocumentsProvider` publishes a workspace id as a folder's document
  * id, while `id` keys the transcript. A lookup by the wrong one returns null
  * rather than failing, so the bug it caused was silent: a re-queried folder
- * lost its title, and the provider's delete/rename refusal never fired for the
- * ids it actually issued.
+ * lost its name.
  *
- * This pins the DAO half of that distinction. The provider half needs an
- * Android `ContentResolver`; the call sites are verified by reading them, not
- * by this test.
+ * With schema v11 the provider resolves a document id through the workspaces
+ * table, but the distinction still matters: `workspaceId` is a foreign key, not
+ * the conversation's primary key.
  */
 @RunWith(AndroidJUnit4::class)
 class ConversationLookupTest {
@@ -44,6 +43,13 @@ class ConversationLookupTest {
 
 	@Test
 	fun workspaceIdAndConversationIdAreDifferentKeys() = runBlocking {
+		val workspace = WorkspaceEntity(
+			id = "workspace-1",
+			name = "Lookup",
+			isPermanent = true,
+			createdAt = 1L,
+			updatedAt = 1L,
+		)
 		val conversation = ConversationEntity(
 			id = "conversation-1",
 			title = "Lookup",
@@ -51,10 +57,12 @@ class ConversationLookupTest {
 			createdAt = 1L,
 			updatedAt = 1L,
 		)
+		db.workspaces().upsert(workspace)
 		db.conversations().upsert(conversation)
 
-		assertEquals(conversation, db.conversations().byWorkspaceId("workspace-1"))
-		assertNull(db.conversations().byId("workspace-1"))
+		assertEquals(workspace, db.workspaces().byId("workspace-1"))
+		assertNull(db.workspaces().byId("conversation-1"))
 		assertEquals(conversation, db.conversations().byId("conversation-1"))
+		assertNull(db.conversations().byId("workspace-1"))
 	}
 }

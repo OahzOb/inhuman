@@ -15,7 +15,7 @@ architecture from scratch:
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
 | `docs/03-ai-provider.md` | Provider and stream contracts, the DeepSeek adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` APIs**, **the `ssh_exec` transport** |
-| `docs/04-data-persistence.md` | Room schema v10, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider` |
+| `docs/04-data-persistence.md` | Room schema v11, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider` |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
@@ -59,8 +59,11 @@ Two consequences bind every future change, and neither is negotiable:
   without answering `docs/08-port-philosophy.md` §1.2.1 and §1.5.
 
 **Safety here comes from structure, not from prompts.** The agent can only see
-and change a conversation's own directory, and what the user brings in is a
-*copy* — the original never moves and is never in the directory. So everything
+and change the workspace the conversation is attached to, and what the user
+brings in is a *copy* — the original never moves and is never in the directory.
+A workspace is temporary (one conversation, deleted with it) or permanent
+(shared, survives conversation deletion); its directory name is the opaque
+workspace id and is never sent to the model. So everything
 inside is already reversible, and nothing inside needs an approval prompt by
 default. Asking "are you sure?" where the answer is always yes is not a safety
 measure, it is friction, and friction trains people to click through.
@@ -285,7 +288,10 @@ warning output is empty as well as the error output — this tree currently
 compiles clean, and that is worth keeping.
 
 One test is skipped by design: `DeepSeekWebLiveTest` talks to the real Search and
-Fetch APIs and needs a key (and spends money). Everything else runs on the JVM.
+Fetch APIs and needs a key (and spends money). Everything else above runs on the
+JVM. The `:core:data` instrumentation suite (migrations, workspace lifetime, the
+documents provider) needs a device; its list and current count are in
+`docs/README.md`.
 
 ---
 

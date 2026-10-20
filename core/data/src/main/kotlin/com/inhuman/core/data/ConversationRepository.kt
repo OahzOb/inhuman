@@ -8,6 +8,7 @@ import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.InhumanDatabase
 import com.inhuman.core.data.db.MessageEntity
 import com.inhuman.core.data.db.ToolsColumn
+import com.inhuman.core.data.db.WorkspaceEntity
 import com.inhuman.core.files.SessionWorkspace
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -48,17 +49,20 @@ data class Branches(
 }
 
 /**
- * The application's view of stored conversations.
+ * The application's view of stored conversations and workspaces.
  *
  * Owns three things that must stay consistent with each other:
  *
- *  1. the rows,
- *  2. the workspace directory each conversation owns,
+ *  1. the conversation rows,
+ *  2. the workspace rows and the directory each one names,
  *  3. the ordering rules for a branch.
  *
- * They are together because they are created together and deleted together. A
- * conversation whose directory outlived its row would leak files forever, and
- * one whose row outlived its directory would fail on the first file tool.
+ * A temporary workspace is created with its one conversation and deleted with
+ * it; a permanent one is a first-class row that outlives its conversations and
+ * may be shared. In both cases a conversation whose workspace row is missing
+ * would fail on the first file tool, and a workspace directory with no row is
+ * an orphan the sweep must remove. Only the row — not the conversation — decides
+ * which of those is true.
  */
 class ConversationRepository(
 	context: Context,
@@ -95,8 +99,98 @@ class ConversationRepository(
 	}
 
 	/** The workspace for a conversation, opened and ready for tools. */
-	fun workspace(conversation: ConversationEntity) =
-		SessionWorkspace.open(Database.workspaceDir(appContext, conversation.workspaceId))
+	fun workspace(conversation: ConversationEntity) = workspace(conversation.workspaceId)
+
+	/** Open a workspace by id, for the Files screen when no conversation is open. */
+	fun workspace(workspaceId: String) =
+		SessionWorkspace.open(Database.workspaceDir(appContext, workspaceId))
+
+	fun observeWorkspace(workspaceId: String): Flow<WorkspaceEntity?> =
+		db.workspaces().observe(workspaceId)
+
+	/** The workspace row, for lifetime and display decisions. */
+	suspend fun workspaceRecord(workspaceId: String): WorkspaceEntity? =
+		db.workspaces().byId(workspaceId)
+
+	/** The absolute app-private directory shown to the user, never to the agent. */
+	fun workspacePath(workspaceId: String): String =
+		Database.workspaceDir(appContext, workspaceId).absolutePath
+
+	fun observePermanentWorkspaces(): Flow<List<WorkspaceEntity>> =
+		db.workspaces().observePermanent()
+
+	fun observeWorkspaces(): Flow<List<WorkspaceEntity>> =
+		db.workspaces().observeAll()
+
+	suspend fun workspaceConversations(workspaceId: String): List<ConversationEntity> =
+		db.conversations().byWorkspace(workspaceId)
+
+	fun observeWorkspaceConversations(workspaceId: String): Flow<List<ConversationEntity>> =
+		db.conversations().observeByWorkspace(workspaceId)
+
+	suspend fun workspaceConversationCount(workspaceId: String): Int =
+		db.workspaces().conversationCount(workspaceId)
+
+	/**
+	 * Create a permanent workspace. It has no conversation yet and must survive
+	 * the orphan sweep, so the row is written before the directory is created.
+	 */
+	suspend fun createWorkspace(name: String): WorkspaceEntity {
+		val now = System.currentTimeMillis()
+		val workspace = WorkspaceEntity(
+			id = UUID.randomUUID().toString(),
+			name = name.trim().ifBlank { "Untitled workspace" },
+			isPermanent = true,
+			ownerConversationId = null,
+			createdAt = now,
+			updatedAt = now,
+		)
+		db.workspaces().upsert(workspace)
+		Database.workspaceDir(appContext, workspace.id).mkdirs()
+		return workspace
+	}
+
+	/**
+	 * Turn a conversation's temporary workspace into a permanent one.
+	 *
+	 * Only a row changes. The directory name is the workspace id and stays where
+	 * it is, so a promoted workspace is immediately the same thing as one
+	 * created from the Workspaces screen. The action is idempotent.
+	 */
+	suspend fun promoteWorkspace(conversation: ConversationEntity, name: String): WorkspaceEntity? {
+		val workspace = db.workspaces().byId(conversation.workspaceId) ?: return null
+		if (workspace.isPermanent) return workspace
+		val now = System.currentTimeMillis()
+		Database.workspaceDir(appContext, workspace.id).mkdirs()
+		db.workspaces().promote(
+			id = workspace.id,
+			name = name.trim().ifBlank { conversation.title.ifBlank { "Workspace" } },
+			now = now,
+		)
+		return db.workspaces().byId(workspace.id)
+	}
+
+	suspend fun renameWorkspace(workspace: WorkspaceEntity, name: String) {
+		val clean = name.trim()
+		if (clean.isBlank()) return
+		db.workspaces().rename(workspace.id, clean, System.currentTimeMillis())
+	}
+
+	/**
+	 * Delete an empty permanent workspace.
+	 *
+	 * Refuses while any conversation still uses it. The alternative -- a cascade
+	 * -- would turn one tap into the deletion of every transcript in the
+	 * workspace along with files the user may have spent hours producing; that is
+	 * a separate, explicit action if it is ever added.
+	 */
+	suspend fun deleteWorkspace(workspace: WorkspaceEntity): Boolean {
+		if (!workspace.isPermanent) return false
+		if (db.workspaces().conversationCount(workspace.id) > 0) return false
+		Database.workspaceDir(appContext, workspace.id).deleteRecursively()
+		db.workspaces().delete(workspace.id)
+		return true
+	}
 
 	/**
 	 * The approval rules.
@@ -110,8 +204,18 @@ class ConversationRepository(
 
 	private val policyRepository by lazy { PolicyRepository(db) }
 
-	suspend fun rename(id: String, title: String) =
-		db.conversations().rename(id, title, System.currentTimeMillis())
+	suspend fun rename(id: String, title: String) {
+		val now = System.currentTimeMillis()
+		db.conversations().rename(id, title, now)
+		// A temporary workspace is displayed under its conversation's title (the
+		// documents provider uses that name), so keep the two in step. A
+		// permanent workspace has its own name and must not follow the title.
+		val conversation = db.conversations().byId(id) ?: return
+		val workspace = db.workspaces().byId(conversation.workspaceId) ?: return
+		if (!workspace.isPermanent) {
+			db.workspaces().rename(workspace.id, title, now)
+		}
+	}
 
 	suspend fun setPinned(id: String, pinned: Boolean) = db.conversations().setPinned(id, pinned)
 
@@ -140,14 +244,39 @@ class ConversationRepository(
 	suspend fun create(
 		title: String = "New conversation",
 		agent: com.inhuman.core.data.db.AgentEntity? = null,
+		workspaceId: String? = null,
 	): ConversationEntity {
 		val now = System.currentTimeMillis()
+		val conversationId = UUID.randomUUID().toString()
+		val resolvedWorkspace = workspaceId ?: UUID.randomUUID().toString()
+
+		if (workspaceId == null) {
+			val workspace = WorkspaceEntity(
+				id = resolvedWorkspace,
+				name = title,
+				isPermanent = false,
+				ownerConversationId = conversationId,
+				createdAt = now,
+				updatedAt = now,
+			)
+			db.workspaces().upsert(workspace)
+		} else {
+			// A caller inside a workspace may not invent an id. Reusing a
+			// temporary workspace is allowed only for its owner, and a permanent
+			// one is shared deliberately.
+			val workspace = db.workspaces().byId(resolvedWorkspace)
+				?: error("Workspace $resolvedWorkspace does not exist.")
+			if (!workspace.isPermanent && workspace.ownerConversationId != conversationId) {
+				error("A temporary workspace can only be used by the conversation that owns it.")
+			}
+		}
+
 		val conversation = ConversationEntity(
-			id = UUID.randomUUID().toString(),
+			id = conversationId,
 			title = title,
 			// Opaque and stable. Never derived from the title: renaming would
 			// then have to move the directory, and a failed move orphans files.
-			workspaceId = UUID.randomUUID().toString(),
+			workspaceId = resolvedWorkspace,
 			agentId = agent?.id,
 			model = agent?.model,
 			reasoningEffort = agent?.reasoningEffort,
@@ -159,7 +288,7 @@ class ConversationRepository(
 			createdAt = now,
 			updatedAt = now,
 		)
-		Database.workspaceDir(appContext, conversation.workspaceId).mkdirs()
+		Database.workspaceDir(appContext, resolvedWorkspace).mkdirs()
 		db.conversations().upsert(conversation)
 		return conversation
 	}
@@ -168,22 +297,34 @@ class ConversationRepository(
 		store.append(message, parentId)
 
 	/**
-	 * Delete a conversation, its messages and its files.
+	 * Delete a conversation, its messages and, when temporary, its workspace.
 	 *
-	 * Files are removed before the rows. If the process dies in between, the
-	 * result is an orphaned directory that [sweepOrphanedWorkspaces] finds; the
-	 * other order would leave rows pointing at a directory that is already
-	 * gone, and a file tool would then fail on a conversation the user can
-	 * still open.
+	 * A permanent workspace is deliberately left alone: its files belong to the
+	 * workspace, not to this transcript, and another conversation may still be
+	 * using it. A temporary workspace is owned by this conversation and goes
+	 * with it.
+	 *
+	 * Files are removed before the rows for a temporary workspace. If the
+	 * process dies in between, the result is an orphaned directory that
+	 * [sweepOrphanedWorkspaces] finds; the other order would leave rows pointing
+	 * at a directory that is already gone, and a file tool would then fail on a
+	 * conversation the user can still open.
 	 */
 	suspend fun delete(conversation: ConversationEntity) {
-		Database.workspaceDir(appContext, conversation.workspaceId).deleteRecursively()
+		val workspace = db.workspaces().byId(conversation.workspaceId)
+		val temporary = workspace == null || !workspace.isPermanent
+		if (temporary) {
+			Database.workspaceDir(appContext, conversation.workspaceId).deleteRecursively()
+		}
 		rollbackDir(conversation.id).deleteRecursively()
 		store.deleteConversation(conversation.id)
+		// The row goes last: while it exists the sweep knows this directory is
+		// not an orphan, and a retry can finish the delete.
+		if (temporary) db.workspaces().delete(conversation.workspaceId)
 	}
 
 	/**
-	 * Remove workspace directories that no conversation refers to.
+	 * Remove workspace directories that no workspace row refers to.
 	 *
 	 * ## Why this is needed rather than merely tidy
 	 *
@@ -193,30 +334,46 @@ class ConversationRepository(
 	 * recoverable. But a delete can also be interrupted the other way by a
 	 * crash *after* the rows go and before the directory does, and the
 	 * workspace of a conversation that was abandoned mid-creation leaves one
-	 * too. Each of those is megabytes of the user's files sitting in
-	 * `filesDir/conversations` with nothing in the app that can see or delete
-	 * them: the UI lists conversations, and there is no conversation.
+	 * too.
 	 *
-	 * ## Why it is safe to run at startup
+	 * ## Permanent workspaces are not orphans
 	 *
-	 * A directory is kept if **any** conversation row names its `workspaceId`,
-	 * and ids are UUIDs that are never reused. The only way to be wrong is to
-	 * run this while a conversation exists in memory but not yet in the
-	 * database -- which is why [ConversationRepository.create] writes the row
-	 * before returning, and why this does not run until the first screen has
-	 * loaded.
+	 * The directory is kept if **any workspace row** names its id, not if a
+	 * conversation does. A permanent workspace with no conversations is a
+	 * valid state -- the user created it and has not started a session yet --
+	 * and deleting it at startup would be the bug this method exists to avoid.
+	 *
+	 * A temporary workspace whose owner conversation is gone is the one case
+	 * that is genuinely stale. Its row and directory are both removed here, so
+	 * a crash during delete converges on the next launch.
 	 *
 	 * @return the ids of the directories it removed, for a caller that wants to
 	 *   say so. Empty on a healthy install, which is the normal case.
 	 */
 	suspend fun sweepOrphanedWorkspaces(): List<String> {
-		val known = db.conversations().all().mapTo(mutableSetOf()) { it.workspaceId }
+		val conversations = db.conversations().all()
+		val conversationIds = conversations.mapTo(mutableSetOf()) { it.id }
+		val workspaces = db.workspaces().all().toMutableList()
+
+		val staleTemp = workspaces.filter {
+			!it.isPermanent && (it.ownerConversationId == null || it.ownerConversationId !in conversationIds)
+		}
+		staleTemp.forEach { workspace ->
+			runCatching {
+				Database.workspaceDir(appContext, workspace.id).deleteRecursively()
+			}
+			db.workspaces().delete(workspace.id)
+		}
+		val staleIds = staleTemp.mapTo(mutableSetOf()) { it.id }
+		workspaces.removeAll { it.id in staleIds }
+
+		val known = workspaces.mapTo(mutableSetOf()) { it.id }
 		val doomed = orphanedWorkspaces(Database.workspacesRoot(appContext), known)
 
 		doomed.forEach { dir ->
 			runCatching { dir.deleteRecursively() }
 		}
-		return doomed.map { it.name }
+		return (doomed.map { it.name } + staleIds).distinct()
 	}
 
 	companion object {

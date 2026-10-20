@@ -8,6 +8,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.InhumanDatabase
+import com.inhuman.core.data.db.WorkspaceEntity
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -61,6 +62,17 @@ class WorkspaceDocumentsProviderTest {
 		)
 		runBlocking {
 			db.conversations().delete(conversationId)
+			db.workspaces().delete(workspaceId)
+			db.workspaces().upsert(
+				WorkspaceEntity(
+					id = workspaceId,
+					name = "Provider test",
+					isPermanent = true,
+					ownerConversationId = null,
+					createdAt = 1L,
+					updatedAt = 1L,
+				),
+			)
 			db.conversations().upsert(
 				ConversationEntity(
 					id = conversationId,
@@ -76,8 +88,39 @@ class WorkspaceDocumentsProviderTest {
 
 	@After
 	fun tearDown() {
-		runBlocking { db.conversations().delete(conversationId) }
+		runBlocking {
+			db.conversations().delete(conversationId)
+			db.workspaces().delete(workspaceId)
+		}
 		Database.workspaceDir(context, workspaceId).deleteRecursively()
+	}
+
+	@Test
+	fun theRootListsWorkspacesRatherThanConversations() {
+		provider.queryChildDocuments(
+			"root",
+			null as Array<out String>?,
+			null as String?,
+		).use { cursor ->
+			var found = false
+			while (cursor.moveToNext()) {
+				val id = cursor.getString(
+					cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+				)
+				if (id == workspaceId) {
+					found = true
+					assertEquals(
+						"Provider test",
+						cursor.getString(
+							cursor.getColumnIndexOrThrow(
+								DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+							),
+						),
+					)
+				}
+			}
+			assertTrue("the workspace is missing from the provider root", found)
+		}
 	}
 
 	@Test

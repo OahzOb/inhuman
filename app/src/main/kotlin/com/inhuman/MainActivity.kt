@@ -34,6 +34,10 @@ import com.inhuman.ui.chat.SettingsViewModel
 import com.inhuman.ui.files.FilesScreen
 import com.inhuman.ui.files.FilesViewModel
 import com.inhuman.ui.settings.SettingsScreen
+import com.inhuman.ui.workspaces.WorkspaceDetailScreen
+import com.inhuman.ui.workspaces.WorkspaceDetailViewModel
+import com.inhuman.ui.workspaces.WorkspacesScreen
+import com.inhuman.ui.workspaces.WorkspacesViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -108,6 +112,13 @@ private fun InhumanRoot() {
 	var showSettings by rememberSaveable { mutableStateOf(false) }
 	var showFiles by rememberSaveable { mutableStateOf(false) }
 	var showAgents by rememberSaveable { mutableStateOf(false) }
+	var showWorkspaces by rememberSaveable { mutableStateOf(false) }
+	var startWorkspaceCreation by rememberSaveable { mutableStateOf(false) }
+	var openWorkspaceId by rememberSaveable { mutableStateOf<String?>(null) }
+	/** Files opened from a workspace rather than from a chat. */
+	var filesWorkspaceId by rememberSaveable { mutableStateOf<String?>(null) }
+	/** Where Back returns after closing a conversation opened inside a workspace. */
+	var chatOriginWorkspaceId by rememberSaveable { mutableStateOf<String?>(null) }
 
 	// Whether a screen has an internal dialog open, so Back closes that before
 	// it navigates. Without this, Back on a screen showing a dialog would leave
@@ -135,15 +146,22 @@ private fun InhumanRoot() {
 	// Which screen is on top, in the same terms the `when` below uses. A crash
 	// report without this cannot tell "the chat screen was open" from "the view
 	// model was running in the background"; one line per navigation is enough.
-	LaunchedEffect(openConversationId, showSettings, showFiles, showAgents) {
+	LaunchedEffect(openConversationId, showSettings, showFiles, showAgents, showWorkspaces, openWorkspaceId) {
 		val screen = when {
 			showSettings -> "settings"
 			showAgents -> "agents"
+			showFiles && filesWorkspaceId != null -> "workspace-files"
 			showFiles && openConversationId != null -> "files"
 			openConversationId != null -> "chat"
+			openWorkspaceId != null -> "workspace"
+			showWorkspaces -> "workspaces"
 			else -> "conversations"
 		}
-		Diag.d("ui", "screen=$screen conv=${Diag.shortId(openConversationId)}")
+		Diag.d(
+			"ui",
+			"screen=$screen conv=${Diag.shortId(openConversationId)} " +
+				"workspace=${Diag.shortId(openWorkspaceId ?: filesWorkspaceId)}",
+		)
 	}
 
 	/**
@@ -171,7 +189,10 @@ private fun InhumanRoot() {
 	 * does the handler disable itself and let the press reach the framework,
 	 * which closes the app from the list screen -- the one place that is right.
 	 */
-	BackHandler(enabled = openConversationId != null || showSettings || showFiles || showAgents) {
+	BackHandler(
+		enabled = openConversationId != null || showSettings || showFiles ||
+			showAgents || showWorkspaces || openWorkspaceId != null,
+	) {
 		when {
 			// AlertDialog handles its own dismissal through onDismissRequest and
 			// registers its handler later in the composition, so it runs first.
@@ -180,10 +201,26 @@ private fun InhumanRoot() {
 
 			showFiles && !filesAtRoot -> filesUpOneLevel()
 
-			showFiles -> showFiles = false
+			showFiles -> {
+				showFiles = false
+				filesWorkspaceId = null
+			}
 			showAgents -> showAgents = false
 			showSettings -> showSettings = false
-			openConversationId != null -> openConversationId = null
+			openConversationId != null -> {
+				openConversationId = null
+				val origin = chatOriginWorkspaceId
+				chatOriginWorkspaceId = null
+				if (origin != null) {
+					openWorkspaceId = origin
+					showWorkspaces = true
+				}
+			}
+			showWorkspaces && openWorkspaceId == null -> showWorkspaces = false
+			openWorkspaceId != null -> {
+				openWorkspaceId = null
+				showWorkspaces = true
+			}
 		}
 	}
 
@@ -211,9 +248,32 @@ private fun InhumanRoot() {
 			AgentsScreen(viewModel = vm, onBack = { showAgents = false })
 		}
 
+		showFiles && filesWorkspaceId != null -> {
+			val id = filesWorkspaceId!!
+			val factory = remember(id) {
+				viewModelFactory { FilesViewModel(repository, requestedWorkspaceId = id) }
+			}
+			val vm: FilesViewModel = viewModel(key = "workspace-files-$id", factory = factory)
+			filesUpOneLevel = { vm.navigateUp() }
+			val filesState by vm.state.collectAsStateWithLifecycle()
+			LaunchedEffect(filesState.currentPath) {
+				filesAtRoot = filesState.currentPath.isEmpty()
+			}
+			FilesScreen(
+				viewModel = vm,
+				onBack = {
+					showFiles = false
+					filesWorkspaceId = null
+				},
+				onDialogVisibilityChange = { filesDialogOpen = it },
+			)
+		}
+
 		showFiles && openConversationId != null -> {
 			val id = openConversationId!!
-			val factory = remember(id) { viewModelFactory { FilesViewModel(repository, id) } }
+			val factory = remember(id) {
+				viewModelFactory { FilesViewModel(repository, conversationId = id) }
+			}
 			val vm: FilesViewModel = viewModel(key = "files-$id", factory = factory)
 			// An escape hatch for the one Back action that belongs to a screen
 			// rather than to the navigation state: stepping up a directory.
@@ -273,10 +333,64 @@ private fun InhumanRoot() {
 			val vm: ChatViewModel = viewModel(key = "chat-$id", factory = factory)
 			ChatScreen(
 				viewModel = vm,
-				onBack = { openConversationId = null },
+				onBack = {
+					openConversationId = null
+					val origin = chatOriginWorkspaceId
+					chatOriginWorkspaceId = null
+					if (origin != null) {
+						openWorkspaceId = origin
+						showWorkspaces = true
+					}
+				},
 				onOpenSettings = { showSettings = true },
 				onOpenFiles = { showFiles = true },
 				onDialogVisibilityChange = { chatDialogOpen = it },
+			)
+		}
+
+		openWorkspaceId != null -> {
+			val id = openWorkspaceId!!
+			val factory = remember(id, repository, agents) {
+				viewModelFactory {
+					WorkspaceDetailViewModel(repository, agents, id)
+				}
+			}
+			val vm: WorkspaceDetailViewModel = viewModel(key = "workspace-$id", factory = factory)
+			WorkspaceDetailScreen(
+				viewModel = vm,
+				onBack = {
+					openWorkspaceId = null
+					showWorkspaces = true
+				},
+				onOpenConversation = { conversationId ->
+					chatOriginWorkspaceId = id
+					openConversationId = conversationId
+				},
+				onOpenFiles = {
+					filesWorkspaceId = id
+					showFiles = true
+				},
+				onDeleted = {
+					openWorkspaceId = null
+					showWorkspaces = true
+				},
+			)
+		}
+
+		showWorkspaces -> {
+			val factory = remember(repository) {
+				viewModelFactory { WorkspacesViewModel(repository) }
+			}
+			val vm: WorkspacesViewModel = viewModel(factory = factory)
+			WorkspacesScreen(
+				viewModel = vm,
+				startCreating = startWorkspaceCreation,
+				onCreateStarted = { startWorkspaceCreation = false },
+				onBack = { showWorkspaces = false },
+				onOpenWorkspace = { id ->
+					showWorkspaces = true
+					openWorkspaceId = id
+				},
 			)
 		}
 
@@ -287,9 +401,17 @@ private fun InhumanRoot() {
 			val vm: ConversationsViewModel = viewModel(factory = factory)
 			ConversationsScreen(
 				viewModel = vm,
-				onOpenConversation = { openConversationId = it },
+				onOpenConversation = {
+					chatOriginWorkspaceId = null
+					openConversationId = it
+				},
 				onOpenSettings = { showSettings = true },
 				onOpenAgents = { showAgents = true },
+				onOpenWorkspaces = { showWorkspaces = true },
+				onNewWorkspace = {
+					startWorkspaceCreation = true
+					showWorkspaces = true
+				},
 			)
 		}
 	}

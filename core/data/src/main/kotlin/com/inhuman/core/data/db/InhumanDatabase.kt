@@ -14,6 +14,48 @@ import androidx.sqlite.execSQL
 import kotlinx.coroutines.flow.Flow
 
 @Dao
+interface WorkspaceDao {
+
+	/** Permanent workspaces, for the Workspaces screen. */
+	@Query("SELECT * FROM workspaces WHERE isPermanent = 1 ORDER BY updatedAt DESC, id ASC")
+	fun observePermanent(): Flow<List<WorkspaceEntity>>
+
+	@Query("SELECT * FROM workspaces ORDER BY updatedAt DESC, id ASC")
+	fun observeAll(): Flow<List<WorkspaceEntity>>
+
+	@Query("SELECT * FROM workspaces WHERE id = :id")
+	suspend fun byId(id: String): WorkspaceEntity?
+
+	@Query("SELECT * FROM workspaces WHERE id = :id")
+	fun observe(id: String): Flow<WorkspaceEntity?>
+
+	/** Every row, for the orphan sweep and the documents provider. */
+	@Query("SELECT * FROM workspaces ORDER BY updatedAt DESC, id ASC")
+	suspend fun all(): List<WorkspaceEntity>
+
+	@Insert(onConflict = OnConflictStrategy.REPLACE)
+	suspend fun upsert(workspace: WorkspaceEntity)
+
+	@Query(
+		"UPDATE workspaces SET name = :name, isPermanent = 1, " +
+			"ownerConversationId = NULL, updatedAt = :now WHERE id = :id",
+	)
+	suspend fun promote(id: String, name: String, now: Long)
+
+	@Query("UPDATE workspaces SET name = :name, updatedAt = :now WHERE id = :id")
+	suspend fun rename(id: String, name: String, now: Long)
+
+	@Query("UPDATE workspaces SET updatedAt = :now WHERE id = :id")
+	suspend fun touch(id: String, now: Long)
+
+	@Query("DELETE FROM workspaces WHERE id = :id")
+	suspend fun delete(id: String)
+
+	@Query("SELECT COUNT(*) FROM conversations WHERE workspaceId = :id")
+	suspend fun conversationCount(id: String): Int
+}
+
+@Dao
 interface ConversationDao {
 
 	// `id` last, as a tie-break rather than for its own sake: two rows saved in
@@ -28,6 +70,12 @@ interface ConversationDao {
 	@Query("SELECT * FROM conversations WHERE id = :id")
 	suspend fun byId(id: String): ConversationEntity?
 
+	@Query("SELECT * FROM conversations WHERE workspaceId = :workspaceId ORDER BY pinned DESC, updatedAt DESC, id ASC")
+	fun observeByWorkspace(workspaceId: String): Flow<List<ConversationEntity>>
+
+	@Query("SELECT * FROM conversations WHERE workspaceId = :workspaceId ORDER BY pinned DESC, updatedAt DESC, id ASC")
+	suspend fun byWorkspace(workspaceId: String): List<ConversationEntity>
+
 	/**
 	 * Look up by the id the documents provider publishes.
 	 *
@@ -37,8 +85,12 @@ interface ConversationDao {
 	 * separately and are not interchangeable. The provider used [byId] for a
 	 * document id, which matched nothing: a re-queried folder lost its title, and
 	 * the delete/rename refusal never fired for the ids the provider itself
-	 * issued. The unique index on `workspaceId` (`Entities.kt`) makes this lookup
-	 * as cheap as the primary-key one.
+	 * issued.
+	 *
+	 * With a permanent workspace this lookup is not unique: several
+	 * conversations can name the same workspace. The provider should resolve a
+	 * document id through the workspaces table, not through the first
+	 * conversation that happens to share it.
 	 */
 	@Query("SELECT * FROM conversations WHERE workspaceId = :workspaceId LIMIT 1")
 	suspend fun byWorkspaceId(workspaceId: String): ConversationEntity?
@@ -269,6 +321,7 @@ interface PolicyDao {
 
 @Database(
 	entities = [
+		WorkspaceEntity::class,
 		ConversationEntity::class,
 		MessageEntity::class,
 		AgentEntity::class,
@@ -282,11 +335,12 @@ interface PolicyDao {
 	// guessing, which is how each was caught: the app crashed on launch with
 	// "Looks like you've changed schema but forgot to update the version number"
 	// instead of quietly losing conversations.
-	version = 10,
+	version = 11,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
 	abstract fun conversations(): ConversationDao
+	abstract fun workspaces(): WorkspaceDao
 	abstract fun messages(): MessageDao
 	abstract fun agents(): AgentDao
 	abstract fun policies(): PolicyDao
@@ -486,6 +540,52 @@ abstract class InhumanDatabase : RoomDatabase() {
 		val MIGRATION_9_10 = object : Migration(9, 10) {
 			override fun migrate(connection: SQLiteConnection) {
 				connection.execSQL("ALTER TABLE messages ADD COLUMN changedFilesJson TEXT")
+			}
+		}
+
+		/**
+		 * 10 -> 11: workspaces become first-class.
+		 *
+		 * Every conversation starts with a **temporary** workspace that names it
+		 * as the owner, so existing installs keep their one-conversation
+		 * behaviour and can later promote the workspace without moving files.
+		 * The unique index on `conversations.workspaceId` has to go: a permanent
+		 * workspace is shared by several conversations.
+		 *
+		 * No directory is moved or renamed. `workspaceId` is already the
+		 * directory name, and keeping it makes the migration reversible in
+		 * practice: a rollback would still find every file where it was.
+		 */
+		val MIGRATION_10_11 = object : Migration(10, 11) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"""
+					CREATE TABLE IF NOT EXISTS workspaces (
+						id TEXT NOT NULL PRIMARY KEY,
+						name TEXT NOT NULL,
+						isPermanent INTEGER NOT NULL DEFAULT 0,
+						ownerConversationId TEXT,
+						createdAt INTEGER NOT NULL,
+						updatedAt INTEGER NOT NULL
+					)
+					""".trimIndent(),
+				)
+				connection.execSQL(
+					"CREATE INDEX IF NOT EXISTS index_workspaces_isPermanent ON workspaces(isPermanent)",
+				)
+				connection.execSQL(
+					"""
+					INSERT OR IGNORE INTO workspaces
+						(id, name, isPermanent, ownerConversationId, createdAt, updatedAt)
+					SELECT workspaceId, title, 0, id, createdAt, updatedAt
+					FROM conversations
+					""".trimIndent(),
+				)
+				connection.execSQL("DROP INDEX IF EXISTS index_conversations_workspaceId")
+				connection.execSQL(
+					"CREATE INDEX IF NOT EXISTS index_conversations_workspaceId " +
+						"ON conversations(workspaceId)",
+				)
 			}
 		}
 

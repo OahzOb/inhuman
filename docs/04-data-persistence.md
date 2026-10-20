@@ -4,27 +4,51 @@ Module: `:core:data`. It re-exports `:core:files` and `:core:ai` with `api`,
 because a conversation's lifecycle spans the sandbox that guards it and the
 provider that answers it.
 
-## The schema, version 10
+## The schema, version 11
 
 `InhumanDatabase` (`core/data/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 10`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 11`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/data/schemas/` by KSP — configured in `core/data/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
 spot.
 
-Six entities in three files: `ConversationEntity`, `MessageEntity` and
-`AgentEntity` in `db/Entities.kt`, plus the three approval-policy tables
-(`ApprovalDefaultEntity`, `AgentApprovalEntity`, `PathPolicyEntity`) in
-`db/PolicyEntities.kt`, added by migration 7→8.
+Seven entities in four files: `WorkspaceEntity`, `ConversationEntity`,
+`MessageEntity` and `AgentEntity` in `db/Entities.kt`, plus the three
+approval-policy tables (`ApprovalDefaultEntity`, `AgentApprovalEntity`,
+`PathPolicyEntity`) in `db/PolicyEntities.kt`, added by migration 7→8.
 
-### `conversations` (`Entities.kt:103-150`)
+### `workspaces` (`Entities.kt:90-118`) — added in 10→11
+
+| Column | Meaning |
+| --- | --- |
+| `id` | Workspace id, an app-minted UUID. It is also the directory name under `filesDir/conversations/`; never derived from the display name. |
+| `name` | What the user sees. A permanent workspace keeps this name across renames of its conversations. A temporary workspace is kept in step with its conversation title. |
+| `isPermanent` | `0` while the workspace is owned by one conversation and deleted with it; `1` once promoted or created from the Workspaces screen. |
+| `ownerConversationId` | The single owner of a temporary workspace; null for a permanent one. A temporary workspace deliberately holds exactly one conversation, so deleting its owner cannot orphan another conversation's files. |
+| `createdAt`, `updatedAt` | Ordering and display. |
+
+`conversations.workspaceId` points at `workspaces.id` and is **not unique**: a
+permanent workspace is shared. The old unique index encoded the
+one-workspace-per-conversation model and is dropped in the v11 migration.
+
+The lifetime rule is in the row, not the directory:
+
+- delete a conversation whose workspace is temporary → delete the rows, the
+  rollback snapshots, the workspace directory, and the workspace row;
+- delete a conversation whose workspace is permanent → delete only that
+  conversation's rows and snapshots; the workspace and its files remain;
+- delete a permanent workspace → only when it has no conversations. The UI
+  refuses while conversations remain; a cascade is deliberately not offered in
+  this version.
+
+### `conversations` (`Entities.kt:120-177`)
 
 | Column | Meaning |
 | --- | --- |
 | `id` | Row id, an app-minted UUID (`:111`). **Not** the folder name. |
-| `title` | Shown in the list; also the folder name shown by the Files app. |
-| `workspaceId` | The directory name under `filesDir/conversations/`, generated once from a UUID. Unique index `index_conversations_workspaceId`. Deliberately not the PK and never derived from the title — a title can change, and the directory name must not. |
+| `title` | Shown in the list; for a temporary workspace, the Files app folder name follows it. |
+| `workspaceId` | The `workspaces.id` whose directory this conversation uses. Deliberately not the PK and never derived from the title. Non-unique index `index_conversations_workspaceId`. |
 | `agentId` | Nullable, indexed. Which assistant this conversation was started from. |
 | `model`, `reasoningEffort`, `thinking` | **Copied from the assistant at creation**, so editing an assistant cannot rewrite what an existing conversation does. |
 | `toolsJson` | The tool selection, also copied at creation — and for a second reason: a transcript holds calls that were legal when they ran, so the permission set that produced it has to be recoverable. |
@@ -303,7 +327,7 @@ view model, and retaining the Activity leaked a destroyed view hierarchy
 ### Layout
 
 ```
-filesDir/conversations/<workspaceId>/…     one directory per conversation
+filesDir/conversations/<workspaceId>/…     one directory per workspace
 filesDir/rollback/<conversationId>/<user-id>/
   meta.json
   blobs/<sha256>
@@ -312,7 +336,12 @@ filesDir/rollback/<conversationId>/<user-id>/
 
 `Database.workspacesRoot` creates the parent on every call and `workspaceDir`
 joins the id (`core/data/src/main/kotlin/com/inhuman/core/data/db/Database.kt:81-88`).
-The name is the opaque `workspaceId`, never the title.
+The name is the opaque `workspaceId`, never the display name.
+
+The directory name still says `conversations/` for compatibility: migration
+10→11 moved no files, and keeping the path meant every existing workspace
+continued to resolve. It is a workspace root now; a future pure-path migration
+can rename it without touching any row.
 
 Android Auto Backup is deliberately disabled (`android:allowBackup="false"`):
 these directories, the database, rollback snapshots, diagnostics and any SSH
@@ -346,96 +375,71 @@ them.
 
 ### The orphan sweep
 
-`ConversationRepository.sweepOrphanedWorkspaces` (`:188-196`) collects every
-`workspaceId` from the table and asks the **pure** `orphanedWorkspaces(root, known)`
-(`:207-209`) which directories are not known. The pure part is what
-`OrphanedWorkspacesTest` covers, and one of its cases is the important one: **a
-plain file in the root is left alone**, because failing toward deletion is the
-wrong direction.
+`ConversationRepository.sweepOrphanedWorkspaces` collects the known
+**workspace** ids from the `workspaces` table and asks the **pure**
+`orphanedWorkspaces(root, known)` which directories are not known. The pure part
+is what `OrphanedWorkspacesTest` covers, and one of its cases is the important
+one: **a plain file in the root is left alone**, because failing toward deletion
+is the wrong direction.
+
+A permanent workspace with no conversations is **not** an orphan and is kept.
+A temporary workspace whose owner conversation is gone is stale: its row and
+directory are both removed before the directory sweep, so a crash during delete
+converges on the next launch.
 
 It runs once at process root in a `LaunchedEffect` on `Dispatchers.IO` wrapped in
 `runCatching`, silently, after the first composition (`MainActivity.kt:83-87`).
 
-Safety rests on UUIDs never being reused. **There is a residual window**: `create`
-does `mkdirs()` (`:139`) and only then inserts the row (`:140`), so a sweep
-interleaved exactly there would delete the brand-new directory. The comment
-acknowledges the ordering as the mitigation, not as a guarantee.
+Safety rests on UUIDs never being reused. For a temporary workspace, `create`
+writes the workspace row first, then the conversation row, then `mkdirs()`, so
+the sweep cannot see a directory whose owner row is not yet durable.
 
-### The document id bug in `WorkspaceDocumentsProvider`
+### `WorkspaceDocumentsProvider`
 
 `core/data/src/main/kotlin/com/inhuman/core/data/provider/WorkspaceDocumentsProvider.kt`
-exposes each conversation's workspace to the system Files app. The document-id
-scheme is `root` → `<workspaceId>` → relative segments, deliberately not real
-paths (`:47-52`), and a nested id is resolved through `SessionWorkspace.resolve`,
-so the provider inherits the model's confinement rather than being a second,
-weaker door (`:249-270`). The first segment is the exception: it is used as a
-directory name without going through `resolve` (`:261-262`), so a `..` there
-makes the parent directory the "workspace" root.
+exposes **workspaces** to the system Files app. The document-id scheme is
+`root` → `<workspaceId>` → relative segments, deliberately not real paths
+(`:47-52`). A bare id is looked up in the `workspaces` table, not in
+`conversations`: a permanent workspace can be named by several conversations,
+and a `LIMIT 1` conversation lookup would pick an arbitrary one. Nested ids are
+resolved through `SessionWorkspace.resolve`, so the provider inherits the
+model's confinement rather than being a second, weaker door.
 
-**One branch of that scheme is broken.** `includeConversation` publishes
-`COLUMN_DOCUMENT_ID = conversation.workspaceId` (`:184`), but `includeDocument`
-then looks a bare id up with `db.conversations().byId(documentId)` (`:209`) —
-and `byId` matches the **primary key**, which is the conversation id, a different
-UUID (`ConversationRepository.create` mints both). The comment "A bare workspace
-id is a conversation" (`:207`) does not match the key it queries.
+The root lists one folder per workspace, including a permanent workspace with no
+conversations and a temporary workspace under its conversation title. Directory
+flags on a workspace root are **create only**. The directory name is the
+workspace id, so a rename or delete must update the row and the files together;
+the app's repository is the only thing that does that. The provider refuses both
+operations even if a caller ignores the flag.
 
-Consequence: re-querying a conversation folder (rather than reading it from the
-parent listing) falls through to `resolveFile`, so the folder reports its display
-name as the raw `workspaceId` UUID instead of the title. The parent listing is
-correct; a deep link or a refresh is not.
+Three properties worth knowing:
 
-**The more dangerous half is that conversation folders advertise
-`FLAG_SUPPORTS_RENAME` and `FLAG_SUPPORTS_DELETE`.** `directoryFlags()`
-(`:234-237`) is returned for conversation rows too (`:190`), and both operations
-then act on the real directory:
-
-- `renameDocument` renames the directory whose name **is** the `workspaceId`
-  (`:162-169`). The `conversations` row keeps pointing at the old name, so the
-  next tool call recreates an *empty* workspace — and the renamed directory now
-  matches no row, which makes it an orphan the sweep will eventually delete.
-  **The user's files are the thing that disappears.**
-- `deleteDocument` deletes the workspace directory and leaves the conversation
-  row (`:156-160`). That is the inverse orphan, and the sweep cannot see it: it
-  looks for directories with no row, not rows with no directory.
-
-So the Files app is, today, a way to lose a conversation's files without
-deleting the conversation. Anything that touches these flags should either
-withdraw them for conversation folders or make the row follow the rename.
-
-Three more properties of this provider worth knowing, all visible in the code:
-
-- `resolveFile` returns **any** existing directory under `filesDir/conversations`
-  without consulting the table (`:257-270`), so orphaned workspaces are
-  browsable and deletable through the Files app.
-- For a nested id it calls `SessionWorkspace.open` (`:265`), which `mkdirs()`s
-  the root — so **probing a non-existent workspace id creates a directory** that
-  the sweep will later delete.
+- `resolveFile` returns an existing directory under `filesDir/conversations`
+  without consulting the table, so an old orphaned directory is browsable until
+  the sweep removes it.
+- For a nested id it calls `SessionWorkspace.open`, which `mkdirs()`s the root —
+  probing a non-existent workspace id creates a directory that the sweep later
+  removes.
 - `resolve` does not require existence, so `queryDocument("<id>/ghost.txt")`
-  returns a phantom row (size 0, with the MIME type its extension implies —
-  `text/plain` here, not the octet-stream fallback) that `openDocument` then
-  fails to open.
+  returns a phantom row that `openDocument` then fails to open.
 
-And two that are deliberate but surprising: `queryRoots` advertises
-`FLAG_SUPPORTS_CREATE` (`:69-74`) while `createDocument` on the root throws,
-because `resolveFile(ROOT_ID)` returns null (`:258`) and `resolveDirectory`
-therefore does too (`:145-146`) — and `includeConversation` calls `mkdirs()`
-(`:182`), a write side effect inside a Binder query, whose stated reason is that
-a conversation restored from a backup may have no directory yet.
-
-The provider's own doc comment on `resolveFile` (`:249-256`) is worth quoting
-because it is the rule to keep: ids go through `SessionWorkspace` rather than
-string joining, "so this provider inherits exactly the confinement the model's
-tools get. A provider resolving ids on its own would be a second, weaker door
-into the same files."
+`queryRoots` advertises `FLAG_SUPPORTS_CREATE`, but `createDocument` on the root
+throws because there is no workspace to create into; creation is offered inside
+a workspace folder.
 
 ## Tests in this module
 
-Two files, both JVM, no device:
+Three JVM files and four device files:
 
 | Test | Locks in |
 | --- | --- |
 | `ConversationStoreTest` | `activePathOf`: straight-line order, the *older* of two replies winning when the parent names it, newest child shown when nothing is selected, a stable order for rows sharing a millisecond, a three-way sibling tie resolving deterministically under input reversal (that case asserts the `id` tie-break is what decides), several roots → earliest, empty → empty, and a parent cycle → empty because no root exists. |
 | `OrphanedWorkspacesTest` | An unnamed directory is doomed; a named directory is kept even when empty; a healthy install sweeps nothing; **a plain file in the root is left alone**; a missing root returns empty rather than throwing. |
+| `SnapshotStoreTest` | Checkpoint addressing and pruning behind the per-turn rewind. |
+| `MigrationTest` (device) | Every migration through 10→11, including the temporary workspace row, the dropped unique index, and the canary message surviving. |
+| `WorkspaceLifecycleTest` (device) | A temporary workspace dies with its conversation; a permanent one survives and can hold two; promotion changes the row without moving the directory. |
+| `ConversationLookupTest` (device) | The `id` / `workspaceId` distinction the documents provider depends on. |
+| `WorkspaceDocumentsProviderTest` (device) | A re-queried workspace folder keeps its display name, and delete/rename of the workspace root are refused. |
 
 The cycle case does **not** exercise the `seen` guard — that needs a root whose
 `selectedChildId` points into a cycle. Worth adding if you touch that function.

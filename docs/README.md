@@ -127,7 +127,7 @@ why the pure-invariant tests (`DeltaCursor`, `ContextUsage`, `activePathOf`)
 carry arguments the device could not make — see
 [02-architecture.md](02-architecture.md).
 
-Five suites do **not** run on the JVM, and are not in the table above because
+Six suites do **not** run on the JVM, and are not in the table above because
 they only run against a device:
 
 | Suite | Why it needs a device |
@@ -135,12 +135,14 @@ they only run against a device:
 | `app/src/androidTest/…/SessionLogReadBenchmark` | How long a session log takes to read on ARM64 — the number a port's cold start depends on |
 | `app/src/androidTest/…/JavaScriptSandboxProbe` | Whether the platform JavaScript sandbox is available, and what it withholds (`fetch`, `require`, `process`) |
 | `core/data/src/androidTest/…/MigrationTest` | Room migrations against a real SQLite — the JVM tests cover the pure branch walk, not the schema |
+| `core/data/src/androidTest/…/WorkspaceLifecycleTest` | Temporary workspaces die with their conversation; permanent ones survive and promotion does not move the directory |
 | `core/data/src/androidTest/…/ConversationLookupTest` | The `id` / `workspaceId` distinction the documents provider's folder lookup depends on; both are UUIDs, and the wrong one returns null rather than failing |
 | `core/data/src/androidTest/…/WorkspaceDocumentsProviderTest` | The provider's actual folder ids: a re-queried folder keeps its title, and delete/rename are refused |
 
 Run them with `:app:connectedDebugAndroidTest` / `:core:data:connectedDebugAndroidTest`,
-or `adb shell am instrument`. The first two have their measured results in
-[port-assessment.md](port-assessment.md); the last three are the evidence behind
+or `adb shell am instrument`. The `:core:data` run is **19 tests** at the time of
+writing. The first two have their measured results in
+[port-assessment.md](port-assessment.md); the last four are the evidence behind
 [07-gotchas.md](07-gotchas.md) B8 and B6.
 
 ## Which files own which behaviour
@@ -158,6 +160,7 @@ throughout.
 | Incremental Markdown, the delta channel, the renderer switch, unclosed fences | `ui/chat/MarkdownText.kt`, `ui/chat/DeltaCursor.kt`, `ui/chat/MarkdownFence.kt` |
 | The context ring and its three cases | `ui/chat/ContextUsage.kt`, `ui/chat/ContextGauge.kt` |
 | Assistants, the tool picker, system-prompt import | `ui/agents/AgentsScreen.kt`, `ui/agents/AgentsViewModel.kt`, `ui/agents/PromptImport.kt` |
+| Workspaces, lifetime, promoting a temporary one, absolute path | `ui/workspaces/WorkspacesScreen.kt`, `ui/workspaces/WorkspaceDetailScreen.kt`, `core/data/…/ConversationRepository.kt` |
 | The conversation list, pinning, delete confirmation | `ui/ConversationsScreen.kt`, `ui/ConversationsViewModel.kt` |
 | Browsing, import, export, file preview | `ui/files/FilesScreen.kt`, `ui/files/FilesViewModel.kt` |
 | Downloading a URL; SSRF, redirect and file-name rules | `ui/files/UrlDownloader.kt` |

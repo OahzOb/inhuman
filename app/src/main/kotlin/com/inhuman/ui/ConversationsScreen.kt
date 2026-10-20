@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PushPin
@@ -79,6 +80,8 @@ fun ConversationsScreen(
 	onOpenConversation: (String) -> Unit,
 	onOpenSettings: () -> Unit,
 	onOpenAgents: () -> Unit,
+	onOpenWorkspaces: () -> Unit,
+	onNewWorkspace: () -> Unit,
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
@@ -117,6 +120,12 @@ fun ConversationsScreen(
 				actions = {
 					// On a phone the FAB carries the primary action, so the top
 					// bar keeps only the title and this.
+					IconButton(onClick = onOpenWorkspaces) {
+						Icon(Icons.Outlined.FolderOpen, contentDescription = "Workspaces")
+					}
+					IconButton(onClick = onNewWorkspace) {
+						Icon(Icons.Outlined.CreateNewFolder, contentDescription = "New workspace")
+					}
 					IconButton(onClick = onOpenAgents) {
 						Icon(Icons.Outlined.Person, contentDescription = "Assistants")
 					}
@@ -185,6 +194,8 @@ fun ConversationsScreen(
 	// conversation?" reads like it removes a list entry.
 	pendingDelete?.let { conversation ->
 		val fileCount = state.deletePreviewCounts[conversation.id]
+		val permanent = conversation.workspaceId in state.permanentWorkspaceIds
+		val workspaceName = state.workspaceNames[conversation.workspaceId] ?: "the workspace"
 
 		// One meaning of "close", used by all three ways out.
 		//
@@ -209,16 +220,44 @@ fun ConversationsScreen(
 			text = {
 				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 					Text(
-						text = when {
-							fileCount == null -> "This deletes the conversation and its folder."
-							fileCount == 0 -> "This deletes the conversation. Its folder is empty."
-							fileCount == 1 -> "This deletes the conversation and 1 file in its folder."
-							else -> "This deletes the conversation and $fileCount files in its folder."
+						text = if (permanent) {
+							buildString {
+								append("This deletes the conversation and its rollback snapshots. ")
+								append("Files in \"$workspaceName\" are kept")
+								if (fileCount != null) {
+									append(
+										if (fileCount == 0) {
+											"; the workspace is empty."
+										} else if (fileCount == 1) {
+											"; 1 file remains there."
+										} else {
+											"; $fileCount files remain there."
+										},
+									)
+								} else {
+									append(".")
+								}
+							}
+						} else {
+							when {
+								fileCount == null -> "This deletes the conversation and its folder."
+								fileCount == 0 -> "This deletes the conversation. Its folder is empty."
+								fileCount == 1 -> "This deletes the conversation and 1 file in its folder."
+								else -> "This deletes the conversation and $fileCount files in its folder."
+							}
 						},
 					)
 					Text(
-						text = "This cannot be undone.",
-						color = MaterialTheme.colorScheme.error,
+						text = if (permanent) {
+							"The conversation cannot be restored; the workspace files remain."
+						} else {
+							"This cannot be undone."
+						},
+						color = if (permanent) {
+							MaterialTheme.colorScheme.onSurfaceVariant
+						} else {
+							MaterialTheme.colorScheme.error
+						},
 					)
 				}
 			},

@@ -583,6 +583,16 @@ class ChatViewModel(
 		// the branch point.
 		val branchInfo = repository.branchesIn(conversationId)
 		sshAllowed = loaded?.entity?.sshAllowed ?: false
+		val workspace = loaded?.entity?.let { entity ->
+			runCatching { repository.workspaceRecord(entity.workspaceId) }
+				.onFailure { Diag.w("workspace", "workspace lookup failed", it) }
+				.getOrNull()
+		}
+		val workspaceConversations = loaded?.entity?.let { entity ->
+			runCatching { repository.workspaceConversationCount(entity.workspaceId) }
+				.getOrDefault(1)
+		} ?: 1
+		val sharedWorkspace = workspace?.isPermanent == true && workspaceConversations > 1
 
 		// What the last turn can safely undo. A mutating turn needs a snapshot
 		// that was captured before its first write; an irreversible tool means
@@ -620,15 +630,23 @@ class ChatViewModel(
 		// written. If the snapshot exists, restore it even when every row still
 		// says "not mutated".
 		val mutated = lastTurn.any { it.mutated } || hasSnapshot
-		val rollbackAvailable = lastUser != null && !irreversible && (!mutated || hasSnapshot)
+		val rollbackAvailable = lastUser != null && !irreversible && !sharedWorkspace &&
+			(!mutated || hasSnapshot)
 		val rollbackBlockedReason = when {
 			lastUser == null -> null
 			irreversible -> "This turn ran SSH commands; remote effects cannot be rolled back."
+			sharedWorkspace ->
+				"Files are shared with other conversations in this workspace, so " +
+					"rewinding this turn's file changes is disabled."
 			mutated && !hasSnapshot ->
 				"The workspace snapshot for this turn is missing, so it cannot be rewound safely."
 			else -> null
 		}
-		val regenerationPoints = regenerationPointsFor(lastUser, lastTurn)
+		val regenerationPoints = if (sharedWorkspace) {
+			emptyList()
+		} else {
+			regenerationPointsFor(lastUser, lastTurn)
+		}
 		turnAnchorId = lastUser?.id
 		turnSnapshotReady = hasSnapshot
 		turnIrreversible = irreversible
@@ -644,6 +662,9 @@ class ChatViewModel(
 			val rebuilt = entities.map { it.toUi(it.parentId?.let(branchInfo::get), declined) }
 			current.copy(
 				title = loaded?.entity?.title ?: current.title,
+				workspaceName = workspace?.name.orEmpty(),
+				workspaceIsPermanent = workspace?.isPermanent == true,
+				workspaceConversationCount = workspaceConversations,
 				messages = rebuilt,
 				sshAllowed = sshAllowed,
 				pendingSshConsent = null,
@@ -906,15 +927,25 @@ class ChatViewModel(
 			bytes = snapshotTurns.sumOf { it.bytes },
 		)
 		val mutated = lastTurn.any { it.mutated } || hasSnapshot
-		val rollbackAvailable = lastUser != null && !irreversible && (!mutated || hasSnapshot)
+		val sharedWorkspace = _state.value.workspaceIsPermanent &&
+			_state.value.workspaceConversationCount > 1
+		val rollbackAvailable = lastUser != null && !irreversible && !sharedWorkspace &&
+			(!mutated || hasSnapshot)
 		val rollbackBlockedReason = when {
 			lastUser == null -> null
 			irreversible -> "This turn ran SSH commands; remote effects cannot be rolled back."
+			sharedWorkspace ->
+				"Files are shared with other conversations in this workspace, so " +
+					"rewinding this turn's file changes is disabled."
 			mutated && !hasSnapshot ->
 				"The workspace snapshot for this turn is missing, so it cannot be rewound safely."
 			else -> null
 		}
-		val regenerationPoints = regenerationPointsFor(lastUser, lastTurn)
+		val regenerationPoints = if (sharedWorkspace) {
+			emptyList()
+		} else {
+			regenerationPointsFor(lastUser, lastTurn)
+		}
 		turnAnchorId = lastUser?.id
 		turnSnapshotReady = hasSnapshot
 		turnIrreversible = irreversible
@@ -1107,6 +1138,39 @@ class ChatViewModel(
 				.onFailure { failure ->
 					Diag.w("chat", "rename failed conv=${Diag.shortId(conversationId)}", failure)
 					_state.update { it.copy(error = "Could not rename the conversation.") }
+				}
+		}
+	}
+
+	/**
+	 * Keep this conversation's workspace after the conversation is deleted.
+	 *
+	 * Only the workspace row changes; the directory is already where it will
+	 * stay. The new name is editable later from the Workspaces screen.
+	 */
+	fun saveWorkspaceAsPermanent(name: String) {
+		val entity = conversation ?: return
+		viewModelScope.launch {
+			runCatching { repository.promoteWorkspace(entity, name) }
+				.onSuccess { workspace ->
+					if (workspace != null) {
+						_state.update {
+							it.copy(
+								workspaceName = workspace.name,
+								workspaceIsPermanent = true,
+								workspaceConversationCount = repository.workspaceConversationCount(
+									workspace.id,
+								),
+							)
+						}
+						Diag.i("workspace", "promoted conv=${Diag.shortId(conversationId)}")
+					} else {
+						_state.update { it.copy(error = "Workspace not found.") }
+					}
+				}
+				.onFailure { failure ->
+					Diag.w("workspace", "promote failed", failure)
+					_state.update { it.copy(error = "Could not save the workspace.") }
 				}
 		}
 	}

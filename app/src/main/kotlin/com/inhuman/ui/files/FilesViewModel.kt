@@ -65,6 +65,12 @@ data class FilesUiState(
 	val error: String? = null,
 	/** Non-null while a preview is open. */
 	val preview: FilePreview? = null,
+	/**
+	 * Absolute app-private directory, shown to the user and never sent to the
+	 * model. A workspace opened without a conversation has no rules to edit.
+	 */
+	val absolutePath: String = "",
+	val rulesEnabled: Boolean = false,
 )
 
 data class FilePreview(
@@ -99,10 +105,18 @@ data class DownloadSave(val relativePath: String, val bytes: Long)
  */
 class FilesViewModel(
 	private val repository: ConversationRepository,
-	conversationId: String,
+	private val conversationId: String? = null,
+	private val requestedWorkspaceId: String? = null,
 ) : ViewModel() {
 
-	private val conversation = conversationId
+	init {
+		require(conversationId != null || requestedWorkspaceId != null) {
+			"FilesViewModel needs a conversation or a workspace."
+		}
+	}
+
+	/** Resolved once, because a workspace id is the durable part of this screen. */
+	private var workspaceId: String? = requestedWorkspaceId
 
 	private val _state = MutableStateFlow(FilesUiState())
 	val state: StateFlow<FilesUiState> = _state.asStateFlow()
@@ -126,9 +140,11 @@ class FilesViewModel(
 	 * the UI while Room answered.
 	 */
 	private suspend fun workspace(): SessionWorkspace? {
-		val entity = withContext(Dispatchers.IO) { repository.conversation(conversation)?.entity }
-			?: return null
-		return repository.workspace(entity)
+		val id = workspaceId ?: conversationId?.let { id ->
+			withContext(Dispatchers.IO) { repository.conversation(id)?.entity?.workspaceId }
+		} ?: return null
+		workspaceId = id
+		return repository.workspace(id)
 	}
 
 	/**
@@ -139,6 +155,7 @@ class FilesViewModel(
 	 * and a locally-patched list would be a second source of truth.
 	 */
 	fun setPathRule(relativePath: String, policy: ToolPolicy) {
+		val conversation = conversationId ?: return
 		viewModelScope.launch {
 			withContext(Dispatchers.IO) {
 				runCatching { repository.policies().setPathRule(conversation, relativePath, policy) }
@@ -158,9 +175,10 @@ class FilesViewModel(
 		viewModelScope.launch {
 			_state.value = _state.value.copy(loading = true, error = null)
 			val ws = workspace()
-			if (ws == null) {
-				Diag.w("files", "refresh: conversation not found id=${Diag.shortId(conversation)}")
-				_state.value = _state.value.copy(loading = false, error = "conversation not found")
+			val id = workspaceId
+			if (ws == null || id == null) {
+				Diag.w("files", "refresh: workspace not found")
+				_state.value = _state.value.copy(loading = false, error = "workspace not found")
 				return@launch
 			}
 			val path = _state.value.currentPath
@@ -174,13 +192,16 @@ class FilesViewModel(
 					is SessionWorkspace.Resolution.Rejected -> null
 				}
 				// The rules for this conversation, read once. A per-entry query
-				// would be one round trip per row.
-				val rules = runCatching {
-					repository.policies().forConversation(conversation, agentId = null).paths
-				}.getOrElse {
-					Diag.w("policy", "path rules read failed; showing no rules", it)
-					emptyMap()
-				}
+				// would be one round trip per row. A workspace opened without a
+				// conversation has no conversation-scoped rules to show.
+				val rules = conversationId?.let { conversation ->
+					runCatching {
+						repository.policies().forConversation(conversation, agentId = null).paths
+					}.getOrElse {
+						Diag.w("policy", "path rules read failed; showing no rules", it)
+						emptyMap()
+					}
+				}.orEmpty()
 
 				val entries = if (dir == null || !dir.isDirectory) {
 					Diag.w(
@@ -216,6 +237,8 @@ class FilesViewModel(
 				totalBytes = ws.limits.maxTotalBytes,
 				fileCount = usage.files,
 				maxFiles = ws.limits.maxFileCount,
+				absolutePath = repository.workspacePath(id),
+				rulesEnabled = conversationId != null,
 			)
 			Diag.d(
 				"files",
@@ -325,7 +348,7 @@ class FilesViewModel(
 	}
 
 	/**
-	 * Save a user-initiated download into this conversation's workspace.
+	 * Save a user-initiated download into this workspace.
 	 *
 	 * The workspace's own quota still applies: "no download limit" means no
 	 * arbitrary cap on top of the storage the user actually has, not permission
@@ -342,11 +365,11 @@ class FilesViewModel(
 		onProgress: (Long) -> Unit,
 	): Result<DownloadSave> = withContext(Dispatchers.IO) {
 		val ws = workspace()
-			?: return@withContext Result.failure(IOException("This conversation no longer exists."))
+			?: return@withContext Result.failure(IOException("This workspace no longer exists."))
 		val transfer = WorkspaceTransfer(ws)
 		val free = (ws.limits.maxTotalBytes - ws.usage().bytes).coerceAtLeast(0)
 		if (free <= 0) {
-			return@withContext Result.failure(IOException("The conversation's workspace is full."))
+			return@withContext Result.failure(IOException("The workspace is full."))
 		}
 		if (contentLength != null && contentLength > free) {
 			return@withContext Result.failure(
@@ -376,7 +399,7 @@ class FilesViewModel(
 	 * @return null on success, or a message to show.
 	 */
 	suspend fun exportFile(relativePath: String, open: () -> java.io.OutputStream): String? {
-		val ws = workspace() ?: return "conversation not found"
+		val ws = workspace() ?: return "workspace not found"
 		val outcome = withContext(Dispatchers.IO) {
 			WorkspaceTransfer(ws).export(relativePath) { open() }
 		}

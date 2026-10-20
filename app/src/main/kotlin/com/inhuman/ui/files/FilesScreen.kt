@@ -1,9 +1,12 @@
 package com.inhuman.ui.files
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ContentResolver
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -26,6 +29,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
@@ -72,6 +76,7 @@ import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.ui.chat.MarkdownText
+import com.inhuman.ui.common.openWorkspaceInFiles
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -122,9 +127,10 @@ fun FilesScreen(
 	var pendingDelete by remember { mutableStateOf<FileEntryUi?>(null) }
 	var importError by remember { mutableStateOf<String?>(null) }
 	var showDownloadDialog by remember { mutableStateOf(false) }
+	var showPath by remember { mutableStateOf(false) }
 
 	val anyDialogOpen = pendingDelete != null || importError != null ||
-		state.error != null || state.preview != null || showDownloadDialog
+		state.error != null || state.preview != null || showDownloadDialog || showPath
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
 	// Which file the export launcher was fired for.
@@ -199,6 +205,9 @@ fun FilesScreen(
 					}
 				},
 				actions = {
+					IconButton(onClick = { showPath = true }) {
+						Icon(Icons.Outlined.Folder, contentDescription = "Workspace location")
+					}
 					IconButton(onClick = { showDownloadDialog = true }) {
 						Icon(Icons.Filled.Download, contentDescription = "Download from a URL")
 					}
@@ -233,12 +242,20 @@ fun FilesScreen(
 					horizontalAlignment = Alignment.CenterHorizontally,
 				) {
 					Text(
-						text = "This conversation's folder is empty",
+						text = if (state.rulesEnabled) {
+							"This conversation's folder is empty"
+						} else {
+							"This workspace is empty"
+						},
 						style = MaterialTheme.typography.bodyLarge,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
 					Text(
-						text = "Ask the assistant to create something, or import a file.",
+						text = if (state.rulesEnabled) {
+							"Ask the assistant to create something, or import a file."
+						} else {
+							"Import a file, download from a URL, or start a conversation here."
+						},
 						style = MaterialTheme.typography.bodyMedium,
 						color = MaterialTheme.colorScheme.outline,
 						modifier = Modifier.padding(top = 6.dp),
@@ -269,8 +286,10 @@ fun FilesScreen(
 								}
 							},
 							onDelete = { pendingDelete = entry },
-							onRuleChange = { policy ->
-								viewModel.setPathRule(entry.relativePath, policy)
+							onRuleChange = if (state.rulesEnabled) {
+								{ policy -> viewModel.setPathRule(entry.relativePath, policy) }
+							} else {
+								null
 							},
 						)
 					}
@@ -364,6 +383,51 @@ fun FilesScreen(
 				TextButton(onClick = { importError = null; viewModel.refresh() }) { Text("OK") }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
+		)
+	}
+
+	if (showPath) {
+		AlertDialog(
+			onDismissRequest = { showPath = false },
+			title = { Text("Workspace location") },
+			text = {
+				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+					Text(
+						"App-private absolute path. It is shown to you only: the assistant " +
+							"still sees relative paths and never this location.",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					SelectionContainer {
+						Text(
+							text = state.absolutePath,
+							style = MaterialTheme.typography.bodySmall,
+							fontFamily = FontFamily.Monospace,
+						)
+					}
+					TextButton(
+						onClick = {
+							if (!openWorkspaceInFiles(context)) {
+								Toast.makeText(context, "No Files app available", Toast.LENGTH_SHORT).show()
+							}
+						},
+					) { Text("Open in Files app") }
+				}
+			},
+			confirmButton = {
+				TextButton(
+					onClick = {
+						val clipboard = context.getSystemService(ClipboardManager::class.java)
+						clipboard?.setPrimaryClip(
+							ClipData.newPlainText("Workspace path", state.absolutePath),
+						)
+						Toast.makeText(context, "Path copied", Toast.LENGTH_SHORT).show()
+					},
+				) { Text("Copy path") }
+			},
+			dismissButton = {
+				TextButton(onClick = { showPath = false }) { Text("Close") }
+			},
 		)
 	}
 
@@ -733,7 +797,7 @@ private fun FileRow(
 	onOpen: () -> Unit,
 	onExport: (() -> Unit)?,
 	onDelete: () -> Unit,
-	onRuleChange: (ToolPolicy) -> Unit,
+	onRuleChange: ((ToolPolicy) -> Unit)?,
 ) {
 	var ruleMenuOpen by remember { mutableStateOf(false) }
 
@@ -798,30 +862,34 @@ private fun FileRow(
 			}
 		}
 
-		// What the agent may do with this file.
-		Box {
-			IconButton(onClick = { ruleMenuOpen = true }) {
-				Icon(
-					if (entry.rule == ToolPolicy.Free) Icons.Outlined.LockOpen
-					else Icons.Filled.Lock,
-					contentDescription = "What the agent may do with this",
-					tint = if (entry.rule == ToolPolicy.Free) {
-						MaterialTheme.colorScheme.onSurfaceVariant
-					} else {
-						MaterialTheme.colorScheme.primary
-					},
-					modifier = Modifier.size(18.dp),
-				)
-			}
-			DropdownMenu(expanded = ruleMenuOpen, onDismissRequest = { ruleMenuOpen = false }) {
-				for (option in ToolPolicy.entries) {
-					DropdownMenuItem(
-						text = { Text(option.label()) },
-						onClick = {
-							ruleMenuOpen = false
-							onRuleChange(option)
+		// What the agent may do with this file. A workspace opened without a
+		// conversation has no conversation-scoped rules, so the control is absent
+		// rather than showing a policy that would not be consulted.
+		if (onRuleChange != null) {
+			Box {
+				IconButton(onClick = { ruleMenuOpen = true }) {
+					Icon(
+						if (entry.rule == ToolPolicy.Free) Icons.Outlined.LockOpen
+						else Icons.Filled.Lock,
+						contentDescription = "What the agent may do with this",
+						tint = if (entry.rule == ToolPolicy.Free) {
+							MaterialTheme.colorScheme.onSurfaceVariant
+						} else {
+							MaterialTheme.colorScheme.primary
 						},
+						modifier = Modifier.size(18.dp),
 					)
+				}
+				DropdownMenu(expanded = ruleMenuOpen, onDismissRequest = { ruleMenuOpen = false }) {
+					for (option in ToolPolicy.entries) {
+						DropdownMenuItem(
+							text = { Text(option.label()) },
+							onClick = {
+								ruleMenuOpen = false
+								onRuleChange(option)
+							},
+						)
+					}
 				}
 			}
 		}

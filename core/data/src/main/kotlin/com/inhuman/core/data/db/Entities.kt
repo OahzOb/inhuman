@@ -88,29 +88,67 @@ data class AgentEntity(
 }
 
 /**
+ * A workspace, independent of any one conversation.
+ *
+ * A temporary workspace is created with its first conversation and is deleted
+ * with it. A permanent workspace outlives every conversation that uses it and
+ * may be empty. The directory name is [id]; [name] is only what the user sees,
+ * so renaming never moves files.
+ *
+ * This row is the source of truth for lifetime. The files themselves are still
+ * plain directories under [Database.workspacesRoot]; a directory is an orphan
+ * only when no workspace row names it, never because no conversation does.
+ */
+@Entity(
+	tableName = "workspaces",
+	indices = [Index("isPermanent")],
+)
+data class WorkspaceEntity(
+	@PrimaryKey val id: String,
+	val name: String,
+	/** True for a workspace created on its own or promoted from a temporary one. */
+	@ColumnInfo(defaultValue = "0")
+	val isPermanent: Boolean = false,
+	/**
+	 * The one conversation that owns a temporary workspace.
+	 *
+	 * Null for a permanent workspace. A temporary workspace deliberately holds
+	 * exactly one conversation: otherwise deleting its owner would delete files
+	 * another conversation is still using.
+	 */
+	val ownerConversationId: String? = null,
+	val createdAt: Long,
+	val updatedAt: Long,
+)
+
+/**
  * A conversation.
  *
- * [workspaceId] is the directory name on disk and is generated once at creation
- * from a UUID. It is deliberately **not** the primary key: the id is the
- * database's business, the workspace directory is the filesystem's, and tying
- * them together means a future change to either forces a migration of the
- * other.
+ * [workspaceId] is the directory name on disk and points at a [WorkspaceEntity].
+ * It is deliberately **not** the primary key: the id is the database's
+ * business, the workspace directory is the filesystem's, and tying them
+ * together means a future change to either forces a migration of the other.
  *
- * It is also stable and opaque rather than derived from the title. A directory
+ * It is stable and opaque rather than derived from the title. A directory
  * named after a title would have to be renamed whenever the user renamed the
  * conversation, and every rename is a chance to orphan the files inside it.
+ *
+ * More than one conversation may name the same workspace: that is what a
+ * permanent workspace is for. The index is therefore **not unique**; the old
+ * unique index encoded the one-conversation-per-workspace model and had to be
+ * replaced in the v11 migration.
  */
 @Entity(
 	tableName = "conversations",
 	indices = [
-		Index(value = ["workspaceId"], unique = true),
+		Index(value = ["workspaceId"]),
 		Index("agentId"),
 	],
 )
 data class ConversationEntity(
 	@PrimaryKey val id: String,
 	val title: String,
-	/** Directory name under filesDir/conversations/. Opaque, never shown. */
+	/** The [WorkspaceEntity] this conversation uses. */
 	val workspaceId: String,
 	/** The assistant this conversation was started with. */
 	val agentId: String? = null,

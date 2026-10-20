@@ -518,6 +518,39 @@ ConversationsScreen (`:133`).
 (`:594-703`), which is the only place a user can see what the model is actually
 sent.
 
+### Workspaces
+
+`WorkspacesScreen.kt` / `WorkspaceDetailScreen.kt`, with their view models. A
+workspace is a container for files and conversations, not a conversation
+property:
+
+- **Workspaces** is reachable from the home top bar and from **New workspace**;
+  it lists permanent workspaces with name, conversation count, and update time.
+- **Workspace detail** shows usage, the session list, **Files**, and **New
+  conversation**. New conversations created here use that workspace and ask for
+  an assistant first, exactly like the home flow.
+- **Save workspace as permanent** is in the temporary conversation's overflow
+  menu. It asks for a name and changes only the workspace row; the directory does
+  not move, so the action is immediate and idempotent. After promotion the menu
+  item disappears and the Workspaces screen can add more conversations.
+- Deleting a conversation in a temporary workspace deletes the workspace and its
+  files, and the dialog says so. In a permanent workspace the dialog says the
+  files are kept. Deleting a workspace with conversations is refused; the Delete
+  button is disabled and the dialog names the blocker.
+- **Workspace location** is a user-facing absolute path with a copy action,
+  shown in Files and on the workspace detail, plus **Open in Files app** (the
+  system DocumentsUI on the workspace root). It is deliberately absent from
+  tools, prompts, and diagnostics. `Files` without a conversation hides the
+  per-path policy control: policies are conversation-scoped, and showing a rule
+  that would not be consulted would be worse than hiding it.
+
+Shared file state makes two conversation features unsafe, and the chat handles
+that explicitly: if a permanent workspace has more than one conversation,
+file rollback and **Regenerate from…** are disabled with a reason, because
+restoring one transcript's snapshot would overwrite another conversation's
+files. Snapshot capture still runs; the guard is at the restore/regenerate
+entry points.
+
 ### Files
 
 `FilesScreen.kt` / `FilesViewModel.kt`. Browse, preview text (binary and oversize
@@ -525,6 +558,12 @@ are *reported*, not rendered as mojibake, `FilesViewModel.kt:146-177`), import v
 `OpenDocument`, export via `CreateDocument`, delete with a dialog, and a header
 showing the workspace quota as `files · bytes`. All paths go through
 `SessionWorkspace.resolve` (`:96-100`, `:189-198`).
+
+The same screen opens from a chat (conversation-scoped path rules) and from a
+workspace detail (no conversation, so no path-rule control). Its **Workspace
+location** action shows the absolute directory for the user and copies it; it
+never enters a request. The empty state says "workspace" rather than
+"conversation's folder" when opened without a conversation.
 
 A `.md` or `.markdown` preview is rendered through the same `MarkdownText` the
 transcript uses, with **Source** / **Rendered** as a toggle: the default is the

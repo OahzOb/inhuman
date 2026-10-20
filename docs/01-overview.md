@@ -51,11 +51,15 @@ without a device. Dependencies run one way only — `app` depends on all five
 
 Confirmed by `README.md:17-29` and by the code:
 
-- A conversation can be started against a chosen assistant.
+- A conversation can be started against a chosen assistant. It uses a temporary
+  workspace, or the permanent workspace it was started in.
 - Replies stream, with reasoning shown and a live token/usage breakdown.
-- The model **and the user** can read and write files in the conversation's
-  folder; files can also be browsed, imported, exported, and downloaded from a
-  URL into the workspace or a folder the user picks.
+- The model **and the user** can read and write files in the workspace; files
+  can also be browsed, imported, exported, and downloaded from a URL. A
+  permanent workspace keeps its files when conversations are deleted, can be
+  shared by several conversations, and can be created from the Workspaces
+  screen or saved from a temporary conversation's menu. The user can view and
+  copy the workspace's absolute app-private path; the model never sees it.
 - The model can search the web and fetch a page through DeepSeek's paid Search
   and Fetch APIs, using the same key as the conversation
   ([03-ai-provider.md](03-ai-provider.md)).
@@ -132,9 +136,9 @@ Worth settling before reading the rest, because the words are overloaded:
 | Term | Means here |
 | --- | --- |
 | **assistant** / **agent** | A stored person(a): name, system prompt, model, reasoning effort, and an allowed-tool selection. Managed on the Agents screen. |
-| **conversation** | One chat, its branch, and its workspace folder. Copies the assistant's settings at creation so editing an assistant cannot change what an existing conversation may do. |
+| **conversation** | One chat, its branch, and the workspace it uses. Copies the assistant's settings at creation so editing an assistant cannot change what an existing conversation may do. |
 | **branch** | A regenerated final answer is stored as a sibling branch; the user can switch between them. A mid-turn **Regenerate from…** replaces the suffix instead, because its tool results would no longer match the restored workspace. |
-| **workspace** | The per-conversation folder, and the sandbox boundary. |
+| **workspace** | A folder and the sandbox boundary. A **temporary** workspace is created with its one conversation and deleted with it; a **permanent** workspace survives its conversations and can be shared by several. The absolute directory is visible to the user in Files and workspace detail, but never to the agent. |
 | **turn** | One user message and everything the model and its tools did in response. |
 | **mutates** | "Replaying this turn with tools would change something." A record, not a blanket regeneration gate. |
 | **reversible** | "The app can put this effect back." Local file tools are reversible; `ssh_exec` is not. Rollback requires it. |

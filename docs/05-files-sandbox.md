@@ -2,6 +2,38 @@
 
 Module: `:core:files` for the first two; `:core:design` for the third.
 
+## Workspace lifetime
+
+A workspace is now a first-class row (`WorkspaceEntity`), not a directory owned
+implicitly by a conversation. `SessionWorkspace` still receives only an id and
+still confines every tool path to that directory; what changed is who owns the
+directory.
+
+- **Temporary**: created with its one conversation, deleted with it. The
+  conversation's delete confirmation says that its files go too.
+- **Permanent**: created from the Workspaces screen or promoted from a
+  temporary workspace. It survives deletion of every conversation that uses it,
+  may be empty, and may be shared by several conversations. Its 256 MiB /
+  5,000-file quota is shared by all of them, because it is one directory.
+  "Permanent" is relative to conversations, not to the app: uninstalling or
+  clearing app data still removes it, and Android backup remains off.
+- A temporary workspace is deliberately single-conversation. Otherwise deleting
+  its owner would delete files another conversation is still using.
+
+Deleting a conversation in a permanent workspace removes its transcript and
+rollback snapshots only. The files and the workspace row remain. Deleting a
+permanent workspace is refused while it has conversations; deleting an empty one
+removes the directory and the row.
+
+The absolute directory is shown in Files → Workspace location and on the
+Workspace detail screen, with a copy action. **Open in Files app** opens the
+system DocumentsUI on the workspace root, which is the permissionless way to
+touch the files from outside; the absolute path itself is useful for adb or a
+root file manager, because an ordinary file manager cannot traverse
+`/data/user/0`. It is a **user-only** path string: no tool argument, system
+prompt, or diagnostics line contains it. The agent still sees only
+workspace-relative paths through `resolve()`.
+
 ## What the sandbox is, and what it is not
 
 **It confines the agent's tool calls. It does not sandbox the process.**
@@ -97,6 +129,10 @@ holds six ceilings, all enforced by the tools rather than asked of the model:
 | `maxTotalBytes` | 256 MiB (`:27`) | `checkQuota` |
 | `maxFileCount` | 5,000 (`:30`) | `checkQuota` |
 | `reservedFreeBytes` | 64 MiB (`:33`) | `checkFreeSpace` |
+
+The quota is per **workspace**, not per conversation. Conversations sharing a
+permanent workspace share these ceilings, and deleting one of them frees no
+files; the Workspaces screen and the Files header show the same usage numbers.
 
 The details that matter, all in `WorkspaceTool.kt`:
 

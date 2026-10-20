@@ -67,6 +67,7 @@ class MigrationTest {
 		InhumanDatabase.MIGRATION_7_8,
 		InhumanDatabase.MIGRATION_8_9,
 		InhumanDatabase.MIGRATION_9_10,
+		InhumanDatabase.MIGRATION_10_11,
 	)
 
 	// --- building a database at an old version -------------------------------
@@ -449,7 +450,7 @@ class MigrationTest {
 
 	@Test
 	fun `9 to 10 adds the changed-files column`() {
-		migrate(9, 10, *allMigrations).use { db ->
+		migrate(9, 10, *allMigrations.take(9).toTypedArray()).use { db ->
 			assertTrue(
 				"changedFilesJson is missing after 9 -> 10",
 				"changedFilesJson" in db.columnNames("messages"),
@@ -459,6 +460,35 @@ class MigrationTest {
 				assertTrue("an old message must not claim a file list", c.isNull(0))
 			}
 			db.assertCanarySurvived(10)
+		}
+	}
+
+	@Test
+	fun `10 to 11 creates a temporary workspace and drops the unique index`() {
+		migrate(10, 11, *allMigrations.take(10).toTypedArray()).use { db ->
+			db.query(
+				"SELECT id, name, isPermanent, ownerConversationId FROM workspaces WHERE id = 'ws-canary'",
+			).use { c ->
+				assertTrue("the existing conversation's workspace is missing", c.moveToFirst())
+				assertEquals("ws-canary", c.getString(0))
+				assertEquals("an existing workspace must keep the conversation title", "canary", c.getString(1))
+				assertEquals("an existing workspace must start temporary", 0L, c.getLong(2))
+				assertEquals("the conversation must own its temporary workspace", "c1", c.getString(3))
+			}
+			// The old unique index is what made a workspace one-conversation-only.
+			// A permanent workspace is shared; if this index survives, the second
+			// conversation's insert fails.
+			db.query("PRAGMA index_list('conversations')").use { c ->
+				var found = false
+				while (c.moveToNext()) {
+					if (c.getString(1) == "index_conversations_workspaceId") {
+						found = true
+						assertEquals("workspaceId is still unique", 0L, c.getLong(2))
+					}
+				}
+				assertTrue("the workspaceId index is missing", found)
+			}
+			db.assertCanarySurvived(11)
 		}
 	}
 

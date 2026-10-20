@@ -225,6 +225,10 @@ fun ChatScreen(
 	val pendingSshConsent by viewModel.state
 		.map { it.pendingSshConsent }
 		.collectAsStateWithLifecycle(null)
+	val workspaceName by viewModel.state.map { it.workspaceName }.collectAsStateWithLifecycle("")
+	val workspaceIsPermanent by viewModel.state
+		.map { it.workspaceIsPermanent }
+		.collectAsStateWithLifecycle(false)
 	var showChatMenu by remember { mutableStateOf(false) }
 	var rollbackTarget by remember { mutableStateOf<ChatMessageUi?>(null) }
 	var rollbackFiles by remember { mutableStateOf<List<WorkspaceChange>>(emptyList()) }
@@ -233,6 +237,8 @@ fun ChatScreen(
 	var showToolLimitDialog by remember { mutableStateOf(false) }
 	var showRenameDialog by remember { mutableStateOf(false) }
 	var renameInput by remember { mutableStateOf("") }
+	var showSaveWorkspaceDialog by remember { mutableStateOf(false) }
+	var workspaceNameInput by remember { mutableStateOf("") }
 
 	// Reported upward so the app's single Back handler knows a dialog is up.
 	// Both this and the approval gate are transient questions that Back should
@@ -240,6 +246,7 @@ fun ChatScreen(
 	val anyDialogOpen = showModelPicker || pendingApproval != null ||
 		pendingSshConsent != null || rollbackTarget != null || showRegeneratePicker ||
 		showSnapshotDialog || showToolLimitDialog || showRenameDialog
+			|| showSaveWorkspaceDialog
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
 	// Re-read the key and demo setting whenever this screen appears. The view
@@ -453,6 +460,25 @@ fun ChatScreen(
 									showRenameDialog = true
 								},
 							)
+							if (!workspaceIsPermanent) {
+								DropdownMenuItem(
+									text = {
+										Column {
+											Text("Save workspace as permanent")
+											Text(
+												text = "Keep its files after this conversation is deleted",
+												style = MaterialTheme.typography.bodySmall,
+												color = MaterialTheme.colorScheme.onSurfaceVariant,
+											)
+										}
+									},
+									onClick = {
+										showChatMenu = false
+										workspaceNameInput = workspaceName.ifBlank { title }
+										showSaveWorkspaceDialog = true
+									},
+								)
+							}
 							DropdownMenuItem(
 								text = { Text("Revoke SSH access") },
 								enabled = sshAllowed,
@@ -1011,11 +1037,46 @@ fun ChatScreen(
 			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 	}
+
+	if (showSaveWorkspaceDialog) {
+		AlertDialog(
+			onDismissRequest = { showSaveWorkspaceDialog = false },
+			title = { Text("Save workspace as permanent") },
+			text = {
+				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+					Text(
+						"The files stay after this conversation is deleted, and you can " +
+							"start more conversations in this workspace.",
+						style = MaterialTheme.typography.bodyMedium,
+					)
+					OutlinedTextField(
+						value = workspaceNameInput,
+						onValueChange = { workspaceNameInput = it },
+						label = { Text("Workspace name") },
+						singleLine = true,
+					)
+				}
+			},
+			confirmButton = {
+				TextButton(
+					enabled = workspaceNameInput.isNotBlank(),
+					onClick = {
+						viewModel.saveWorkspaceAsPermanent(workspaceNameInput)
+						showSaveWorkspaceDialog = false
+					},
+				) { Text("Save") }
+			},
+			dismissButton = {
+				TextButton(onClick = { showSaveWorkspaceDialog = false }) { Text("Cancel") }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
 }
 
 /**
- * The once-per-conversation SSH capability grant.
- *
  * Deliberately not the normal approval dialog: this is not "may I run this one
  * command", it is "may this conversation use SSH at all". The first command is
  * shown because it is the most concrete warning available, but the text says

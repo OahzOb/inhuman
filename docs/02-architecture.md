@@ -96,8 +96,11 @@ both providers.
 | --- | --- |
 | `showSettings` | `SettingsScreen` |
 | `showAgents` | `AgentsScreen` |
+| `showFiles && filesWorkspaceId != null` | `FilesScreen` for that workspace |
 | `showFiles && openConversationId != null` | `FilesScreen` for that conversation |
 | `openConversationId != null` | `ChatScreen` |
+| `openWorkspaceId != null` | `WorkspaceDetailScreen` |
+| `showWorkspaces` | `WorkspacesScreen` |
 | otherwise | `ConversationsScreen` (the list) |
 
 Two details that are easy to break:
@@ -113,19 +116,22 @@ Two details that are easy to break:
   (`MainActivity.kt:110-123`).
 
 Back is handled by a **single** `BackHandler` at the root, registered once, with
-an explicit ordering: dialog → directory level → overlays in stacking order →
-conversation, and only then does it disable itself and let the press close the
-app (`MainActivity.kt:130-169`). Registering one handler per screen would fire
-several on a single press and jump two or three levels at once.
+an explicit ordering: dialog → directory level → settings/agents → conversation
+→ workspace detail → workspace list. A conversation opened inside a workspace
+records its origin, so Back returns to the workspace rather than the home list.
+Registering one handler per screen would fire several on a single press and jump
+two or three levels at once.
 
 ### Start-up sweep
 
 One `LaunchedEffect` at the root sweeps workspace directories that no
-conversation refers to, off the main thread and after the first frame
-(`MainActivity.kt:83-87`). Deleting a conversation removes its files first and
-its rows second, so a crash in that window leaves a folder of the user's files
-that nothing in the UI can see or delete. Silence is the expected outcome on a
-healthy install, which is why nothing is shown.
+**workspace row** refers to, off the main thread and after the first frame
+(`MainActivity.kt:83-87`). A permanent workspace with no conversations is kept;
+a temporary workspace whose owner conversation is gone is removed. Deleting a
+conversation removes its files first and its rows second, so a crash in that
+window leaves a folder of the user's files that nothing in the UI can see or
+delete. Silence is the expected outcome on a healthy install, which is why
+nothing is shown.
 
 ## The build toolchain
 
