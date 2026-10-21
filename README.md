@@ -42,8 +42,10 @@ Beyond the phases: assistants with visible system prompts, per-conversation
 model and reasoning effort read from the provider, an approval gate that is
 **configurable per tool, per assistant and per path and asks nothing by
 default**, branch switching, image attachments, usage reporting, a context
-gauge above the composer, and temporary/permanent workspaces with the absolute
-location available to the user.
+gauge above the composer, temporary/permanent workspaces with the absolute
+location available to the user, global title/message search with
+jump-to-message, actionable error recovery, encrypted backup import preview and
+one-step undo, and a conversation-aware notification with Stop.
 
 **Demo mode exercises the tool loop, not just the stream.** With file tools
 switched on it creates a file and then deletes it, so the tool loop, the
