@@ -7,6 +7,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,6 +25,8 @@ import com.inhuman.core.data.BackupRepository
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.core.design.InhumanTheme
+import com.inhuman.core.design.LayoutPreference
+import com.inhuman.core.design.LocalLayoutPreference
 import com.inhuman.ui.ConversationsScreen
 import com.inhuman.ui.ConversationsViewModel
 import com.inhuman.ui.agents.AgentsScreen
@@ -96,6 +99,11 @@ private fun InhumanRoot(
 	// a single instance avoids. AgentRepository also caches the model list, so
 	// a second instance would fetch it twice.
 	val secure = remember { SecureStore(context) }
+	var layoutPreference by remember {
+		mutableStateOf(
+			LayoutPreference.fromStored(secure.get(SecureStore.KEY_LAYOUT_PREFERENCE)),
+		)
+	}
 	val repository = remember { ConversationRepository(context) }
 	val agents = remember { AgentRepository(context, secure) }
 	val backup = remember { BackupRepository(context) }
@@ -264,6 +272,7 @@ private fun InhumanRoot(
 		}
 	}
 
+	CompositionLocalProvider(LocalLayoutPreference provides layoutPreference) {
 	when {
 		showSettings -> {
 			val factory = remember(secure, agents, repository) {
@@ -278,7 +287,11 @@ private fun InhumanRoot(
 				}
 			}
 			val vm: SettingsViewModel = viewModel(factory = factory)
-			SettingsScreen(viewModel = vm, onBack = { showSettings = false })
+			SettingsScreen(
+				viewModel = vm,
+				onBack = { showSettings = false },
+				onLayoutPreferenceChange = { layoutPreference = it },
+			)
 		}
 
 		showAgents -> {
@@ -458,6 +471,7 @@ private fun InhumanRoot(
 				sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
 			)
 		}
+	}
 	}
 }
 

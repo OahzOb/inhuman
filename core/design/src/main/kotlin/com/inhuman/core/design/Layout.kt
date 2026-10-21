@@ -2,9 +2,33 @@ package com.inhuman.core.design
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+
+/**
+ * A user preference, not a device classification.
+ *
+ * Auto follows the window. Compact forces the single-column shell even on a
+ * tablet; Comfortable keeps the wide shell and larger gutters. It is a fallback
+ * for taste or accessibility, not a request for the user to identify their
+ * screen ratio.
+ */
+enum class LayoutPreference {
+	Auto,
+	Compact,
+	Comfortable,
+	;
+
+	companion object {
+		fun fromStored(value: String?): LayoutPreference =
+			entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: Auto
+	}
+}
+
+/** Supplied once at the root; `currentWindowFrame()` reads it. */
+val LocalLayoutPreference = staticCompositionLocalOf { LayoutPreference.Auto }
 
 /**
  * The two dimensions a layout actually has to reason about.
@@ -33,6 +57,7 @@ data class WindowFrame(
 	val widthDp: Int,
 	val heightDp: Int,
 	val fontScale: Float = 1f,
+	val preference: LayoutPreference = LayoutPreference.Auto,
 ) {
 	val widthClass: WindowWidthClass = when {
 		widthDp < 600 -> WindowWidthClass.Compact
@@ -47,8 +72,12 @@ data class WindowFrame(
 	}
 
 	/** True when either axis is phone-sized; short landscape belongs here too. */
-	val isCompact: Boolean =
-		widthClass == WindowWidthClass.Compact || heightClass == WindowHeightClass.Compact
+	val isCompact: Boolean = when (preference) {
+		LayoutPreference.Compact -> true
+		LayoutPreference.Comfortable -> false
+		LayoutPreference.Auto ->
+			widthClass == WindowWidthClass.Compact || heightClass == WindowHeightClass.Compact
+	}
 
 	val isLandscape: Boolean = widthDp > heightDp
 
@@ -60,13 +89,19 @@ data class WindowFrame(
 	 * The previous rule was `width >= 600`, which made a 640x360 landscape phone
 	 * look like a tablet. Requiring an Expanded width and at least Medium height
 	 * keeps the rail for real tablets and large foldables, while leaving a wide,
-	 * short window as one scrollable column.
+	 * short window as one scrollable column. The manual Compact mode suppresses
+	 * it even on a tablet.
 	 */
-	val usesTwoPane: Boolean =
-		widthClass == WindowWidthClass.Expanded && heightClass != WindowHeightClass.Compact
+	val usesTwoPane: Boolean = when (preference) {
+		LayoutPreference.Compact -> false
+		LayoutPreference.Comfortable -> widthClass == WindowWidthClass.Expanded
+		LayoutPreference.Auto ->
+			widthClass == WindowWidthClass.Expanded && heightClass != WindowHeightClass.Compact
+	}
 
 	/** A FAB only on a genuinely narrow window; medium gets a header action. */
-	val usesFab: Boolean = widthClass == WindowWidthClass.Compact
+	val usesFab: Boolean =
+		widthClass == WindowWidthClass.Compact && preference != LayoutPreference.Comfortable
 
 	/**
 	 * Compact window with large text cannot fit three destinations beside the
@@ -91,6 +126,7 @@ fun currentWindowFrame(): WindowFrame {
 		widthDp = configuration.screenWidthDp,
 		heightDp = configuration.screenHeightDp,
 		fontScale = configuration.fontScale,
+		preference = LocalLayoutPreference.current,
 	)
 }
 

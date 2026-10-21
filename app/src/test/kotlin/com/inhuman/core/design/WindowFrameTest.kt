@@ -89,4 +89,19 @@ class WindowFrameTest {
 		assertEquals(FormFactor.Medium, WindowFrame(640, 360).formFactor)
 		assertEquals(FormFactor.Expanded, WindowFrame(900, 400).formFactor)
 	}
+
+	@Test
+	fun compactPreferenceForcesSinglePaneOnATablet() {
+		val frame = WindowFrame(1024, 768, preference = LayoutPreference.Compact)
+		assertTrue(frame.isCompact)
+		assertFalse(frame.usesTwoPane)
+		assertFalse(frame.usesFab)
+	}
+
+	@Test
+	fun comfortablePreferenceKeepsTheWideShell() {
+		val frame = WindowFrame(1024, 768, preference = LayoutPreference.Comfortable)
+		assertFalse(frame.isCompact)
+		assertTrue(frame.usesTwoPane)
+	}
 }

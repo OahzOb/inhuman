@@ -19,6 +19,8 @@ data class TurnStatus(
 	val streaming: Boolean,
 	val preview: String? = null,
 	val failed: Boolean = false,
+	/** A tool call or SSH consent is waiting; the notification offers Review. */
+	val awaitingApproval: Boolean = false,
 )
 
 /**

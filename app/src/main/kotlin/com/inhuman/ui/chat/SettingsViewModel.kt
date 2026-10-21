@@ -80,6 +80,11 @@ data class SettingsUiState(
 	 * sync; the value is a budget, not an "unlimited" mode.
 	 */
 	val toolRoundLimit: Int = ChatViewModel.DEFAULT_TOOL_ROUNDS,
+	/** Total individual tool calls across all rounds in one turn. */
+	val toolCallLimit: Int = ChatViewModel.DEFAULT_TOOL_CALLS,
+	/** Auto follows the window; Compact/Comfortable override the shell. */
+	val layoutPreference: com.inhuman.core.design.LayoutPreference =
+		com.inhuman.core.design.LayoutPreference.Auto,
 	/**
 	 * The global SSH-tool switch.
 	 *
@@ -134,6 +139,10 @@ class SettingsViewModel(
 		_state.value = SettingsUiState(
 			demoMode = secure.get(SecureStore.KEY_DEMO_MODE) == "1",
 			toolRoundLimit = readToolRoundLimit(),
+			toolCallLimit = readToolCallLimit(),
+			layoutPreference = com.inhuman.core.design.LayoutPreference.fromStored(
+				secure.get(SecureStore.KEY_LAYOUT_PREFERENCE),
+			),
 			sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
 			webSearchBackend = secure.get(SecureStore.KEY_WEB_SEARCH_BACKEND) ?: "deepseek",
 			webFetchBackend = secure.get(SecureStore.KEY_WEB_FETCH_BACKEND) ?: "deepseek",
@@ -239,10 +248,30 @@ class SettingsViewModel(
 		Diag.i("turn", "global tool round limit set to $limit")
 	}
 
+	fun setLayoutPreference(preference: com.inhuman.core.design.LayoutPreference) {
+		secure.put(SecureStore.KEY_LAYOUT_PREFERENCE, preference.name)
+		_state.value = _state.value.copy(layoutPreference = preference)
+	}
+
 	private fun readToolRoundLimit(): Int =
 		secure.get(SecureStore.KEY_TOOL_ROUNDS)?.toIntOrNull()
 			?.coerceIn(ChatViewModel.MIN_TOOL_ROUNDS, ChatViewModel.MAX_TOOL_ROUNDS)
 			?: ChatViewModel.DEFAULT_TOOL_ROUNDS
+
+	fun setToolCallLimit(calls: Int) {
+		val limit = calls.coerceIn(
+			ChatViewModel.MIN_TOOL_CALLS,
+			ChatViewModel.MAX_TOOL_CALLS,
+		)
+		secure.put(SecureStore.KEY_TOOL_CALLS, limit.toString())
+		_state.value = _state.value.copy(toolCallLimit = limit)
+		Diag.i("turn", "global tool call limit set to $limit")
+	}
+
+	private fun readToolCallLimit(): Int =
+		secure.get(SecureStore.KEY_TOOL_CALLS)?.toIntOrNull()
+			?.coerceIn(ChatViewModel.MIN_TOOL_CALLS, ChatViewModel.MAX_TOOL_CALLS)
+			?: ChatViewModel.DEFAULT_TOOL_CALLS
 
 	fun setDemoMode(enabled: Boolean) {
 		secure.put(SecureStore.KEY_DEMO_MODE, if (enabled) "1" else "0")

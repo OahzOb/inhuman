@@ -160,6 +160,8 @@ data class ChatUiState(
 	val snapshotRetention: Int = 3,
 	/** How many tool rounds one turn may run before it stops. */
 	val toolRoundLimit: Int = 8,
+	/** How many individual tool calls one turn may execute. */
+	val toolCallLimit: Int = 32,
 	/** Places in the last turn a tool-using regeneration may start. */
 	val regenerationPoints: List<RegenerationPoint> = emptyList(),
 	/**

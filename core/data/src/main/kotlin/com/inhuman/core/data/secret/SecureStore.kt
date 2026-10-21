@@ -217,5 +217,7 @@ class SecureStore(
 		 * migration -- buys little for a setting a user changes rarely.
 		 */
 		const val KEY_TOOL_ROUNDS = "tools.max_rounds"
+		const val KEY_TOOL_CALLS = "tools.max_calls"
+		const val KEY_LAYOUT_PREFERENCE = "layout.preference"
 	}
 }

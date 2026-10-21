@@ -26,12 +26,15 @@ turn could start while the first was still writing into the same message tree
 
 Builds the provider (`DemoProvider()` or `DeepSeekProvider(apiKey!!)`),
 `buildTools()`, and loops up to the user's **tool-round limit** — Settings →
-04 / Turn limits **or** the chat menu's Tool calls per turn; both write the same
+04 / Turn limits **or** the chat menu's Tool rounds per turn; both write the same
 `SecureStore` key, so they cannot disagree. Default `DEFAULT_TOOL_ROUNDS = 8`,
 bounded 4–64. A round is one model response plus its tool calls, so this is not a
-count of individual calls. Empty `toolCalls` ends the turn; falling out of the
-loop sets an explicit error ("Stopped after N tool rounds…") rather than ending
-silently.
+count of individual calls. A second global budget,
+`DEFAULT_TOOL_CALLS = 32` (1–256), counts every call across all rounds; a round
+that asks for more calls than remain executes only the remaining ones and answers
+the rest as skipped, then the turn stops with an explicit error. Empty
+`toolCalls` ends the turn; falling out of either loop sets an explicit error
+("Stopped after N tool rounds/calls…") rather than ending silently.
 
 ### `streamOneTurn` (`:802-1081`)
 
@@ -783,9 +786,19 @@ there. Open state uses `rememberSaveable`, so rotation does not reset it.
 as the chat menu. Both write `SecureStore.KEY_TOOL_ROUNDS`; `SettingsViewModel`
 reads and writes it through one helper, and `ChatViewModel.refreshConfiguration`
 re-reads it when a conversation is entered. A round is one model response plus
-the calls it requested, so the label says "Tool calls per turn" but the count is
-round trips; raising it does not change which tools are allowed. Settings moved
-**Backup** to `05`.
+the calls it requested, so the label says "Tool rounds per turn"; the section
+also owns the separate total-call budget (`KEY_TOOL_CALLS`, default 32, range
+1–256). Raising either budget does not change which tools are allowed.
+
+**Display** (`08 / Display`) is a `LayoutPreference` of Auto / Compact /
+Comfortable. Auto derives the shell from the window; Compact forces the
+single-column shell, and Comfortable keeps the wide shell. It is supplied at the
+root through `LocalLayoutPreference`, so rotation and split-screen still work
+under Auto, and is persisted under `layout.preference`. It is a reading
+preference, not a per-ratio selector.
+
+Settings moved **Backup** to `05`, **Approvals** to `06`, **Diagnostics** to
+`07` and **Display** to `08`.
 
 **Demo mode is the offline verification path.** `demoEnabled()` reads
 `secure.get(SecureStore.KEY_DEMO_MODE) == "1"` (`ChatViewModel.kt:615`), and

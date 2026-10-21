@@ -90,6 +90,7 @@ import com.inhuman.ui.common.PaidToolsNotice
 fun SettingsScreen(
 	viewModel: SettingsViewModel,
 	onBack: () -> Unit,
+	onLayoutPreferenceChange: (com.inhuman.core.design.LayoutPreference) -> Unit = {},
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	var showHostKeysDialog by remember { mutableStateOf(false) }
@@ -423,16 +424,17 @@ fun SettingsScreen(
 
 			SettingsFold(
 				code = "04 / Turn limits",
-				title = "Tool calls per turn",
-				summary = "${state.toolRoundLimit} rounds before a turn stops",
+				title = "Tool limits",
+				summary = "${state.toolRoundLimit} rounds · ${state.toolCallLimit} calls per turn",
 			) {
 				Text(
-					text = "A global budget for every conversation. One round can contain " +
-						"several tool calls, so this limits model/tool round trips, not the " +
-						"number of calls inside a round.",
+					text = "Global budgets for every conversation. A round is one model " +
+						"response plus its calls; the call budget counts every individual " +
+						"tool call across the turn. Neither changes which tools are allowed.",
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
+				Eyebrow("Rounds per turn")
 				FlowRowCompat {
 					listOf(4, 8, 16, 24, 32, 64).forEach { rounds ->
 						FilterChip(
@@ -443,8 +445,23 @@ fun SettingsScreen(
 					}
 				}
 				Text(
-					text = "Current: ${state.toolRoundLimit} rounds per turn. " +
-						"Raising this does not change which tools are allowed.",
+					text = "Current: ${state.toolRoundLimit} model/tool round trips per turn.",
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Eyebrow("Total tool calls")
+				FlowRowCompat {
+					listOf(1, 4, 8, 16, 32, 64, 128, 256).forEach { calls ->
+						FilterChip(
+							selected = state.toolCallLimit == calls,
+							onClick = { viewModel.setToolCallLimit(calls) },
+							label = { Text("$calls") },
+						)
+					}
+				}
+				Text(
+					text = "Current: ${state.toolCallLimit} individual calls per turn. " +
+						"When either budget is reached the turn stops with an explicit error.",
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
@@ -558,6 +575,39 @@ fun SettingsScreen(
 				summary = "The local flight recorder and how to share it",
 			) {
 				DiagnosticsSection()
+			}
+
+			SettingsFold(
+				code = "08 / Display",
+				title = "Layout",
+				summary = when (state.layoutPreference) {
+					com.inhuman.core.design.LayoutPreference.Auto -> "Auto: follow this window"
+					com.inhuman.core.design.LayoutPreference.Compact ->
+						"Compact: single column, tighter spacing"
+					com.inhuman.core.design.LayoutPreference.Comfortable ->
+						"Comfortable: wide shell and larger gutters"
+				},
+			) {
+				Text(
+					text = "Auto follows the current window, including rotation, split-screen " +
+						"and foldables. Compact forces one column on a tablet; Comfortable " +
+						"keeps the wide shell. This is a reading preference, not a screen-ratio " +
+						"selector.",
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				FlowRowCompat {
+					com.inhuman.core.design.LayoutPreference.entries.forEach { preference ->
+						FilterChip(
+							selected = state.layoutPreference == preference,
+							onClick = {
+								viewModel.setLayoutPreference(preference)
+								onLayoutPreferenceChange(preference)
+							},
+							label = { Text(preference.name) },
+						)
+					}
+				}
 			}
 		}
 	}

@@ -576,7 +576,7 @@ fun ChatScreen(
 								DropdownMenuItem(
 									text = {
 										Column {
-											Text("Tool calls per turn")
+											Text("Tool rounds per turn")
 											Text(
 												text = "$toolRoundLimit rounds before the turn stops",
 												style = MaterialTheme.typography.bodySmall,
@@ -1339,14 +1339,15 @@ fun ChatScreen(
 	if (showToolLimitDialog) {
 		AlertDialog(
 			onDismissRequest = { showToolLimitDialog = false },
-			title = { Text("Tool calls per turn") },
+			title = { Text("Tool rounds per turn") },
 			text = {
 				Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
 					Text(
 						"How many model round trips one turn may run before it stops. " +
 							"A round is one model response plus the tool calls it asked for; " +
 							"raising this does not change which tools are allowed. " +
-							"This is global: it applies to every conversation.",
+							"This is global: it applies to every conversation. " +
+							"The separate total-call budget is in Settings → 04 / Turn limits.",
 					)
 					Text(
 						"Current: $toolRoundLimit per turn",

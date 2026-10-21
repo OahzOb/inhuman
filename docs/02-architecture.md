@@ -136,6 +136,8 @@ or stop the wrong turn.
 
 `TurnStatus` carries the current phase (Thinking, Using a tool, Waiting for
 approval/consent, Writing reply), the conversation title and the start time.
+`awaitingApproval` adds a **Review** action to the child (and to the summary when
+any child is waiting); it opens the conversation, not an approval decision.
 The service uses a chronometer and updates on phase changes, not on every token.
 The progress channel is low-importance and silent. A finish does not post a
 completion while the app is in the foreground; in the background it posts a

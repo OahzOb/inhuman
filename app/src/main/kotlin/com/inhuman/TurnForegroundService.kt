@@ -96,6 +96,15 @@ class TurnForegroundService : Service() {
 			.setShowWhen(true)
 			.setContentIntent(TurnNotifications.openIntent(this, status.conversationId))
 			.addAction(0, "Stop", TurnNotifications.stopIntent(this, status.conversationId))
+			.apply {
+				if (status.awaitingApproval) {
+					addAction(
+						0,
+						"Review",
+						TurnNotifications.openIntent(this@TurnForegroundService, status.conversationId),
+					)
+				}
+			}
 			.setOngoing(true)
 			.setSilent(true)
 			.setOnlyAlertOnce(true)
@@ -130,6 +139,16 @@ class TurnForegroundService : Service() {
 			.setContentIntent(TurnNotifications.openIntent(this, latest.conversationId))
 			.addAction(0, "Open", TurnNotifications.openIntent(this, latest.conversationId))
 			.addAction(0, "Stop all", TurnNotifications.stopAllIntent(this))
+			.apply {
+				val review = turns.filter { it.awaitingApproval }.maxByOrNull { it.startedAt }
+				if (review != null) {
+					addAction(
+						0,
+						"Review",
+						TurnNotifications.openIntent(this@TurnForegroundService, review.conversationId),
+					)
+				}
+			}
 			.setOngoing(true)
 			.setSilent(true)
 			.setOnlyAlertOnce(true)

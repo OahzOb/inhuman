@@ -196,6 +196,7 @@ class ChatViewModel(
 			streaming = streaming,
 			preview = if (!streaming) lastAssistant?.plainText?.take(240) else null,
 			failed = !streaming && current.error != null,
+			awaitingApproval = current.pendingApproval != null || current.pendingSshConsent != null,
 		)
 		if (!streaming) turnStartedAt = 0L
 		return status
@@ -774,6 +775,7 @@ class ChatViewModel(
 				snapshotTurns = snapshotTurns,
 				snapshotRetention = snapshotRetention(),
 				toolRoundLimit = toolRoundLimit(),
+				toolCallLimit = toolCallLimit(),
 				regenerationPoints = regenerationPoints,
 				compaction = compaction,
 				// Read off the rebuilt list: the remaining transcript-derived
@@ -1274,6 +1276,7 @@ class ChatViewModel(
 				snapshotTurns = snapshotTurns,
 				snapshotRetention = snapshotRetention(),
 				toolRoundLimit = toolRoundLimit(),
+				toolCallLimit = toolCallLimit(),
 				regenerationPoints = regenerationPoints,
 				compaction = compaction,
 				context = contextOf(it.messages),
@@ -1429,6 +1432,11 @@ class ChatViewModel(
 			?.coerceIn(MIN_TOOL_ROUNDS, MAX_TOOL_ROUNDS)
 			?: DEFAULT_TOOL_ROUNDS
 
+	private fun toolCallLimit(): Int =
+		secure.get(SecureStore.KEY_TOOL_CALLS)?.toIntOrNull()
+			?.coerceIn(MIN_TOOL_CALLS, MAX_TOOL_CALLS)
+			?: DEFAULT_TOOL_CALLS
+
 	fun setToolRoundLimit(rounds: Int) {
 		val limit = rounds.coerceIn(MIN_TOOL_ROUNDS, MAX_TOOL_ROUNDS)
 		secure.put(SecureStore.KEY_TOOL_ROUNDS, limit.toString())
@@ -1521,6 +1529,7 @@ class ChatViewModel(
 				configured = demo || hasKey,
 				providerName = providerName,
 				toolRoundLimit = toolRoundLimit(),
+				toolCallLimit = toolCallLimit(),
 				sshToolEnabled = sshToolEnabled(),
 			)
 		}
@@ -1982,16 +1991,18 @@ class ChatViewModel(
 		// Read once for the whole turn: changing the setting mid-stream must not
 		// move the ceiling under a loop that is already running.
 		val maxRounds = toolRoundLimit()
+		val maxCalls = toolCallLimit()
 		Diag.i(
 			"turn",
 			"run start provider=${provider.id} " +
 				"model=$turnModel thinking=$thinking " +
 				"effort=${reasoningEffort ?: "-"} tools=${tools.size} " +
 				"suppressTools=$suppressToolCalls " +
-				"maxRounds=$maxRounds demo=$demo",
+				"maxRounds=$maxRounds maxCalls=$maxCalls demo=$demo",
 		)
 
 		var rounds = 0
+		var callsUsed = 0
 		while (rounds < maxRounds) {
 			rounds++
 			val outcome = streamOneTurn(provider, turnModel, tools, toolSpecs, suppressToolCalls)
@@ -2022,14 +2033,28 @@ class ChatViewModel(
 			}
 
 			// Execute them, in order. Approvals are collected first so a model
-			// asking for three writes does not stack three dialogs.
-			val executed = executeCalls(outcome, tools)
+			// asking for three writes does not stack three dialogs. The total
+			// call budget is separate from the round budget: one round can carry
+			// many calls.
+			val remainingCalls = maxCalls - callsUsed
+			if (remainingCalls <= 0) {
+				withContext(NonCancellable) { answerSkippedCalls(outcome, after = -1) }
+				stopForCallLimit(maxCalls)
+				return
+			}
+			val toRun = minOf(remainingCalls, outcome.toolCalls.size)
+			val executed = executeCalls(outcome, tools, allowedCalls = toRun)
+			callsUsed += toRun
 			if (!executed) {
 				Diag.i("turn", "run end declined rounds=$rounds")
 				// The user declined something, or the turn was cancelled. The
 				// transcript already holds the refusal, so the model can respond
 				// to it on the next user message rather than being re-run now.
 				_state.update { it.copy(isStreaming = false) }
+				return
+			}
+			if (callsUsed >= maxCalls) {
+				stopForCallLimit(maxCalls)
 				return
 			}
 		}
@@ -2042,6 +2067,18 @@ class ChatViewModel(
 				isStreaming = false,
 				error = "Stopped after $maxRounds tool rounds. " +
 					"The assistant may be looping; raise the limit in the chat menu, " +
+					"or send another message to continue.",
+			)
+		}
+	}
+
+	private fun stopForCallLimit(maxCalls: Int) {
+		Diag.w("turn", "tool call limit reached calls=$maxCalls")
+		_state.update {
+			it.copy(
+				isStreaming = false,
+				error = "Stopped after $maxCalls tool calls. " +
+					"The assistant may be looping; raise the call limit in Settings, " +
 					"or send another message to continue.",
 			)
 		}
@@ -2486,7 +2523,11 @@ class ChatViewModel(
 	 * @return false if the turn should stop -- the user declined, or the run was
 	 *   cancelled mid-way.
 	 */
-	private suspend fun executeCalls(outcome: TurnOutcome, tools: List<Tool>): Boolean {
+	private suspend fun executeCalls(
+		outcome: TurnOutcome,
+		tools: List<Tool>,
+		allowedCalls: Int = outcome.toolCalls.size,
+	): Boolean {
 		val byName = tools.associateBy { it.name }
 
 		// Read once per round rather than per call: the rules do not change
@@ -2502,7 +2543,7 @@ class ChatViewModel(
 		var reached = -1
 
 		try {
-		for (call in outcome.toolCalls) {
+		for (call in outcome.toolCalls.take(allowedCalls)) {
 				reached = call.index
 				val tool = byName[call.displayName]
 				if (tool == null) {
@@ -2807,6 +2848,15 @@ class ChatViewModel(
 					// would then treat a real write as replayable.
 					repository.markMutated(outcome.messageId)
 				}
+			}
+			if (allowedCalls < outcome.toolCalls.size) {
+				withContext(NonCancellable) {
+					answerSkippedCalls(
+						outcome,
+						after = outcome.toolCalls.getOrNull(allowedCalls - 1)?.index ?: -1,
+					)
+				}
+				settled = true
 			}
 		} finally {
 			// The stop path, and the reason this is a `finally` rather than a
@@ -3532,6 +3582,17 @@ class ChatViewModel(
 		const val DEFAULT_TOOL_ROUNDS = 8
 		const val MIN_TOOL_ROUNDS = 4
 		const val MAX_TOOL_ROUNDS = 64
+
+		/**
+		 * Total tool calls across all rounds in one turn.
+		 *
+		 * The round limit bounds model round trips; a single round can contain
+		 * several calls. This second ceiling is what stops one round from
+		 * executing thirty writes after the model was given a small budget.
+		 */
+		const val DEFAULT_TOOL_CALLS = 32
+		const val MIN_TOOL_CALLS = 1
+		const val MAX_TOOL_CALLS = 256
 
 		/**
 		 * Appended only to a final-answer retry, not stored.
