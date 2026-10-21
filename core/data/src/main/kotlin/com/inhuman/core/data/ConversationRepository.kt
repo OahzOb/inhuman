@@ -2,6 +2,7 @@ package com.inhuman.core.data
 
 import android.content.Context
 import androidx.room.withTransaction
+import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.ConversationStore
 import com.inhuman.core.data.db.Database
@@ -63,6 +64,12 @@ data class ConversationSearchHit(
 	val role: String?,
 	val snippet: String,
 	val createdAt: Long,
+)
+
+/** What a bulk workspace delete actually removed. */
+data class WorkspaceBulkDelete(
+	val workspaces: Int,
+	val conversations: Int,
 )
 
 /**
@@ -434,6 +441,56 @@ class ConversationRepository(
 		// not an orphan, and a retry can finish the delete.
 		if (temporary) db.workspaces().delete(conversation.workspaceId)
 	}
+
+	/** Delete several conversations, keeping the permanent-workspace rules. */
+	suspend fun deleteConversations(conversations: List<ConversationEntity>): Int {
+		var deleted = 0
+		conversations.distinctBy { it.id }.forEach { conversation ->
+			runCatching { delete(conversation) }
+				.onSuccess { deleted++ }
+				.onFailure { Diag.w("conv", "bulk delete failed id=${conversation.id}", it) }
+		}
+		return deleted
+	}
+
+	/**
+	 * Delete permanent workspaces and everything inside them.
+	 *
+	 * This is the explicit bulk action that the single-workspace delete
+	 * deliberately refuses while conversations remain. The caller must name the
+	 * conversation count in its confirmation; this method then removes those
+	 * conversations (their rollback snapshots included), the workspace
+	 * directories, and finally the workspace rows.
+	 */
+	suspend fun deleteWorkspaces(workspaces: List<WorkspaceEntity>): WorkspaceBulkDelete {
+		val targets = workspaces.filter { it.isPermanent }.distinctBy { it.id }
+		val ids = targets.mapTo(mutableSetOf()) { it.id }
+		if (ids.isEmpty()) return WorkspaceBulkDelete(0, 0)
+		val conversations = db.conversations().all().filter { it.workspaceId in ids }
+		var deletedWorkspaces = 0
+		var deletedConversations = 0
+		targets.forEach { workspace ->
+			var clean = true
+			conversations.filter { it.workspaceId == workspace.id }.forEach { conversation ->
+				runCatching { delete(conversation) }
+					.onSuccess { deletedConversations++ }
+					.onFailure {
+						clean = false
+						Diag.w("workspace", "bulk delete conversation failed id=${conversation.id}", it)
+					}
+			}
+			if (!clean) return@forEach
+			runCatching {
+				Database.workspaceDir(appContext, workspace.id).deleteRecursively()
+				db.workspaces().delete(workspace.id)
+			}.onSuccess { deletedWorkspaces++ }
+				.onFailure {
+					Diag.w("workspace", "bulk delete failed id=${workspace.id}", it)
+				}
+		}
+		return WorkspaceBulkDelete(deletedWorkspaces, deletedConversations)
+	}
+
 
 	/**
 	 * Remove workspace directories that no workspace row refers to.

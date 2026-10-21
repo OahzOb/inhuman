@@ -47,8 +47,9 @@ location available to the user, global title/message search with
 jump-to-message, actionable error recovery, encrypted backup import preview and
 one-step undo, a conversation-aware notification with Stop, a readable wire
 inspector for the exact system message, tool schemas, messages and raw tool
-calls, with long text collapsed, an in-app text editor, and Open with… support
-so another app can edit and save a workspace file.
+calls, with long text collapsed, an in-app text editor, Open with… support so
+another app can edit and save a workspace file, and multi-select deletion for
+conversations and permanent workspaces.
 
 **Demo mode exercises the tool loop, not just the stream.** With file tools
 switched on it creates a file and then deletes it, so the tool loop, the

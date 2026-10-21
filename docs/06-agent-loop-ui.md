@@ -556,6 +556,13 @@ question about who decided. Do not remove it on the grounds that "deletion no
 longer asks" — that sentence is about the model's `delete_file` call, not about
 a person pressing delete in a list.
 
+The home list also has **Select**: row taps toggle checkboxes, long-press enters
+selection, and Back cancels it. Delete asks once for the whole selection and
+says explicitly that temporary workspace files go while a permanent workspace
+and its files stay. The bulk action calls `ConversationRepository.deleteConversations`,
+which applies the same per-conversation cleanup rather than a shortcut that
+could skip rollback snapshots.
+
 ### Agents — what an "assistant" is
 
 `AgentsScreen.kt` / `AgentsViewModel.kt`. An assistant is an `AgentEntity`: name,

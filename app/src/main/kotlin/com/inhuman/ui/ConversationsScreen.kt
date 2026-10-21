@@ -5,11 +5,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.TextButton
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -102,6 +105,9 @@ fun ConversationsScreen(
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
 	var showCreateSheet by remember { mutableStateOf(false) }
+	var showBulkDelete by remember { mutableStateOf(false) }
+
+	BackHandler(enabled = state.selecting) { viewModel.cancelSelection() }
 
 	// Ask for the file count when the question is about to be shown, not when it
 	// is answered -- by then the folder is gone and there is nothing to count.
@@ -184,6 +190,15 @@ fun ConversationsScreen(
 							searchQuery = state.searchQuery,
 							searchResults = state.searchResults,
 							searching = state.searching,
+							selecting = state.selecting,
+							selectedIds = state.selectedIds,
+							deletingSelection = state.deletingSelection,
+							error = state.error,
+							onBeginSelection = viewModel::beginSelection,
+							onToggleSelection = viewModel::toggleSelection,
+							onCancelSelection = viewModel::cancelSelection,
+							onDeleteSelected = { showBulkDelete = true },
+							onClearError = viewModel::clearError,
 							onSearchChange = viewModel::onSearchQueryChange,
 							onClearSearch = viewModel::clearSearch,
 							onOpenSearchHit = onOpenSearchHit,
@@ -204,6 +219,15 @@ fun ConversationsScreen(
 					searchQuery = state.searchQuery,
 					searchResults = state.searchResults,
 					searching = state.searching,
+					selecting = state.selecting,
+					selectedIds = state.selectedIds,
+					deletingSelection = state.deletingSelection,
+					error = state.error,
+					onBeginSelection = viewModel::beginSelection,
+					onToggleSelection = viewModel::toggleSelection,
+					onCancelSelection = viewModel::cancelSelection,
+					onDeleteSelected = { showBulkDelete = true },
+					onClearError = viewModel::clearError,
 					onSearchChange = viewModel::onSearchQueryChange,
 					onClearSearch = viewModel::clearSearch,
 					onOpenSearchHit = onOpenSearchHit,
@@ -232,6 +256,38 @@ fun ConversationsScreen(
 				showCreateSheet = false
 				onNewWorkspace()
 			},
+		)
+	}
+
+	// Deleting a multi-selection asks once, naming how many threads go and what
+	// happens to their workspaces. Permanent workspace files are not touched.
+	if (showBulkDelete) {
+		val count = state.selectedIds.size
+		AlertDialog(
+			onDismissRequest = { showBulkDelete = false },
+			title = { Text("Delete $count conversation${if (count == 1) "" else "s"}?") },
+			text = {
+				Text(
+					"Each conversation's transcript and rollback snapshots are removed. " +
+						"Files in a temporary workspace go with it; a permanent workspace " +
+						"and its files remain. This cannot be undone.",
+				)
+			},
+			confirmButton = {
+				TextButton(
+					enabled = !state.deletingSelection,
+					onClick = {
+						showBulkDelete = false
+						viewModel.deleteSelected()
+					},
+				) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+			},
+			dismissButton = {
+				TextButton(onClick = { showBulkDelete = false }) { Text("Cancel") }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 	}
 
@@ -672,6 +728,15 @@ private fun ConversationPanel(
 	searchQuery: String,
 	searchResults: List<ConversationSearchHit>,
 	searching: Boolean,
+	selecting: Boolean,
+	selectedIds: Set<String>,
+	deletingSelection: Boolean,
+	error: String?,
+	onBeginSelection: (String?) -> Unit,
+	onToggleSelection: (String) -> Unit,
+	onCancelSelection: () -> Unit,
+	onDeleteSelected: () -> Unit,
+	onClearError: () -> Unit,
 	onSearchChange: (String) -> Unit,
 	onClearSearch: () -> Unit,
 	onOpenSearchHit: (ConversationSearchHit) -> Unit,
@@ -708,71 +773,137 @@ private fun ConversationPanel(
 			) {
 				Eyebrow("Conversations")
 				Spacer(Modifier.weight(1f))
-				Text(
-					text = twoDigits(conversations.size),
-					style = MaterialTheme.typography.labelMedium,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
+				if (selecting) {
+					Text(
+						text = "${selectedIds.size} selected",
+						style = MaterialTheme.typography.labelMedium,
+						color = MaterialTheme.colorScheme.primary,
+					)
+				} else {
+					Text(
+						text = twoDigits(conversations.size),
+						style = MaterialTheme.typography.labelMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					if (conversations.isNotEmpty()) {
+						TextButton(onClick = { onBeginSelection(null) }) {
+							Text("Select", style = MaterialTheme.typography.labelMedium)
+						}
+					}
+				}
+			}
+			error?.let { message ->
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					Text(
+						text = message,
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.error,
+						modifier = Modifier.weight(1f),
+					)
+					TextButton(onClick = onClearError) { Text("Dismiss") }
+				}
 			}
 			Spacer(Modifier.height(10.dp))
 			Hairline()
-			Spacer(Modifier.height(8.dp))
-			OutlinedTextField(
-				value = searchQuery,
-				onValueChange = onSearchChange,
-				modifier = Modifier.fillMaxWidth(),
-				singleLine = true,
-				shape = MaterialTheme.shapes.small,
-				placeholder = {
+			if (selecting) {
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					verticalAlignment = Alignment.CenterVertically,
+				) {
 					Text(
-						text = "Search conversations and messages",
-						style = MaterialTheme.typography.bodyMedium,
+						text = "Tap conversations to select",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.weight(1f),
 					)
-				},
-				leadingIcon = {
-					Icon(
-						Icons.Outlined.Search,
-						contentDescription = null,
-						modifier = Modifier.size(18.dp),
-					)
-				},
-				trailingIcon = if (searchQuery.isNotEmpty()) {
-					{
-						IconButton(onClick = onClearSearch) {
-							Icon(
-								Icons.Filled.Close,
-								contentDescription = "Clear search",
-								modifier = Modifier.size(18.dp),
-							)
-						}
+					TextButton(onClick = onCancelSelection, enabled = !deletingSelection) {
+						Text("Cancel")
 					}
-				} else {
-					null
-				},
-			)
-			Spacer(Modifier.height(if (searchQuery.isBlank() && conversations.isEmpty()) 26.dp else 4.dp))
-			when {
-				searchQuery.isNotBlank() -> SearchResults(
-					query = searchQuery,
-					results = searchResults,
-					searching = searching,
-					onOpen = onOpenSearchHit,
-				)
-
-				conversations.isEmpty() -> EmptyState(
-					showStartButton = showStartButton,
-					onCreate = onCreate,
-					onOpenWorkspaces = onOpenWorkspaces,
-					onOpenAssistants = onOpenAssistants,
-				)
-
-				else -> ConversationList(
+					TextButton(
+						onClick = onDeleteSelected,
+						enabled = selectedIds.isNotEmpty() && !deletingSelection,
+					) {
+						Text("Delete", color = MaterialTheme.colorScheme.error)
+					}
+				}
+				Spacer(Modifier.height(4.dp))
+				ConversationList(
 					conversations = conversations,
 					workspaceNames = workspaceNames,
+					selecting = true,
+					selectedIds = selectedIds,
 					onOpen = onOpen,
+					onToggleSelection = onToggleSelection,
+					onBeginSelection = onBeginSelection,
 					onTogglePin = onTogglePin,
 					onRequestDelete = onRequestDelete,
 				)
+			} else {
+				Spacer(Modifier.height(8.dp))
+				OutlinedTextField(
+					value = searchQuery,
+					onValueChange = onSearchChange,
+					modifier = Modifier.fillMaxWidth(),
+					singleLine = true,
+					shape = MaterialTheme.shapes.small,
+					placeholder = {
+						Text(
+							text = "Search conversations and messages",
+							style = MaterialTheme.typography.bodyMedium,
+						)
+					},
+					leadingIcon = {
+						Icon(
+							Icons.Outlined.Search,
+							contentDescription = null,
+							modifier = Modifier.size(18.dp),
+						)
+					},
+					trailingIcon = if (searchQuery.isNotEmpty()) {
+						{
+							IconButton(onClick = onClearSearch) {
+								Icon(
+									Icons.Filled.Close,
+									contentDescription = "Clear search",
+									modifier = Modifier.size(18.dp),
+								)
+							}
+						}
+					} else {
+						null
+					},
+				)
+				Spacer(Modifier.height(if (searchQuery.isBlank() && conversations.isEmpty()) 26.dp else 4.dp))
+				when {
+					searchQuery.isNotBlank() -> SearchResults(
+						query = searchQuery,
+						results = searchResults,
+						searching = searching,
+						onOpen = onOpenSearchHit,
+					)
+
+					conversations.isEmpty() -> EmptyState(
+						showStartButton = showStartButton,
+						onCreate = onCreate,
+						onOpenWorkspaces = onOpenWorkspaces,
+						onOpenAssistants = onOpenAssistants,
+					)
+
+					else -> ConversationList(
+						conversations = conversations,
+						workspaceNames = workspaceNames,
+						selecting = false,
+						selectedIds = emptySet(),
+						onOpen = onOpen,
+						onToggleSelection = onToggleSelection,
+						onBeginSelection = onBeginSelection,
+						onTogglePin = onTogglePin,
+						onRequestDelete = onRequestDelete,
+					)
+				}
 			}
 		}
 	}
@@ -857,7 +988,11 @@ private fun SearchResultRow(
 private fun ConversationList(
 	conversations: List<ConversationEntity>,
 	workspaceNames: Map<String, String>,
+	selecting: Boolean,
+	selectedIds: Set<String>,
 	onOpen: (String) -> Unit,
+	onToggleSelection: (String) -> Unit,
+	onBeginSelection: (String?) -> Unit,
 	onTogglePin: (ConversationEntity, Boolean) -> Unit,
 	onRequestDelete: (ConversationEntity) -> Unit,
 ) {
@@ -876,7 +1011,11 @@ private fun ConversationList(
 				conversation = conversation,
 				workspace = workspaceNames[conversation.workspaceId],
 				now = now,
+				selecting = selecting,
+				selected = conversation.id in selectedIds,
 				onClick = { onOpen(conversation.id) },
+				onToggleSelection = { onToggleSelection(conversation.id) },
+				onBeginSelection = { onBeginSelection(conversation.id) },
 				onTogglePin = { onTogglePin(conversation, !conversation.pinned) },
 				onDelete = { onRequestDelete(conversation) },
 			)
@@ -891,7 +1030,11 @@ private fun ConversationRow(
 	conversation: ConversationEntity,
 	workspace: String?,
 	now: Long,
+	selecting: Boolean,
+	selected: Boolean,
 	onClick: () -> Unit,
+	onToggleSelection: () -> Unit,
+	onBeginSelection: () -> Unit,
 	onTogglePin: () -> Unit,
 	onDelete: () -> Unit,
 ) {
@@ -899,20 +1042,35 @@ private fun ConversationRow(
 	Row(
 		modifier = Modifier
 			.fillMaxWidth()
-			.clickable(onClick = onClick)
+			.background(
+				if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+				else androidx.compose.ui.graphics.Color.Transparent,
+			)
+			.combinedClickable(
+				onClick = { if (selecting) onToggleSelection() else onClick() },
+				onLongClick = { if (selecting) onToggleSelection() else onBeginSelection() },
+			)
 			.padding(vertical = 14.dp),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
-		Text(
-			text = twoDigits(index + 1),
-			modifier = Modifier.width(38.dp),
-			style = MaterialTheme.typography.labelSmall,
-			color = if (conversation.pinned) {
-				MaterialTheme.colorScheme.primary
-			} else {
-				MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
-			},
-		)
+		if (selecting) {
+			Checkbox(
+				checked = selected,
+				onCheckedChange = { onToggleSelection() },
+				modifier = Modifier.size(42.dp),
+			)
+		} else {
+			Text(
+				text = twoDigits(index + 1),
+				modifier = Modifier.width(38.dp),
+				style = MaterialTheme.typography.labelSmall,
+				color = if (conversation.pinned) {
+					MaterialTheme.colorScheme.primary
+				} else {
+					MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+				},
+			)
+		}
 		Column(
 			modifier = Modifier.weight(1f),
 			verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -950,38 +1108,40 @@ private fun ConversationRow(
 				overflow = TextOverflow.Ellipsis,
 			)
 		}
-		Box {
-			IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
-				Icon(
-					Icons.Filled.MoreVert,
-					contentDescription = "Conversation actions",
-					tint = MaterialTheme.colorScheme.onSurfaceVariant,
-					modifier = Modifier.size(18.dp),
-				)
-			}
-			DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-				DropdownMenuItem(
-					text = { Text(if (conversation.pinned) "Unpin" else "Pin") },
-					leadingIcon = { Icon(Icons.Outlined.PushPin, contentDescription = null) },
-					onClick = {
-						menu = false
-						onTogglePin()
-					},
-				)
-				DropdownMenuItem(
-					text = { Text("Delete") },
-					leadingIcon = {
-						Icon(
-							Icons.Outlined.Delete,
-							contentDescription = null,
-							tint = MaterialTheme.colorScheme.error,
-						)
-					},
-					onClick = {
-						menu = false
-						onDelete()
-					},
-				)
+		if (!selecting) {
+			Box {
+				IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
+					Icon(
+						Icons.Filled.MoreVert,
+						contentDescription = "Conversation actions",
+						tint = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.size(18.dp),
+					)
+				}
+				DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+					DropdownMenuItem(
+						text = { Text(if (conversation.pinned) "Unpin" else "Pin") },
+						leadingIcon = { Icon(Icons.Outlined.PushPin, contentDescription = null) },
+						onClick = {
+							menu = false
+							onTogglePin()
+						},
+					)
+					DropdownMenuItem(
+						text = { Text("Delete") },
+						leadingIcon = {
+							Icon(
+								Icons.Outlined.Delete,
+								contentDescription = null,
+								tint = MaterialTheme.colorScheme.error,
+							)
+						},
+						onClick = {
+							menu = false
+							onDelete()
+						},
+					)
+				}
 			}
 		}
 	}

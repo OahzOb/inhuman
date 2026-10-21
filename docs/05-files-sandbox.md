@@ -21,9 +21,12 @@ directory.
   its owner would delete files another conversation is still using.
 
 Deleting a conversation in a permanent workspace removes its transcript and
-rollback snapshots only. The files and the workspace row remain. Deleting a
-permanent workspace is refused while it has conversations; deleting an empty one
-removes the directory and the row.
+rollback snapshots only. The files and the workspace row remain. The
+single-workspace delete in Workspace detail is refused while conversations
+remain. The Workspaces list has a separate **multi-select** action: selecting
+workspaces and confirming deletes their conversations, rollback snapshots, the
+workspace directories and finally the workspace rows. The confirmation names
+the conversation count, so this cascade is never silent.
 
 The absolute directory is shown in Files → Workspace location and on the
 Workspace detail screen, with a copy action. **Open in Files app** opens the

@@ -20,6 +20,9 @@ data class WorkspacesUiState(
 	val workspaces: List<WorkspaceRowUi> = emptyList(),
 	val loading: Boolean = true,
 	val error: String? = null,
+	val selecting: Boolean = false,
+	val selectedIds: Set<String> = emptySet(),
+	val deletingSelection: Boolean = false,
 )
 
 /** The Workspaces list: permanent workspaces only. Temporary ones belong to a conversation. */
@@ -44,7 +47,15 @@ class WorkspacesViewModel(
 							conversationCount = counts[workspace.id] ?: 0,
 						)
 					}
-					_state.update { it.copy(workspaces = rows, loading = false) }
+					val ids = rows.mapTo(mutableSetOf()) { it.workspace.id }
+					_state.update { current ->
+						current.copy(
+							workspaces = rows,
+							loading = false,
+							selectedIds = current.selectedIds.intersect(ids),
+							selecting = current.selecting && current.selectedIds.any { it in ids },
+						)
+					}
 				}
 		}
 	}
@@ -60,4 +71,61 @@ class WorkspacesViewModel(
 	}
 
 	fun clearError() = _state.update { it.copy(error = null) }
+
+	fun beginSelection(id: String? = null) {
+		_state.update { current ->
+			current.copy(
+				selecting = true,
+				selectedIds = if (id == null) current.selectedIds else current.selectedIds + id,
+			)
+		}
+	}
+
+	fun toggleSelection(id: String) {
+		_state.update { current ->
+			val next = if (id in current.selectedIds) {
+				current.selectedIds - id
+			} else {
+				current.selectedIds + id
+			}
+			current.copy(selectedIds = next, selecting = true)
+		}
+	}
+
+	fun cancelSelection() {
+		_state.update { it.copy(selecting = false, selectedIds = emptySet()) }
+	}
+
+	fun deleteSelected() {
+		val current = _state.value
+		if (current.deletingSelection || current.selectedIds.isEmpty()) return
+		val targets = current.workspaces.filter { it.workspace.id in current.selectedIds }
+		if (targets.isEmpty()) {
+			cancelSelection()
+			return
+		}
+		_state.update { it.copy(deletingSelection = true) }
+		viewModelScope.launch {
+			val deleted = runCatching {
+				repository.deleteWorkspaces(targets.map { it.workspace })
+			}.onFailure { failure ->
+				_state.update { it.copy(error = failure.message ?: "Could not delete workspaces.") }
+			}.getOrNull()
+			_state.update {
+				it.copy(
+					deletingSelection = false,
+					selecting = false,
+					selectedIds = emptySet(),
+					error = if (deleted == null) {
+						it.error
+					} else if (deleted.workspaces != targets.size) {
+						"Deleted ${deleted.workspaces} of ${targets.size} workspaces. " +
+							"The rest could not be removed."
+					} else {
+						null
+					},
+				)
+			}
+		}
+	}
 }

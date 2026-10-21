@@ -28,6 +28,11 @@ data class ConversationsUiState(
 	/** Permanent workspaces offered by the Create sheet, in display order. */
 	val permanentWorkspaces: List<com.inhuman.core.data.db.WorkspaceEntity> = emptyList(),
 	val loaded: Boolean = false,
+	/** Multi-select state for deleting several conversations at once. */
+	val selecting: Boolean = false,
+	val selectedIds: Set<String> = emptySet(),
+	val deletingSelection: Boolean = false,
+	val error: String? = null,
 	/** What the home search field currently contains. */
 	val searchQuery: String = "",
 	val searchResults: List<ConversationSearchHit> = emptyList(),
@@ -73,7 +78,15 @@ class ConversationsViewModel(
 	init {
 		viewModelScope.launch {
 			repository.observeAll().collect { list ->
-				_state.update { it.copy(conversations = list, loaded = true) }
+				val ids = list.mapTo(mutableSetOf()) { it.id }
+				_state.update { current ->
+					current.copy(
+						conversations = list,
+						loaded = true,
+						selectedIds = current.selectedIds.intersect(ids),
+						selecting = current.selecting && current.selectedIds.any { it in ids },
+					)
+				}
 			}
 		}
 		viewModelScope.launch {
@@ -221,6 +234,62 @@ class ConversationsViewModel(
 	fun setPinned(conversation: ConversationEntity, pinned: Boolean) {
 		Diag.d("conv", "pin id=${Diag.shortId(conversation.id)} pinned=$pinned")
 		viewModelScope.launch { repository.setPinned(conversation.id, pinned) }
+	}
+
+	fun beginSelection(id: String? = null) {
+		_state.update { current ->
+			current.copy(
+				selecting = true,
+				selectedIds = if (id == null) current.selectedIds else current.selectedIds + id,
+			)
+		}
+	}
+
+	fun toggleSelection(id: String) {
+		_state.update { current ->
+			val next = if (id in current.selectedIds) {
+				current.selectedIds - id
+			} else {
+				current.selectedIds + id
+			}
+			current.copy(selectedIds = next, selecting = true)
+		}
+	}
+
+	fun cancelSelection() {
+		_state.update { it.copy(selecting = false, selectedIds = emptySet()) }
+	}
+
+	fun clearError() {
+		_state.update { it.copy(error = null) }
+	}
+
+	/** Delete every selected conversation, leaving permanent workspaces intact. */
+	fun deleteSelected() {
+		val current = _state.value
+		if (current.deletingSelection || current.selectedIds.isEmpty()) return
+		val targets = current.conversations.filter { it.id in current.selectedIds }
+		if (targets.isEmpty()) {
+			cancelSelection()
+			return
+		}
+		_state.update { it.copy(deletingSelection = true, deletePreviewCounts = emptyMap()) }
+		viewModelScope.launch {
+			val deleted = repository.deleteConversations(targets)
+			_state.update {
+				it.copy(
+					deletingSelection = false,
+					selecting = false,
+					selectedIds = emptySet(),
+					error = if (deleted == targets.size) {
+						null
+					} else {
+						"Deleted $deleted of ${targets.size} conversations. The rest could not be removed."
+					},
+				)
+			}
+			Diag.i("conv", "bulk delete requested=${targets.size} deleted=$deleted")
+		}
 	}
 
 	/**
