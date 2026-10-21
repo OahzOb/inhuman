@@ -441,11 +441,19 @@ last body is kept in `ChatViewModel.wire` in memory. It shows:
   `role: tool` results.
 
 Long system blocks, message bodies, reasoning, tool results and arguments are
-collapsed to a few lines with **Show more**. Images are shown as
+collapsed to a few lines with **Show more**. An expanded block is bounded to
+240dp with its own scroll and puts **Show less** at the *top*, so leaving a long
+prompt no longer requires scrolling to its end. Images are shown as
 `[image data URL · base64 omitted]`; raw JSON also redacts the data URL. A
 **Raw JSON** toggle remains available for protocol work, and every sheet has
 **Copy JSON**. Demo mode has no provider body and says so rather than inventing
 a fake request.
+
+The `{}` **View wire format** action sits in the existing **Used N tools**
+header row, not in an action row underneath the tool list. The old row spent a
+full line on a single 32dp button and pushed the answer down; the header already
+has a trailing slot for counts and badges. The separate text link inside the
+expanded tool list was removed as a duplicate.
 
 On compact widths the sheet switches from parameter tables to stacked
 key/value blocks, so a search query is not squeezed into a ribbon beside a fixed

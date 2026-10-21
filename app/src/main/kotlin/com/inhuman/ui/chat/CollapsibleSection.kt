@@ -60,6 +60,14 @@ fun CollapsibleSection(
 	/** Optional right-aligned detail, e.g. a duration or a count. */
 	trailing: String? = null,
 	/**
+	 * Optional compact action in the header, e.g. the wire-format button.
+	 *
+	 * It lives in the existing header row rather than in an action row below the
+	 * content: a lone `{}` under a tool group used a full line for one 28dp
+	 * button and pushed the actual answer down.
+	 */
+	trailingAction: (@Composable () -> Unit)? = null,
+	/**
 	 * Marks a section whose content was fetched from a paid service.
 	 *
 	 * A tool row is the place a user actually sees the tool being used, so the
@@ -162,6 +170,7 @@ fun CollapsibleSection(
 					color = MaterialTheme.colorScheme.outline,
 				)
 			}
+			trailingAction?.invoke()
 		}
 
 		if (expanded) {

@@ -2022,6 +2022,7 @@ private fun MessageBubble(
 ) {
 	val alignment = if (message.fromUser) Alignment.End else Alignment.Start
 	val context = LocalContext.current
+	val hasWire = !message.fromUser && !isStreaming && message.toolCalls.isNotEmpty()
 
 	// Per-message view state, not stored: "show me the Markdown" and "repair the
 	// unclosed fence for display" are ways of reading this answer, not edits to
@@ -2175,13 +2176,27 @@ private fun MessageBubble(
 						summary = if (calls.size == 1) "Used one tool" else "Used ${calls.size} tools",
 						trailing = calls.count { it.state == ToolCallUi.State.Failed }
 							.takeIf { it > 0 }?.let { "$it failed" },
+						trailingAction = if (hasWire) {
+							{
+								IconButton(
+									onClick = onShowWire,
+									modifier = Modifier.size(32.dp),
+								) {
+									Icon(
+										imageVector = Icons.Outlined.DataObject,
+										contentDescription = "View wire format",
+										tint = MaterialTheme.colorScheme.onSurfaceVariant,
+										modifier = Modifier.size(16.dp),
+									)
+								}
+							}
+						} else {
+							null
+						},
 						autoExpand = live == LiveAssistantSection.Tools,
 					) {
 						Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed)) {
 							calls.forEach { ToolCallLine(it) }
-							TextButton(onClick = onShowWire) {
-								Text("View wire format", style = MaterialTheme.typography.labelSmall)
-							}
 						}
 					}
 				}
@@ -2332,10 +2347,8 @@ private fun MessageBubble(
 		val hasTextActions = !message.fromUser &&
 			!message.isStreaming &&
 			message.plainText.isNotBlank()
-		val hasWire = !message.fromUser && !message.isStreaming &&
-			message.toolCalls.isNotEmpty()
 
-		if (hasTextActions || showRewind || hasWire) {
+		if (hasTextActions || showRewind) {
 			Row(
 				modifier = Modifier.padding(top = 2.dp),
 				horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -2370,20 +2383,6 @@ private fun MessageBubble(
 							contentDescription = "Copy reply",
 							tint = MaterialTheme.colorScheme.onSurfaceVariant,
 							modifier = Modifier.size(16.dp),
-						)
-					}
-				}
-
-				if (hasWire) {
-					IconButton(
-						onClick = onShowWire,
-						modifier = Modifier.size(32.dp),
-					) {
-						Icon(
-							imageVector = Icons.Outlined.DataObject,
-							contentDescription = "Show raw assistant message",
-							tint = MaterialTheme.colorScheme.onSurfaceVariant,
-							modifier = Modifier.size(17.dp),
 						)
 					}
 				}

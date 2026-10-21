@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -768,24 +769,66 @@ private fun WireLongText(
 ) {
 	val isLong = text.length > 320 || text.count { it == '\n' } + 1 > maxLines
 	var expanded by remember(text, maxLines) { mutableStateOf(false) }
+	val textStyle = if (monospace) {
+		MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+	} else {
+		MaterialTheme.typography.bodySmall
+	}
 	Column {
-		Text(
-			text = text,
-			style = if (monospace) {
-				MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
-			} else {
-				MaterialTheme.typography.bodySmall
-			},
-			color = MaterialTheme.colorScheme.onSurface,
-			maxLines = if (expanded) Int.MAX_VALUE else maxLines,
-			overflow = TextOverflow.Ellipsis,
-		)
-		if (isLong) {
-			TextButton(
-				onClick = { expanded = !expanded },
-				modifier = Modifier.height(28.dp),
+		if (!expanded) {
+			Text(
+				text = text,
+				style = textStyle,
+				color = MaterialTheme.colorScheme.onSurface,
+				maxLines = maxLines,
+				overflow = TextOverflow.Ellipsis,
+			)
+			if (isLong) {
+				TextButton(
+					onClick = { expanded = true },
+					modifier = Modifier.height(28.dp),
+				) {
+					Text("Show more", style = MaterialTheme.typography.labelSmall)
+				}
+			}
+		} else {
+			// The expanded block scrolls inside a bounded box. Leaving the whole
+			// body unbounded put "Show less" at the bottom of a multi-screen
+			// system prompt, so the only way out was to scroll to the end. The
+			// control is now always at the top of the expanded region.
+			Row(
+				modifier = Modifier.fillMaxWidth(),
+				verticalAlignment = Alignment.CenterVertically,
 			) {
-				Text(if (expanded) "Show less" else "Show more", style = MaterialTheme.typography.labelSmall)
+				Text(
+					"Expanded",
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Spacer(Modifier.weight(1f))
+				TextButton(
+					onClick = { expanded = false },
+					modifier = Modifier.height(28.dp),
+				) {
+					Text("Show less", style = MaterialTheme.typography.labelSmall)
+				}
+			}
+			Box(
+				modifier = Modifier
+					.fillMaxWidth()
+					.heightIn(max = 240.dp)
+					.background(
+						MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+						RoundedCornerShape(4.dp),
+					)
+					.verticalScroll(rememberScrollState())
+					.padding(horizontal = 8.dp, vertical = 6.dp),
+			) {
+				Text(
+					text = text,
+					style = textStyle,
+					color = MaterialTheme.colorScheme.onSurface,
+				)
 			}
 		}
 	}
