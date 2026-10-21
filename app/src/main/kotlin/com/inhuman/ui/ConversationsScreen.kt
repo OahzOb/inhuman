@@ -101,6 +101,7 @@ fun ConversationsScreen(
 	onOpenAgents: () -> Unit,
 	onOpenWorkspaces: () -> Unit,
 	onNewWorkspace: () -> Unit,
+	sshToolEnabled: Boolean = false,
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
@@ -179,6 +180,7 @@ fun ConversationsScreen(
 				twoPane -> Row(modifier = Modifier.fillMaxSize()) {
 					HomeRail(
 						conversationCount = state.conversations.size,
+						sshToolEnabled = sshToolEnabled,
 						modifier = Modifier
 							.width(320.dp)
 							.fillMaxSize(),
@@ -743,6 +745,7 @@ private fun HeaderTextAction(
 @Composable
 private fun HomeRail(
 	conversationCount: Int,
+	sshToolEnabled: Boolean,
 	modifier: Modifier = Modifier,
 ) {
 	Box(modifier.background(MaterialTheme.colorScheme.surface)) {
@@ -767,7 +770,10 @@ private fun HomeRail(
 			)
 			Spacer(Modifier.height(18.dp))
 			MetaLine("Files", "App-private workspace")
-			MetaLine("Tools", "Files, web, SSH on demand")
+			MetaLine(
+				"Tools",
+				if (sshToolEnabled) "Files, web, SSH on demand" else "Files, web",
+			)
 			MetaLine("Model", "Your configured provider")
 			Spacer(Modifier.weight(1f))
 			Hairline()

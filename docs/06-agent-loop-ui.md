@@ -641,8 +641,16 @@ usable when the MIME type is `application/octet-stream`.
 | stored | UI reads | means |
 | --- | --- | --- |
 | `null` ("All" → `ToolCatalog.allSelection()`) | "Tools — all" | everything, **including tools added in a later release** |
-| `[]` ("None") | "Tools — 0 of 10" | nothing |
-| a list | "Tools — N of 10" | exactly those |
+| `[]` ("None") | "Tools — 0 of N" | nothing |
+| a list | "Tools — N of M" | exactly those |
+
+`M` is the **visible** catalogue: `ToolCatalog.visible(sshEnabled)`. While the
+global SSH switch is off, `ssh_exec` is absent from the assistant picker, the
+per-assistant rules, the global approval table, the "Preview request" footer and
+the home rail's tool summary. It is not shown as a disabled row: a greyed entry
+still tells the user, and any prompt built from the label, that a remote shell
+exists. When enabled it reappears and remains opt-in; "All" still excludes it
+(`ToolCatalog.visible`).
 
 Toggling any row while in the `null` state first converts the selection to the
 explicit ten-name list, so the next tap turns one thing off rather than leaving
@@ -820,6 +828,7 @@ it; the sandbox's no-network rule applies to code the model writes), and
 | `WireHistoryTest` | A dangling assistant `tool_calls` gets its missing tool result inserted **before** the next user message, not at the end; a complete block and a call-free assistant message are untouched. Also that SSH tool arguments lose `password`/`privateKey`/`passphrase` before storage, including the wrapped form. This is the HTTP-400-on-every-later-turn repair and the credential-persistence guard. |
 | `SnapshotStoreTest` | `start` and a later tool checkpoint restore their own file versions; added/deleted/modified paths are diffed by content; stats count turns and pruning keeps the newest; `turns` lists each retained turn with its checkpoint count, newest first. This is the file half of checkpointed rollback. |
 | `WindowFrameTest` | A 640×360 landscape phone and a 900×400 wide-short window stay single-pane; a 700×700 foldable is Medium/single-pane; 1024×768 and 1280×900 use two panes; a 360dp phone uses a FAB and the 1.5× font case uses the header overflow. This is the axis-classification half; the screenshot matrix is still required for composition mistakes. |
+| `ToolCatalogVisibilityTest` | `ssh_exec` is absent from `ToolCatalog.visible(false)` and present only in `visible(true)`; ordinary tools remain in both. This is the one list every user-facing picker and approval table reads. |
 
 These are pure JVM logic for the reason `AGENTS.md` gives: the device cannot
 observe these states, so the argument has to live in a test.

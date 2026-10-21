@@ -283,7 +283,7 @@ private fun InhumanRoot(
 
 		showAgents -> {
 			val factory = remember(agents, repository) {
-				viewModelFactory { AgentsViewModel(agents, repository) }
+				viewModelFactory { AgentsViewModel(agents, repository, secure) }
 			}
 			val vm: AgentsViewModel = viewModel(factory = factory)
 			AgentsScreen(viewModel = vm, onBack = { showAgents = false })
@@ -455,6 +455,7 @@ private fun InhumanRoot(
 					startWorkspaceCreation = true
 					showWorkspaces = true
 				},
+				sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
 			)
 		}
 	}

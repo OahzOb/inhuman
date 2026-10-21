@@ -299,7 +299,11 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
 - **SSH consent is a capability grant, not an approval.** It is persisted in
   `conversations.sshAllowed`, checked before the ordinary policy, revoked by the
   chat menu and by the global Settings switch. Do not replace it with
-  `needsApproval`, and do not let `toolsJson = null` mean SSH consent.
+  `needsApproval`, and do not let `toolsJson = null` mean SSH consent. While the
+  global switch is off, `ssh_exec` is **absent** from every picker, approval table,
+  home tool summary and request schema — not a disabled row. Use
+  `ToolCatalog.visible(sshEnabled)` for user-facing lists; a greyed row still
+  advertises the capability.
 - **Every assistant `tool_calls` block needs tool results on the wire.** A
   process death while approval/consent is open leaves the assistant row without
   results; `closeDanglingCalls` inserts `[interrupted]` results in the request

@@ -547,6 +547,7 @@ fun SettingsScreen(
 			) {
 				ApprovalRulesSection(
 					rules = state.approvalRules,
+					sshToolEnabled = state.sshToolEnabled,
 					onRuleChange = viewModel::setApprovalRule,
 				)
 			}
@@ -1176,6 +1177,7 @@ private fun formatLogSize(bytes: Long): String = when {
 @Composable
 private fun ApprovalRulesSection(
 	rules: Map<String, ToolPolicy>,
+	sshToolEnabled: Boolean,
 	onRuleChange: (String, ToolPolicy) -> Unit,
 ) {
 	Column(
@@ -1185,17 +1187,23 @@ private fun ApprovalRulesSection(
 		verticalArrangement = Arrangement.spacedBy(6.dp),
 	) {
 		Text(
-			text = "Local tools run without asking, because everything they reach " +
-				"is a copy inside this conversation's own folder. SSH is different: " +
-				"its first call in each conversation asks for consent, and after that " +
-				"the policy below applies. Tighten any tool here if you would rather " +
-				"be asked.",
+			text = if (sshToolEnabled) {
+				"Local tools run without asking, because everything they reach " +
+					"is a copy inside this conversation's own folder. SSH is different: " +
+					"its first call in each conversation asks for consent, and after that " +
+					"the policy below applies. Tighten any tool here if you would rather " +
+					"be asked."
+			} else {
+				"Local tools run without asking, because everything they reach " +
+					"is a copy inside this conversation's own folder. Tighten any tool " +
+					"here if you would rather be asked."
+			},
 			style = MaterialTheme.typography.bodyMedium,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 		PaidToolsNotice(modifier = Modifier.padding(vertical = 2.dp))
 
-		for (entry in ToolCatalog.all) {
+		for (entry in ToolCatalog.visible(sshToolEnabled)) {
 			val current = rules[entry.name] ?: ToolPolicy.Free
 			ApprovalRuleRow(
 				name = entry.name,

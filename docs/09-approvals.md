@@ -62,7 +62,9 @@ agent **根本够不到**，所以那里也不需要审批：没有可批准的�
 
 处理方式是**能力授权**，不是逐条审批：
 
-- Settings 的全局开关默认关；打开后助手仍须显式选中 `ssh_exec`；
+- Settings 的全局开关默认关；关着时 `ssh_exec` 不出现在任何工具列表、助手规则、
+  全局审批表或 home 的 tools 摘要里，也不进入请求的 tool schemas；打开后助手
+  仍须显式选中 `ssh_exec`；
 - 每个会话第一次调用时，弹专用对话框，显示 host/user/第一条命令，要求勾选
   "可能造成不可逆损坏"，才允许；允许后写 `conversations.sshAllowed`；
 - 之后该会话的 SSH 调用走普通 `ToolPolicy`，默认 Free，不再逐条问；

@@ -111,8 +111,10 @@ Failures and empty results are not charged by DeepSeek; Exa bills under its own
 plan. Both tools are labelled **paid** wherever a tool is chosen.
 
 **`ssh_exec` is the one tool that leaves the device.** It is off in Settings by
-default, must be selected explicitly on an assistant (the historical "all tools"
-selection does not include it), and shows a dedicated warning the first time a
+default; while off it is absent from every tool picker, approval table and the
+home tool summary, and is not sent in tool schemas. It must be enabled globally
+and selected explicitly on an assistant (the historical "all tools" selection
+does not include it), and shows a dedicated warning the first time a
 conversation uses it. After that it follows the normal approval policy, which
 defaults to running without asking. Remote commands are not a workspace copy:
 some damage cannot be undone. The app has no host list and no credential store;

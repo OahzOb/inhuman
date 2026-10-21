@@ -766,6 +766,7 @@ class ChatViewModel(
 				workspaceConversationCount = workspaceConversations,
 				messages = rebuilt,
 				sshAllowed = sshAllowed,
+				sshToolEnabled = sshToolEnabled(),
 				pendingSshConsent = null,
 				rollbackAvailable = rollbackAvailable,
 				rollbackBlockedReason = rollbackBlockedReason,
@@ -1520,6 +1521,7 @@ class ChatViewModel(
 				configured = demo || hasKey,
 				providerName = providerName,
 				toolRoundLimit = toolRoundLimit(),
+				sshToolEnabled = sshToolEnabled(),
 			)
 		}
 	}

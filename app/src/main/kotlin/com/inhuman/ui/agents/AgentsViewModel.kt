@@ -11,6 +11,7 @@ import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.ToolsColumn
+import com.inhuman.core.data.secret.SecureStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +25,8 @@ data class AgentsUiState(
 	val loadingModels: Boolean = false,
 	/** Non-null while the model list failed, so the picker can say why. */
 	val modelsError: String? = null,
+	/** Whether ssh_exec is currently part of the user-visible tool set. */
+	val sshToolEnabled: Boolean = false,
 	val editing: AgentDraft? = null,
 )
 
@@ -98,12 +101,20 @@ class AgentsViewModel(
 	 * about the assistant row.
 	 */
 	private val conversations: ConversationRepository,
+	private val secure: SecureStore,
 ) : ViewModel() {
 
 	private val _state = MutableStateFlow(AgentsUiState())
 	val state: StateFlow<AgentsUiState> = _state.asStateFlow()
 
+	fun refreshSshTool() {
+		_state.update {
+			it.copy(sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1")
+		}
+	}
+
 	init {
+		refreshSshTool()
 		viewModelScope.launch {
 			repository.observeAll().collect { list ->
 				_state.update { it.copy(agents = list) }

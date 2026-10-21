@@ -55,6 +55,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -108,6 +109,7 @@ fun AgentsScreen(
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	var pendingDelete by remember { mutableStateOf<AgentEntity?>(null) }
+	LaunchedEffect(Unit) { viewModel.refreshSshTool() }
 
 	Scaffold(
 		topBar = {
@@ -191,6 +193,7 @@ fun AgentsScreen(
 			models = state.models,
 			loadingModels = state.loadingModels,
 			modelsError = state.modelsError,
+			sshToolEnabled = state.sshToolEnabled,
 			effortLevels = { viewModel.effortLevelsFor(it) },
 			onChange = viewModel::updateDraft,
 			onProviderChange = viewModel::selectProvider,
@@ -301,6 +304,7 @@ private fun AgentEditor(
 	models: List<com.inhuman.core.ai.RemoteModel>,
 	loadingModels: Boolean,
 	modelsError: String?,
+	sshToolEnabled: Boolean,
 	effortLevels: (String?) -> List<String>,
 	onChange: ((AgentDraft) -> AgentDraft) -> Unit,
 	onProviderChange: (String) -> Unit,
@@ -310,6 +314,9 @@ private fun AgentEditor(
 	onDismiss: () -> Unit,
 ) {
 	val levels = effortLevels(draft.model)
+	val availableTools = ToolCatalog.visible(sshToolEnabled)
+	val availableNames = availableTools.mapTo(mutableSetOf()) { it.name }
+	val selectedCount = draft.tools?.count { it in availableNames } ?: availableTools.size
 
 	// Local, because it is a view of the draft rather than part of it.
 	var showPreview by remember { mutableStateOf(false) }
@@ -568,6 +575,7 @@ private fun AgentEditor(
 		// failure, so it sits somewhere a screenshot can settle the question.
 		AssistantRulesSection(
 			rules = draft.rules,
+			sshToolEnabled = sshToolEnabled,
 			onSelect = onRuleChange,
 		)
 
@@ -583,7 +591,7 @@ private fun AgentEditor(
 				if (draft.tools == null) {
 					"Tools — all"
 				} else {
-					"Tools — ${draft.tools.size} of ${ToolCatalog.all.size}"
+					"Tools — $selectedCount of ${availableTools.size}"
 				},
 			)
 			Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -610,20 +618,24 @@ private fun AgentEditor(
 				style = MaterialTheme.typography.labelLarge,
 				color = MaterialTheme.colorScheme.outline,
 			)
-			Text(
-				text = "ssh_exec is never included by “all”; select it explicitly.",
-				style = MaterialTheme.typography.labelLarge,
-				color = MaterialTheme.colorScheme.outline,
-			)
+			if (sshToolEnabled) {
+				Text(
+					text = "ssh_exec is never included by “all”; select it explicitly.",
+					style = MaterialTheme.typography.labelLarge,
+					color = MaterialTheme.colorScheme.outline,
+				)
+			}
 		}
 
 		// Before the list, not after it. A price printed under eleven rows is
 		// read by the people who were already going to read it; a filled notice
 		// above them is seen by the people scanning names.
 		PaidToolsNotice(modifier = Modifier.padding(vertical = 4.dp))
-		RemoteToolsNotice(modifier = Modifier.padding(bottom = 4.dp))
+		if (sshToolEnabled) {
+			RemoteToolsNotice(modifier = Modifier.padding(bottom = 4.dp))
+		}
 
-		ToolCatalog.all.forEach { tool ->
+		availableTools.forEach { tool ->
 			val on = ToolCatalog.permits(draft.tools, tool.name)
 			Row(
 				modifier = Modifier
@@ -740,6 +752,7 @@ private fun AgentEditor(
 	if (showPreview) {
 		PromptPreview(
 			draft = draft,
+			sshToolEnabled = sshToolEnabled,
 			modelLabel = draft.model?.let { id ->
 				models.firstOrNull { it.id == id }?.displayName?.takeIf { it.isNotBlank() } ?: id
 			} ?: "provider default",
@@ -815,11 +828,14 @@ private fun AgentEditor(
 @Composable
 private fun PromptPreview(
 	draft: AgentDraft,
+	sshToolEnabled: Boolean,
 	modelLabel: String,
 	onDismiss: () -> Unit,
 ) {
 	val selected = draft.tools
-	val on = ToolCatalog.all.map { it.name }.filter { ToolCatalog.permits(selected, it) }
+	val visibleTools = ToolCatalog.visible(sshToolEnabled)
+	val visibleNames = visibleTools.mapTo(mutableSetOf()) { it.name }
+	val on = visibleNames.filter { ToolCatalog.permits(selected, it) }
 
 	AlertDialog(
 		onDismissRequest = onDismiss,
@@ -868,7 +884,7 @@ private fun PromptPreview(
 					color = MaterialTheme.colorScheme.onSurface,
 				)
 
-				SectionLabel(if (selected == null) "Tools — everything" else "Tools — ${on.size} of ${ToolCatalog.all.size}")
+				SectionLabel(if (selected == null) "Tools — everything" else "Tools — ${on.size} of ${visibleTools.size}")
 				if (on.isEmpty()) {
 					Text(
 						text = "None. This assistant can only talk.",
@@ -891,7 +907,7 @@ private fun PromptPreview(
 					// visible, and which ones are in the request is a matter of
 					// shade rather than of cross-referencing two lists.
 					Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-						ToolCatalog.all.forEach { tool ->
+						visibleTools.forEach { tool ->
 							val available = ToolCatalog.permits(selected, tool.name)
 							Text(
 								text = if (available) tool.name else "· ${tool.name}",
@@ -953,6 +969,7 @@ private fun SectionLabel(text: String) {
 @Composable
 private fun AssistantRulesSection(
 	rules: Map<String, ToolPolicy>,
+	sshToolEnabled: Boolean,
 	onSelect: (String, ToolPolicy) -> Unit,
 ) {
 	Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -964,7 +981,7 @@ private fun AssistantRulesSection(
 			color = MaterialTheme.colorScheme.outline,
 		)
 
-		for (entry in ToolCatalog.all) {
+		for (entry in ToolCatalog.visible(sshToolEnabled)) {
 			val current = rules[entry.name] ?: ToolPolicy.Free
 			Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
 				Row(

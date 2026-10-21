@@ -106,15 +106,15 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :app:testDebugUnitTest --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 367 tests in 43 suites, 0 failures, 1 skipped** — the skip is
+**BUILD SUCCESSFUL, 369 tests in 44 suites, 0 failures, 1 skipped** — the skip is
 `DeepSeekWebLiveTest`, which talks to the real paid Search and Fetch APIs and
 needs `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 
 | Module | Suites | Tests |
 | --- | --- | --- |
-| `:core:ai` | 20 | 196 (1 skipped) |
+| `:core:ai` | 22 | 199 (1 skipped) |
 | `:core:files` | 5 | 57 |
-| `:app` | 11 | 76 |
+| `:app` | 12 | 80 |
 | `:core:common` | 2 | 16 |
 | `:core:data` | 3 | 17 |
 

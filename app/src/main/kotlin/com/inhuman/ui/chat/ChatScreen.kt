@@ -239,6 +239,7 @@ fun ChatScreen(
 		}
 	}
 	val sshAllowed by viewModel.state.map { it.sshAllowed }.collectAsStateWithLifecycle(false)
+	val sshToolEnabled by viewModel.state.map { it.sshToolEnabled }.collectAsStateWithLifecycle(false)
 	val rollbackAvailable by viewModel.state
 		.map { it.rollbackAvailable }
 		.collectAsStateWithLifecycle(false)
@@ -615,14 +616,16 @@ fun ChatScreen(
 										},
 									)
 								}
-								DropdownMenuItem(
-									text = { Text("Revoke SSH access") },
-									enabled = sshAllowed,
-									onClick = {
-										showChatMenu = false
-										viewModel.revokeSshAccess()
-									},
-								)
+								if (sshToolEnabled) {
+									DropdownMenuItem(
+										text = { Text("Revoke SSH access") },
+										enabled = sshAllowed,
+										onClick = {
+											showChatMenu = false
+											viewModel.revokeSshAccess()
+										},
+									)
+								}
 							}
 						}
 					},

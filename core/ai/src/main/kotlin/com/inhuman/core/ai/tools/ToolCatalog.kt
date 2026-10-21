@@ -115,6 +115,17 @@ object ToolCatalog {
 	val names: List<String> = all.map { it.name }
 
 	/**
+	 * The tools a picker should show for the current global capability state.
+	 *
+	 * `ssh_exec` is not merely unavailable while the global switch is off: it is
+	 * absent. Showing a disabled row still tells the user (and the model-facing
+	 * picker preview) that a remote shell exists; the switch in Runtime is the
+	 * only place that should advertise it.
+	 */
+	fun visible(includeSsh: Boolean): List<Entry> =
+		if (includeSsh) all else all.filterNot { it.name == "ssh_exec" }
+
+	/**
 	 * Whether a selection permits a tool.
 	 *
 	 * @param selected null means every tool. Empty means none.

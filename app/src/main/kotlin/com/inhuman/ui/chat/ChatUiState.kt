@@ -146,6 +146,8 @@ data class ChatUiState(
 	val pendingSshConsent: SshConsent? = null,
 	/** Whether this conversation may run ssh_exec without asking again. */
 	val sshAllowed: Boolean = false,
+	/** Whether the global SSH capability is on; off hides every SSH affordance. */
+	val sshToolEnabled: Boolean = false,
 	/** Whether the last user turn can be rewound safely. */
 	val rollbackAvailable: Boolean = false,
 	/** Why [rollbackAvailable] is false, when it is. */
