@@ -67,6 +67,7 @@ fun ContextGauge(
 	modifier: Modifier = Modifier,
 ) {
 	if (!usage.isKnown) return
+	val gaugeDescription = describe(usage)
 
 	val track = MaterialTheme.colorScheme.outlineVariant
 	// Warning colour from 90%: by the time it matters, a gauge that has to be
@@ -96,7 +97,7 @@ fun ContextGauge(
 				.clip(RoundedCornerShape(8.dp))
 				.clickable(onClick = onToggle)
 				.padding(horizontal = 6.dp, vertical = 4.dp)
-				.semantics { contentDescription = describe(usage) },
+				.semantics { contentDescription = gaugeDescription },
 			horizontalArrangement = Arrangement.End,
 			verticalAlignment = Alignment.CenterVertically,
 		) {
@@ -272,10 +273,21 @@ private fun Detail(text: String, faint: Boolean = false) {
 }
 
 /** The ring's announcement, since a shape has no text for a screen reader. */
-private fun describe(usage: ContextUsage): String = when {
-	usage.percent != null -> "Context ${usage.percent} percent full. ${usage.summary.orEmpty()}"
-	usage.contextWindow != null -> "Context window ${TokenFormat.exact(usage.contextWindow.toLong())} tokens, nothing measured yet"
-	else -> "Context usage unknown"
+@Composable
+private fun describe(usage: ContextUsage): String {
+	val percent = usage.percent
+	return when {
+		percent != null -> stringResource(
+			R.string.context_gauge_desc_percent,
+			percent,
+			usage.summary.orEmpty(),
+		)
+		usage.contextWindow != null -> stringResource(
+			R.string.context_gauge_desc_window,
+			TokenFormat.exact(usage.contextWindow.toLong()),
+		)
+		else -> stringResource(R.string.context_gauge_desc_unknown)
+	}
 }
 
 private val RING_SIZE = 20.dp

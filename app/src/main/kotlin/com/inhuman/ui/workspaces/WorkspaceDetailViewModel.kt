@@ -99,7 +99,13 @@ class WorkspaceDetailViewModel(
 
 	private fun create(agent: AgentEntity?, onCreated: ((String) -> Unit)? = null) {
 		viewModelScope.launch {
-			runCatching { repository.create(agent = agent, workspaceId = workspaceId) }
+			runCatching {
+				repository.create(
+					title = context.getString(R.string.chat_title_fallback),
+					agent = agent,
+					workspaceId = workspaceId,
+				)
+			}
 				.onSuccess { onCreated?.invoke(it.id) }
 				.onFailure { failure ->
 					_state.update {

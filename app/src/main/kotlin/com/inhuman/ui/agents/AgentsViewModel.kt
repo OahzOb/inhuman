@@ -91,6 +91,7 @@ data class AgentDraft(
 }
 
 class AgentsViewModel(
+	private val context: android.content.Context,
 	private val repository: AgentRepository,
 	/**
 	 * Only for the approval rules, which are keyed by assistant.
@@ -302,7 +303,7 @@ class AgentsViewModel(
 		_state.value.models.firstOrNull { it.id == modelId }?.supportedEffortLevels.orEmpty()
 
 	fun modelDisplayName(id: String?): String {
-		if (id == null) return "provider default"
+		if (id == null) return context.getString(com.inhuman.R.string.agents_provider_default)
 		val m = _state.value.models.firstOrNull { it.id == id }
 		return m?.displayName?.takeIf { it.isNotBlank() } ?: id
 	}

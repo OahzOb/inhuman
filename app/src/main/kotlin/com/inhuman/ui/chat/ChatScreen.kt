@@ -159,6 +159,8 @@ fun ChatScreen(
 	val defaultProvider = stringResource(R.string.chat_provider_fallback)
 	val title by viewModel.state.map { it.title }.collectAsStateWithLifecycle(defaultTitle)
 	val modelLabel by viewModel.state.map { it.modelLabel }.collectAsStateWithLifecycle(defaultModel)
+	val displayTitle = title.ifBlank { defaultTitle }
+	val displayModel = modelLabel.ifBlank { defaultModel }
 	val providerName by viewModel.state.map { it.providerName }.collectAsStateWithLifecycle(defaultProvider)
 	val thinking by viewModel.state.map { it.thinking }.collectAsStateWithLifecycle(false)
 	val reasoningEffort by viewModel.state
@@ -460,7 +462,7 @@ fun ChatScreen(
 							verticalArrangement = Arrangement.spacedBy(2.dp),
 						) {
 							Text(
-								text = title,
+								text = displayTitle,
 								style = MaterialTheme.typography.titleMedium,
 								maxLines = 1,
 								overflow = TextOverflow.Ellipsis,
@@ -474,9 +476,9 @@ fun ChatScreen(
 									text = buildString {
 										append(providerName)
 										append(" / ")
-										append(modelLabel)
+										append(displayModel)
 										if (thinking) {
-											append(" / thinking")
+											append(stringResource(R.string.chat_thinking_suffix))
 											reasoningEffort?.let { append(" $it") }
 										}
 									},
@@ -605,7 +607,7 @@ fun ChatScreen(
 									text = { Text(stringResource(R.string.chat_rename)) },
 									onClick = {
 										showChatMenu = false
-										renameInput = title
+										renameInput = displayTitle
 										showRenameDialog = true
 									},
 								)
@@ -623,7 +625,7 @@ fun ChatScreen(
 										},
 										onClick = {
 											showChatMenu = false
-											workspaceNameInput = workspaceName.ifBlank { title }
+											workspaceNameInput = workspaceName.ifBlank { displayTitle }
 											showSaveWorkspaceDialog = true
 										},
 									)
@@ -766,7 +768,7 @@ fun ChatScreen(
 						item(key = "welcome") {
 							ChatWelcome(
 								providerName = providerName,
-								modelLabel = modelLabel,
+								modelLabel = displayModel,
 								workspaceName = if (workspaceIsPermanent) {
 									workspaceName.ifBlank {
 										stringResource(R.string.chat_permanent_workspace)

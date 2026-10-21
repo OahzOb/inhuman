@@ -129,7 +129,7 @@ fun chatErrorAction(message: String?): ChatErrorAction? {
  * need different affordances (a cursor versus a retry).
  */
 data class ChatUiState(
-	val title: String = "New conversation",
+	val title: String = "",
 	val providerName: String = "DeepSeek",
 	val workspaceName: String = "",
 	val workspaceIsPermanent: Boolean = false,
@@ -184,7 +184,7 @@ data class ChatUiState(
 	 */
 	val effectiveModel: String? = null,
 	/** Human-facing label for [model], since the id and the name differ. */
-	val modelLabel: String = "default model",
+	val modelLabel: String = "",
 	/** Reasoning effort for this conversation, as the provider spells it. */
 	val reasoningEffort: String? = null,
 	val thinking: Boolean = false,

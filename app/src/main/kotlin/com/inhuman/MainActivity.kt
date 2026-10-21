@@ -297,7 +297,9 @@ private fun InhumanRoot(
 
 		showAgents -> {
 			val factory = remember(agents, repository) {
-				viewModelFactory { AgentsViewModel(agents, repository, secure) }
+				viewModelFactory {
+					AgentsViewModel(context.applicationContext, agents, repository, secure)
+				}
 			}
 			val vm: AgentsViewModel = viewModel(factory = factory)
 			AgentsScreen(viewModel = vm, onBack = { showAgents = false })
@@ -460,7 +462,9 @@ private fun InhumanRoot(
 
 		else -> {
 			val factory = remember(repository, agents) {
-				viewModelFactory { ConversationsViewModel(repository, agents) }
+				viewModelFactory {
+					ConversationsViewModel(context.applicationContext, repository, agents)
+				}
 			}
 			val vm: ConversationsViewModel = viewModel(factory = factory)
 			ConversationsScreen(

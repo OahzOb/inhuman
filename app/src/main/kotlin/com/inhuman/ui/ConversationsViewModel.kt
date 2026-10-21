@@ -1,7 +1,9 @@
 package com.inhuman.ui
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inhuman.R
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.ConversationSearchHit
@@ -59,6 +61,7 @@ data class ConversationsUiState(
 )
 
 class ConversationsViewModel(
+	private val context: Context,
 	private val repository: ConversationRepository,
 	private val agents: AgentRepository,
 ) : ViewModel() {
@@ -160,7 +163,11 @@ class ConversationsViewModel(
 			"create agent=${Diag.shortId(agent?.id)} workspace=${Diag.shortId(workspaceId)}",
 		)
 		viewModelScope.launch {
-			val conversation = repository.create(agent = agent, workspaceId = workspaceId)
+			val conversation = repository.create(
+				title = context.getString(R.string.chat_title_fallback),
+				agent = agent,
+				workspaceId = workspaceId,
+			)
 			Diag.i(
 				"conv",
 				"created id=${Diag.shortId(conversation.id)} " +
