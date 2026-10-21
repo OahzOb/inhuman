@@ -842,6 +842,7 @@ it; the sandbox's no-network rule applies to code the model writes), and
 | `SnapshotStoreTest` | `start` and a later tool checkpoint restore their own file versions; added/deleted/modified paths are diffed by content; stats count turns and pruning keeps the newest; `turns` lists each retained turn with its checkpoint count, newest first. This is the file half of checkpointed rollback. |
 | `WindowFrameTest` | A 640×360 landscape phone and a 900×400 wide-short window stay single-pane; a 700×700 foldable is Medium/single-pane; 1024×768 and 1280×900 use two panes; a 360dp phone uses a FAB and the 1.5× font case uses the header overflow. This is the axis-classification half; the screenshot matrix is still required for composition mistakes. |
 | `ToolCatalogVisibilityTest` | `ssh_exec` is absent from `ToolCatalog.visible(false)` and present only in `visible(true)`; ordinary tools remain in both. This is the one list every user-facing picker and approval table reads. |
+| `TurnNotificationsTest` (instrumentation) | Drives two real `TurnStatus` records through the service: summary plus two children, finishing one demotes to the surviving child, finishing both clears them. Also asserts an awaiting-approval turn has **Review** and **Stop**, and no one-tap Approve/Deny. |
 
 These are pure JVM logic for the reason `AGENTS.md` gives: the device cannot
 observe these states, so the argument has to live in a test.

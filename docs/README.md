@@ -145,7 +145,8 @@ they only run against a device:
 
 Run them with `:app:connectedDebugAndroidTest` / `:core:data:connectedDebugAndroidTest`,
 or `adb shell am instrument`. The `:core:data` run is **27 tests**, and the app
-suite is **6 tests**, at the time of
+suite is **8 tests** (including the two deterministic notification-service
+tests), at the time of
 writing. The first two have their measured
 results in [port-assessment.md](port-assessment.md); the rest are the evidence
 behind [07-gotchas.md](07-gotchas.md) B8 and B6.
