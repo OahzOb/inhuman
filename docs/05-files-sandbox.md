@@ -287,6 +287,28 @@ against a link to `127.0.0.1` or a router's admin page. Only `http`/`https` are
 accepted, credentials in the URL are refused, and a hostile
 `Content-Disposition` name is sanitised before it reaches either destination.
 
+### In-app editor and external editors
+
+Files → open a text file → **Edit** opens a full-screen monospace editor. Save
+writes through `WorkspaceTransfer.import` with the workspace's 4 MiB per-file
+ceiling, so the buffer is staged and renamed atomically and the same total,
+file-count and free-space checks run as for an import. A file larger than the
+1 MiB read ceiling, or one containing a NUL byte, is refused with **Open with…**
+instead of being loaded as mojibake.
+
+**Open with…** builds a writable document URI:
+
+`content://<applicationId>.documents/<workspaceId>/<relativePath>`
+
+and launches `ACTION_EDIT` with read and write URI grants, falling back to
+`ACTION_VIEW` when no editor is installed. The system chooser owns the activity;
+on return `LifecycleResumeEffect` refreshes the list, so an external save is
+visible without restarting the screen. This path deliberately does **not** pass
+through `WorkspaceTransfer`: the provider hands the external app a writable
+file descriptor, which is what allows ordinary editors to save in place. The
+workspace header still reports the resulting usage when the screen resumes, but
+an external write is not re-checked against the import quota at write time.
+
 ## The design layer
 
 `Layout` (`core/design/src/main/kotlin/com/inhuman/core/design/Layout.kt`):

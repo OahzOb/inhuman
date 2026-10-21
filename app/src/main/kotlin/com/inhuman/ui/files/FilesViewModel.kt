@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
@@ -55,6 +56,8 @@ data class FileEntryUi(
 data class FilesUiState(
 	/** Path being shown, relative to the workspace root. Empty is the root. */
 	val currentPath: String = "",
+	/** The durable workspace id, used to build a writable document URI. */
+	val workspaceId: String? = null,
 	val entries: List<FileEntryUi> = emptyList(),
 	val loading: Boolean = true,
 	/** Bytes used and the ceiling, for the header. */
@@ -65,6 +68,9 @@ data class FilesUiState(
 	val error: String? = null,
 	/** Non-null while a preview is open. */
 	val preview: FilePreview? = null,
+	/** Non-null while the in-app text editor is open. */
+	val editor: FileEditor? = null,
+	val editorBusy: Boolean = false,
 	/**
 	 * Absolute app-private directory, shown to the user and never sent to the
 	 * model. A workspace opened without a conversation has no rules to edit.
@@ -77,8 +83,25 @@ data class FilePreview(
 	val name: String,
 	val relativePath: String,
 	val text: String,
+	val mimeType: String = "text/plain",
+	val editable: Boolean = false,
 	val truncated: Boolean = false,
 )
+
+/**
+ * An open in-app text edit.
+ *
+ * [originalText] is kept only so the dialog can ask before discarding a dirty
+ * buffer; the workspace file remains the source of truth until Save.
+ */
+data class FileEditor(
+	val name: String,
+	val relativePath: String,
+	val originalText: String,
+	val text: String,
+) {
+	val dirty: Boolean get() = text != originalText
+}
 
 /** Where a download landed inside the workspace. */
 data class DownloadSave(val relativePath: String, val bytes: Long)
@@ -231,6 +254,7 @@ class FilesViewModel(
 			val (entries, usage) = result
 			_state.value = _state.value.copy(
 				loading = false,
+				workspaceId = id,
 				entries = entries.orEmpty(),
 				error = if (entries == null) "cannot list that directory" else null,
 				usedBytes = usage.bytes,
@@ -255,6 +279,8 @@ class FilesViewModel(
 		} else {
 			viewModelScope.launch {
 				val ws = workspace() ?: return@launch
+				val entry = _state.value.entries.firstOrNull { it.relativePath == path }
+				val mime = entry?.mimeType ?: "text/plain"
 				val text = withContext(Dispatchers.IO) {
 					val f = (ws.resolve(path) as? SessionWorkspace.Resolution.Ok)?.file ?: return@withContext null
 					if (f.length() > ws.limits.maxReadBytes) return@withContext null
@@ -262,12 +288,17 @@ class FilesViewModel(
 						.onFailure { Diag.w("files", "preview read failed path=$path", it) }
 						.getOrNull()
 				}
+				val editable = text != null &&
+					!text.contains('\u0000') &&
+					(mime.startsWith("text/") || isTextExtension(path))
 				_state.value = _state.value.copy(
 					preview = if (text != null) {
 						FilePreview(
 							name = path.substringAfterLast('/'),
 							relativePath = path,
 							text = text,
+							mimeType = mime,
+							editable = editable,
 						)
 					} else {
 						// Not text, or too big. Reported rather than opened as
@@ -275,12 +306,112 @@ class FilesViewModel(
 						FilePreview(
 							name = path.substringAfterLast('/'),
 							relativePath = path,
-							text = "(binary or larger than the read limit — export it to open it)",
+							text = "(binary or larger than the read limit — open it with another app)",
+							mimeType = mime,
+							editable = false,
 						)
 					},
 				)
 			}
 		}
+	}
+
+	/** Open the text of one workspace file in the in-app editor. */
+	fun openForEdit(path: String) {
+		if (_state.value.editorBusy) return
+		viewModelScope.launch {
+			val ws = workspace() ?: return@launch
+			val file = (ws.resolve(path) as? SessionWorkspace.Resolution.Ok)?.file
+			if (file == null || file.isDirectory) {
+				_state.value = _state.value.copy(error = "That file cannot be edited.")
+				return@launch
+			}
+			if (file.length() > ws.limits.maxReadBytes) {
+				_state.value = _state.value.copy(
+					error = "This file is too large for the in-app editor. Open it with another app instead.",
+				)
+				return@launch
+			}
+			val text = withContext(Dispatchers.IO) {
+				runCatching { file.readText() }
+					.onFailure { Diag.w("files", "editor read failed path=$path", it) }
+					.getOrNull()
+			}
+			if (text == null || text.contains('\u0000')) {
+				_state.value = _state.value.copy(
+					error = "This looks like a binary file. Open it with another app instead.",
+				)
+				return@launch
+			}
+			_state.value = _state.value.copy(
+				preview = null,
+				editor = FileEditor(
+					name = path.substringAfterLast('/'),
+					relativePath = path,
+					originalText = text,
+					text = text,
+				),
+				error = null,
+			)
+		}
+	}
+
+	fun updateEditor(text: String) {
+		val editor = _state.value.editor ?: return
+		_state.value = _state.value.copy(editor = editor.copy(text = text))
+	}
+
+	/**
+	 * Save the editor through the same atomic transfer used by imports.
+	 *
+	 * Writing the file directly would bypass the total/free-space checks and
+	 * leave a half-written file if the process died. The maximum writable size is
+	 * the workspace's per-file limit; a larger file is refused before Save.
+	 */
+	fun saveEditor() {
+		val editor = _state.value.editor ?: return
+		if (_state.value.editorBusy) return
+		_state.value = _state.value.copy(editorBusy = true, error = null)
+		viewModelScope.launch {
+			val ws = workspace()
+			if (ws == null) {
+				_state.value = _state.value.copy(editorBusy = false, error = "workspace not found")
+				return@launch
+			}
+			val bytes = editor.text.toByteArray(Charsets.UTF_8)
+			val outcome = withContext(Dispatchers.IO) {
+				WorkspaceTransfer(ws).import(
+					destinationPath = editor.relativePath,
+					maxBytes = ws.limits.maxWriteBytes,
+				) { ByteArrayInputStream(bytes) }
+			}
+			when (outcome) {
+				is WorkspaceTransfer.Outcome.Ok -> {
+					Diag.i("files", "editor saved path=${editor.relativePath} bytes=${outcome.bytes}")
+					_state.value = _state.value.copy(editor = null, editorBusy = false, error = null)
+					refresh()
+				}
+
+				is WorkspaceTransfer.Outcome.Failed -> {
+					Diag.w("files", "editor save failed path=${editor.relativePath} reason=${outcome.reason}")
+					_state.value = _state.value.copy(editorBusy = false, error = outcome.reason)
+				}
+			}
+		}
+	}
+
+	fun closeEditor() {
+		if (_state.value.editorBusy) return
+		_state.value = _state.value.copy(editor = null, error = null)
+	}
+
+	private fun isTextExtension(path: String): Boolean {
+		val ext = path.substringAfterLast('.', "").lowercase()
+		return ext in setOf(
+			"txt", "md", "markdown", "json", "jsonl", "kt", "kts", "java", "xml",
+			"yaml", "yml", "toml", "csv", "tsv", "log", "sh", "js", "ts", "py",
+			"html", "css", "sql", "ini", "properties", "gradle", "gitignore",
+		)
 	}
 
 	fun closePreview() = _state.update { it.copy(preview = null) }

@@ -3,6 +3,7 @@ package com.inhuman.ui.files
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ContentResolver
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -49,6 +51,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -66,8 +69,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.ai.policy.ToolPolicy
@@ -131,8 +137,14 @@ fun FilesScreen(
 	var showDownloadDialog by remember { mutableStateOf(false) }
 	var showPath by remember { mutableStateOf(false) }
 
+	// While the editor is open its own inline error is the right place for a
+	// save failure; another AlertDialog over the editor would hide the buffer
+	// the user is trying to fix.
+	val dialogError = if (state.editor == null) state.error ?: importError else null
+
 	val anyDialogOpen = pendingDelete != null || importError != null ||
-		state.error != null || state.preview != null || showDownloadDialog || showPath
+		state.error != null || state.preview != null || state.editor != null ||
+		showDownloadDialog || showPath
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
 	// Which file the export launcher was fired for.
@@ -323,22 +335,48 @@ fun FilesScreen(
 			onDismissRequest = viewModel::closePreview,
 			title = { Text(preview.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
 			text = {
-				if (markdown && !showSource) {
-					MarkdownText(
-						text = preview.text,
-						modifier = Modifier
-							.fillMaxWidth()
-							.verticalScroll(rememberScrollState()),
-					)
-				} else {
-					Text(
-						text = preview.text,
-						style = MaterialTheme.typography.bodyMedium,
-						fontFamily = FontFamily.Monospace,
-						modifier = Modifier
-							.fillMaxWidth()
-							.verticalScroll(rememberScrollState()),
-					)
+				Column {
+					Row(
+						horizontalArrangement = Arrangement.spacedBy(4.dp),
+						verticalAlignment = Alignment.CenterVertically,
+					) {
+						if (preview.editable) {
+							TextButton(
+								onClick = {
+									viewModel.closePreview()
+									viewModel.openForEdit(preview.relativePath)
+								},
+							) { Text("Edit") }
+						}
+						TextButton(
+							onClick = {
+								val workspaceId = state.workspaceId
+								if (workspaceId == null) {
+									Toast.makeText(context, "Workspace is not ready yet.", Toast.LENGTH_SHORT).show()
+								} else {
+									viewModel.closePreview()
+									openExternally(context, workspaceId, preview)
+								}
+							},
+						) { Text("Open with…") }
+					}
+					if (markdown && !showSource) {
+						MarkdownText(
+							text = preview.text,
+							modifier = Modifier
+								.fillMaxWidth()
+								.verticalScroll(rememberScrollState()),
+						)
+					} else {
+						Text(
+							text = preview.text,
+							style = MaterialTheme.typography.bodyMedium,
+							fontFamily = FontFamily.Monospace,
+							modifier = Modifier
+								.fillMaxWidth()
+								.verticalScroll(rememberScrollState()),
+						)
+					}
 				}
 			},
 			confirmButton = {
@@ -356,6 +394,17 @@ fun FilesScreen(
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
 			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+
+	state.editor?.let { editor ->
+		FileEditorDialog(
+			editor = editor,
+			busy = state.editorBusy,
+			error = state.error,
+			onChange = viewModel::updateEditor,
+			onSave = viewModel::saveEditor,
+			onDismiss = viewModel::closeEditor,
 		)
 	}
 
@@ -388,7 +437,7 @@ fun FilesScreen(
 		)
 	}
 
-	(state.error ?: importError)?.let { message ->
+	dialogError?.let { message ->
 		AlertDialog(
 			onDismissRequest = { importError = null; viewModel.refresh() },
 			title = { Text("Could not do that") },
@@ -803,6 +852,125 @@ private fun createDocumentUnique(
 		}
 	}
 	throw IOException("Could not create a file in the chosen folder.")
+}
+
+private fun openExternally(context: Context, workspaceId: String, preview: FilePreview) {
+	val authority = "${context.packageName}.documents"
+	val documentId = "$workspaceId/${preview.relativePath}"
+	val uri = DocumentsContract.buildDocumentUri(authority, documentId)
+	val mime = preview.mimeType.ifBlank { "*/*" }
+	val edit = Intent(Intent.ACTION_EDIT).apply {
+		setDataAndType(uri, mime)
+		addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+	}
+	val view = Intent(Intent.ACTION_VIEW).apply {
+		setDataAndType(uri, mime)
+		addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+	}
+	val chosen = if (edit.resolveActivity(context.packageManager) != null) edit else view
+	runCatching {
+		context.startActivity(Intent.createChooser(chosen, "Open with"))
+	}.onFailure {
+		Toast.makeText(context, "No app can open this file.", Toast.LENGTH_SHORT).show()
+	}
+}
+
+@Composable
+private fun FileEditorDialog(
+	editor: FileEditor,
+	busy: Boolean,
+	error: String?,
+	onChange: (String) -> Unit,
+	onSave: () -> Unit,
+	onDismiss: () -> Unit,
+) {
+	var confirmDiscard by remember(editor.relativePath) { mutableStateOf(false) }
+
+	fun requestClose() {
+		if (editor.dirty) {
+			confirmDiscard = true
+		} else {
+			onDismiss()
+		}
+	}
+
+	Dialog(
+		onDismissRequest = ::requestClose,
+		properties = DialogProperties(usePlatformDefaultWidth = false),
+	) {
+		Surface(
+			modifier = Modifier
+				.fillMaxSize()
+				.imePadding(),
+			color = MaterialTheme.colorScheme.background,
+		) {
+			Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+				Row(verticalAlignment = Alignment.CenterVertically) {
+					Column(modifier = Modifier.weight(1f)) {
+						Text(
+							editor.name,
+							style = MaterialTheme.typography.titleMedium,
+							maxLines = 1,
+							overflow = TextOverflow.Ellipsis,
+						)
+						Text(
+							"${editor.text.length} chars" + if (editor.dirty) " · unsaved" else "",
+							style = MaterialTheme.typography.labelSmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+					TextButton(onClick = ::requestClose, enabled = !busy) { Text("Close") }
+					TextButton(onClick = onSave, enabled = !busy) { Text("Save") }
+				}
+				Hairline()
+				error?.let {
+					Text(
+						it,
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.error,
+						modifier = Modifier.padding(vertical = 6.dp),
+					)
+				}
+				OutlinedTextField(
+					value = editor.text,
+					onValueChange = onChange,
+					modifier = Modifier
+						.weight(1f)
+						.fillMaxWidth()
+						.padding(top = 8.dp),
+					textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+					singleLine = false,
+					keyboardOptions = KeyboardOptions(
+						capitalization = KeyboardCapitalization.None,
+						autoCorrectEnabled = false,
+					),
+					label = { Text("Editing ${editor.relativePath}") },
+				)
+			}
+		}
+	}
+
+	if (confirmDiscard) {
+		AlertDialog(
+			onDismissRequest = { confirmDiscard = false },
+			title = { Text("Discard changes?") },
+			text = { Text("The file on disk has not been changed.") },
+			confirmButton = {
+				TextButton(
+					onClick = {
+						confirmDiscard = false
+						onDismiss()
+					},
+				) { Text("Discard") }
+			},
+			dismissButton = {
+				TextButton(onClick = { confirmDiscard = false }) { Text("Keep editing") }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
 }
 
 @Composable
