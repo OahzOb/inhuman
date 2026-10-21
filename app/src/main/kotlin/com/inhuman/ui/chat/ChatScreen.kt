@@ -24,6 +24,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.DataObject
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.foundation.layout.Arrangement
@@ -263,6 +264,7 @@ fun ChatScreen(
 	val snapshotTurns by viewModel.state
 		.map { it.snapshotTurns }
 		.collectAsStateWithLifecycle(emptyList<SnapshotTurn>())
+	val wire by viewModel.wire.collectAsStateWithLifecycle(null)
 	val toolRoundLimit by viewModel.state
 		.map { it.toolRoundLimit }
 		.collectAsStateWithLifecycle(8)
@@ -285,6 +287,11 @@ fun ChatScreen(
 	var pendingCompaction by remember { mutableStateOf<CompactionPlan?>(null) }
 	var showCompactionSummary by remember { mutableStateOf(false) }
 	var showSnapshotDialog by remember { mutableStateOf(false) }
+	var showWireDialog by remember { mutableStateOf(false) }
+	LaunchedEffect(wire) {
+		if (wire?.preview == true) showWireDialog = true
+	}
+	var wireResponseMessage by remember { mutableStateOf<ChatMessageUi?>(null) }
 	var showToolLimitDialog by remember { mutableStateOf(false) }
 	var showRenameDialog by remember { mutableStateOf(false) }
 	var renameInput by remember { mutableStateOf("") }
@@ -297,7 +304,8 @@ fun ChatScreen(
 	val anyDialogOpen = showModelPicker || pendingApproval != null ||
 		pendingSshConsent != null || rollbackTarget != null || showRewindDialog ||
 		showCompactPreview || showCompactionSummary ||
-		showSnapshotDialog || showToolLimitDialog || showRenameDialog
+		showSnapshotDialog || showToolLimitDialog || showRenameDialog || showWireDialog ||
+		wireResponseMessage != null
 			|| showSaveWorkspaceDialog
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
@@ -510,6 +518,43 @@ fun ChatScreen(
 								expanded = showChatMenu,
 								onDismissRequest = { showChatMenu = false },
 							) {
+								DropdownMenuItem(
+									text = {
+										Column {
+											Text("Preview next request")
+											Text(
+												text = "System, tools, draft and raw JSON",
+												style = MaterialTheme.typography.bodySmall,
+												color = MaterialTheme.colorScheme.onSurfaceVariant,
+											)
+										}
+									},
+									onClick = {
+										showChatMenu = false
+										viewModel.previewNextRequest()
+									},
+								)
+								DropdownMenuItem(
+									text = {
+										Column {
+											Text("Inspect last request")
+											Text(
+												text = if (wire == null) {
+													"No provider request yet"
+												} else {
+													"System, tools, messages and raw JSON"
+												},
+												style = MaterialTheme.typography.bodySmall,
+												color = MaterialTheme.colorScheme.onSurfaceVariant,
+											)
+										}
+									},
+									enabled = wire != null,
+									onClick = {
+										showChatMenu = false
+										showWireDialog = true
+									},
+								)
 								DropdownMenuItem(
 									text = {
 										Column {
@@ -741,6 +786,7 @@ fun ChatScreen(
 							isLatestAssistant = isLastAssistant,
 							isStreaming = isStreaming,
 							showRewind = showRewind,
+							onShowWire = { wireResponseMessage = message },
 							onShowRewind = {
 								val target = messages.lastOrNull {
 									it.fromUser && it.id == lastUserId
@@ -1267,6 +1313,23 @@ fun ChatScreen(
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
 			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+
+	if (showWireDialog) {
+		wire?.let { snapshot ->
+			WireRequestDialog(
+				snapshot = snapshot,
+				onDismiss = { showWireDialog = false },
+			)
+		}
+	}
+
+	wireResponseMessage?.let { message ->
+		WireResponseDialog(
+			message = message,
+			allMessages = viewModel.state.value.messages,
+			onDismiss = { wireResponseMessage = null },
 		)
 	}
 
@@ -1954,6 +2017,7 @@ private fun MessageBubble(
 	isLatestAssistant: Boolean,
 	isStreaming: Boolean,
 	showRewind: Boolean,
+	onShowWire: () -> Unit,
 	onShowRewind: () -> Unit,
 	onSelectBranch: (String?, String) -> Unit,
 ) {
@@ -2116,6 +2180,9 @@ private fun MessageBubble(
 					) {
 						Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed)) {
 							calls.forEach { ToolCallLine(it) }
+							TextButton(onClick = onShowWire) {
+								Text("View wire format", style = MaterialTheme.typography.labelSmall)
+							}
 						}
 					}
 				}
@@ -2266,8 +2333,10 @@ private fun MessageBubble(
 		val hasTextActions = !message.fromUser &&
 			!message.isStreaming &&
 			message.plainText.isNotBlank()
+		val hasWire = !message.fromUser && !message.isStreaming &&
+			message.toolCalls.isNotEmpty()
 
-		if (hasTextActions || showRewind) {
+		if (hasTextActions || showRewind || hasWire) {
 			Row(
 				modifier = Modifier.padding(top = 2.dp),
 				horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -2302,6 +2371,20 @@ private fun MessageBubble(
 							contentDescription = "Copy reply",
 							tint = MaterialTheme.colorScheme.onSurfaceVariant,
 							modifier = Modifier.size(16.dp),
+						)
+					}
+				}
+
+				if (hasWire) {
+					IconButton(
+						onClick = onShowWire,
+						modifier = Modifier.size(32.dp),
+					) {
+						Icon(
+							imageVector = Icons.Outlined.DataObject,
+							contentDescription = "Show raw assistant message",
+							tint = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.size(17.dp),
 						)
 					}
 				}

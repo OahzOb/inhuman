@@ -38,6 +38,20 @@ data class RegenerationPoint(
 )
 
 /**
+ * The exact provider body from the last request, kept for the wire inspector.
+ *
+ * This is in-memory rather than persisted: it is a view of what was sent, not a
+ * second transcript, and a long image-bearing body would duplicate the
+ * conversation on disk.
+ */
+data class WireSnapshot(
+	val requestJson: String,
+	val model: String,
+	val capturedAt: Long,
+	val preview: Boolean = false,
+)
+
+/**
  * The action the composer can offer beside an error.
  *
  * The raw provider message stays in [ChatUiState.error]; this only decides

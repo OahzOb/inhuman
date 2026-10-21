@@ -387,10 +387,40 @@ summarizer work.
 
 Home's search field searches conversation titles and user/assistant text through
 `ConversationRepository.search` (escaped `LIKE`, newest first; title matches
-first). Tapping a message hit opens the conversation with `focusMessageId`;
-`ChatScreen` waits until the list has measured, disables follow, scrolls to that
-item and keeps a subtle primary-tinted band for 2.4 s. A title hit has no message
-id and opens the conversation normally.
+first, inactive branches excluded). Tapping a message hit opens the conversation
+with `focusMessageId`; `ChatScreen` waits until the list has measured, disables
+follow, scrolls to that item and keeps a subtle primary-tinted band for 2.4 s. A
+title hit has no message id and opens the conversation normally.
+
+### Wire inspector
+
+`WireSheet.kt`. The chat menu offers **Preview next request** and **Inspect last
+request**; an assistant message that requested tools has a `{}` action and a
+**View wire format** link under its tool group. The sheet is a readable
+projection of the real body, not a second serializer:
+`ChatProvider.previewRequest` must call the same builder as `stream`, and the
+last body is kept in `ChatViewModel.wire` in memory. It shows:
+
+- request parameters (`model`, `stream`, `thinking`, `reasoning_effort`,
+  `stream_options`, `user_id`);
+- the composed system message split into assistant prompt and compaction
+  summary;
+- tool names, descriptions, typed parameter tables and an optional raw schema;
+- numbered messages with role, text, `content: null`, `reasoning_content`,
+  `tool_calls` (call id, name, parsed fields, raw arguments) and linked
+  `role: tool` results.
+
+Long system blocks, message bodies, reasoning, tool results and arguments are
+collapsed to a few lines with **Show more**. Images are shown as
+`[image data URL · base64 omitted]`; raw JSON also redacts the data URL. A
+**Raw JSON** toggle remains available for protocol work, and every sheet has
+**Copy JSON**. Demo mode has no provider body and says so rather than inventing
+a fake request.
+
+The request snapshot is deliberately not persisted: it is a view of one
+in-flight/last request, not another copy of the transcript. The assistant raw
+view is reconstructed from the already-persisted `toolCallsJson`, so it survives
+a reload.
 
 ### The approval dialog (`:423-456`)
 

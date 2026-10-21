@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -67,6 +68,13 @@ class DeepSeekProvider(
 
 	override suspend fun listModels(): List<RemoteModel> =
 		DeepSeekModels.fetch(client, baseUrl, apiKey)
+
+	override fun previewRequest(request: ChatRequest): JsonObject =
+		DeepSeekRequest.build(
+			request = request,
+			reasoningMode = reasoningMode,
+			includeStreamUsage = includeStreamUsage,
+		)
 
 	/**
 	 * Stream a completion.

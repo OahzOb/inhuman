@@ -1,6 +1,7 @@
 package com.inhuman.core.ai
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.json.JsonObject
 
 /**
  * A source of completions.
@@ -32,4 +33,14 @@ interface ChatProvider {
 	 * collector must cancel the underlying request.
 	 */
 	fun stream(request: ChatRequest): Flow<StreamChunk>
+
+	/**
+	 * The exact JSON body this provider would send for [request], or null when
+	 * the provider has no wire body (the demo source).
+	 *
+	 * The implementation must call the same builder as [stream]; a preview that
+	 * duplicates the serializer is worse than no preview, because it can show a
+	 * field the network never receives.
+	 */
+	fun previewRequest(request: ChatRequest): JsonObject? = null
 }

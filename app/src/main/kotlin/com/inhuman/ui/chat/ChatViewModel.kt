@@ -140,6 +140,10 @@ class ChatViewModel(
 	private val _state = MutableStateFlow(ChatUiState())
 	val state: StateFlow<ChatUiState> = _state.asStateFlow()
 
+	/** The last actual provider body, for the read-only wire inspector. */
+	private val _wire = MutableStateFlow<WireSnapshot?>(null)
+	val wire: StateFlow<WireSnapshot?> = _wire.asStateFlow()
+
 	private val turnToken = Any()
 
 	init {
@@ -1608,6 +1612,79 @@ class ChatViewModel(
 	}
 
 	/**
+	 * Build the body the next send would use, without sending it.
+	 *
+	 * The preview goes through the provider's own serializer, so the system
+	 * message (including a compaction summary), the tool schemas, the current
+	 * draft and the request parameters are the same objects the network would
+	 * receive. Demo mode has no provider body and says so rather than inventing
+	 * one.
+	 */
+	fun previewNextRequest() {
+		if (_state.value.isStreaming || _state.value.isCompacting) return
+		_wire.value = null
+		viewModelScope.launch {
+			val demo = demoEnabled()
+			if (demo) {
+				_state.update {
+					it.copy(error = "Demo mode has no provider request to inspect.")
+				}
+				return@launch
+			}
+			val provider = agents.provider(providerId)?.let { agents.providerFromRow(it) }
+			if (provider == null) {
+				_state.update {
+					it.copy(error = "Add an API key for $providerName to preview a request.")
+				}
+				return@launch
+			}
+			val turnModel = model ?: agent?.model
+				?: agents.models(providerId).getOrNull()?.firstOrNull()?.id
+			if (turnModel == null) {
+				_state.update { it.copy(error = "Choose a model for $providerName first.") }
+				return@launch
+			}
+			val result = runCatching {
+				withContext(Dispatchers.IO) {
+					val policies = loadPolicies()
+					val tools = buildTools(policies)
+					val request = ChatRequest(
+						model = turnModel,
+						messages = buildWireHistory(includeCurrent = true),
+						tools = tools.map(::spec),
+						thinking = thinking,
+						reasoningEffort = reasoningEffort,
+						userId = conversationId,
+					)
+					provider.previewRequest(request)
+				}
+			}
+			val body = result.getOrNull()
+			if (body == null) {
+				val reason = result.exceptionOrNull()?.message
+				_state.update {
+					it.copy(
+						error = if (reason == null) {
+							"This provider does not expose a request body."
+						} else {
+							"Could not build the request: $reason"
+						},
+					)
+				}
+				return@launch
+			}
+			_wire.value = WireSnapshot(
+				requestJson = Json { prettyPrint = true }
+					.encodeToString(JsonObject.serializer(), body),
+				model = turnModel,
+				capturedAt = System.currentTimeMillis(),
+				preview = true,
+			)
+			_state.update { it.copy(error = null) }
+		}
+	}
+
+	/**
 	 * Write the turn's changed paths onto its final assistant row.
 	 *
 	 * The snapshot diff is the source of truth, so this reports what actually
@@ -2046,18 +2123,25 @@ class ChatViewModel(
 				publishParts(replyId, reasoning, answer, calls, cursor, answerAfterCalls)
 			}
 
-			provider.stream(
-				ChatRequest(
+			val request = ChatRequest(
+				model = modelId,
+				messages = history,
+				tools = toolSpecs,
+				// Taken from the assistant, and off by default: "hi" should
+				// not cost a paragraph of thinking.
+				thinking = thinking,
+				reasoningEffort = reasoningEffort,
+				userId = conversationId,
+			)
+			provider.previewRequest(request)?.let { body ->
+				_wire.value = WireSnapshot(
+					requestJson = Json { prettyPrint = true }
+						.encodeToString(JsonObject.serializer(), body),
 					model = modelId,
-					messages = history,
-					tools = toolSpecs,
-					// Taken from the assistant, and off by default: "hi" should
-					// not cost a paragraph of thinking.
-					thinking = thinking,
-					reasoningEffort = reasoningEffort,
-					userId = conversationId,
-				),
-			).collect { chunk ->
+					capturedAt = System.currentTimeMillis(),
+				)
+			}
+			provider.stream(request).collect { chunk ->
 				chunks++
 				if (firstTokenAt == null && chunk is StreamChunk.TextDelta) {
 					firstTokenAt = System.currentTimeMillis()
@@ -3090,8 +3174,12 @@ class ChatViewModel(
 	 * standing instruction for the whole conversation rather than something
 	 * said once.
 	 */
-	private fun buildWireHistory(): List<ChatMessage> {
-		val visible = _state.value.messages.dropLast(1)
+	private fun buildWireHistory(includeCurrent: Boolean = false): List<ChatMessage> {
+		val visible = if (includeCurrent) {
+			_state.value.messages
+		} else {
+			_state.value.messages.dropLast(1)
+		}
 		val out = mutableListOf<ChatMessage>()
 
 		// A derived summary replaces an old prefix on the wire only. The rows
@@ -3143,6 +3231,17 @@ class ChatViewModel(
 						val id = c.id ?: return@mapNotNull null
 						com.inhuman.core.ai.ToolCall(id, c.displayName, c.argumentsJson.ifBlank { "{}" })
 					},
+				)
+			}
+		}
+		if (includeCurrent) {
+			val draft = _state.value.input.trim()
+			val attachments = _state.value.pendingAttachments
+			if (draft.isNotEmpty() || attachments.isNotEmpty()) {
+				out += ChatMessage(
+					role = Role.User,
+					content = draft,
+					images = loadImages(attachments),
 				)
 			}
 		}
