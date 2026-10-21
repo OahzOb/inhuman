@@ -118,6 +118,14 @@ class ConversationRepository(
 			val pattern = likePattern(query)
 			val messageHits = db.messages().search(pattern, limit)
 			val titleHits = db.conversations().searchTitles(pattern, limit)
+			// Search can match a message on an inactive branch. Opening that
+			// conversation would show a different transcript and the jump would
+			// silently fail, so keep only rows on the branch the app displays.
+			val activeIds = messageHits.map { it.conversationId }.distinct().associateWith { conversationId ->
+				ConversationStore.activePathOf(db.messages().all(conversationId))
+					.mapTo(mutableSetOf()) { it.id }
+			}
+			val visibleHits = messageHits.filter { it.messageId in activeIds[it.conversationId].orEmpty() }
 			val titleResults = titleHits.map { conversation ->
 				ConversationSearchHit(
 					conversationId = conversation.id,
@@ -128,7 +136,7 @@ class ConversationRepository(
 					createdAt = conversation.updatedAt,
 				)
 			}
-			val messageResults = messageHits.map { hit ->
+			val messageResults = visibleHits.map { hit ->
 				ConversationSearchHit(
 					conversationId = hit.conversationId,
 					conversationTitle = hit.conversationTitle,
