@@ -25,10 +25,13 @@ turn could start while the first was still writing into the same message tree
 ### `runTurn` (`:1444-1524`)
 
 Builds the provider (`DemoProvider()` or `DeepSeekProvider(apiKey!!)`),
-`buildTools()`, and loops up to the user's **tool-round limit** (chat menu →
-Tool calls per turn; default `DEFAULT_TOOL_ROUNDS = 8`, bounded 4–64). Empty
-`toolCalls` ends the turn; falling out of the loop sets an explicit error
-("Stopped after N tool rounds…") rather than ending silently.
+`buildTools()`, and loops up to the user's **tool-round limit** — Settings →
+03 / Turn limits **or** the chat menu's Tool calls per turn; both write the same
+`SecureStore` key, so they cannot disagree. Default `DEFAULT_TOOL_ROUNDS = 8`,
+bounded 4–64. A round is one model response plus its tool calls, so this is not a
+count of individual calls. Empty `toolCalls` ends the turn; falling out of the
+loop sets an explicit error ("Stopped after N tool rounds…") rather than ending
+silently.
 
 ### `streamOneTurn` (`:802-1081`)
 
@@ -761,6 +764,14 @@ sees. The built-in DeepSeek profile cannot be deleted. **Web tools** selects the
 search and fetch backend independently (DeepSeek/Exa) and stores their keys
 separately; a backend without a key shows a warning and its tool stays
 unregistered. Demo mode and the SSH switch live below those sections.
+
+**Turn limits** (`03 / Turn limits`) exposes the same global tool-round setting
+as the chat menu. Both write `SecureStore.KEY_TOOL_ROUNDS`; `SettingsViewModel`
+reads and writes it through one helper, and `ChatViewModel.refreshConfiguration`
+re-reads it when a conversation is entered. A round is one model response plus
+the calls it requested, so the label says "Tool calls per turn" but the count is
+round trips; raising it does not change which tools are allowed. Settings moved
+**Backup** to `04`.
 
 **Demo mode is the offline verification path.** `demoEnabled()` reads
 `secure.get(SecureStore.KEY_DEMO_MODE) == "1"` (`ChatViewModel.kt:615`), and

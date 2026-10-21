@@ -152,7 +152,9 @@ Two more that are stated as behaviour rather than as policy:
   checkpoint is restored, and the request runs with tools.
   Checkpoints are content-addressed; the chat menu lists each retained turn with
   its checkpoint count, size and timestamp, and lets the user keep 1/3/5/10
-  turns. The same menu sets the per-turn tool-round limit.
+  turns. The same menu sets the per-turn tool-round limit; Settings → **03 /
+  Turn limits** exposes the same global value, because it applies to every
+  conversation and should not be discoverable only inside one.
 
 ## The vocabulary this codebase uses
 

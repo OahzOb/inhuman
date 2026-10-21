@@ -1519,6 +1519,7 @@ class ChatViewModel(
 				demoMode = demo,
 				configured = demo || hasKey,
 				providerName = providerName,
+				toolRoundLimit = toolRoundLimit(),
 			)
 		}
 	}

@@ -410,8 +410,40 @@ fun SettingsScreen(
 				}
 			}
 
+			Column(
+				modifier = Modifier
+					.widthIn(max = Layout.ReadableMeasure)
+					.fillMaxWidth(),
+				verticalArrangement = Arrangement.spacedBy(8.dp),
+			) {
+				SectionHeading(
+					code = "03 / Turn limits",
+					title = "Tool calls per turn",
+					detail = "A global budget for every conversation. One round can contain " +
+						"several tool calls, so this limits model/tool round trips, not the " +
+						"number of calls inside a round.",
+				)
+				FlowRowCompat {
+					listOf(4, 8, 16, 24, 32, 64).forEach { rounds ->
+						FilterChip(
+							selected = state.toolRoundLimit == rounds,
+							onClick = { viewModel.setToolRoundLimit(rounds) },
+							label = { Text("$rounds") },
+						)
+					}
+				}
+				Text(
+					text = "Current: ${state.toolRoundLimit} rounds per turn. " +
+						"Raising this does not change which tools are allowed.",
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+
+			Hairline(Modifier.widthIn(max = Layout.ReadableMeasure))
+
 			SectionHeading(
-				code = "03 / Backup",
+				code = "04 / Backup",
 				title = "Backup",
 				detail = "An encrypted file of every conversation, workspace file, " +
 					"assistant and policy. API keys are deliberately not included.",

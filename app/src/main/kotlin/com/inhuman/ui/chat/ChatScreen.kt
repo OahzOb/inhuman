@@ -1342,7 +1342,8 @@ fun ChatScreen(
 					Text(
 						"How many model round trips one turn may run before it stops. " +
 							"A round is one model response plus the tool calls it asked for; " +
-							"raising this does not change which tools are allowed.",
+							"raising this does not change which tools are allowed. " +
+							"This is global: it applies to every conversation.",
 					)
 					Text(
 						"Current: $toolRoundLimit per turn",

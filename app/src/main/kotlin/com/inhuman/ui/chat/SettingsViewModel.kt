@@ -73,6 +73,14 @@ data class SettingsUiState(
 	/** Reply from the built-in scripted source instead of DeepSeek. */
 	val demoMode: Boolean = false,
 	/**
+	 * Global ceiling on assistant/tool rounds in one turn.
+	 *
+	 * A round may contain several tool calls, so this is not a call count.
+	 * Stored under the same key the chat menu writes, so both entries stay in
+	 * sync; the value is a budget, not an "unlimited" mode.
+	 */
+	val toolRoundLimit: Int = ChatViewModel.DEFAULT_TOOL_ROUNDS,
+	/**
 	 * The global SSH-tool switch.
 	 *
 	 * Off by default. Turning it on makes `ssh_exec` available to assistants
@@ -125,6 +133,7 @@ class SettingsViewModel(
 	init {
 		_state.value = SettingsUiState(
 			demoMode = secure.get(SecureStore.KEY_DEMO_MODE) == "1",
+			toolRoundLimit = readToolRoundLimit(),
 			sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
 			webSearchBackend = secure.get(SecureStore.KEY_WEB_SEARCH_BACKEND) ?: "deepseek",
 			webFetchBackend = secure.get(SecureStore.KEY_WEB_FETCH_BACKEND) ?: "deepseek",
@@ -219,6 +228,21 @@ class SettingsViewModel(
 			loadRules()
 		}
 	}
+
+	fun setToolRoundLimit(rounds: Int) {
+		val limit = rounds.coerceIn(
+			ChatViewModel.MIN_TOOL_ROUNDS,
+			ChatViewModel.MAX_TOOL_ROUNDS,
+		)
+		secure.put(SecureStore.KEY_TOOL_ROUNDS, limit.toString())
+		_state.value = _state.value.copy(toolRoundLimit = limit)
+		Diag.i("turn", "global tool round limit set to $limit")
+	}
+
+	private fun readToolRoundLimit(): Int =
+		secure.get(SecureStore.KEY_TOOL_ROUNDS)?.toIntOrNull()
+			?.coerceIn(ChatViewModel.MIN_TOOL_ROUNDS, ChatViewModel.MAX_TOOL_ROUNDS)
+			?: ChatViewModel.DEFAULT_TOOL_ROUNDS
 
 	fun setDemoMode(enabled: Boolean) {
 		secure.put(SecureStore.KEY_DEMO_MODE, if (enabled) "1" else "0")
