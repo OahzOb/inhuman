@@ -278,6 +278,7 @@ private fun InhumanRoot(
 			val factory = remember(secure, agents, repository) {
 				viewModelFactory {
 					SettingsViewModel(
+						context = context.applicationContext,
 						secure,
 						agents,
 						repository,
@@ -305,7 +306,13 @@ private fun InhumanRoot(
 		showFiles && filesWorkspaceId != null -> {
 			val id = filesWorkspaceId!!
 			val factory = remember(id) {
-				viewModelFactory { FilesViewModel(repository, requestedWorkspaceId = id) }
+				viewModelFactory {
+					FilesViewModel(
+						context = context.applicationContext,
+						repository = repository,
+						requestedWorkspaceId = id,
+					)
+				}
 			}
 			val vm: FilesViewModel = viewModel(key = "workspace-files-$id", factory = factory)
 			filesUpOneLevel = { vm.navigateUp() }
@@ -326,7 +333,13 @@ private fun InhumanRoot(
 		showFiles && openConversationId != null -> {
 			val id = openConversationId!!
 			val factory = remember(id) {
-				viewModelFactory { FilesViewModel(repository, conversationId = id) }
+				viewModelFactory {
+					FilesViewModel(
+						context = context.applicationContext,
+						repository = repository,
+						conversationId = id,
+					)
+				}
 			}
 			val vm: FilesViewModel = viewModel(key = "files-$id", factory = factory)
 			// An escape hatch for the one Back action that belongs to a screen
@@ -353,6 +366,7 @@ private fun InhumanRoot(
 			val factory = remember(id, agents, secure) {
 				viewModelFactory {
 					ChatViewModel(
+						context = context.applicationContext,
 						repository = repository,
 						agents = agents,
 						secure = secure,
@@ -402,7 +416,7 @@ private fun InhumanRoot(
 			val id = openWorkspaceId!!
 			val factory = remember(id, repository, agents) {
 				viewModelFactory {
-					WorkspaceDetailViewModel(repository, agents, id)
+					WorkspaceDetailViewModel(context.applicationContext, repository, agents, id)
 				}
 			}
 			val vm: WorkspaceDetailViewModel = viewModel(key = "workspace-$id", factory = factory)

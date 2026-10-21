@@ -8,7 +8,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.inhuman.R
 
 /**
  * The marker for a tool that reaches another machine.
@@ -27,7 +29,7 @@ fun RemoteBadge(modifier: Modifier = Modifier) {
 		shape = RoundedCornerShape(4.dp),
 	) {
 		Text(
-			text = "REMOTE",
+			text = stringResource(R.string.badge_remote),
 			style = MaterialTheme.typography.labelSmall,
 			modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
 		)
@@ -44,11 +46,7 @@ fun RemoteToolsNotice(modifier: Modifier = Modifier) {
 		shape = RoundedCornerShape(8.dp),
 	) {
 		Text(
-			text = "ssh_exec runs commands on another machine. The app does not " +
-				"configure hosts or keep a credential store; the agent uses what you " +
-				"give it. Damage at the remote end can be irreversible. It also " +
-				"requires the SSH tool switch in Settings, and the first call in a " +
-				"conversation asks for consent.",
+			text = stringResource(R.string.notice_remote_tools),
 			style = MaterialTheme.typography.bodySmall,
 			modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
 		)

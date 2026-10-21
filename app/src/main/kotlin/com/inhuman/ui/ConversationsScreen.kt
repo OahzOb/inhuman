@@ -62,10 +62,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.inhuman.R
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.ConversationSearchHit
 import com.inhuman.core.design.Eyebrow
@@ -160,7 +163,7 @@ fun ConversationsScreen(
 					contentColor = MaterialTheme.colorScheme.onPrimary,
 					shape = MaterialTheme.shapes.medium,
 				) {
-					Icon(Icons.Filled.Add, contentDescription = "Create")
+					Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.common_create))
 				}
 			}
 		},
@@ -275,13 +278,17 @@ fun ConversationsScreen(
 		val count = state.selectedIds.size
 		AlertDialog(
 			onDismissRequest = { showBulkDelete = false },
-			title = { Text("Delete $count conversation${if (count == 1) "" else "s"}?") },
-			text = {
+			title = {
 				Text(
-					"Each conversation's transcript and rollback snapshots are removed. " +
-						"Files in a temporary workspace go with it; a permanent workspace " +
-						"and its files remain. This cannot be undone.",
+					pluralStringResource(
+						R.plurals.home_delete_selected_title,
+						count,
+						count,
+					),
 				)
+			},
+			text = {
+				Text(stringResource(R.string.home_delete_selected_body))
 			},
 			confirmButton = {
 				TextButton(
@@ -290,10 +297,10 @@ fun ConversationsScreen(
 						showBulkDelete = false
 						viewModel.deleteSelected()
 					},
-				) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+				) { Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error) }
 			},
 			dismissButton = {
-				TextButton(onClick = { showBulkDelete = false }) { Text("Cancel") }
+				TextButton(onClick = { showBulkDelete = false }) { Text(stringResource(R.string.common_cancel)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -330,42 +337,42 @@ fun ConversationsScreen(
 
 		AlertDialog(
 			onDismissRequest = closeDialog,
-			title = { Text("Delete \"${conversation.title}\"?") },
+			title = { Text(stringResource(R.string.home_delete_title, conversation.title)) },
 			text = {
 				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 					Text(
 						text = if (permanent) {
-							buildString {
-								append("This deletes the conversation and its rollback snapshots. ")
-								append("Files in \"$workspaceName\" are kept")
-								if (fileCount != null) {
-									append(
-										if (fileCount == 0) {
-											"; the workspace is empty."
-										} else if (fileCount == 1) {
-											"; 1 file remains there."
-										} else {
-											"; $fileCount files remain there."
-										},
-									)
-								} else {
-									append(".")
-								}
+							val suffix = when {
+								fileCount == null -> stringResource(R.string.home_delete_suffix_end)
+								fileCount == 0 -> stringResource(R.string.home_delete_suffix_empty)
+								else -> pluralStringResource(
+									R.plurals.home_delete_suffix_files,
+									fileCount,
+									fileCount,
+								)
 							}
+							stringResource(
+								R.string.home_delete_permanent_body,
+								workspaceName,
+								suffix,
+							)
 						} else {
 							when {
-								fileCount == null -> "This deletes the conversation and its folder."
-								fileCount == 0 -> "This deletes the conversation. Its folder is empty."
-								fileCount == 1 -> "This deletes the conversation and 1 file in its folder."
-								else -> "This deletes the conversation and $fileCount files in its folder."
+								fileCount == null -> stringResource(R.string.home_delete_body_folder_unknown)
+								fileCount == 0 -> stringResource(R.string.home_delete_body_folder_empty)
+								else -> pluralStringResource(
+									R.plurals.home_delete_body_folder_files,
+									fileCount,
+									fileCount,
+								)
 							}
 						},
 					)
 					Text(
 						text = if (permanent) {
-							"The conversation cannot be restored; the workspace files remain."
+							stringResource(R.string.home_delete_permanent_note)
 						} else {
-							"This cannot be undone."
+							stringResource(R.string.home_delete_note)
 						},
 						color = if (permanent) {
 							MaterialTheme.colorScheme.onSurfaceVariant
@@ -377,11 +384,11 @@ fun ConversationsScreen(
 			},
 			confirmButton = {
 				TextButton(onClick = { viewModel.delete(conversation) }) {
-					Text("Delete", color = MaterialTheme.colorScheme.error)
+					Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
 				}
 			},
 			dismissButton = {
-				TextButton(onClick = closeDialog) { Text("Cancel") }
+				TextButton(onClick = closeDialog) { Text(stringResource(R.string.common_cancel)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -398,7 +405,7 @@ fun ConversationsScreen(
 	state.choosingAgent?.let { available ->
 		AlertDialog(
 			onDismissRequest = viewModel::cancelChoosing,
-			title = { Text("Start with which assistant?") },
+			title = { Text(stringResource(R.string.home_start_assistant_title)) },
 			text = {
 				Column(
 					modifier = Modifier
@@ -420,7 +427,7 @@ fun ConversationsScreen(
 							verticalArrangement = Arrangement.spacedBy(3.dp),
 						) {
 							Text(
-								text = agent.name.ifBlank { "(unnamed)" },
+								text = agent.name.ifBlank { stringResource(R.string.home_unnamed) },
 								style = MaterialTheme.typography.bodyLarge,
 								color = MaterialTheme.colorScheme.onSurface,
 							)
@@ -439,11 +446,11 @@ fun ConversationsScreen(
 			},
 			confirmButton = {
 				TextButton(onClick = { viewModel.chooseAgent(null, onOpenConversation) }) {
-					Text("No assistant")
+					Text(stringResource(R.string.home_no_assistant))
 				}
 			},
 			dismissButton = {
-				TextButton(onClick = viewModel::cancelChoosing) { Text("Cancel") }
+				TextButton(onClick = viewModel::cancelChoosing) { Text(stringResource(R.string.common_cancel)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -489,13 +496,13 @@ private fun CreateSheet(
 					) {
 						Icon(
 							Icons.AutoMirrored.Filled.ArrowBack,
-							contentDescription = "Back",
+							contentDescription = stringResource(R.string.home_create_back),
 							modifier = Modifier.size(18.dp),
 						)
 					}
 					Spacer(Modifier.width(6.dp))
 					Text(
-						text = "Choose a workspace",
+						text = stringResource(R.string.home_create_choose_workspace),
 						style = MaterialTheme.typography.titleLarge,
 						color = MaterialTheme.colorScheme.onSurface,
 					)
@@ -503,7 +510,7 @@ private fun CreateSheet(
 				Spacer(Modifier.height(8.dp))
 				if (workspaces.isEmpty()) {
 					Text(
-						text = "No permanent workspaces yet.",
+						text = stringResource(R.string.home_create_no_workspaces),
 						style = MaterialTheme.typography.bodyMedium,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 						modifier = Modifier.padding(bottom = 4.dp),
@@ -512,7 +519,7 @@ private fun CreateSheet(
 					workspaces.forEach { workspace ->
 						CreateChoice(
 							title = workspace.name,
-							detail = "Permanent workspace",
+							detail = stringResource(R.string.home_create_permanent_workspace),
 							onClick = { onConversation(workspace.id) },
 						)
 					}
@@ -520,32 +527,32 @@ private fun CreateSheet(
 					Hairline()
 				}
 				CreateChoice(
-					title = "New workspace",
-					detail = "Create a shared folder for files.",
+					title = stringResource(R.string.workspaces_new),
+					detail = stringResource(R.string.home_create_new_workspace_detail),
 					onClick = onNewWorkspace,
 				)
 			} else {
 				Text(
-					text = "Create",
+					text = stringResource(R.string.home_create_heading),
 					style = MaterialTheme.typography.headlineMedium,
 					color = MaterialTheme.colorScheme.onSurface,
 				)
 				Spacer(Modifier.height(8.dp))
 				CreateChoice(
-					title = "New conversation",
-					detail = "Start in a temporary workspace.",
+					title = stringResource(R.string.home_create_new_conversation),
+					detail = stringResource(R.string.home_create_new_conversation_detail),
 					onClick = { onConversation(null) },
 					leadingIcon = Icons.Filled.Add,
 				)
 				CreateChoice(
-					title = "New workspace",
-					detail = "Create a shared folder for files.",
+					title = stringResource(R.string.workspaces_new),
+					detail = stringResource(R.string.home_create_new_workspace_detail),
 					onClick = onNewWorkspace,
 					leadingIcon = Icons.Outlined.CreateNewFolder,
 				)
 				CreateChoice(
-					title = "Choose a workspace",
-					detail = "Start a conversation in an existing workspace.",
+					title = stringResource(R.string.home_create_choose_workspace),
+					detail = stringResource(R.string.home_create_choose_workspace_detail),
 					onClick = { choosingWorkspace = true },
 					leadingIcon = Icons.Outlined.FolderOpen,
 				)
@@ -629,7 +636,7 @@ private fun HomeHeader(
 			) {
 				Wordmark(size = if (compactActions) 16 else 20)
 				Text(
-					text = "PRIVATE AGENT WORKBENCH",
+					text = stringResource(R.string.home_tagline),
 					style = MaterialTheme.typography.labelSmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					maxLines = 1,
@@ -637,9 +644,9 @@ private fun HomeHeader(
 				)
 			}
 			if (wide) {
-				HeaderTextAction("Workspaces", Icons.Outlined.FolderOpen, onOpenWorkspaces)
-				HeaderTextAction("Assistants", Icons.Outlined.Person, onOpenAgents)
-				HeaderTextAction("Settings", Icons.Outlined.Settings, onOpenSettings)
+				HeaderTextAction(stringResource(R.string.workspaces_title), Icons.Outlined.FolderOpen, onOpenWorkspaces)
+				HeaderTextAction(stringResource(R.string.common_assistants), Icons.Outlined.Person, onOpenAgents)
+				HeaderTextAction(stringResource(R.string.common_settings), Icons.Outlined.Settings, onOpenSettings)
 				Button(
 					onClick = onCreate,
 					shape = MaterialTheme.shapes.small,
@@ -651,7 +658,7 @@ private fun HomeHeader(
 						modifier = Modifier.size(16.dp),
 					)
 					Spacer(Modifier.width(6.dp))
-					Text("Create", style = MaterialTheme.typography.labelLarge)
+					Text(stringResource(R.string.common_create), style = MaterialTheme.typography.labelLarge)
 				}
 			} else if (compactActions) {
 				// At a large font scale the wordmark alone can consume most of a
@@ -661,11 +668,11 @@ private fun HomeHeader(
 				Box {
 					var menu by remember { mutableStateOf(false) }
 					IconButton(onClick = { menu = true }) {
-						Icon(Icons.Filled.MoreVert, contentDescription = "More destinations")
+						Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.home_more_destinations))
 					}
 					DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
 						DropdownMenuItem(
-							text = { Text("Workspaces") },
+							text = { Text(stringResource(R.string.workspaces_title)) },
 							leadingIcon = { Icon(Icons.Outlined.FolderOpen, contentDescription = null) },
 							onClick = {
 								menu = false
@@ -673,7 +680,7 @@ private fun HomeHeader(
 							},
 						)
 						DropdownMenuItem(
-							text = { Text("Assistants") },
+							text = { Text(stringResource(R.string.common_assistants)) },
 							leadingIcon = { Icon(Icons.Outlined.Person, contentDescription = null) },
 							onClick = {
 								menu = false
@@ -681,7 +688,7 @@ private fun HomeHeader(
 							},
 						)
 						DropdownMenuItem(
-							text = { Text("Settings") },
+							text = { Text(stringResource(R.string.common_settings)) },
 							leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
 							onClick = {
 								menu = false
@@ -695,13 +702,13 @@ private fun HomeHeader(
 				// On a phone the icons fit on the bar, and hiding them only made
 				// the app feel smaller.
 				IconButton(onClick = onOpenWorkspaces) {
-					Icon(Icons.Outlined.FolderOpen, contentDescription = "Workspaces")
+					Icon(Icons.Outlined.FolderOpen, contentDescription = stringResource(R.string.workspaces_title))
 				}
 				IconButton(onClick = onOpenAgents) {
-					Icon(Icons.Outlined.Person, contentDescription = "Assistants")
+					Icon(Icons.Outlined.Person, contentDescription = stringResource(R.string.common_assistants))
 				}
 				IconButton(onClick = onOpenSettings) {
-					Icon(Icons.Outlined.Settings, contentDescription = "Settings")
+					Icon(Icons.Outlined.Settings, contentDescription = stringResource(R.string.common_settings))
 				}
 				if (showCreate) {
 					Button(
@@ -715,7 +722,7 @@ private fun HomeHeader(
 							modifier = Modifier.size(16.dp),
 						)
 						Spacer(Modifier.width(4.dp))
-						Text("Create", style = MaterialTheme.typography.labelMedium)
+						Text(stringResource(R.string.common_create), style = MaterialTheme.typography.labelMedium)
 					}
 				}
 			}
@@ -756,25 +763,34 @@ private fun HomeRail(
 				.padding(horizontal = 32.dp, vertical = 36.dp),
 			verticalArrangement = Arrangement.spacedBy(14.dp),
 		) {
-			Eyebrow("Workbench / 01")
+			Eyebrow(stringResource(R.string.home_rail_eyebrow))
 			Text(
-				text = "A private agent\nwith a desk.",
+				text = stringResource(R.string.home_rail_title),
 				style = MaterialTheme.typography.displaySmall,
 				color = MaterialTheme.colorScheme.onBackground,
 			)
 			Text(
-				text = "Chat, files and tools in one place. Each conversation keeps " +
-					"its own folder; the assistant cannot reach anything outside it.",
+				text = stringResource(R.string.home_rail_body),
 				style = MaterialTheme.typography.bodyMedium,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 			Spacer(Modifier.height(18.dp))
-			MetaLine("Files", "App-private workspace")
 			MetaLine(
-				"Tools",
-				if (sshToolEnabled) "Files, web, SSH on demand" else "Files, web",
+				stringResource(R.string.home_rail_files_label),
+				stringResource(R.string.home_rail_files_value),
 			)
-			MetaLine("Model", "Your configured provider")
+			MetaLine(
+				stringResource(R.string.home_rail_tools_label),
+				if (sshToolEnabled) {
+					stringResource(R.string.home_rail_tools_value_ssh)
+				} else {
+					stringResource(R.string.home_rail_tools_value)
+				},
+			)
+			MetaLine(
+				stringResource(R.string.home_rail_model_label),
+				stringResource(R.string.home_rail_model_value),
+			)
 			Spacer(Modifier.weight(1f))
 			Hairline()
 			Spacer(Modifier.height(12.dp))
@@ -784,8 +800,11 @@ private fun HomeRail(
 			) {
 				StatusDot(MaterialTheme.colorScheme.secondary)
 				Eyebrow(
-					text = if (conversationCount == 1) "01 thread stored" else
-						twoDigits(conversationCount) + " threads stored",
+					text = pluralStringResource(
+						R.plurals.home_threads_stored,
+						conversationCount,
+						conversationCount,
+					),
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 			}
@@ -844,11 +863,15 @@ private fun ConversationPanel(
 				modifier = Modifier.fillMaxWidth(),
 				verticalAlignment = Alignment.CenterVertically,
 			) {
-				Eyebrow("Conversations")
+				Eyebrow(stringResource(R.string.home_conversations))
 				Spacer(Modifier.weight(1f))
 				if (selecting) {
 					Text(
-						text = "${selectedIds.size} selected",
+						text = pluralStringResource(
+							R.plurals.home_selected_count,
+							selectedIds.size,
+							selectedIds.size,
+						),
 						style = MaterialTheme.typography.labelMedium,
 						color = MaterialTheme.colorScheme.primary,
 					)
@@ -860,7 +883,7 @@ private fun ConversationPanel(
 					)
 					if (conversations.isNotEmpty()) {
 						TextButton(onClick = { onBeginSelection(null) }) {
-							Text("Select", style = MaterialTheme.typography.labelMedium)
+							Text(stringResource(R.string.common_select), style = MaterialTheme.typography.labelMedium)
 						}
 					}
 				}
@@ -876,7 +899,7 @@ private fun ConversationPanel(
 						color = MaterialTheme.colorScheme.error,
 						modifier = Modifier.weight(1f),
 					)
-					TextButton(onClick = onClearError) { Text("Dismiss") }
+					TextButton(onClick = onClearError) { Text(stringResource(R.string.common_dismiss)) }
 				}
 			}
 			Spacer(Modifier.height(10.dp))
@@ -887,19 +910,22 @@ private fun ConversationPanel(
 					verticalAlignment = Alignment.CenterVertically,
 				) {
 					Text(
-						text = "Tap conversations to select",
+						text = stringResource(R.string.home_tap_to_select),
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 						modifier = Modifier.weight(1f),
 					)
 					TextButton(onClick = onCancelSelection, enabled = !deletingSelection) {
-						Text("Cancel")
+						Text(stringResource(R.string.common_cancel))
 					}
 					TextButton(
 						onClick = onDeleteSelected,
 						enabled = selectedIds.isNotEmpty() && !deletingSelection,
 					) {
-						Text("Delete", color = MaterialTheme.colorScheme.error)
+						Text(
+							stringResource(R.string.common_delete),
+							color = MaterialTheme.colorScheme.error,
+						)
 					}
 				}
 				Spacer(Modifier.height(4.dp))
@@ -925,9 +951,9 @@ private fun ConversationPanel(
 					placeholder = {
 						Text(
 							text = if (currentWindowFrame().fontScale > 1.3f) {
-								"Search"
+								stringResource(R.string.home_search_short)
 							} else {
-								"Search conversations and messages"
+								stringResource(R.string.home_search_placeholder)
 							},
 							style = MaterialTheme.typography.bodyMedium,
 							maxLines = 1,
@@ -946,7 +972,7 @@ private fun ConversationPanel(
 							IconButton(onClick = onClearSearch) {
 								Icon(
 									Icons.Filled.Close,
-									contentDescription = "Clear search",
+									contentDescription = stringResource(R.string.home_search_clear),
 									modifier = Modifier.size(18.dp),
 								)
 							}
@@ -997,14 +1023,14 @@ private fun SearchResults(
 ) {
 	when {
 		results.isEmpty() && searching -> Text(
-			text = "Searching…",
+			text = stringResource(R.string.home_searching),
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 			modifier = Modifier.padding(vertical = 10.dp),
 		)
 
 		results.isEmpty() -> Text(
-			text = "No matches for “$query”.",
+			text = stringResource(R.string.home_no_matches, query),
 			style = MaterialTheme.typography.bodyMedium,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 			modifier = Modifier.padding(vertical = 10.dp),
@@ -1036,7 +1062,7 @@ private fun SearchResultRow(
 	) {
 		Row(verticalAlignment = Alignment.CenterVertically) {
 			Text(
-				text = hit.conversationTitle.ifBlank { "Untitled conversation" },
+				text = hit.conversationTitle.ifBlank { stringResource(R.string.home_untitled) },
 				style = MaterialTheme.typography.titleSmall,
 				color = MaterialTheme.colorScheme.onSurface,
 				maxLines = 1,
@@ -1046,15 +1072,19 @@ private fun SearchResultRow(
 			Spacer(Modifier.width(8.dp))
 			Eyebrow(
 				text = when (hit.role) {
-					"user" -> "You"
-					"assistant" -> "Assistant"
-					else -> "Title"
+					"user" -> stringResource(R.string.home_role_you)
+					"assistant" -> stringResource(R.string.home_role_assistant)
+					else -> stringResource(R.string.home_role_title)
 				},
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 		}
 		Text(
-			text = if (hit.messageId == null) "Conversation title" else hit.snippet,
+			text = if (hit.messageId == null) {
+				stringResource(R.string.home_conversation_title)
+			} else {
+				hit.snippet
+			},
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 			maxLines = 3,
@@ -1173,9 +1203,10 @@ private fun ConversationRow(
 					)
 				}
 			}
+			val timestamp = formatTimestamp(conversation.updatedAt, now)
 			Text(
 				text = buildString {
-					append(formatTimestamp(conversation.updatedAt, now))
+					append(timestamp)
 					if (!workspace.isNullOrBlank() && workspace != conversation.title) {
 						append("  ·  ")
 						append(workspace)
@@ -1192,14 +1223,20 @@ private fun ConversationRow(
 				IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
 					Icon(
 						Icons.Filled.MoreVert,
-						contentDescription = "Conversation actions",
+						contentDescription = stringResource(R.string.home_conversation_actions),
 						tint = MaterialTheme.colorScheme.onSurfaceVariant,
 						modifier = Modifier.size(18.dp),
 					)
 				}
 				DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
 					DropdownMenuItem(
-						text = { Text(if (conversation.pinned) "Unpin" else "Pin") },
+						text = {
+							Text(
+								stringResource(
+									if (conversation.pinned) R.string.home_unpin else R.string.home_pin,
+								),
+							)
+						},
 						leadingIcon = { Icon(Icons.Outlined.PushPin, contentDescription = null) },
 						onClick = {
 							menu = false
@@ -1207,7 +1244,7 @@ private fun ConversationRow(
 						},
 					)
 					DropdownMenuItem(
-						text = { Text("Delete") },
+						text = { Text(stringResource(R.string.common_delete)) },
 						leadingIcon = {
 							Icon(
 								Icons.Outlined.Delete,
@@ -1246,12 +1283,19 @@ private val absoluteDate: DateFormat = DateFormat.getDateInstance(DateFormat.MED
 
 private fun twoDigits(value: Int): String = value.toString().padStart(2, '0')
 
+@Composable
 private fun formatTimestamp(millis: Long, now: Long): String {
 	val age = now - millis
 	return when {
-		age < 60_000 -> "just now"
-		age < 3_600_000 -> "${age / 60_000} min ago"
-		age < 86_400_000 -> "${age / 3_600_000} h ago"
+		age < 60_000 -> stringResource(R.string.home_just_now)
+		age < 3_600_000 -> {
+			val minutes = (age / 60_000).toInt()
+			pluralStringResource(R.plurals.home_minutes_ago, minutes, minutes)
+		}
+		age < 86_400_000 -> {
+			val hours = (age / 3_600_000).toInt()
+			pluralStringResource(R.plurals.home_hours_ago, hours, hours)
+		}
 		else -> absoluteDate.format(Date(millis))
 	}
 }
@@ -1287,16 +1331,14 @@ private fun EmptyState(
 		horizontalAlignment = Alignment.Start,
 		verticalArrangement = Arrangement.spacedBy(12.dp),
 	) {
-		Eyebrow("No sessions yet")
+		Eyebrow(stringResource(R.string.home_empty_eyebrow))
 		Text(
-			text = "Start with a\nclean desk.",
+			text = stringResource(R.string.home_empty_title),
 			style = MaterialTheme.typography.headlineMedium,
 			color = MaterialTheme.colorScheme.onBackground,
 		)
 		Text(
-			text = "Each conversation gets its own folder. The assistant can read " +
-				"and write inside it, and nowhere else — enforced in code, not asked " +
-				"for in a prompt.",
+			text = stringResource(R.string.home_empty_body),
 			style = MaterialTheme.typography.bodyMedium,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
@@ -1309,12 +1351,12 @@ private fun EmptyState(
 			) {
 				Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
 				Spacer(Modifier.width(7.dp))
-				Text("Create", style = MaterialTheme.typography.labelLarge)
+				Text(stringResource(R.string.common_create), style = MaterialTheme.typography.labelLarge)
 			}
 		}
 		Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-			TextButton(onClick = onOpenWorkspaces) { Text("Workspaces") }
-			TextButton(onClick = onOpenAssistants) { Text("Assistants") }
+			TextButton(onClick = onOpenWorkspaces) { Text(stringResource(R.string.workspaces_title)) }
+			TextButton(onClick = onOpenAssistants) { Text(stringResource(R.string.common_assistants)) }
 		}
 	}
 }

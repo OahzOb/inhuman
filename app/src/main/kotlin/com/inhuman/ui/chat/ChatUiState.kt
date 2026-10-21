@@ -35,6 +35,8 @@ data class RegenerationPoint(
 	val afterMessageId: String,
 	val checkpointAvailable: Boolean = false,
 	val blockedReason: String? = null,
+	/** Whether this point starts at the user's message rather than a tool group. */
+	val isUserMessage: Boolean = false,
 )
 
 /**

@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Checkbox
+import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.tools.ToolCatalog
 import androidx.compose.foundation.selection.toggleable
@@ -64,6 +65,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -115,7 +117,7 @@ fun AgentsScreen(
 		topBar = {
 			Column {
 				TopAppBar(
-					title = { Text("Assistants", style = MaterialTheme.typography.titleLarge) },
+					title = { Text(stringResource(R.string.common_assistants), style = MaterialTheme.typography.titleLarge) },
 					navigationIcon = {
 						WorkbenchBackButton(onClick = onBack)
 					},
@@ -135,7 +137,7 @@ fun AgentsScreen(
 				contentColor = MaterialTheme.colorScheme.onPrimary,
 				shape = MaterialTheme.shapes.medium,
 			) {
-				Icon(Icons.Filled.Add, contentDescription = "New assistant")
+				Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.agents_new))
 			}
 		},
 		containerColor = MaterialTheme.colorScheme.background,
@@ -160,7 +162,7 @@ fun AgentsScreen(
 							.padding(bottom = 10.dp),
 						verticalAlignment = Alignment.CenterVertically,
 					) {
-						Eyebrow("Assistant profiles")
+						Eyebrow(stringResource(R.string.agents_profiles))
 						Spacer(Modifier.weight(1f))
 						Text(
 							text = state.agents.size.toString().padStart(2, '0'),
@@ -175,7 +177,7 @@ fun AgentsScreen(
 						agent = agent,
 						providerName = state.providers
 							.firstOrNull { it.id == agent.providerId }?.name
-							?: "Provider",
+							?: stringResource(R.string.agents_provider_fallback),
 						modelLabel = viewModel.modelDisplayName(agent.model),
 						onEdit = { viewModel.edit(agent) },
 						onDelete = if (agent.isDefault) null else { { pendingDelete = agent } },
@@ -207,12 +209,14 @@ fun AgentsScreen(
 	pendingDelete?.let { agent ->
 		AlertDialog(
 			onDismissRequest = { pendingDelete = null },
-			title = { Text("Delete ${agent.name}?") },
-			text = { Text("Conversations already held with it keep their own settings.") },
+			title = { Text(stringResource(R.string.agents_delete_title, agent.name)) },
+			text = { Text(stringResource(R.string.agents_delete_body)) },
 			confirmButton = {
-				TextButton(onClick = { viewModel.delete(agent); pendingDelete = null }) { Text("Delete") }
+				TextButton(onClick = { viewModel.delete(agent); pendingDelete = null }) {
+					Text(stringResource(R.string.common_delete))
+				}
 			},
-			dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("Cancel") } },
+			dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text(stringResource(R.string.common_cancel)) } },
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
 			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -237,7 +241,7 @@ private fun AgentRow(
 	) {
 		Row(verticalAlignment = Alignment.CenterVertically) {
 			Text(
-				text = agent.name.ifBlank { "(unnamed)" },
+				text = agent.name.ifBlank { stringResource(R.string.home_unnamed) },
 				style = MaterialTheme.typography.titleMedium,
 				color = MaterialTheme.colorScheme.onBackground,
 				modifier = Modifier.weight(1f),
@@ -246,7 +250,7 @@ private fun AgentRow(
 			)
 			if (agent.isDefault) {
 				Text(
-					text = "DEFAULT",
+					text = stringResource(R.string.agents_default),
 					style = MaterialTheme.typography.labelSmall,
 					color = MaterialTheme.colorScheme.primary,
 					modifier = Modifier
@@ -261,7 +265,7 @@ private fun AgentRow(
 				IconButton(onClick = it, modifier = Modifier.size(32.dp)) {
 					Icon(
 						Icons.Filled.Delete,
-						contentDescription = "Delete",
+						contentDescription = stringResource(R.string.common_delete),
 						tint = MaterialTheme.colorScheme.onSurfaceVariant,
 						modifier = Modifier.size(17.dp),
 					)
@@ -277,8 +281,10 @@ private fun AgentRow(
 				append(" / ")
 				append(modelLabel)
 				if (agent.thinking) {
-					append(" · thinking")
-					agent.reasoningEffort?.let { append(" ($it)") }
+					append(stringResource(R.string.agents_thinking_suffix))
+					agent.reasoningEffort?.let {
+						append(stringResource(R.string.agents_effort_suffix, it))
+					}
 				}
 			},
 			style = MaterialTheme.typography.labelSmall,
@@ -346,12 +352,16 @@ private fun AgentEditor(
 					}
 					if (draft.systemPrompt.isBlank()) {
 						onChange { it.copy(systemPrompt = text) }
-						importStatus = "Imported $name (${text.length} characters)."
+						importStatus = context.getString(
+							R.string.agents_imported,
+							name,
+							text.length,
+						)
 					} else {
 						pendingImport = ImportedPrompt(name, text)
 					}
 				} catch (failure: Exception) {
-					importError = failure.message ?: "Could not import the file."
+					importError = failure.message ?: context.getString(R.string.agents_import_failed)
 				}
 			}
 		}
@@ -359,15 +369,17 @@ private fun AgentEditor(
 
 	WideDialog(
 		onDismissRequest = onDismiss,
-		title = if (draft.isNew) "New assistant" else "Edit assistant",
-		confirmLabel = "Save",
+		title = stringResource(
+			if (draft.isNew) R.string.agents_new_title else R.string.agents_edit_title,
+		),
+		confirmLabel = stringResource(R.string.common_save),
 		onConfirm = onSave,
 		confirmEnabled = draft.canSave,
 	) {
 		OutlinedTextField(
 			value = draft.name,
 			onValueChange = { v -> onChange { it.copy(name = v) } },
-			label = { Text("Name") },
+			label = { Text(stringResource(R.string.common_name)) },
 			singleLine = true,
 			modifier = Modifier.fillMaxWidth(),
 		)
@@ -382,9 +394,9 @@ private fun AgentEditor(
 		LongTextField(
 			value = draft.systemPrompt,
 			onValueChange = { v -> onChange { it.copy(systemPrompt = v) } },
-			label = "System prompt",
-			dialogTitle = "System prompt",
-			placeholder = "Tell the assistant what it is for.",
+			label = stringResource(R.string.agents_system_prompt),
+			dialogTitle = stringResource(R.string.agents_system_prompt),
+			placeholder = stringResource(R.string.agents_system_prompt_hint),
 			previewLines = 4,
 			textStyle = MaterialTheme.typography.bodyMedium.copy(
 				fontFamily = FontFamily.Monospace,
@@ -410,20 +422,19 @@ private fun AgentEditor(
 			// without this line the only feedback was a button that did nothing.
 			val missing = when {
 				draft.name.isBlank() && draft.systemPrompt.isBlank() ->
-					"a name and a system prompt"
-				draft.name.isBlank() -> "a name"
-				else -> "a system prompt"
+					stringResource(R.string.agents_missing_both)
+				draft.name.isBlank() -> stringResource(R.string.agents_missing_name)
+				else -> stringResource(R.string.agents_missing_prompt)
 			}
 			Text(
-				text = "Add $missing to save.",
+				text = stringResource(R.string.agents_add_missing, missing),
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.error,
 			)
 		}
 		if (draft.systemPrompt.length >= PROMPT_LENGTH_HINT) {
 			Text(
-				text = "${draft.systemPrompt.length} characters. This is sent on every " +
-					"turn and counts against the model's context window.",
+				text = stringResource(R.string.agents_prompt_long, draft.systemPrompt.length),
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.tertiary,
 			)
@@ -434,7 +445,7 @@ private fun AgentEditor(
 			verticalAlignment = Alignment.CenterVertically,
 		) {
 			Text(
-				text = "Sent on every turn in this assistant's conversations.",
+				text = stringResource(R.string.agents_prompt_every_turn),
 				style = MaterialTheme.typography.labelLarge,
 				color = MaterialTheme.colorScheme.outline,
 				modifier = Modifier.weight(1f),
@@ -445,17 +456,17 @@ private fun AgentEditor(
 				onClick = { showPreview = true },
 				enabled = draft.systemPrompt.isNotBlank(),
 			) {
-				Text("Preview request", style = MaterialTheme.typography.labelLarge)
+				Text(stringResource(R.string.agents_preview_request), style = MaterialTheme.typography.labelLarge)
 			}
 		}
 
 		HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
 		// --- provider -------------------------------------------------------
-		SectionLabel("Provider")
+		SectionLabel(stringResource(R.string.agents_section_provider))
 		if (providers.isEmpty()) {
 			Text(
-				text = "No provider is configured. Add one in Settings.",
+				text = stringResource(R.string.agents_no_provider),
 				style = MaterialTheme.typography.bodyMedium,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
@@ -472,20 +483,20 @@ private fun AgentEditor(
 		}
 
 		// --- model ----------------------------------------------------------
-		SectionLabel("Model")
+		SectionLabel(stringResource(R.string.agents_section_model))
 		if (modelsError != null) {
 			Text(
 				text = modelsError,
 				style = MaterialTheme.typography.bodyMedium,
 				color = MaterialTheme.colorScheme.error,
 			)
-			TextButton(onClick = onReloadModels) { Text("Retry") }
+			TextButton(onClick = onReloadModels) { Text(stringResource(R.string.agents_retry)) }
 		} else if (loadingModels) {
 			CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
 		}
 		FlowRowCompat {
 			ChoiceChip(
-				label = "provider default",
+				label = stringResource(R.string.agents_provider_default),
 				selected = draft.model == null,
 				onClick = { onChange { it.copy(model = null, reasoningEffort = null) } },
 			)
@@ -518,16 +529,16 @@ private fun AgentEditor(
 			horizontalArrangement = Arrangement.SpaceBetween,
 			verticalAlignment = Alignment.CenterVertically,
 		) {
-			SectionLabel("Thinking")
+			SectionLabel(stringResource(R.string.agents_section_thinking))
 			Text(
-				text = "off is the right default for chat",
+				text = stringResource(R.string.agents_thinking_hint),
 				style = MaterialTheme.typography.labelLarge,
 				color = MaterialTheme.colorScheme.outline,
 			)
 		}
 		FlowRowCompat {
 			ChoiceChip(
-				label = "off",
+				label = stringResource(R.string.agents_off),
 				selected = !draft.thinking,
 				onClick = {
 					// Effort goes with it, because a level with thinking off is
@@ -552,7 +563,7 @@ private fun AgentEditor(
 			// rather than as a model without such a setting.
 			if (levels.isNotEmpty()) {
 				ChoiceChip(
-					label = "model default",
+					label = stringResource(R.string.agents_model_default),
 					selected = draft.thinking && draft.reasoningEffort == null,
 					onClick = { onChange { it.copy(thinking = true, reasoningEffort = null) } },
 				)
@@ -560,7 +571,7 @@ private fun AgentEditor(
 		}
 		if (draft.thinking && levels.isEmpty()) {
 			Text(
-				text = "This model reports no effort levels; the provider default will be used.",
+				text = stringResource(R.string.agents_no_effort),
 				style = MaterialTheme.typography.labelLarge,
 				color = MaterialTheme.colorScheme.outline,
 			)
@@ -589,23 +600,27 @@ private fun AgentEditor(
 		) {
 			SectionLabel(
 				if (draft.tools == null) {
-					"Tools — all"
+					stringResource(R.string.agents_tools_all)
 				} else {
-					"Tools — $selectedCount of ${availableTools.size}"
+					stringResource(R.string.agents_tools_count, selectedCount, availableTools.size)
 				},
 			)
 			Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
 				TextButton(onClick = { showToolHelp = !showToolHelp }) {
 					Text(
-						text = if (showToolHelp) "Hide help" else "Help",
+						text = if (showToolHelp) {
+							stringResource(R.string.agents_hide_help)
+						} else {
+							stringResource(R.string.agents_help)
+						},
 						style = MaterialTheme.typography.labelLarge,
 					)
 				}
 				TextButton(onClick = { onChange { it.copy(tools = ToolCatalog.allSelection()) } }) {
-					Text("All", style = MaterialTheme.typography.labelLarge)
+					Text(stringResource(R.string.agents_all), style = MaterialTheme.typography.labelLarge)
 				}
 				TextButton(onClick = { onChange { it.copy(tools = emptyList()) } }) {
-					Text("None", style = MaterialTheme.typography.labelLarge)
+					Text(stringResource(R.string.agents_none), style = MaterialTheme.typography.labelLarge)
 				}
 			}
 		}
@@ -614,13 +629,13 @@ private fun AgentEditor(
 			// Worth saying, because it is not what "All" does and the difference
 			// only shows up later.
 			Text(
-				text = "Includes tools added in future versions.",
+				text = stringResource(R.string.agents_includes_future),
 				style = MaterialTheme.typography.labelLarge,
 				color = MaterialTheme.colorScheme.outline,
 			)
 			if (sshToolEnabled) {
 				Text(
-					text = "ssh_exec is never included by “all”; select it explicitly.",
+					text = stringResource(R.string.agents_ssh_excluded),
 					style = MaterialTheme.typography.labelLarge,
 					color = MaterialTheme.colorScheme.outline,
 				)
@@ -730,7 +745,7 @@ private fun AgentEditor(
 
 				if (tool.mutates) {
 					Text(
-						text = "writes",
+						text = stringResource(R.string.agents_writes),
 						style = MaterialTheme.typography.labelLarge,
 						color = MaterialTheme.colorScheme.tertiary,
 					)
@@ -740,9 +755,7 @@ private fun AgentEditor(
 
 		if (showToolHelp) {
 			Text(
-				text = "Tools marked “writes” change files in the conversation's folder. " +
-					"A reply that used one cannot be regenerated, because replaying the " +
-					"turn would write a second time.",
+				text = stringResource(R.string.agents_help_body),
 				style = MaterialTheme.typography.labelLarge,
 				color = MaterialTheme.colorScheme.outline,
 			)
@@ -755,7 +768,7 @@ private fun AgentEditor(
 			sshToolEnabled = sshToolEnabled,
 			modelLabel = draft.model?.let { id ->
 				models.firstOrNull { it.id == id }?.displayName?.takeIf { it.isNotBlank() } ?: id
-			} ?: "provider default",
+			} ?: stringResource(R.string.agents_provider_default),
 			onDismiss = { showPreview = false },
 		)
 	}
@@ -763,22 +776,28 @@ private fun AgentEditor(
 	pendingImport?.let { imported ->
 		AlertDialog(
 			onDismissRequest = { pendingImport = null },
-			title = { Text("Import system prompt") },
+			title = { Text(stringResource(R.string.agents_import_title)) },
 			text = {
 				Text(
-					"${imported.name} is ${imported.text.length} characters. " +
-						"Replace the current prompt, or append the file to it?",
+					stringResource(
+						R.string.agents_import_question,
+						imported.name,
+						imported.text.length,
+					),
 				)
 			},
 			confirmButton = {
 				TextButton(
 					onClick = {
 						onChange { it.copy(systemPrompt = imported.text) }
-						importStatus = "Replaced with ${imported.name} " +
-							"(${imported.text.length} characters)."
+						importStatus = context.getString(
+							R.string.agents_replaced,
+							imported.name,
+							imported.text.length,
+						)
 						pendingImport = null
 					},
-				) { Text("Replace") }
+				) { Text(stringResource(R.string.agents_replace)) }
 			},
 			dismissButton = {
 				Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -791,12 +810,15 @@ private fun AgentEditor(
 								"$current\n\n${imported.text}"
 							}
 							onChange { it.copy(systemPrompt = joined) }
-							importStatus = "Appended ${imported.name} " +
-								"(${imported.text.length} characters)."
+							importStatus = context.getString(
+								R.string.agents_appended,
+								imported.name,
+								imported.text.length,
+							)
 							pendingImport = null
 						},
-					) { Text("Append") }
-					TextButton(onClick = { pendingImport = null }) { Text("Cancel") }
+					) { Text(stringResource(R.string.agents_append)) }
+					TextButton(onClick = { pendingImport = null }) { Text(stringResource(R.string.common_cancel)) }
 				}
 			},
 		)
@@ -839,7 +861,7 @@ private fun PromptPreview(
 
 	AlertDialog(
 		onDismissRequest = onDismiss,
-		title = { Text("What the model receives") },
+		title = { Text(stringResource(R.string.agents_preview_title)) },
 		text = {
 			Column(
 				modifier = Modifier
@@ -848,7 +870,7 @@ private fun PromptPreview(
 					.verticalScroll(rememberScrollState()),
 				verticalArrangement = Arrangement.spacedBy(12.dp),
 			) {
-				SectionLabel("System message")
+				SectionLabel(stringResource(R.string.agents_preview_system))
 				// Selectable, so a prompt can be copied out and tried
 				// elsewhere -- which is the first thing anyone does with one.
 				//
@@ -860,7 +882,7 @@ private fun PromptPreview(
 				// is the first thing read, not the only one.
 				SelectionContainer {
 					Text(
-						text = draft.systemPrompt.ifBlank { "(empty)" },
+						text = draft.systemPrompt.ifBlank { stringResource(R.string.agents_empty_prompt) },
 						style = MaterialTheme.typography.bodySmall,
 						fontFamily = FontFamily.Monospace,
 						color = MaterialTheme.colorScheme.onSurface,
@@ -873,21 +895,36 @@ private fun PromptPreview(
 
 				HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-				SectionLabel("Model")
+				SectionLabel(stringResource(R.string.agents_section_model))
+				val thinkingLabel = stringResource(
+					if (draft.thinking) R.string.agents_thinking_on else R.string.agents_thinking_off,
+				)
+				val effort = draft.reasoningEffort
+				val effortLabel = if (effort == null) {
+					""
+				} else {
+					stringResource(R.string.agents_effort, effort)
+				}
 				Text(
-					text = buildString {
-						append(modelLabel)
-						append(if (draft.thinking) " · thinking on" else " · thinking off")
-						draft.reasoningEffort?.let { append(" · effort $it") }
-					},
+					text = modelLabel + thinkingLabel + effortLabel,
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurface,
 				)
 
-				SectionLabel(if (selected == null) "Tools — everything" else "Tools — ${on.size} of ${visibleTools.size}")
+				SectionLabel(
+					if (selected == null) {
+						stringResource(R.string.agents_preview_tools_all)
+					} else {
+						stringResource(
+							R.string.agents_preview_tools_count,
+							on.size,
+							visibleTools.size,
+						)
+					},
+				)
 				if (on.isEmpty()) {
 					Text(
-						text = "None. This assistant can only talk.",
+						text = stringResource(R.string.agents_none_can_talk),
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurface,
 					)
@@ -925,14 +962,14 @@ private fun PromptPreview(
 
 				if (selected == null) {
 					Text(
-						text = "Everything includes tools this app adds later.",
+						text = stringResource(R.string.agents_preview_includes_future),
 						style = MaterialTheme.typography.labelLarge,
 						color = MaterialTheme.colorScheme.outline,
 					)
 				}
 			}
 		},
-		confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+		confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.agents_close)) } },
 		containerColor = MaterialTheme.colorScheme.surface,
 		titleContentColor = MaterialTheme.colorScheme.onSurface,
 		textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -973,10 +1010,9 @@ private fun AssistantRulesSection(
 	onSelect: (String, ToolPolicy) -> Unit,
 ) {
 	Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-		SectionLabel("Before a tool runs — this assistant")
+		SectionLabel(stringResource(R.string.agents_rules_title))
 		Text(
-			text = "Tighter than the app-wide setting, never looser. Anything left " +
-				"alone follows settings.",
+			text = stringResource(R.string.agents_rules_body),
 			style = MaterialTheme.typography.labelLarge,
 			color = MaterialTheme.colorScheme.outline,
 		)
@@ -1012,11 +1048,12 @@ private fun AssistantRulesSection(
 }
 
 /** One word per policy, for a row that already has ten of these. */
+@Composable
 private fun ToolPolicy.shortLabel(): String = when (this) {
-	ToolPolicy.Free -> "follow settings"
-	ToolPolicy.Ask -> "ask"
-	ToolPolicy.Deny -> "refuse"
-	ToolPolicy.Blind -> "hide"
+	ToolPolicy.Free -> stringResource(R.string.agents_policy_follow)
+	ToolPolicy.Ask -> stringResource(R.string.agents_policy_ask)
+	ToolPolicy.Deny -> stringResource(R.string.agents_policy_refuse)
+	ToolPolicy.Blind -> stringResource(R.string.agents_policy_hide)
 }
 
 @Composable
@@ -1056,12 +1093,12 @@ private fun queryPromptName(context: Context, uri: Uri): String? = runCatching {
 private fun readPromptFile(context: Context, uri: Uri, name: String): String {
 	val mimeType = context.contentResolver.getType(uri)
 	if (!isPromptText(name, mimeType)) {
-		throw IOException("Choose a .txt or .md file.")
+		throw IOException(context.getString(R.string.agents_prompt_file_type))
 	}
 
 	val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
 		readPromptBytes(input)
-	} ?: throw IOException("Could not open the file.")
+	} ?: throw IOException(context.getString(R.string.agents_prompt_open_failed))
 
 	return decodePromptText(bytes)
 }

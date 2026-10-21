@@ -233,6 +233,39 @@ Fetch APIs and needs a key. Everything else runs on the JVM — including the fi
 tests, which use a temp directory because unit tests in `:core:files` need real
 filesystem semantics (`core/files/build.gradle`, `testOptions`).
 
+## Localization
+
+UI text lives in `app/src/main/res/values/strings.xml`, with Simplified Chinese in
+`values-zh-rCN/strings.xml`. Both are declared in `res/xml/locales_config.xml`
+and named by `android:localeConfig` in the manifest, so the app follows the
+system language and Android 13's per-app language screen lists English and
+Chinese. There is deliberately no in-app language setting.
+
+Two rules:
+
+- **User-facing text belongs in resources.** A literal in a composable cannot be
+  translated at all, and the parity test below cannot see it. Every screen is
+  converted, and so is text a view model produces: `ChatViewModel`,
+  `SettingsViewModel`, `FilesViewModel` and `WorkspaceDetailViewModel` take an
+  application `Context` and resolve their status and error strings with
+  `getString`. Notification channels and actions in `TurnNotifications` /
+  `TurnForegroundService` do the same.
+- **Model-facing text stays English.** Tool descriptions, tool results, system
+  prompts and the demo provider's script are prompt text, not UI. Translating
+  them would change what the model is told and make two transcripts harder to
+  compare. The rule covers `core:ai` and `core:files`.
+- **Provider and library detail stays as it arrives.** Where an error is the
+  provider's own message (`failure.message`) or a file-transfer reason from
+  `:core:files`, the localized sentence carries the original text as a `%1$s`
+  argument rather than pretending to translate it. The same applies to product
+  names and wire field names (`DeepSeek`, `Exa`, `reasoning_effort`).
+
+`StringResourceParityTest` fails when a key exists in one file and not the other.
+Android falls back to the default resource silently, so a missing key is
+invisible in English and mixed-language in Chinese. Lint's `MissingTranslation`
+would catch the same thing, but lint is not part of the offline verification
+loop, and this check is a two-file comparison that runs on the JVM.
+
 ## Running it on a device
 
 ```powershell

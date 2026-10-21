@@ -53,10 +53,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.common.diag.Diag
@@ -128,12 +131,12 @@ fun SettingsScreen(
 		topBar = {
 			Column {
 				TopAppBar(
-					title = { Text("Settings", style = MaterialTheme.typography.titleLarge) },
+					title = { Text(stringResource(R.string.common_settings), style = MaterialTheme.typography.titleLarge) },
 					navigationIcon = {
 						IconButton(onClick = onBack) {
 							Icon(
 								Icons.AutoMirrored.Filled.ArrowBack,
-								contentDescription = "Back",
+								contentDescription = stringResource(R.string.common_back),
 								modifier = Modifier.size(20.dp),
 							)
 						}
@@ -168,10 +171,9 @@ fun SettingsScreen(
 				verticalArrangement = Arrangement.spacedBy(10.dp),
 			) {
 				SectionHeading(
-					code = "01 / Models",
-					title = "Providers",
-					detail = "Each assistant chooses a provider. Keys are stored with the " +
-						"Android Keystore and sent only to that provider.",
+					code = stringResource(R.string.settings_section_models),
+					title = stringResource(R.string.settings_providers_title),
+					detail = stringResource(R.string.settings_providers_detail),
 				)
 				state.providers.forEach { provider ->
 					ProviderRow(
@@ -185,7 +187,7 @@ fun SettingsScreen(
 				TextButton(onClick = viewModel::addProvider) {
 					Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
 					Spacer(Modifier.width(6.dp))
-					Text("Add provider", style = MaterialTheme.typography.labelLarge)
+					Text(stringResource(R.string.settings_add_provider), style = MaterialTheme.typography.labelLarge)
 				}
 				state.providerStatus?.let { status ->
 					Text(
@@ -203,9 +205,9 @@ fun SettingsScreen(
 			Hairline(Modifier.padding(vertical = 14.dp))
 
 			SettingsFold(
-				code = "02 / Web",
-				title = "Web tools",
-				summary = "Search and fetch backends, with their own keys",
+				code = stringResource(R.string.settings_section_web),
+				title = stringResource(R.string.settings_web_title),
+				summary = stringResource(R.string.settings_web_summary),
 			) {
 			Column(
 				modifier = Modifier
@@ -214,13 +216,11 @@ fun SettingsScreen(
 				verticalArrangement = Arrangement.spacedBy(8.dp),
 			) {
 				Text(
-					text = "web_search and web_fetch use their own keys, not the chat " +
-						"provider's. Pick a backend for each; calls are billed by the service " +
-						"you choose.",
+					text = stringResource(R.string.settings_web_body),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
-				Eyebrow("Search backend")
+				Eyebrow(stringResource(R.string.settings_search_backend))
 				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 					FilterChip(
 						selected = state.webSearchBackend == "deepseek",
@@ -233,7 +233,7 @@ fun SettingsScreen(
 						label = { Text("Exa") },
 					)
 				}
-				Eyebrow("Fetch backend")
+				Eyebrow(stringResource(R.string.settings_fetch_backend))
 				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 					FilterChip(
 						selected = state.webFetchBackend == "deepseek",
@@ -251,12 +251,15 @@ fun SettingsScreen(
 					onValueChange = viewModel::onWebDeepSeekKeyChange,
 					modifier = Modifier.fillMaxWidth(),
 					singleLine = true,
-					label = { Text("DeepSeek web key (sk-…)") },
+					label = { Text(stringResource(R.string.settings_deepseek_web_key)) },
 					visualTransformation = PasswordVisualTransformation(),
 				)
 				Text(
-					text = if (state.hasWebDeepSeekKey) "DeepSeek web key saved" else
-						"DeepSeek web key not set",
+					text = if (state.hasWebDeepSeekKey) {
+						stringResource(R.string.settings_deepseek_web_key_saved)
+					} else {
+						stringResource(R.string.settings_deepseek_web_key_missing)
+					},
 					style = MaterialTheme.typography.labelSmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
@@ -265,11 +268,15 @@ fun SettingsScreen(
 					onValueChange = viewModel::onWebExaKeyChange,
 					modifier = Modifier.fillMaxWidth(),
 					singleLine = true,
-					label = { Text("Exa API key") },
+					label = { Text(stringResource(R.string.settings_exa_key)) },
 					visualTransformation = PasswordVisualTransformation(),
 				)
 				Text(
-					text = if (state.hasWebExaKey) "Exa key saved" else "Exa key not set",
+					text = if (state.hasWebExaKey) {
+						stringResource(R.string.settings_exa_key_saved)
+					} else {
+						stringResource(R.string.settings_exa_key_missing)
+					},
 					style = MaterialTheme.typography.labelSmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
@@ -279,7 +286,7 @@ fun SettingsScreen(
 					state.webFetchBackend == "deepseek" && !state.hasWebDeepSeekKey
 				if (missingSearch || missingFetch) {
 					Text(
-						text = "A selected backend has no key, so its tool stays unavailable.",
+						text = stringResource(R.string.settings_web_missing_key),
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.error,
 					)
@@ -287,9 +294,9 @@ fun SettingsScreen(
 				Button(
 					onClick = viewModel::saveWebTools,
 					shape = MaterialTheme.shapes.small,
-				) { Text("Save web keys") }
+				) { Text(stringResource(R.string.settings_save_web_keys)) }
 				Text(
-					text = "There is no test button: validating these keys would spend a real search.",
+					text = stringResource(R.string.settings_web_no_test),
 					style = MaterialTheme.typography.labelSmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
@@ -308,9 +315,9 @@ fun SettingsScreen(
 			}
 
 			SettingsFold(
-				code = "03 / Runtime",
-				title = "Demo & SSH",
-				summary = "Scripted replies without a key, and the remote-shell switch",
+				code = stringResource(R.string.settings_section_runtime),
+				title = stringResource(R.string.settings_runtime_title),
+				summary = stringResource(R.string.settings_runtime_summary),
 			) {
 			// Demo mode.
 			//
@@ -333,23 +340,19 @@ fun SettingsScreen(
 				) {
 					Column(modifier = Modifier.weight(1f)) {
 						Text(
-							text = "Demo mode",
+							text = stringResource(R.string.settings_demo_title),
 							style = MaterialTheme.typography.titleMedium,
 							color = MaterialTheme.colorScheme.onBackground,
 						)
 						Text(
-							// This string was describing an approval prompt that
+							// This string used to describe an approval prompt that
 							// no longer appears, and it is read by a user rather
 							// than by a compiler -- the kind of claim that goes
 							// stale silently. Deletion does not ask by default
 							// (docs/09-approvals.md); a rule can be configured to
 							// make it, and the sentence says so rather than
 							// promising a dialog nobody will see.
-							text = "Replies are scripted on the device, and the file " +
-								"tools run for real. Nothing is sent anywhere and no key " +
-								"is needed. With tools switched on it creates a file and " +
-								"then deletes it, so the tool loop runs end to end " +
-								"without an account.",
+							text = stringResource(R.string.settings_demo_body),
 							style = MaterialTheme.typography.bodyMedium,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
@@ -382,19 +385,12 @@ fun SettingsScreen(
 				) {
 					Column(modifier = Modifier.weight(1f)) {
 						Text(
-							text = "SSH tool",
+							text = stringResource(R.string.settings_ssh_title),
 							style = MaterialTheme.typography.titleMedium,
 							color = MaterialTheme.colorScheme.onBackground,
 						)
 						Text(
-							text = "Off by default. When on, an assistant can be given " +
-								"ssh_exec. It does not configure any remote machine: the " +
-								"agent uses whatever host and credentials the user gives it. " +
-								"The first SSH call in each conversation shows a consent " +
-								"warning; after that, normal tool policy applies. The agent " +
-								"can then run any command on the remote machine, which may " +
-								"be irreversible. SSH tool arguments are redacted before " +
-								"the transcript is stored, but text you type is still stored.",
+							text = stringResource(R.string.settings_ssh_body),
 							style = MaterialTheme.typography.bodyMedium,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
@@ -413,9 +409,9 @@ fun SettingsScreen(
 				) {
 					Text(
 						if (state.knownHosts.isEmpty()) {
-							"No pinned host keys yet"
+							stringResource(R.string.settings_host_keys_none)
 						} else {
-							"Pinned host keys (${state.knownHosts.size})"
+							stringResource(R.string.settings_host_keys_count, state.knownHosts.size)
 						},
 					)
 				}
@@ -423,18 +419,20 @@ fun SettingsScreen(
 			}
 
 			SettingsFold(
-				code = "04 / Turn limits",
-				title = "Tool limits",
-				summary = "${state.toolRoundLimit} rounds · ${state.toolCallLimit} calls per turn",
+				code = stringResource(R.string.settings_section_limits),
+				title = stringResource(R.string.settings_limits_title),
+				summary = stringResource(
+					R.string.settings_limits_summary,
+					state.toolRoundLimit,
+					state.toolCallLimit,
+				),
 			) {
 				Text(
-					text = "Global budgets for every conversation. A round is one model " +
-						"response plus its calls; the call budget counts every individual " +
-						"tool call across the turn. Neither changes which tools are allowed.",
+					text = stringResource(R.string.settings_limits_body),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
-				Eyebrow("Rounds per turn")
+				Eyebrow(stringResource(R.string.settings_rounds_per_turn))
 				FlowRowCompat {
 					listOf(4, 8, 16, 24, 32, 64).forEach { rounds ->
 						FilterChip(
@@ -445,11 +443,11 @@ fun SettingsScreen(
 					}
 				}
 				Text(
-					text = "Current: ${state.toolRoundLimit} model/tool round trips per turn.",
+					text = stringResource(R.string.settings_rounds_current, state.toolRoundLimit),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
-				Eyebrow("Total tool calls")
+				Eyebrow(stringResource(R.string.settings_calls_label))
 				FlowRowCompat {
 					listOf(1, 4, 8, 16, 32, 64, 128, 256).forEach { calls ->
 						FilterChip(
@@ -460,21 +458,19 @@ fun SettingsScreen(
 					}
 				}
 				Text(
-					text = "Current: ${state.toolCallLimit} individual calls per turn. " +
-						"When either budget is reached the turn stops with an explicit error.",
+					text = stringResource(R.string.settings_calls_current, state.toolCallLimit),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 			}
 
 			SettingsFold(
-				code = "05 / Backup",
-				title = "Backup",
-				summary = "Encrypted export and import of data and workspaces",
+				code = stringResource(R.string.settings_section_backup),
+				title = stringResource(R.string.settings_backup_title),
+				summary = stringResource(R.string.settings_backup_summary),
 			) {
 			Text(
-				text = "An encrypted file of every conversation, workspace file, " +
-					"assistant and policy. API keys are deliberately not included.",
+				text = stringResource(R.string.settings_backup_body),
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
@@ -483,25 +479,22 @@ fun SettingsScreen(
 					onClick = { exportLauncher.launch("inhuman-backup") },
 					enabled = !state.backupBusy,
 					shape = MaterialTheme.shapes.small,
-				) { Text("Export backup") }
+				) { Text(stringResource(R.string.settings_export_backup)) }
 				OutlinedButton(
 					onClick = { importLauncher.launch(arrayOf("*/*")) },
 					enabled = !state.backupBusy,
 					shape = MaterialTheme.shapes.small,
-				) { Text("Import backup") }
+				) { Text(stringResource(R.string.settings_import_backup)) }
 				if (state.backupCanUndo) {
 					OutlinedButton(
 						onClick = { showUndoConfirm = true },
 						enabled = !state.backupBusy,
 						shape = MaterialTheme.shapes.small,
-					) { Text("Undo last import") }
+					) { Text(stringResource(R.string.settings_undo_import)) }
 				}
 			}
 			Text(
-				text = "Export asks for a passphrase and writes one encrypted file. " +
-					"Import first shows what the file contains. The current data is " +
-					"replaced only after a restart, and the previous copy is kept for " +
-					"one Undo.",
+				text = stringResource(R.string.settings_backup_explain),
 				modifier = Modifier
 					.widthIn(max = Layout.ReadableMeasure)
 					.fillMaxWidth(),
@@ -526,11 +519,11 @@ fun SettingsScreen(
 				Button(
 					onClick = { Process.killProcess(Process.myPid()) },
 					shape = MaterialTheme.shapes.small,
-				) { Text("Restart now") }
+				) { Text(stringResource(R.string.settings_restart_now)) }
 			}
 			if (state.backupBusy) {
 				Text(
-					text = "Working…",
+					text = stringResource(R.string.settings_working),
 					style = MaterialTheme.typography.labelMedium,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
@@ -553,13 +546,16 @@ fun SettingsScreen(
 			}
 
 			SettingsFold(
-				code = "06 / Approvals",
-				title = "Before a tool runs",
+				code = stringResource(R.string.settings_section_approvals),
+				title = stringResource(R.string.settings_approvals_title),
 				summary = if (state.approvalRules.isEmpty()) {
-					"All tools run by default; tap to tighten one"
+					stringResource(R.string.settings_approvals_none)
 				} else {
-					"${state.approvalRules.size} tool rule" +
-						(if (state.approvalRules.size == 1) "" else "s") + " configured"
+					pluralStringResource(
+						R.plurals.settings_approvals_count,
+						state.approvalRules.size,
+						state.approvalRules.size,
+					)
 				},
 			) {
 				ApprovalRulesSection(
@@ -570,29 +566,27 @@ fun SettingsScreen(
 			}
 
 			SettingsFold(
-				code = "07 / Diagnostics",
-				title = "Diagnostics",
-				summary = "The local flight recorder and how to share it",
+				code = stringResource(R.string.settings_section_diagnostics),
+				title = stringResource(R.string.settings_diagnostics_title),
+				summary = stringResource(R.string.settings_diagnostics_summary),
 			) {
 				DiagnosticsSection()
 			}
 
 			SettingsFold(
-				code = "08 / Display",
-				title = "Layout",
+				code = stringResource(R.string.settings_section_display),
+				title = stringResource(R.string.settings_display_title),
 				summary = when (state.layoutPreference) {
-					com.inhuman.core.design.LayoutPreference.Auto -> "Auto: follow this window"
+					com.inhuman.core.design.LayoutPreference.Auto ->
+						stringResource(R.string.settings_layout_auto)
 					com.inhuman.core.design.LayoutPreference.Compact ->
-						"Compact: single column, tighter spacing"
+						stringResource(R.string.settings_layout_compact)
 					com.inhuman.core.design.LayoutPreference.Comfortable ->
-						"Comfortable: wide shell and larger gutters"
+						stringResource(R.string.settings_layout_comfortable)
 				},
 			) {
 				Text(
-					text = "Auto follows the current window, including rotation, split-screen " +
-						"and foldables. Compact forces one column on a tablet; Comfortable " +
-						"keeps the wide shell. This is a reading preference, not a screen-ratio " +
-						"selector.",
+					text = stringResource(R.string.settings_layout_body),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
@@ -615,12 +609,11 @@ fun SettingsScreen(
 	if (showHostKeysDialog) {
 		AlertDialog(
 			onDismissRequest = { showHostKeysDialog = false },
-			title = { Text("Pinned host keys") },
+			title = { Text(stringResource(R.string.settings_host_keys_title)) },
 			text = {
 				Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
 					Text(
-						"First-use fingerprints. Nothing here is configured by the app; " +
-							"a changed key fails closed until the old one is forgotten.",
+						stringResource(R.string.settings_host_keys_body),
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
@@ -651,10 +644,10 @@ fun SettingsScreen(
 				}
 			},
 			confirmButton = {
-				TextButton(onClick = { viewModel.forgetKnownHosts() }) { Text("Forget all") }
+				TextButton(onClick = { viewModel.forgetKnownHosts() }) { Text(stringResource(R.string.settings_forget_all)) }
 			},
 			dismissButton = {
-				TextButton(onClick = { showHostKeysDialog = false }) { Text("Close") }
+				TextButton(onClick = { showHostKeysDialog = false }) { Text(stringResource(R.string.settings_close)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -673,19 +666,23 @@ fun SettingsScreen(
 				backupPassphraseConfirm = ""
 			},
 			title = {
-				Text(if (mode == BackupMode.Export) "Encrypt backup" else "Inspect backup")
+				Text(
+					stringResource(
+						if (mode == BackupMode.Export) {
+							R.string.settings_encrypt_backup
+						} else {
+							R.string.settings_inspect_backup
+						},
+					),
+				)
 			},
 			text = {
 				Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
 					Text(
 						text = if (mode == BackupMode.Export) {
-							"Choose a passphrase of at least 8 characters. The file " +
-								"contains conversations and workspace files; API keys are " +
-								"not included. The passphrase cannot be recovered."
+							stringResource(R.string.settings_export_passphrase_body)
 						} else {
-							"Enter the passphrase used when this backup was created. " +
-								"The file is read and summarized first; nothing is replaced " +
-								"until you confirm and restart."
+							stringResource(R.string.settings_import_passphrase_body)
 						},
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -693,7 +690,7 @@ fun SettingsScreen(
 					OutlinedTextField(
 						value = backupPassphrase,
 						onValueChange = { backupPassphrase = it },
-						label = { Text("Passphrase") },
+						label = { Text(stringResource(R.string.settings_passphrase)) },
 						singleLine = true,
 						visualTransformation = PasswordVisualTransformation(),
 						modifier = Modifier.fillMaxWidth(),
@@ -702,7 +699,7 @@ fun SettingsScreen(
 						OutlinedTextField(
 							value = backupPassphraseConfirm,
 							onValueChange = { backupPassphraseConfirm = it },
-							label = { Text("Confirm passphrase") },
+							label = { Text(stringResource(R.string.settings_confirm_passphrase)) },
 							singleLine = true,
 							visualTransformation = PasswordVisualTransformation(),
 							modifier = Modifier.fillMaxWidth(),
@@ -728,7 +725,17 @@ fun SettingsScreen(
 					},
 					enabled = canSubmit,
 					shape = MaterialTheme.shapes.small,
-				) { Text(if (mode == BackupMode.Export) "Export" else "Inspect") }
+				) {
+					Text(
+						stringResource(
+							if (mode == BackupMode.Export) {
+								R.string.settings_export
+							} else {
+								R.string.settings_inspect
+							},
+						),
+					)
+				}
 			},
 			dismissButton = {
 				TextButton(
@@ -737,7 +744,7 @@ fun SettingsScreen(
 						backupPassphrase = ""
 						backupPassphraseConfirm = ""
 					},
-				) { Text("Cancel") }
+				) { Text(stringResource(R.string.common_cancel)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -748,40 +755,52 @@ fun SettingsScreen(
 	state.backupPreview?.let { preview ->
 		AlertDialog(
 			onDismissRequest = viewModel::cancelImport,
-			title = { Text("Import this backup?") },
+			title = { Text(stringResource(R.string.settings_import_title)) },
 			text = {
 				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+					val separator = stringResource(R.string.settings_list_separator)
+					val summary = pluralStringResource(
+						R.plurals.settings_backup_conversations,
+						preview.conversations,
+						preview.conversations,
+					) + separator + pluralStringResource(
+						R.plurals.settings_backup_messages,
+						preview.messages,
+						preview.messages,
+					) + separator + pluralStringResource(
+						R.plurals.settings_backup_workspaces,
+						preview.workspaces,
+						preview.workspaces,
+					) + stringResource(R.string.settings_sentence_end)
 					Text(
-						text = "${preview.conversations} " +
-							(if (preview.conversations == 1) "conversation, " else "conversations, ") +
-							"${preview.messages} messages, ${preview.workspaces} " +
-							(if (preview.workspaces == 1) "workspace." else "workspaces."),
+						text = summary,
 						style = MaterialTheme.typography.bodyLarge,
 					)
 					preview.createdAt?.let { createdAt ->
 						Text(
-							text = "Exported " + DateFormat.getDateTimeInstance(
-								DateFormat.MEDIUM,
-								DateFormat.SHORT,
-							).format(Date(createdAt)),
+							text = stringResource(
+								R.string.settings_exported_at,
+								DateFormat.getDateTimeInstance(
+									DateFormat.MEDIUM,
+									DateFormat.SHORT,
+								).format(Date(createdAt)),
+							),
 							style = MaterialTheme.typography.bodySmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
 					}
 					Text(
-						text = "Database version ${preview.databaseVersion}. " +
-							"Nothing changes until the app restarts. The current data is " +
-							"kept for one Undo; API keys are never replaced.",
+						text = stringResource(R.string.settings_import_version, preview.databaseVersion),
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
 				}
 			},
 			confirmButton = {
-				Button(onClick = viewModel::confirmImport) { Text("Import") }
+				Button(onClick = viewModel::confirmImport) { Text(stringResource(R.string.settings_import)) }
 			},
 			dismissButton = {
-				TextButton(onClick = viewModel::cancelImport) { Text("Cancel") }
+				TextButton(onClick = viewModel::cancelImport) { Text(stringResource(R.string.common_cancel)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -792,12 +811,9 @@ fun SettingsScreen(
 	if (showUndoConfirm) {
 		AlertDialog(
 			onDismissRequest = { showUndoConfirm = false },
-			title = { Text("Undo the last import?") },
+			title = { Text(stringResource(R.string.settings_undo_title)) },
 			text = {
-				Text(
-					"The data that was present before the last import is still on " +
-						"this device. Restoring it also needs a restart.",
-				)
+				Text(stringResource(R.string.settings_undo_body))
 			},
 			confirmButton = {
 				Button(
@@ -805,10 +821,10 @@ fun SettingsScreen(
 						showUndoConfirm = false
 						viewModel.undoLastImport()
 					},
-				) { Text("Undo import") }
+				) { Text(stringResource(R.string.settings_undo_action)) }
 			},
 			dismissButton = {
-				TextButton(onClick = { showUndoConfirm = false }) { Text("Cancel") }
+				TextButton(onClick = { showUndoConfirm = false }) { Text(stringResource(R.string.common_cancel)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -866,7 +882,11 @@ private fun ProviderRow(
 			)
 		}
 		Eyebrow(
-			text = if (hasKey) "Key" else "No key",
+			text = if (hasKey) {
+				stringResource(R.string.settings_key)
+			} else {
+				stringResource(R.string.settings_no_key)
+			},
 			color = if (hasKey) {
 				MaterialTheme.colorScheme.onSurfaceVariant
 			} else {
@@ -893,7 +913,15 @@ private fun ProviderEditorDialog(
 ) {
 	AlertDialog(
 		onDismissRequest = onDismiss,
-		title = { Text(if (draft.isNew) "Add provider" else draft.name) },
+		title = {
+			Text(
+				if (draft.isNew) {
+					stringResource(R.string.settings_add_provider_title)
+				} else {
+					draft.name
+				},
+			)
+		},
 		text = {
 			Column(
 				modifier = Modifier
@@ -905,7 +933,7 @@ private fun ProviderEditorDialog(
 					value = draft.name,
 					onValueChange = { value -> onUpdate { it.copy(name = value) } },
 					modifier = Modifier.fillMaxWidth(),
-					label = { Text("Name") },
+					label = { Text(stringResource(R.string.common_name)) },
 					singleLine = true,
 				)
 				FlowRowCompat {
@@ -940,8 +968,8 @@ private fun ProviderEditorDialog(
 					value = draft.baseUrl,
 					onValueChange = { value -> onUpdate { it.copy(baseUrl = value) } },
 					modifier = Modifier.fillMaxWidth(),
-					label = { Text("Base URL") },
-					supportingText = { Text("Include /v1 when the provider expects it.") },
+					label = { Text(stringResource(R.string.settings_base_url)) },
+					supportingText = { Text(stringResource(R.string.settings_base_url_support)) },
 					singleLine = true,
 				)
 				OutlinedTextField(
@@ -950,22 +978,25 @@ private fun ProviderEditorDialog(
 						onUpdate { it.copy(keyInput = value, hasKey = value.isNotBlank()) }
 					},
 					modifier = Modifier.fillMaxWidth(),
-					label = { Text("API key") },
+					label = { Text(stringResource(R.string.settings_api_key)) },
 					singleLine = true,
 					visualTransformation = PasswordVisualTransformation(),
 				)
 				Text(
-					text = if (draft.hasKey) "A key is stored for this provider." else
-						"No key stored yet.",
+					text = if (draft.hasKey) {
+						stringResource(R.string.settings_key_stored)
+					} else {
+						stringResource(R.string.settings_no_key_stored)
+					},
 					style = MaterialTheme.typography.labelSmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
-				Text("Reasoning fields", style = MaterialTheme.typography.labelLarge)
+				Text(stringResource(R.string.settings_reasoning_fields), style = MaterialTheme.typography.labelLarge)
 				FlowRowCompat {
 					FilterChip(
 						selected = draft.reasoningMode == ProviderReasoning.NONE,
 						onClick = { onUpdate { it.copy(reasoningMode = ProviderReasoning.NONE) } },
-						label = { Text("None") },
+						label = { Text(stringResource(R.string.settings_reasoning_none)) },
 					)
 					FilterChip(
 						selected = draft.reasoningMode == ProviderReasoning.EFFORT,
@@ -983,7 +1014,7 @@ private fun ProviderEditorDialog(
 					horizontalArrangement = Arrangement.SpaceBetween,
 					verticalAlignment = Alignment.CenterVertically,
 				) {
-					Text("Request stream usage", style = MaterialTheme.typography.bodyMedium)
+					Text(stringResource(R.string.settings_request_stream_usage), style = MaterialTheme.typography.bodyMedium)
 					WorkbenchSwitch(
 						checked = draft.includeStreamUsage,
 						onCheckedChange = { checked ->
@@ -995,9 +1026,9 @@ private fun ProviderEditorDialog(
 					value = draft.manualModels,
 					onValueChange = { value -> onUpdate { it.copy(manualModels = value) } },
 					modifier = Modifier.fillMaxWidth(),
-					label = { Text("Fallback model ids") },
+					label = { Text(stringResource(R.string.settings_fallback_models)) },
 					supportingText = {
-						Text("One per line, used only if /models is unavailable.")
+						Text(stringResource(R.string.settings_fallback_models_support))
 					},
 					minLines = 2,
 				)
@@ -1014,18 +1045,24 @@ private fun ProviderEditorDialog(
 				}
 				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 					TextButton(onClick = onTest, enabled = !draft.testing) {
-						Text(if (draft.testing) "Checking…" else "Test connection")
+						Text(
+							if (draft.testing) {
+								stringResource(R.string.settings_checking)
+							} else {
+								stringResource(R.string.settings_test_connection)
+							},
+						)
 					}
 					if (!draft.isBuiltIn && !draft.isNew) {
-						TextButton(onClick = onDelete) { Text("Delete") }
+						TextButton(onClick = onDelete) { Text(stringResource(R.string.common_delete)) }
 					}
 				}
 			}
 		},
 		confirmButton = {
-			Button(onClick = onSave, shape = MaterialTheme.shapes.small) { Text("Save") }
+			Button(onClick = onSave, shape = MaterialTheme.shapes.small) { Text(stringResource(R.string.common_save)) }
 		},
-		dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+		dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } },
 		containerColor = MaterialTheme.colorScheme.surface,
 		titleContentColor = MaterialTheme.colorScheme.onSurface,
 		textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1094,7 +1131,10 @@ private fun SettingsFold(
 				} else {
 					Icons.Filled.KeyboardArrowDown
 				},
-				contentDescription = if (expanded) "Collapse $title" else "Expand $title",
+				contentDescription = stringResource(
+					if (expanded) R.string.settings_collapse else R.string.settings_expand,
+					title,
+				),
 				tint = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 		}
@@ -1116,6 +1156,8 @@ private fun DiagnosticsSection() {
 	val context = LocalContext.current
 	var bytes by remember { mutableStateOf(AppDiagnostics.sizeBytes()) }
 	var confirmingClear by remember { mutableStateOf(false) }
+	val shareLog = stringResource(R.string.settings_share_log)
+	val shareSubject = stringResource(R.string.settings_share_subject)
 
 	Column(
 		modifier = Modifier
@@ -1128,31 +1170,33 @@ private fun DiagnosticsSection() {
 			// user's data, and a log is exactly where content leaks by
 			// accident. The implementation keeps it to shapes, lengths and
 			// identifiers; the sentence tells the user that.
-			text = "A local log records turns, tool calls, HTTP failures and " +
-				"crashes, so a problem can be explained without reproducing it. " +
-				"It stays on this device unless you share it. Message text, file " +
-				"contents and the API key are not written to it.",
+			text = stringResource(R.string.settings_diagnostics_body),
 			style = MaterialTheme.typography.bodyMedium,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 		Text(
-			text = "${formatLogSize(bytes)} — ${AppDiagnostics.currentFile()?.name ?: "no file yet"}",
+			text = stringResource(
+				R.string.settings_diagnostics_file,
+				formatLogSize(bytes),
+				AppDiagnostics.currentFile()?.name
+					?: stringResource(R.string.settings_no_file_yet),
+			),
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 
 		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 			Button(
-				onClick = { shareDiagnostics(context, bytes) },
+				onClick = { shareDiagnostics(context, bytes, shareLog, shareSubject) },
 				enabled = bytes > 0,
 			) {
-				Text("Share log")
+				Text(shareLog)
 			}
 			TextButton(
 				onClick = { confirmingClear = true },
 				enabled = bytes > 0,
 			) {
-				Text("Clear")
+				Text(stringResource(R.string.settings_clear))
 			}
 		}
 	}
@@ -1160,12 +1204,9 @@ private fun DiagnosticsSection() {
 	if (confirmingClear) {
 		AlertDialog(
 			onDismissRequest = { confirmingClear = false },
-			title = { Text("Clear the diagnostic log?") },
+			title = { Text(stringResource(R.string.settings_clear_log_title)) },
 			text = {
-				Text(
-					"The record of what happened will be deleted. Share it first " +
-						"if you are about to report a problem.",
-				)
+				Text(stringResource(R.string.settings_clear_log_body))
 			},
 			confirmButton = {
 				TextButton(
@@ -1175,33 +1216,39 @@ private fun DiagnosticsSection() {
 						confirmingClear = false
 					},
 				) {
-					Text("Clear")
+					Text(stringResource(R.string.settings_clear))
 				}
 			},
 			dismissButton = {
 				TextButton(onClick = { confirmingClear = false }) {
-					Text("Cancel")
+					Text(stringResource(R.string.common_cancel))
 				}
 			},
 		)
 	}
 }
 
-private fun shareDiagnostics(context: Context, bytes: Long) {
+private fun shareDiagnostics(
+	context: Context,
+	bytes: Long,
+	chooserTitle: String,
+	subject: String,
+) {
 	val file = AppDiagnostics.currentFile() ?: return
 	Diag.i("diag", "share requested bytes=$bytes file=${file.name}")
 	val uri = FileProvider.getUriForFile(context, "${context.packageName}.diagnostics", file)
 	val send = Intent(Intent.ACTION_SEND).apply {
 		type = "text/plain"
 		putExtra(Intent.EXTRA_STREAM, uri)
-		putExtra(Intent.EXTRA_SUBJECT, "inhuman diagnostics")
+		putExtra(Intent.EXTRA_SUBJECT, subject)
 		addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
 	}
-	context.startActivity(Intent.createChooser(send, "Share log"))
+	context.startActivity(Intent.createChooser(send, chooserTitle))
 }
 
+@Composable
 private fun formatLogSize(bytes: Long): String = when {
-	bytes <= 0L -> "no log yet"
+	bytes <= 0L -> stringResource(R.string.settings_no_log)
 	bytes < 1024L -> "$bytes B"
 	bytes < 1024L * 1024L -> "${bytes / 1024L} KB"
 	else -> "${bytes / (1024L * 1024L)} MB"
@@ -1238,15 +1285,9 @@ private fun ApprovalRulesSection(
 	) {
 		Text(
 			text = if (sshToolEnabled) {
-				"Local tools run without asking, because everything they reach " +
-					"is a copy inside this conversation's own folder. SSH is different: " +
-					"its first call in each conversation asks for consent, and after that " +
-					"the policy below applies. Tighten any tool here if you would rather " +
-					"be asked."
+				stringResource(R.string.settings_approval_body_with_ssh)
 			} else {
-				"Local tools run without asking, because everything they reach " +
-					"is a copy inside this conversation's own folder. Tighten any tool " +
-					"here if you would rather be asked."
+				stringResource(R.string.settings_approval_body)
 			},
 			style = MaterialTheme.typography.bodyMedium,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1302,7 +1343,11 @@ private fun ApprovalRuleRow(
 			if (paid) PaidBadge()
 		}
 		Text(
-			text = if (changesFiles) "$blurb · changes files" else blurb,
+			text = if (changesFiles) {
+				stringResource(R.string.settings_policy_changes_files, blurb)
+			} else {
+				blurb
+			},
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
@@ -1324,13 +1369,13 @@ private fun ApprovalRuleRow(
 /**
  * The word a user reads, which is not the enum's name.
  *
- * Returns a `String` rather than wrapping `Text` so it stays an ordinary
- * function: a `@Composable` helper that only chooses a word is one the caller
- * cannot use anywhere else, for no benefit.
+ * A `@Composable` because the word now comes from a resource: resolving one
+ * needs a composition, and that is the price of a translatable label.
  */
+@Composable
 private fun ToolPolicy.label(): String = when (this) {
-	ToolPolicy.Free -> "run it"
-	ToolPolicy.Ask -> "ask first"
-	ToolPolicy.Deny -> "refuse"
-	ToolPolicy.Blind -> "hide"
+	ToolPolicy.Free -> stringResource(R.string.settings_policy_free)
+	ToolPolicy.Ask -> stringResource(R.string.settings_policy_ask)
+	ToolPolicy.Deny -> stringResource(R.string.settings_policy_deny)
+	ToolPolicy.Blind -> stringResource(R.string.settings_policy_blind)
 }

@@ -112,15 +112,25 @@ object TurnNotifications {
 		val manager = context.getSystemService(NotificationManager::class.java) ?: return
 		val open = openIntent(context, status.conversationId)
 		val text = status.preview?.let(::plainPreview)?.takeIf { it.isNotBlank() }
-			?: if (status.failed) "The reply could not be completed." else "The reply is ready."
+			?: if (status.failed) {
+				context.getString(R.string.notif_failed_body)
+			} else {
+				context.getString(R.string.notif_ready_body)
+			}
 		val public = NotificationCompat.Builder(context, CHANNEL_COMPLETE)
 			.setSmallIcon(R.drawable.ic_stat_turn)
-			.setContentTitle("Reply ready")
-			.setContentText("Open inhuman to read it.")
+			.setContentTitle(context.getString(R.string.notif_reply_ready))
+			.setContentText(context.getString(R.string.notif_open_to_read))
 			.build()
 		val notification = NotificationCompat.Builder(context, CHANNEL_COMPLETE)
 			.setSmallIcon(R.drawable.ic_stat_turn)
-			.setContentTitle(if (status.failed) "Reply failed" else status.title)
+			.setContentTitle(
+				if (status.failed) {
+					context.getString(R.string.notif_reply_failed)
+				} else {
+					status.title
+				},
+			)
 			.setContentText(text)
 			.setStyle(NotificationCompat.BigTextStyle().bigText(text))
 			.setContentIntent(open)
@@ -147,20 +157,20 @@ object TurnNotifications {
 		manager.createNotificationChannel(
 			NotificationChannel(
 				CHANNEL_PROGRESS,
-				"Assistant replies",
+				context.getString(R.string.notif_channel_progress),
 				NotificationManager.IMPORTANCE_LOW,
 			).apply {
-				description = "Shown while a reply is being generated."
+				description = context.getString(R.string.notif_channel_progress_description)
 				setShowBadge(false)
 			},
 		)
 		manager.createNotificationChannel(
 			NotificationChannel(
 				CHANNEL_COMPLETE,
-				"Finished replies",
+				context.getString(R.string.notif_channel_complete),
 				NotificationManager.IMPORTANCE_DEFAULT,
 			).apply {
-				description = "Shown when a reply finishes while the app is in the background."
+				description = context.getString(R.string.notif_channel_complete_description)
 				setShowBadge(true)
 			},
 		)

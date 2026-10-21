@@ -41,9 +41,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.inhuman.R
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.Eyebrow
 import com.inhuman.core.design.Hairline
@@ -62,6 +65,7 @@ fun WorkspacesScreen(
 	onOpenWorkspace: (String) -> Unit,
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
+	val defaultName = stringResource(R.string.workspaces_new)
 	var showCreate by remember { mutableStateOf(false) }
 	var newName by remember { mutableStateOf("") }
 	var showBulkDelete by remember { mutableStateOf(false) }
@@ -70,7 +74,7 @@ fun WorkspacesScreen(
 
 	LaunchedEffect(startCreating) {
 		if (startCreating) {
-			newName = "New workspace"
+			newName = defaultName
 			showCreate = true
 			onCreateStarted()
 		}
@@ -83,9 +87,13 @@ fun WorkspacesScreen(
 					title = {
 						Text(
 							if (state.selecting) {
-								"${state.selectedIds.size} selected"
+								pluralStringResource(
+									R.plurals.workspaces_selected_count,
+									state.selectedIds.size,
+									state.selectedIds.size,
+								)
 							} else {
-								"Workspaces"
+								stringResource(R.string.workspaces_title)
 							},
 							style = MaterialTheme.typography.titleLarge,
 						)
@@ -93,7 +101,7 @@ fun WorkspacesScreen(
 					navigationIcon = {
 						if (state.selecting) {
 							IconButton(onClick = viewModel::cancelSelection) {
-								Icon(Icons.Filled.Close, contentDescription = "Cancel selection")
+								Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.workspaces_cancel_selection))
 							}
 						} else {
 							WorkbenchBackButton(onClick = onBack)
@@ -105,10 +113,10 @@ fun WorkspacesScreen(
 								onClick = { showBulkDelete = true },
 								enabled = state.selectedIds.isNotEmpty() && !state.deletingSelection,
 							) {
-								Icon(Icons.Outlined.Delete, contentDescription = "Delete selected workspaces")
+								Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.workspaces_delete_selected))
 							}
 						} else if (state.workspaces.isNotEmpty()) {
-							TextButton(onClick = { viewModel.beginSelection() }) { Text("Select") }
+							TextButton(onClick = { viewModel.beginSelection() }) { Text(stringResource(R.string.workspaces_select)) }
 						}
 					},
 					colors = TopAppBarDefaults.topAppBarColors(
@@ -125,14 +133,14 @@ fun WorkspacesScreen(
 			if (!state.selecting) {
 				FloatingActionButton(
 					onClick = {
-						newName = "New workspace"
+						newName = defaultName
 						showCreate = true
 					},
 					containerColor = MaterialTheme.colorScheme.primary,
 					contentColor = MaterialTheme.colorScheme.onPrimary,
 					shape = MaterialTheme.shapes.medium,
 				) {
-					Icon(Icons.Filled.Add, contentDescription = "New workspace")
+					Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.workspaces_new))
 				}
 			}
 		},
@@ -158,7 +166,7 @@ fun WorkspacesScreen(
 						color = MaterialTheme.colorScheme.error,
 						modifier = Modifier.weight(1f),
 					)
-					TextButton(onClick = viewModel::clearError) { Text("Dismiss") }
+					TextButton(onClick = viewModel::clearError) { Text(stringResource(R.string.common_dismiss)) }
 				}
 			}
 			if (!state.loading && state.workspaces.isEmpty()) {
@@ -173,15 +181,14 @@ fun WorkspacesScreen(
 							.padding(horizontal = comfortableGutter(), vertical = 32.dp),
 						verticalArrangement = Arrangement.spacedBy(12.dp),
 					) {
-						Eyebrow("Workspaces / shared")
+						Eyebrow(stringResource(R.string.workspaces_empty_eyebrow))
 						Text(
-							text = "Shared folders,\nnot shared chats.",
+							text = stringResource(R.string.workspaces_empty_title),
 							style = MaterialTheme.typography.headlineMedium,
 							color = MaterialTheme.colorScheme.onBackground,
 						)
 						Text(
-							text = "A permanent workspace keeps its files across conversations. " +
-								"Use one when several threads need the same documents.",
+							text = stringResource(R.string.workspaces_empty_body),
 							style = MaterialTheme.typography.bodyMedium,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
@@ -228,19 +235,24 @@ fun WorkspacesScreen(
 		AlertDialog(
 			onDismissRequest = { showBulkDelete = false },
 			title = {
-				Text("Delete ${selectedRows.size} workspace${if (selectedRows.size == 1) "" else "s"}?")
+				Text(
+					pluralStringResource(
+						R.plurals.workspaces_delete_title,
+						selectedRows.size,
+						selectedRows.size,
+					),
+				)
 			},
 			text = {
 				Text(
 					if (conversations == 0) {
-						"This deletes the selected workspaces and all their files. " +
-							"This cannot be undone."
+						stringResource(R.string.workspaces_delete_body_empty)
 					} else {
-						"This also deletes $conversations conversation" +
-							(if (conversations == 1) "" else "s") +
-							(if (conversations == 1) " inside it" else " inside them") +
-							(if (conversations == 1) ", its rollback snapshots" else ", their rollback snapshots") +
-							", and all files in these workspaces. This cannot be undone."
+						pluralStringResource(
+							R.plurals.workspaces_delete_body_with_conversations,
+							conversations,
+							conversations,
+						)
 					},
 				)
 			},
@@ -251,10 +263,10 @@ fun WorkspacesScreen(
 						showBulkDelete = false
 						viewModel.deleteSelected()
 					},
-				) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+				) { Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error) }
 			},
 			dismissButton = {
-				TextButton(onClick = { showBulkDelete = false }) { Text("Cancel") }
+				TextButton(onClick = { showBulkDelete = false }) { Text(stringResource(R.string.common_cancel)) }
 			},
 		)
 	}
@@ -262,12 +274,12 @@ fun WorkspacesScreen(
 	if (showCreate) {
 		AlertDialog(
 			onDismissRequest = { showCreate = false },
-			title = { Text("New workspace") },
+			title = { Text(stringResource(R.string.workspaces_new)) },
 			text = {
 				OutlinedTextField(
 					value = newName,
 					onValueChange = { newName = it },
-					label = { Text("Name") },
+					label = { Text(stringResource(R.string.common_name)) },
 					singleLine = true,
 					modifier = Modifier.fillMaxWidth(),
 				)
@@ -279,10 +291,10 @@ fun WorkspacesScreen(
 						showCreate = false
 						viewModel.create(newName) { id -> onOpenWorkspace(id) }
 					},
-				) { Text("Create") }
+				) { Text(stringResource(R.string.workspaces_create)) }
 			},
 			dismissButton = {
-				TextButton(onClick = { showCreate = false }) { Text("Cancel") }
+				TextButton(onClick = { showCreate = false }) { Text(stringResource(R.string.common_cancel)) }
 			},
 		)
 	}
@@ -325,15 +337,12 @@ private fun WorkspaceListRow(
 				overflow = TextOverflow.Ellipsis,
 			)
 			Text(
-				text = buildString {
-					append(row.conversationCount)
-					append(if (row.conversationCount == 1) " conversation" else " conversations")
-					append(" · ")
-					append(
-						DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-							.format(Date(row.workspace.updatedAt)),
-					)
-				},
+				text = pluralStringResource(
+					R.plurals.workspaces_conversation_count,
+					row.conversationCount,
+					row.conversationCount,
+				) + " · " + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+					.format(Date(row.workspace.updatedAt)),
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)

@@ -23,7 +23,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.inhuman.R
 import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.design.WorkbenchSwitch
@@ -67,6 +70,7 @@ fun ModelPickerDialog(
 	var loading by remember { mutableStateOf(true) }
 	var error by remember { mutableStateOf<String?>(null) }
 	var attempt by remember { mutableStateOf(0) }
+	val context = LocalContext.current
 
 	// Reloaded every time the dialog opens rather than cached in the screen:
 	// this is the moment the information is wanted, and a list fetched an hour
@@ -93,7 +97,7 @@ fun ModelPickerDialog(
 		val result = withTimeoutOrNull(25_000) { chat.models(force = true) }
 		if (result == null) {
 			if (models.isEmpty()) {
-				error = "Loading models timed out. Check the connection and try again."
+				error = context.getString(R.string.model_picker_timeout)
 			} else {
 				Diag.w("models", "refresh timed out; keeping ${models.size} cached")
 			}
@@ -109,7 +113,8 @@ fun ModelPickerDialog(
 			// A refresh failure does not erase a list that is already usable.
 			// Report it only when there is nothing to choose from.
 			if (models.isEmpty()) {
-				error = result.exceptionOrNull()?.message ?: "Could not load the model list."
+				error = result.exceptionOrNull()?.message
+					?: context.getString(R.string.model_picker_load_failed)
 			} else {
 				Diag.w(
 					"models",
@@ -130,7 +135,7 @@ fun ModelPickerDialog(
 
 	AlertDialog(
 		onDismissRequest = onDismiss,
-		title = { Text("Model") },
+		title = { Text(stringResource(R.string.model_picker_title)) },
 		text = {
 			Column(
 				modifier = Modifier
@@ -159,7 +164,7 @@ fun ModelPickerDialog(
 						style = MaterialTheme.typography.bodyMedium,
 						color = MaterialTheme.colorScheme.error,
 					)
-					TextButton(onClick = { attempt++ }) { Text("Retry") }
+					TextButton(onClick = { attempt++ }) { Text(stringResource(R.string.chat_retry)) }
 				}
 
 				if (!loading) {
@@ -287,7 +292,7 @@ fun ModelPickerDialog(
 				}
 			}
 		},
-		confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+		confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.model_picker_done)) } },
 		containerColor = MaterialTheme.colorScheme.surface,
 		titleContentColor = MaterialTheme.colorScheme.onSurface,
 		textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,

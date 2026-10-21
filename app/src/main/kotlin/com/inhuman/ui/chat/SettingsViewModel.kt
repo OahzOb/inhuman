@@ -1,8 +1,10 @@
 package com.inhuman.ui.chat
 
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
@@ -120,6 +122,7 @@ data class SettingsUiState(
  * confirm the model list the app will offer.
  */
 class SettingsViewModel(
+	private val context: Context,
 	private val secure: SecureStore,
 	private val agents: AgentRepository,
 	private val repository: ConversationRepository,
@@ -203,9 +206,9 @@ class SettingsViewModel(
 		_state.value = _state.value.copy(
 			knownHosts = emptyList(),
 			knownHostsStatus = if (removed) {
-				"Pinned host keys forgotten. The next connection to each host will pin a new key."
+				context.getString(R.string.settings_status_host_keys_forgotten)
 			} else {
-				"Could not remove the host-key file."
+				context.getString(R.string.settings_error_host_keys_failed)
 			},
 		)
 	}
@@ -278,7 +281,7 @@ class SettingsViewModel(
 		_state.value = _state.value.copy(
 			demoMode = enabled,
 			status = if (enabled) {
-				"Demo mode on. Replies are scripted locally and no request is sent."
+				context.getString(R.string.settings_status_demo_on)
 			} else {
 				null
 			},
@@ -298,9 +301,9 @@ class SettingsViewModel(
 		_state.value = _state.value.copy(
 			sshToolEnabled = enabled,
 			status = if (enabled) {
-				"SSH tool enabled. An assistant must still select it, and the first call in each conversation asks for consent."
+				context.getString(R.string.settings_status_ssh_enabled)
 			} else {
-				"SSH tool disabled. Existing SSH consents were revoked."
+				context.getString(R.string.settings_status_ssh_disabled)
 			},
 			statusIsError = false,
 		)
@@ -371,9 +374,9 @@ class SettingsViewModel(
 		val cleanName = draft.name.trim()
 		val baseUrl = draft.baseUrl.trim().trimEnd('/')
 		val problem = when {
-			cleanName.isBlank() -> "Give the provider a name."
-			baseUrl.isBlank() -> "Enter the API base URL."
-			!validBaseUrl(baseUrl) -> "The base URL must be an https URL; HTTP would send the key in clear text."
+			cleanName.isBlank() -> context.getString(R.string.settings_error_provider_name)
+			baseUrl.isBlank() -> context.getString(R.string.settings_error_base_url_missing)
+			!validBaseUrl(baseUrl) -> context.getString(R.string.settings_error_base_url_https)
 			else -> null
 		}
 		if (problem != null) {
@@ -399,7 +402,7 @@ class SettingsViewModel(
 			Diag.i("settings", "provider saved id=${Diag.shortId(profile.id)}")
 			_state.value = _state.value.copy(
 				editingProvider = null,
-				providerStatus = "Saved ${profile.name}.",
+				providerStatus = context.getString(R.string.settings_status_provider_saved, profile.name),
 				providerStatusIsError = false,
 			)
 		}
@@ -413,14 +416,15 @@ class SettingsViewModel(
 				.onSuccess {
 					_state.value = _state.value.copy(
 						editingProvider = null,
-						providerStatus = "Provider deleted.",
+						providerStatus = context.getString(R.string.settings_status_provider_deleted),
 						providerStatusIsError = false,
 					)
 				}
 				.onFailure { failure ->
 					updateProviderDraft {
 						it.copy(
-							status = failure.message ?: "Could not delete provider.",
+							status = failure.message
+								?: context.getString(R.string.settings_error_provider_delete_failed),
 							statusIsError = true,
 						)
 					}
@@ -435,11 +439,20 @@ class SettingsViewModel(
 		}
 		if (key.isBlank()) {
 			updateProviderDraft {
-				it.copy(status = "Save a key first.", statusIsError = true)
+				it.copy(
+					status = context.getString(R.string.settings_error_save_key_first),
+					statusIsError = true,
+				)
 			}
 			return
 		}
-		updateProviderDraft { it.copy(testing = true, status = "Checking…", statusIsError = false) }
+		updateProviderDraft {
+			it.copy(
+				testing = true,
+				status = context.getString(R.string.settings_checking),
+				statusIsError = false,
+			)
+		}
 		viewModelScope.launch {
 			val result = runCatching {
 				DeepSeekProvider(
@@ -457,10 +470,13 @@ class SettingsViewModel(
 							testing = false,
 							hasKey = true,
 							status = if (models.isEmpty()) {
-								"Connected, but no models were listed."
+								context.getString(R.string.settings_status_connected_no_models)
 							} else {
-								"Connected. ${models.size} model(s): " +
-									models.take(8).joinToString(", ") { m -> m.id }
+								context.getString(
+									R.string.settings_status_connected,
+									models.size,
+									models.take(8).joinToString(", ") { m -> m.id },
+								)
 							},
 							statusIsError = false,
 						)
@@ -470,7 +486,8 @@ class SettingsViewModel(
 					updateProviderDraft {
 						it.copy(
 							testing = false,
-							status = failure.message ?: "Connection failed.",
+							status = failure.message
+								?: context.getString(R.string.settings_error_connection_failed),
 							statusIsError = true,
 						)
 					}
@@ -516,7 +533,7 @@ class SettingsViewModel(
 		_state.value = _state.value.copy(
 			hasWebDeepSeekKey = deepseek.isNotBlank(),
 			hasWebExaKey = exa.isNotBlank(),
-			webStatus = "Web tool keys saved. The tools use the backend selected above.",
+			webStatus = context.getString(R.string.settings_status_web_saved),
 			webStatusIsError = false,
 		)
 	}
@@ -535,10 +552,15 @@ class SettingsViewModel(
 			_state.value = _state.value.copy(
 				backupBusy = false,
 				backupStatus = result.fold(
-					onSuccess = { "Backup written. Keep the passphrase: it cannot be recovered." },
+					onSuccess = {
+						context.getString(R.string.settings_status_backup_written)
+					},
 					onFailure = { failure ->
 						Diag.w("backup", "export failed", failure)
-						"Backup failed: ${failure.message ?: "unknown error"}"
+						context.getString(
+							R.string.settings_error_backup_failed,
+							failure.message ?: context.getString(R.string.settings_error_unknown),
+						)
 					},
 				),
 				backupStatusIsError = result.isFailure,
@@ -576,7 +598,10 @@ class SettingsViewModel(
 				backupPreview = result.getOrNull(),
 				backupStatus = result.exceptionOrNull()?.let { failure ->
 					Diag.w("backup", "preview failed", failure)
-					"Could not read that backup: ${failure.message ?: "wrong passphrase or damaged file"}"
+					context.getString(
+						R.string.settings_error_backup_read,
+						failure.message ?: context.getString(R.string.settings_error_bad_passphrase),
+					)
 				},
 				backupStatusIsError = result.isFailure,
 			)
@@ -603,12 +628,14 @@ class SettingsViewModel(
 				backupBusy = false,
 				backupStatus = result.fold(
 					onSuccess = {
-						"Backup verified and staged. Restart the app to replace the " +
-							"current data; nothing has changed yet."
+						context.getString(R.string.settings_status_backup_staged)
 					},
 					onFailure = { failure ->
 						Diag.w("backup", "import failed", failure)
-						"Import failed: ${failure.message ?: "wrong passphrase or damaged file"}"
+						context.getString(
+							R.string.settings_error_import_failed,
+							failure.message ?: context.getString(R.string.settings_error_bad_passphrase),
+						)
 					},
 				),
 				backupStatusIsError = result.isFailure,
@@ -640,9 +667,9 @@ class SettingsViewModel(
 			_state.value = _state.value.copy(
 				backupBusy = false,
 				backupStatus = if (staged) {
-					"Previous data staged. Restart the app to undo the last import."
+					context.getString(R.string.settings_status_undo_staged)
 				} else {
-					"No previous import is available to undo."
+					context.getString(R.string.settings_status_no_undo)
 				},
 				backupStatusIsError = !staged,
 				backupNeedsRestart = staged,

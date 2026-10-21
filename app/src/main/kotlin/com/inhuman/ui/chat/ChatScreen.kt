@@ -22,6 +22,8 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DataObject
@@ -93,6 +95,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.inhuman.R
 import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.data.Branches
 import com.inhuman.core.data.SnapshotStats
@@ -151,9 +154,12 @@ fun ChatScreen(
 	// Composer needs is read where the Composer is composed, and the transcript
 	// is read inside the list's own lambda. What is left reading at the top is
 	// the handful of values the chrome genuinely depends on.
-	val title by viewModel.state.map { it.title }.collectAsStateWithLifecycle("New conversation")
-	val modelLabel by viewModel.state.map { it.modelLabel }.collectAsStateWithLifecycle("default model")
-	val providerName by viewModel.state.map { it.providerName }.collectAsStateWithLifecycle("Provider")
+	val defaultTitle = stringResource(R.string.chat_title_fallback)
+	val defaultModel = stringResource(R.string.chat_model_fallback)
+	val defaultProvider = stringResource(R.string.chat_provider_fallback)
+	val title by viewModel.state.map { it.title }.collectAsStateWithLifecycle(defaultTitle)
+	val modelLabel by viewModel.state.map { it.modelLabel }.collectAsStateWithLifecycle(defaultModel)
+	val providerName by viewModel.state.map { it.providerName }.collectAsStateWithLifecycle(defaultProvider)
 	val thinking by viewModel.state.map { it.thinking }.collectAsStateWithLifecycle(false)
 	val reasoningEffort by viewModel.state
 		.map { it.reasoningEffort }
@@ -486,7 +492,7 @@ fun ChatScreen(
 						IconButton(onClick = onBack) {
 							Icon(
 								Icons.AutoMirrored.Filled.ArrowBack,
-								contentDescription = "Back",
+								contentDescription = stringResource(R.string.common_back),
 								modifier = Modifier.size(20.dp),
 							)
 						}
@@ -495,14 +501,14 @@ fun ChatScreen(
 						IconButton(onClick = onOpenFiles) {
 							Icon(
 								Icons.Outlined.FolderOpen,
-								contentDescription = "Files",
+								contentDescription = stringResource(R.string.files_title),
 								modifier = Modifier.size(20.dp),
 							)
 						}
 						IconButton(onClick = onOpenSettings) {
 							Icon(
 								Icons.Outlined.Key,
-								contentDescription = "Provider and keys",
+								contentDescription = stringResource(R.string.chat_provider_keys),
 								modifier = Modifier.size(20.dp),
 							)
 						}
@@ -510,7 +516,7 @@ fun ChatScreen(
 							IconButton(onClick = { showChatMenu = true }) {
 								Icon(
 									imageVector = Icons.Filled.MoreVert,
-									contentDescription = "More",
+									contentDescription = stringResource(R.string.chat_more),
 									modifier = Modifier.size(20.dp),
 								)
 							}
@@ -521,9 +527,9 @@ fun ChatScreen(
 								DropdownMenuItem(
 									text = {
 										Column {
-											Text("Preview next request")
+											Text(stringResource(R.string.chat_preview_next))
 											Text(
-												text = "System, tools, draft and raw JSON",
+												text = stringResource(R.string.chat_preview_next_detail),
 												style = MaterialTheme.typography.bodySmall,
 												color = MaterialTheme.colorScheme.onSurfaceVariant,
 											)
@@ -537,12 +543,12 @@ fun ChatScreen(
 								DropdownMenuItem(
 									text = {
 										Column {
-											Text("Inspect last request")
+											Text(stringResource(R.string.chat_inspect_last))
 											Text(
 												text = if (wire == null) {
-													"No provider request yet"
+													stringResource(R.string.chat_no_request)
 												} else {
-													"System, tools, messages and raw JSON"
+													stringResource(R.string.chat_inspect_detail)
 												},
 												style = MaterialTheme.typography.bodySmall,
 												color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -558,11 +564,14 @@ fun ChatScreen(
 								DropdownMenuItem(
 									text = {
 										Column {
-											Text("Rollback snapshots")
+											Text(stringResource(R.string.chat_snapshots))
 											Text(
-												text = "${snapshotStats.turns} " +
-													"turn${if (snapshotStats.turns == 1) "" else "s"} · " +
+												text = pluralStringResource(
+													R.plurals.chat_snapshot_menu,
+													snapshotStats.turns,
+													snapshotStats.turns,
 													humanSize(snapshotStats.bytes),
+												),
 												style = MaterialTheme.typography.bodySmall,
 												color = MaterialTheme.colorScheme.onSurfaceVariant,
 											)
@@ -576,9 +585,12 @@ fun ChatScreen(
 								DropdownMenuItem(
 									text = {
 										Column {
-											Text("Tool rounds per turn")
+											Text(stringResource(R.string.chat_tool_rounds))
 											Text(
-												text = "$toolRoundLimit rounds before the turn stops",
+												text = stringResource(
+													R.string.chat_rounds_before_stop,
+													toolRoundLimit,
+												),
 												style = MaterialTheme.typography.bodySmall,
 												color = MaterialTheme.colorScheme.onSurfaceVariant,
 											)
@@ -590,7 +602,7 @@ fun ChatScreen(
 									},
 								)
 								DropdownMenuItem(
-									text = { Text("Rename conversation") },
+									text = { Text(stringResource(R.string.chat_rename)) },
 									onClick = {
 										showChatMenu = false
 										renameInput = title
@@ -601,9 +613,9 @@ fun ChatScreen(
 									DropdownMenuItem(
 										text = {
 											Column {
-												Text("Save workspace as permanent")
+												Text(stringResource(R.string.chat_save_workspace))
 												Text(
-													text = "Keep its files after this conversation is deleted",
+													text = stringResource(R.string.chat_save_workspace_detail),
 													style = MaterialTheme.typography.bodySmall,
 													color = MaterialTheme.colorScheme.onSurfaceVariant,
 												)
@@ -618,7 +630,7 @@ fun ChatScreen(
 								}
 								if (sshToolEnabled) {
 									DropdownMenuItem(
-										text = { Text("Revoke SSH access") },
+										text = { Text(stringResource(R.string.chat_revoke_ssh)) },
 										enabled = sshAllowed,
 										onClick = {
 											showChatMenu = false
@@ -743,7 +755,7 @@ fun ChatScreen(
 					if (isCompacting) {
 						item(key = "compacting") {
 							Text(
-								text = "Summarizing earlier turns…",
+								text = stringResource(R.string.chat_summarizing),
 								style = MaterialTheme.typography.labelMedium,
 								color = MaterialTheme.colorScheme.onSurfaceVariant,
 								modifier = Modifier.padding(horizontal = 2.dp),
@@ -756,9 +768,11 @@ fun ChatScreen(
 								providerName = providerName,
 								modelLabel = modelLabel,
 								workspaceName = if (workspaceIsPermanent) {
-									workspaceName.ifBlank { "Permanent workspace" }
+									workspaceName.ifBlank {
+										stringResource(R.string.chat_permanent_workspace)
+									}
 								} else {
-									"Temporary workspace"
+									stringResource(R.string.chat_temporary_workspace)
 								},
 								configured = configured,
 								onEnableDemo = viewModel::enableDemoMode,
@@ -852,7 +866,7 @@ fun ChatScreen(
 					) {
 						Icon(
 							imageVector = Icons.Filled.KeyboardArrowDown,
-							contentDescription = "Jump to latest message",
+							contentDescription = stringResource(R.string.chat_jump_latest),
 						)
 					}
 				}
@@ -875,7 +889,7 @@ fun ChatScreen(
 							.fillMaxWidth()
 							.padding(horizontal = comfortableGutter()),
 					) {
-						Text("Try demo mode — no key, no network")
+						Text(stringResource(R.string.chat_try_demo_strip))
 					}
 				}
 
@@ -896,7 +910,7 @@ fun ChatScreen(
 								color = MaterialTheme.colorScheme.error,
 								modifier = Modifier.weight(1f),
 							)
-							TextButton(onClick = viewModel::clearError) { Text("Dismiss") }
+							TextButton(onClick = viewModel::clearError) { Text(stringResource(R.string.chat_dismiss)) }
 						}
 						Row(
 							horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -905,18 +919,18 @@ fun ChatScreen(
 							when (errorAction) {
 								ChatErrorAction.Retry -> TextButton(
 									onClick = viewModel::retryLastTurn,
-								) { Text("Retry") }
+								) { Text(stringResource(R.string.chat_retry)) }
 
 								ChatErrorAction.CompactAndRetry -> TextButton(
 									onClick = viewModel::compactAndRetry,
-								) { Text("Compact and retry") }
+								) { Text(stringResource(R.string.chat_compact_retry)) }
 
 								ChatErrorAction.OpenProviderSettings -> TextButton(
 									onClick = {
 										viewModel.clearError()
 										onOpenSettings()
 									},
-								) { Text("Provider settings") }
+								) { Text(stringResource(R.string.chat_provider_settings)) }
 
 								null -> Unit
 							}
@@ -926,10 +940,13 @@ fun ChatScreen(
 										ClipboardManager::class.java,
 									)
 									clipboard.setPrimaryClip(
-										ClipData.newPlainText("inhuman error", message),
+										ClipData.newPlainText(
+											ctx.getString(R.string.chat_clip_error),
+											message,
+										),
 									)
 								},
-							) { Text("Copy details") }
+							) { Text(stringResource(R.string.chat_copy_details)) }
 						}
 					}
 				}
@@ -1014,7 +1031,7 @@ fun ChatScreen(
 	// yes, and nobody reads `{"path":"a.txt"}` carefully.
 	pendingApproval?.let { pending ->		AlertDialog(
 			onDismissRequest = viewModel::declinePendingCall,
-			title = { Text("Allow this action?") },
+			title = { Text(stringResource(R.string.chat_allow_title)) },
 			text = {
 				Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
 					Text(pending.summary, style = MaterialTheme.typography.bodyLarge)
@@ -1043,10 +1060,10 @@ fun ChatScreen(
 				}
 			},
 			confirmButton = {
-				TextButton(onClick = viewModel::approvePendingCall) { Text("Allow") }
+				TextButton(onClick = viewModel::approvePendingCall) { Text(stringResource(R.string.chat_allow)) }
 			},
 			dismissButton = {
-				TextButton(onClick = viewModel::declinePendingCall) { Text("Decline") }
+				TextButton(onClick = viewModel::declinePendingCall) { Text(stringResource(R.string.chat_decline)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -1065,26 +1082,25 @@ fun ChatScreen(
 	rollbackTarget?.let { target ->
 		AlertDialog(
 			onDismissRequest = { rollbackTarget = null },
-			title = { Text("Rewind to before this message?") },
+			title = { Text(stringResource(R.string.chat_rewind_confirm_title)) },
 			text = {
 				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+					Text(stringResource(R.string.chat_rewind_confirm_body))
 					Text(
-						"This removes this message and everything after it, and " +
-							"puts the text back in the composer so you can edit it.",
-					)
-					Text(
-						"The conversation's folder is restored to how it was before " +
-							"this message. Files changed after that point are lost too.",
+						text = stringResource(R.string.chat_rewind_restore_body),
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
 					if (rollbackFiles.isEmpty()) {
 						Text(
-							"No workspace files changed in this turn.",
+							text = stringResource(R.string.chat_no_files_changed),
 							style = MaterialTheme.typography.bodySmall,
 						)
 					} else {
-						Text("Files that will be restored:", style = MaterialTheme.typography.labelLarge)
+						Text(
+							stringResource(R.string.chat_files_restored),
+							style = MaterialTheme.typography.labelLarge,
+						)
 						Column(
 							modifier = Modifier
 								.heightIn(max = 220.dp)
@@ -1108,7 +1124,7 @@ fun ChatScreen(
 						rollbackTarget = null
 						viewModel.rollbackTo(target.id)
 					},
-				) { Text("Rewind") }
+				) { Text(stringResource(R.string.chat_rewind)) }
 			},
 			dismissButton = {
 				TextButton(
@@ -1116,7 +1132,7 @@ fun ChatScreen(
 						rollbackTarget = null
 						rollbackFiles = emptyList()
 					},
-				) { Text("Cancel") }
+				) { Text(stringResource(R.string.common_cancel)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -1155,30 +1171,36 @@ fun ChatScreen(
 		val plan = pendingCompaction
 		AlertDialog(
 			onDismissRequest = { showCompactPreview = false },
-			title = { Text(if (plan == null) "Nothing to compact yet" else "Compact conversation?") },
+			title = {
+				Text(
+					if (plan == null) {
+						stringResource(R.string.chat_compact_none_title)
+					} else {
+						stringResource(R.string.chat_compact_title)
+					},
+				)
+			},
 			text = {
 				if (plan == null) {
 					Text(
-						"Compaction needs at least three complete turns: two recent " +
-							"turns stay verbatim, and older ones become a summary.",
+						text = stringResource(R.string.chat_compact_needs),
 					)
 				} else {
 					Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 						Text(
-							"${plan.omittedMessages} earlier messages " +
-								"(${plan.omittedTurns} turns) will be replaced by a " +
-								"summary in future requests.",
+							text = stringResource(
+								R.string.chat_compact_plan,
+								plan.omittedMessages,
+								plan.omittedTurns,
+							),
 						)
 						Text(
-							"The last ${plan.keptTurns} turns stay verbatim. The full " +
-								"transcript remains on screen and can be restored with " +
-								"Use full history.",
+							text = stringResource(R.string.chat_compact_kept, plan.keptTurns),
 							style = MaterialTheme.typography.bodySmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
 						Text(
-							"On a real provider this uses one extra model call. " +
-								"Demo mode summarizes locally.",
+							text = stringResource(R.string.chat_compact_cost),
 							style = MaterialTheme.typography.bodySmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
@@ -1192,11 +1214,11 @@ fun ChatScreen(
 							showCompactPreview = false
 							viewModel.compact(plan.keptTurns)
 						},
-					) { Text("Compact") }
+					) { Text(stringResource(R.string.chat_compact)) }
 				}
 			},
 			dismissButton = {
-				TextButton(onClick = { showCompactPreview = false }) { Text("Cancel") }
+				TextButton(onClick = { showCompactPreview = false }) { Text(stringResource(R.string.common_cancel)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -1208,7 +1230,7 @@ fun ChatScreen(
 		if (showCompactionSummary) {
 			AlertDialog(
 				onDismissRequest = { showCompactionSummary = false },
-				title = { Text("Request summary") },
+				title = { Text(stringResource(R.string.chat_summary_title)) },
 				text = {
 					Column(
 						modifier = Modifier
@@ -1217,8 +1239,7 @@ fun ChatScreen(
 						verticalArrangement = Arrangement.spacedBy(8.dp),
 					) {
 						Text(
-							"Used for requests only. The first ${active.omittedMessages} " +
-								"messages are still in the transcript.",
+						text = stringResource(R.string.chat_summary_body, active.omittedMessages),
 							style = MaterialTheme.typography.bodySmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
@@ -1226,7 +1247,7 @@ fun ChatScreen(
 					}
 				},
 				confirmButton = {
-					TextButton(onClick = { showCompactionSummary = false }) { Text("Close") }
+					TextButton(onClick = { showCompactionSummary = false }) { Text(stringResource(R.string.chat_close)) }
 				},
 				dismissButton = {
 					TextButton(
@@ -1234,7 +1255,7 @@ fun ChatScreen(
 							showCompactionSummary = false
 							viewModel.clearCompaction()
 						},
-					) { Text("Use full history") }
+					) { Text(stringResource(R.string.chat_use_full_history)) }
 				},
 				containerColor = MaterialTheme.colorScheme.surface,
 				titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -1246,22 +1267,23 @@ fun ChatScreen(
 	if (showSnapshotDialog) {
 		AlertDialog(
 			onDismissRequest = { showSnapshotDialog = false },
-			title = { Text("Rollback snapshots") },
+			title = { Text(stringResource(R.string.chat_snapshots)) },
 			text = {
 				Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
 					Text(
 						if (snapshotStats.turns == 0) {
-							"No checkpoints are stored for this conversation yet."
+							stringResource(R.string.chat_snapshots_empty)
 						} else {
-							"${snapshotStats.turns} " +
-								"turn${if (snapshotStats.turns == 1) "" else "s"} stored · " +
-								humanSize(snapshotStats.bytes) + ". " +
-								"The current turn is always kept."
+							pluralStringResource(
+								R.plurals.chat_snapshots_stored,
+								snapshotStats.turns,
+								snapshotStats.turns,
+								humanSize(snapshotStats.bytes),
+							)
 						},
 					)
 					Text(
-						"Choose how many turns to keep. Older checkpoint data is " +
-							"deleted; the current turn's start checkpoint is always kept.",
+						text = stringResource(R.string.chat_snapshots_body),
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
@@ -1275,9 +1297,14 @@ fun ChatScreen(
 							snapshotTurns.forEachIndexed { index, turn ->
 								Column {
 									Text(
-										text = "Snapshot ${snapshotTurns.size - index} · " +
-											"${turn.checkpoints} checkpoint" +
-											(if (turn.checkpoints == 1) "" else "s"),
+										text = stringResource(
+											R.string.chat_snapshot_prefix,
+											snapshotTurns.size - index,
+										) + pluralStringResource(
+											R.plurals.chat_snapshot_checkpoints,
+											turn.checkpoints,
+											turn.checkpoints,
+										),
 										style = MaterialTheme.typography.labelLarge,
 									)
 									Text(
@@ -1311,7 +1338,7 @@ fun ChatScreen(
 				}
 			},
 			confirmButton = {
-				TextButton(onClick = { showSnapshotDialog = false }) { Text("Close") }
+				TextButton(onClick = { showSnapshotDialog = false }) { Text(stringResource(R.string.chat_close)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -1339,18 +1366,14 @@ fun ChatScreen(
 	if (showToolLimitDialog) {
 		AlertDialog(
 			onDismissRequest = { showToolLimitDialog = false },
-			title = { Text("Tool rounds per turn") },
+			title = { Text(stringResource(R.string.chat_tool_rounds)) },
 			text = {
 				Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
 					Text(
-						"How many model round trips one turn may run before it stops. " +
-							"A round is one model response plus the tool calls it asked for; " +
-							"raising this does not change which tools are allowed. " +
-							"This is global: it applies to every conversation. " +
-							"The separate total-call budget is in Settings → 04 / Turn limits.",
+						text = stringResource(R.string.chat_tool_limit_body),
 					)
 					Text(
-						"Current: $toolRoundLimit per turn",
+						text = stringResource(R.string.chat_tool_limit_current, toolRoundLimit),
 						style = MaterialTheme.typography.labelLarge,
 						color = MaterialTheme.colorScheme.primary,
 					)
@@ -1380,7 +1403,7 @@ fun ChatScreen(
 				}
 			},
 			confirmButton = {
-				TextButton(onClick = { showToolLimitDialog = false }) { Text("Close") }
+				TextButton(onClick = { showToolLimitDialog = false }) { Text(stringResource(R.string.chat_close)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -1391,12 +1414,12 @@ fun ChatScreen(
 	if (showRenameDialog) {
 		AlertDialog(
 			onDismissRequest = { showRenameDialog = false },
-			title = { Text("Rename conversation") },
+			title = { Text(stringResource(R.string.chat_rename)) },
 			text = {
 				OutlinedTextField(
 					value = renameInput,
 					onValueChange = { renameInput = it },
-					label = { Text("Title") },
+					label = { Text(stringResource(R.string.chat_title_label)) },
 					singleLine = true,
 				)
 			},
@@ -1407,10 +1430,10 @@ fun ChatScreen(
 						showRenameDialog = false
 					},
 					enabled = renameInput.isNotBlank(),
-				) { Text("Save") }
+				) { Text(stringResource(R.string.common_save)) }
 			},
 			dismissButton = {
-				TextButton(onClick = { showRenameDialog = false }) { Text("Cancel") }
+				TextButton(onClick = { showRenameDialog = false }) { Text(stringResource(R.string.common_cancel)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -1421,18 +1444,17 @@ fun ChatScreen(
 	if (showSaveWorkspaceDialog) {
 		AlertDialog(
 			onDismissRequest = { showSaveWorkspaceDialog = false },
-			title = { Text("Save workspace as permanent") },
+			title = { Text(stringResource(R.string.chat_save_workspace)) },
 			text = {
 				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 					Text(
-						"The files stay after this conversation is deleted, and you can " +
-							"start more conversations in this workspace.",
+						text = stringResource(R.string.chat_save_workspace_body),
 						style = MaterialTheme.typography.bodyMedium,
 					)
 					OutlinedTextField(
 						value = workspaceNameInput,
 						onValueChange = { workspaceNameInput = it },
-						label = { Text("Workspace name") },
+						label = { Text(stringResource(R.string.chat_workspace_name_label)) },
 						singleLine = true,
 					)
 				}
@@ -1444,10 +1466,10 @@ fun ChatScreen(
 						viewModel.saveWorkspaceAsPermanent(workspaceNameInput)
 						showSaveWorkspaceDialog = false
 					},
-				) { Text("Save") }
+				) { Text(stringResource(R.string.common_save)) }
 			},
 			dismissButton = {
-				TextButton(onClick = { showSaveWorkspaceDialog = false }) { Text("Cancel") }
+				TextButton(onClick = { showSaveWorkspaceDialog = false }) { Text(stringResource(R.string.common_cancel)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -1476,13 +1498,11 @@ private fun RewindDialog(
 ) {
 	AlertDialog(
 		onDismissRequest = onDismiss,
-		title = { Text("Rewind") },
+		title = { Text(stringResource(R.string.chat_rewind)) },
 		text = {
 			Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
 				Text(
-					text = "Choose where to ask again. The prefix through that " +
-						"point is kept, so the next request can reuse it from the " +
-						"provider's cache.",
+					text = stringResource(R.string.chat_rewind_picker_body),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
@@ -1493,9 +1513,8 @@ private fun RewindDialog(
 				) {
 					if (canAnswerAgain) {
 						RewindChoice(
-							title = "Answer again",
-							detail = "Keep every tool result and ask only for a new " +
-								"final answer; the old answer stays as a branch.",
+							title = stringResource(R.string.chat_answer_again),
+							detail = stringResource(R.string.chat_answer_again_detail),
 							enabled = true,
 							blockedReason = null,
 							onClick = onAnswerAgain,
@@ -1504,7 +1523,7 @@ private fun RewindDialog(
 
 					if (points.isNotEmpty()) {
 						Text(
-							text = "EARLIER IN THIS TURN",
+							text = stringResource(R.string.chat_earlier_in_turn),
 							style = MaterialTheme.typography.labelSmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 							modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
@@ -1512,12 +1531,10 @@ private fun RewindDialog(
 						points.forEach { point ->
 							RewindChoice(
 								title = point.label,
-								detail = if (point.label.startsWith("From your")) {
-									"Keep your question; later calls are removed and " +
-										"the turn runs again."
+								detail = if (point.isUserMessage) {
+									stringResource(R.string.chat_point_quote)
 								} else {
-									"Keep these tool results; later calls are removed " +
-										"and the turn runs again."
+									stringResource(R.string.chat_point_tool)
 								},
 								enabled = point.blockedReason == null,
 								blockedReason = point.blockedReason,
@@ -1529,9 +1546,8 @@ private fun RewindDialog(
 					if (showEdit) {
 						Hairline(Modifier.padding(top = 6.dp))
 						RewindChoice(
-							title = "Edit your message",
-							detail = "Remove this turn and put the text back in the " +
-								"composer.",
+							title = stringResource(R.string.chat_edit_message),
+							detail = stringResource(R.string.chat_edit_message_detail),
 							enabled = canEdit,
 							blockedReason = editBlockedReason,
 							onClick = onEdit,
@@ -1541,7 +1557,7 @@ private fun RewindDialog(
 			}
 		},
 		confirmButton = {
-			TextButton(onClick = onDismiss) { Text("Cancel") }
+			TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
 		},
 		containerColor = MaterialTheme.colorScheme.surface,
 		titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -1612,13 +1628,12 @@ private fun CompactionBanner(
 				verticalArrangement = Arrangement.spacedBy(1.dp),
 			) {
 				Text(
-					text = "CONTEXT COMPACTED",
+					text = stringResource(R.string.chat_compacted),
 					style = MaterialTheme.typography.labelSmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 				Text(
-					text = "${compaction.omittedMessages} earlier messages are " +
-						"summarized for requests. The transcript is complete.",
+					text = stringResource(R.string.chat_compacted_body, compaction.omittedMessages),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
@@ -1626,11 +1641,11 @@ private fun CompactionBanner(
 			TextButton(
 				onClick = onView,
 				contentPadding = PaddingValues(horizontal = 7.dp),
-			) { Text("View", style = MaterialTheme.typography.labelLarge) }
+			) { Text(stringResource(R.string.chat_view), style = MaterialTheme.typography.labelLarge) }
 			TextButton(
 				onClick = onClear,
 				contentPadding = PaddingValues(horizontal = 7.dp),
-			) { Text("Undo", style = MaterialTheme.typography.labelLarge) }
+			) { Text(stringResource(R.string.chat_undo), style = MaterialTheme.typography.labelLarge) }
 		}
 	}
 }
@@ -1654,16 +1669,15 @@ private fun ChatWelcome(
 			horizontalArrangement = Arrangement.spacedBy(8.dp),
 		) {
 			StatusDot(MaterialTheme.colorScheme.primary)
-			Eyebrow("New session / ready")
+			Eyebrow(stringResource(R.string.chat_welcome_eyebrow))
 		}
 		Text(
-			text = "What should we\nwork on?",
+			text = stringResource(R.string.chat_welcome_title),
 			style = MaterialTheme.typography.displaySmall,
 			color = MaterialTheme.colorScheme.onBackground,
 		)
 		Text(
-			text = "This conversation has its own workspace. Ask for a file, a " +
-				"search, or a plan — the assistant sees paths only relative to it.",
+			text = stringResource(R.string.chat_welcome_body),
 			style = MaterialTheme.typography.bodyLarge,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 			modifier = Modifier.widthIn(max = Layout.UserBubbleMeasure),
@@ -1671,8 +1685,16 @@ private fun ChatWelcome(
 		Spacer(Modifier.height(10.dp))
 		Hairline(Modifier.widthIn(max = Layout.UserBubbleMeasure))
 		Spacer(Modifier.height(2.dp))
-		MetaLine("Model", "$providerName / $modelLabel", Modifier.widthIn(max = Layout.UserBubbleMeasure))
-		MetaLine("Workspace", workspaceName, Modifier.widthIn(max = Layout.UserBubbleMeasure))
+		MetaLine(
+			stringResource(R.string.chat_meta_model),
+			"$providerName / $modelLabel",
+			Modifier.widthIn(max = Layout.UserBubbleMeasure),
+		)
+		MetaLine(
+			stringResource(R.string.chat_meta_workspace),
+			workspaceName,
+			Modifier.widthIn(max = Layout.UserBubbleMeasure),
+		)
 		Row(
 			horizontalArrangement = Arrangement.spacedBy(8.dp),
 			modifier = Modifier.padding(top = 4.dp),
@@ -1683,7 +1705,7 @@ private fun ChatWelcome(
 					shape = MaterialTheme.shapes.small,
 					contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
 				) {
-					Text("Try demo mode", style = MaterialTheme.typography.labelLarge)
+					Text(stringResource(R.string.chat_try_demo), style = MaterialTheme.typography.labelLarge)
 				}
 			}
 			OutlinedButton(
@@ -1691,7 +1713,7 @@ private fun ChatWelcome(
 				shape = MaterialTheme.shapes.small,
 				contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
 			) {
-				Text("Open files", style = MaterialTheme.typography.labelLarge)
+				Text(stringResource(R.string.chat_open_files), style = MaterialTheme.typography.labelLarge)
 			}
 		}
 	}
@@ -1706,7 +1728,7 @@ private fun SshConsentDialog(
 	var understood by remember { mutableStateOf(false) }
 	AlertDialog(
 		onDismissRequest = onDeny,
-		title = { Text("Allow SSH in this conversation?") },
+		title = { Text(stringResource(R.string.chat_ssh_title)) },
 		text = {
 			Column(
 				modifier = Modifier
@@ -1716,13 +1738,15 @@ private fun SshConsentDialog(
 				verticalArrangement = Arrangement.spacedBy(12.dp),
 			) {
 				Text(
-					text = "The agent will be able to connect to ${consent.username}@${consent.host} " +
-						"and run any command there. It can also connect to any other host it is " +
-						"given credentials for, without asking again in this conversation.",
+					text = stringResource(
+						R.string.chat_ssh_body,
+						consent.username,
+						consent.host,
+					),
 					style = MaterialTheme.typography.bodyLarge,
 				)
 				Text(
-					text = "First command:\n${consent.command}",
+					text = stringResource(R.string.chat_ssh_first_command, consent.command),
 					style = MaterialTheme.typography.bodyMedium,
 					fontFamily = FontFamily.Monospace,
 					modifier = Modifier
@@ -1735,7 +1759,7 @@ private fun SshConsentDialog(
 				)
 				consent.hostKeyFingerprint?.let { fingerprint ->
 					Text(
-						text = "Pinned host key:\n$fingerprint",
+						text = stringResource(R.string.chat_ssh_host_key, fingerprint),
 						style = MaterialTheme.typography.bodySmall,
 						fontFamily = FontFamily.Monospace,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1750,33 +1774,28 @@ private fun SshConsentDialog(
 						onCheckedChange = { understood = it },
 					)
 					Text(
-						text = "I understand the agent can cause irreversible damage",
+						text = stringResource(R.string.chat_ssh_understand),
 						style = MaterialTheme.typography.bodyMedium,
 						modifier = Modifier.weight(1f),
 					)
 				}
 				Text(
-					text = "It can delete data, stop services, change access, install software, " +
-						"or expose files. Some damage cannot be undone. Prompt injection from a " +
-						"web page or a file can direct it.",
+					text = stringResource(R.string.chat_ssh_warning),
 					style = MaterialTheme.typography.bodyMedium,
 					color = MaterialTheme.colorScheme.error,
 				)
 				Text(
-					text = "If you paste a password or key, it becomes part of this " +
-						"conversation and is sent to the configured model provider. A key file in the workspace " +
-						"stays on the device and is read locally. Files in the workspace can " +
-						"be sent to the remote machine.",
+					text = stringResource(R.string.chat_ssh_password_note),
 					style = MaterialTheme.typography.bodyMedium,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 			}
 		},
 		confirmButton = {
-			TextButton(onClick = onAllow, enabled = understood) { Text("Allow SSH") }
+			TextButton(onClick = onAllow, enabled = understood) { Text(stringResource(R.string.chat_allow_ssh)) }
 		},
 		dismissButton = {
-			TextButton(onClick = onDeny) { Text("Cancel") }
+			TextButton(onClick = onDeny) { Text(stringResource(R.string.common_cancel)) }
 		},
 		containerColor = MaterialTheme.colorScheme.surface,
 		titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -1887,11 +1906,11 @@ private fun BranchSwitcher(
 private fun ToolCallLine(call: ToolCallUi) {
 	val status = when (call.state) {
 		ToolCallUi.State.Streaming -> "…"
-		ToolCallUi.State.Ready -> "ready"
-		ToolCallUi.State.Running -> "running"
-		ToolCallUi.State.Done -> "done"
-		ToolCallUi.State.Declined -> "declined"
-		ToolCallUi.State.Failed -> "failed"
+		ToolCallUi.State.Ready -> stringResource(R.string.chat_tool_state_ready)
+		ToolCallUi.State.Running -> stringResource(R.string.chat_tool_state_running)
+		ToolCallUi.State.Done -> stringResource(R.string.chat_tool_state_done)
+		ToolCallUi.State.Declined -> stringResource(R.string.chat_tool_state_declined)
+		ToolCallUi.State.Failed -> stringResource(R.string.chat_tool_state_failed)
 	}
 	val statusColor = when (call.state) {
 		ToolCallUi.State.Failed -> MaterialTheme.colorScheme.error
@@ -1995,11 +2014,12 @@ private val COUNTED_SUMMARY =
  * general parser for prose would be a larger thing to get wrong than the two
  * lines it would save.
  */
+@Composable
 private fun toolResultSummary(
 	toolName: String?,
 	firstLine: String,
 ): Pair<String, String?> {
-	if (firstLine.isBlank()) return (toolName ?: "Tool result") to null
+	if (firstLine.isBlank()) return (toolName ?: stringResource(R.string.chat_tool_result)) to null
 
 	// "… — 5 results", "… — 3 files", "… — 1 item".
 	//
@@ -2116,7 +2136,11 @@ private fun MessageBubble(
 				Spacer(Modifier.width(7.dp))
 			}
 			Eyebrow(
-				text = if (message.fromUser) "You" else "Assistant",
+				text = if (message.fromUser) {
+					stringResource(R.string.chat_you)
+				} else {
+					stringResource(R.string.chat_assistant)
+				},
 				color = if (message.fromUser) {
 					MaterialTheme.colorScheme.onSurfaceVariant
 				} else {
@@ -2131,7 +2155,7 @@ private fun MessageBubble(
 				) {
 					Icon(
 						imageVector = Icons.Outlined.DataObject,
-						contentDescription = "View wire format",
+						contentDescription = stringResource(R.string.chat_view_wire),
 						tint = MaterialTheme.colorScheme.onSurfaceVariant,
 						modifier = Modifier.size(16.dp),
 					)
@@ -2187,8 +2211,8 @@ private fun MessageBubble(
 				)
 				if (reasoning.isNotBlank() && !message.fromUser) {
 					CollapsibleSection(
-						summary = "Thinking",
-						trailing = "${reasoning.length} chars",
+						summary = stringResource(R.string.chat_thinking),
+						trailing = stringResource(R.string.chat_chars, reasoning.length),
 						autoExpand = live == LiveAssistantSection.Reasoning,
 					) {
 						ReasoningBody(reasoning)
@@ -2204,9 +2228,14 @@ private fun MessageBubble(
 				// fourth call do".
 				if (calls.isNotEmpty()) {
 					CollapsibleSection(
-						summary = if (calls.size == 1) "Used one tool" else "Used ${calls.size} tools",
+						summary = if (calls.size == 1) {
+							stringResource(R.string.chat_used_one_tool)
+						} else {
+							stringResource(R.string.chat_used_tools, calls.size)
+						},
 						trailing = calls.count { it.state == ToolCallUi.State.Failed }
-							.takeIf { it > 0 }?.let { "$it failed" },
+							.takeIf { it > 0 }
+							?.let { stringResource(R.string.chat_failed_count, it) },
 						autoExpand = live == LiveAssistantSection.Tools,
 					) {
 						Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed)) {
@@ -2275,10 +2304,9 @@ private fun MessageBubble(
 					) {
 						Text(
 							text = if (forceMarkdown) {
-								"Unclosed code fence. This view removes the stray opening " +
-									"fence for display; the stored reply is unchanged."
+								stringResource(R.string.chat_fence_removed)
 							} else {
-								"Unclosed code fence, so the rest of this reply is shown as code."
+								stringResource(R.string.chat_fence_shown)
 							},
 							style = MaterialTheme.typography.bodySmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2288,7 +2316,13 @@ private fun MessageBubble(
 							onClick = { forceMarkdown = !forceMarkdown },
 							contentPadding = PaddingValues(horizontal = 8.dp),
 						) {
-							Text(if (forceMarkdown) "Show original" else "Render rest")
+							Text(
+								if (forceMarkdown) {
+									stringResource(R.string.chat_show_original)
+								} else {
+									stringResource(R.string.chat_render_rest)
+								},
+							)
 						}
 					}
 				}
@@ -2372,9 +2406,9 @@ private fun MessageBubble(
 						Icon(
 							imageVector = Icons.Outlined.Code,
 							contentDescription = if (showSource) {
-								"Show rendered reply"
+								stringResource(R.string.chat_show_rendered)
 							} else {
-								"Show Markdown source"
+								stringResource(R.string.chat_show_markdown)
 							},
 							tint = if (showSource) {
 								MaterialTheme.colorScheme.primary
@@ -2390,7 +2424,7 @@ private fun MessageBubble(
 					) {
 						Icon(
 							imageVector = Icons.Outlined.ContentCopy,
-							contentDescription = "Copy reply",
+							contentDescription = stringResource(R.string.chat_copy_reply),
 							tint = MaterialTheme.colorScheme.onSurfaceVariant,
 							modifier = Modifier.size(16.dp),
 						)
@@ -2404,7 +2438,7 @@ private fun MessageBubble(
 					) {
 						Icon(
 							imageVector = Icons.Outlined.DataObject,
-							contentDescription = "View wire format",
+							contentDescription = stringResource(R.string.chat_view_wire),
 							tint = MaterialTheme.colorScheme.onSurfaceVariant,
 							modifier = Modifier.size(16.dp),
 						)
@@ -2418,7 +2452,7 @@ private fun MessageBubble(
 					) {
 						Icon(
 							imageVector = Icons.AutoMirrored.Outlined.Undo,
-							contentDescription = "Rewind this turn",
+							contentDescription = stringResource(R.string.chat_rewind_turn),
 							tint = MaterialTheme.colorScheme.onSurfaceVariant,
 							modifier = Modifier.size(18.dp),
 						)
@@ -2439,7 +2473,7 @@ private fun ChangedFilesSummary(
 		verticalArrangement = Arrangement.spacedBy(2.dp),
 	) {
 		Text(
-			text = "Changed files",
+			text = stringResource(R.string.chat_changed_files),
 			style = MaterialTheme.typography.labelLarge,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
@@ -2568,9 +2602,9 @@ private fun Composer(
 				Icon(
 					Icons.Outlined.Image,
 					contentDescription = if (canAttachImages) {
-						"Attach an image"
+						stringResource(R.string.chat_attach_image)
 					} else {
-						"This model cannot read images"
+						stringResource(R.string.chat_cannot_read_images)
 					},
 					tint = if (enabled && canAttachImages && !isCompacting) {
 						MaterialTheme.colorScheme.onSurfaceVariant
@@ -2586,7 +2620,11 @@ private fun Composer(
 			modifier = Modifier.weight(1f),
 			placeholder = {
 				Text(
-					if (enabled) "Message the assistant…" else "Add an API key to start",
+					if (enabled) {
+						stringResource(R.string.chat_message_hint)
+					} else {
+						stringResource(R.string.chat_add_key_hint)
+					},
 				)
 			},
 			enabled = enabled && !isStreaming && !isCompacting,
@@ -2604,7 +2642,7 @@ private fun Composer(
 				onClick = onStop,
 				shape = MaterialTheme.shapes.small,
 			) {
-				Icon(Icons.Filled.Stop, contentDescription = "Stop")
+				Icon(Icons.Filled.Stop, contentDescription = stringResource(R.string.chat_stop))
 			}
 		} else {
 			FilledIconButton(
@@ -2618,7 +2656,7 @@ private fun Composer(
 					contentColor = MaterialTheme.colorScheme.onPrimary,
 				),
 			) {
-				Icon(Icons.Filled.ArrowUpward, contentDescription = "Send")
+				Icon(Icons.Filled.ArrowUpward, contentDescription = stringResource(R.string.chat_send))
 			}
 		}
 		}
@@ -2639,7 +2677,9 @@ private fun formatSnapshotTime(millis: Long): String =
 /** Put one reply on the clipboard, with a label the paste target can show. */
 private fun copyReply(context: android.content.Context, text: String) {
 	val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
-	clipboard.setPrimaryClip(ClipData.newPlainText("Reply", text))
+	clipboard.setPrimaryClip(
+		ClipData.newPlainText(context.getString(R.string.chat_clip_reply), text),
+	)
 }
 
 /**

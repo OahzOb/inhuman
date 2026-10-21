@@ -1,7 +1,9 @@
 package com.inhuman.ui.workspaces
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inhuman.R
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.db.AgentEntity
@@ -31,6 +33,7 @@ data class WorkspaceDetailUiState(
 
 /** One permanent workspace: its files, its sessions, and its lifetime. */
 class WorkspaceDetailViewModel(
+	private val context: Context,
 	private val repository: ConversationRepository,
 	private val agents: AgentRepository,
 	private val workspaceId: String,
@@ -127,7 +130,7 @@ class WorkspaceDetailViewModel(
 				onDeleted()
 			} else {
 				_state.update {
-					it.copy(error = "This workspace still has conversations. Delete them first.")
+					it.copy(error = context.getString(R.string.workspace_error_delete_conversations_first))
 				}
 			}
 		}

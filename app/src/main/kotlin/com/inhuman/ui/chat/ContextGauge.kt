@@ -17,6 +17,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -26,6 +27,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.inhuman.R
 
 /**
  * How full the context window is, as a ring.
@@ -223,7 +225,7 @@ private fun ContextDetail(
 							horizontal = 6.dp,
 						),
 					) {
-						Text("Compact again", style = MaterialTheme.typography.labelLarge)
+						Text(stringResource(R.string.context_gauge_compact_again), style = MaterialTheme.typography.labelLarge)
 					}
 				}
 				TextButton(
@@ -232,7 +234,7 @@ private fun ContextDetail(
 						horizontal = 6.dp,
 					),
 				) {
-					Text("View summary", style = MaterialTheme.typography.labelLarge)
+					Text(stringResource(R.string.context_gauge_view_summary), style = MaterialTheme.typography.labelLarge)
 				}
 				TextButton(
 					onClick = onClearCompaction,
@@ -240,7 +242,7 @@ private fun ContextDetail(
 						horizontal = 6.dp,
 					),
 				) {
-					Text("Use full history", style = MaterialTheme.typography.labelLarge)
+					Text(stringResource(R.string.context_gauge_use_full_history), style = MaterialTheme.typography.labelLarge)
 				}
 			}
 		} else if (onCompact != null) {
@@ -250,7 +252,7 @@ private fun ContextDetail(
 					horizontal = 6.dp,
 				),
 			) {
-				Text("Compact conversation…", style = MaterialTheme.typography.labelLarge)
+				Text(stringResource(R.string.context_gauge_compact_conversation), style = MaterialTheme.typography.labelLarge)
 			}
 		}
 	}

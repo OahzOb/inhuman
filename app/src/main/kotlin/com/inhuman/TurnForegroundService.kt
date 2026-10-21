@@ -84,23 +84,23 @@ class TurnForegroundService : Service() {
 		val public = NotificationCompat.Builder(this, TurnNotifications.CHANNEL_PROGRESS)
 			.setSmallIcon(R.drawable.ic_stat_turn)
 			.setContentTitle("inhuman")
-			.setContentText("Reply in progress")
+			.setContentText(getString(R.string.notif_reply_in_progress))
 			.build()
 		return NotificationCompat.Builder(this, TurnNotifications.CHANNEL_PROGRESS)
 			.setSmallIcon(R.drawable.ic_stat_turn)
-			.setContentTitle(status.title.ifBlank { "Conversation" })
+			.setContentTitle(status.title.ifBlank { getString(R.string.notif_conversation) })
 			.setContentText(status.phase)
 			.setSubText("inhuman")
 			.setWhen(status.startedAt)
 			.setUsesChronometer(true)
 			.setShowWhen(true)
 			.setContentIntent(TurnNotifications.openIntent(this, status.conversationId))
-			.addAction(0, "Stop", TurnNotifications.stopIntent(this, status.conversationId))
+			.addAction(0, getString(R.string.notif_stop), TurnNotifications.stopIntent(this, status.conversationId))
 			.apply {
 				if (status.awaitingApproval) {
 					addAction(
 						0,
-						"Review",
+						getString(R.string.notif_review),
 						TurnNotifications.openIntent(this@TurnForegroundService, status.conversationId),
 					)
 				}
@@ -120,31 +120,35 @@ class TurnForegroundService : Service() {
 		val public = NotificationCompat.Builder(this, TurnNotifications.CHANNEL_PROGRESS)
 			.setSmallIcon(R.drawable.ic_stat_turn)
 			.setContentTitle("inhuman")
-			.setContentText("${turns.size} replies in progress")
+			.setContentText(getString(R.string.notif_replies_in_progress, turns.size))
 			.build()
 		val inbox = NotificationCompat.InboxStyle()
-			.setBigContentTitle("${turns.size} replies running")
+			.setBigContentTitle(getString(R.string.notif_replies_running, turns.size))
 		turns.take(5).forEach { turn ->
-			inbox.addLine("${turn.title.ifBlank { "Conversation" }} — ${turn.phase}")
+			inbox.addLine(
+				"${turn.title.ifBlank { getString(R.string.notif_conversation) }} — ${turn.phase}",
+			)
 		}
 		return NotificationCompat.Builder(this, TurnNotifications.CHANNEL_PROGRESS)
 			.setSmallIcon(R.drawable.ic_stat_turn)
-			.setContentTitle("${turns.size} replies running")
-			.setContentText("${latest.title.ifBlank { "Conversation" }} · ${latest.phase}")
+			.setContentTitle(getString(R.string.notif_replies_running, turns.size))
+			.setContentText(
+				"${latest.title.ifBlank { getString(R.string.notif_conversation) }} · ${latest.phase}",
+			)
 			.setStyle(inbox)
 			.setSubText("inhuman")
 			.setWhen(turns.minOf { it.startedAt })
 			.setUsesChronometer(true)
 			.setShowWhen(true)
 			.setContentIntent(TurnNotifications.openIntent(this, latest.conversationId))
-			.addAction(0, "Open", TurnNotifications.openIntent(this, latest.conversationId))
-			.addAction(0, "Stop all", TurnNotifications.stopAllIntent(this))
+			.addAction(0, getString(R.string.notif_open), TurnNotifications.openIntent(this, latest.conversationId))
+			.addAction(0, getString(R.string.notif_stop_all), TurnNotifications.stopAllIntent(this))
 			.apply {
 				val review = turns.filter { it.awaitingApproval }.maxByOrNull { it.startedAt }
 				if (review != null) {
 					addAction(
 						0,
-						"Review",
+						getString(R.string.notif_review),
 						TurnNotifications.openIntent(this@TurnForegroundService, review.conversationId),
 					)
 				}

@@ -16,8 +16,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.inhuman.R
 
 /**
  * What a turn cost, in as much detail as the provider supplied.
@@ -42,7 +44,12 @@ import androidx.compose.ui.unit.dp
 fun UsageLine(usage: UsageUi, modifier: Modifier = Modifier) {
 	var expanded by remember { mutableStateOf(false) }
 
-	val summary = remember(usage) { summaryOf(usage) }
+	val outLabel = stringResource(R.string.usage_out)
+	val inLabel = stringResource(R.string.usage_in)
+	val cacheLabel = stringResource(R.string.usage_cache)
+	val summary = remember(usage, outLabel, inLabel, cacheLabel) {
+		summaryOf(usage, outLabel, inLabel, cacheLabel)
+	}
 	if (summary.isEmpty()) return
 
 	Column(modifier = modifier) {
@@ -96,49 +103,60 @@ fun UsageLine(usage: UsageUi, modifier: Modifier = Modifier) {
  * Order is deliberate: speed first, because it is what someone notices; then
  * the cache, because it is what surprises them on a bill; then tokens.
  */
-internal fun summaryOf(u: UsageUi): String {
+internal fun summaryOf(
+	u: UsageUi,
+	outLabel: String = "out",
+	inLabel: String = "in",
+	cacheLabel: String = "cache",
+): String {
 	val parts = mutableListOf<String>()
 
 	u.tokensPerSecond?.let { parts += "%.1f tok/s".format(it) }
-	u.completionTokens?.let { parts += "$it out" }
-	u.promptTokens?.let { parts += "$it in" }
+	u.completionTokens?.let { parts += "$it $outLabel" }
+	u.promptTokens?.let { parts += "$it $inLabel" }
 	// Zero is shown, not omitted: a missing "cache" span read as "the cache
 	// feature broke" after a regenerate, when the honest answer was that this
 	// request hit nothing. The detail row still spells out the split.
-	u.cacheHitRatio?.let { parts += "cache %.0f%%".format(it * 100) }
+	u.cacheHitRatio?.let { parts += "$cacheLabel %.0f%%".format(it * 100) }
 
 	return parts.joinToString(" · ")
 }
 
 /** Everything known, including the parts that are only interesting sometimes. */
+@Composable
 private fun detailRows(u: UsageUi): List<Pair<String, String>> = buildList {
-	u.timeToFirstTokenMs?.let { add("first token" to formatMs(it)) }
-	u.generationMs?.let { add("generating" to formatMs(it)) }
-	u.tokensPerSecond?.let { add("speed" to "%.1f tok/s".format(it)) }
+	u.timeToFirstTokenMs?.let { add(stringResource(R.string.usage_first_token) to formatMs(it)) }
+	u.generationMs?.let { add(stringResource(R.string.usage_generating) to formatMs(it)) }
+	u.tokensPerSecond?.let { add(stringResource(R.string.usage_speed) to "%.1f tok/s".format(it)) }
 		?: run {
 			// Say why the row is absent rather than leaving a gap. Someone who
 			// saw a speed on the last reply and not on this one should be able
 			// to tell that the answer was simply too short to measure, not that
 			// something failed.
 			if (u.speedWithheldForShortReply) {
-				add("speed" to "too short to measure")
+				add(stringResource(R.string.usage_speed) to stringResource(R.string.usage_too_short))
 			}
 		}
-	u.promptTokens?.let { add("prompt tokens" to it.toString()) }
+	u.promptTokens?.let { add(stringResource(R.string.usage_prompt_tokens) to it.toString()) }
 	u.cachedPromptTokens?.let { cached ->
 		val prompt = u.promptTokens
 		if (prompt != null && prompt > 0) {
 			// Written out rather than as a percentage: the absolute numbers are
 			// what a bill is computed from, and the ratio alone does not show
 			// whether the cached part was large or the prompt was small.
-			add("from cache" to "$cached of $prompt")
-			add("billed at full rate" to "${prompt - cached}")
+			add(
+				stringResource(R.string.usage_from_cache) to
+					stringResource(R.string.usage_cached_of, cached, prompt),
+			)
+			add(stringResource(R.string.usage_billed_full_rate) to "${prompt - cached}")
 		} else {
-			add("from cache" to cached.toString())
+			add(stringResource(R.string.usage_from_cache) to cached.toString())
 		}
 	}
-	u.completionTokens?.let { add("completion tokens" to it.toString()) }
-	u.reasoningTokens?.takeIf { it > 0 }?.let { add("reasoning tokens" to it.toString()) }
+	u.completionTokens?.let { add(stringResource(R.string.usage_completion_tokens) to it.toString()) }
+	u.reasoningTokens?.takeIf { it > 0 }?.let {
+		add(stringResource(R.string.usage_reasoning_tokens) to it.toString())
+	}
 }
 
 private fun formatMs(ms: Long): String = when {

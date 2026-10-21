@@ -1,7 +1,9 @@
 package com.inhuman.ui.chat
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inhuman.R
 import com.inhuman.TurnNotifications
 import com.inhuman.TurnStatus
 import com.inhuman.core.ai.ChatMessage
@@ -92,6 +94,7 @@ import java.util.UUID
  * whole transcript, so an unbounded loop grows quadratically.
  */
 class ChatViewModel(
+	private val context: Context,
 	private val repository: ConversationRepository,
 	private val agents: AgentRepository,
 	private val secure: SecureStore,
@@ -180,13 +183,14 @@ class ChatViewModel(
 				it.state == ToolCallUi.State.Running
 		}
 		val phase = when {
-			current.pendingApproval != null -> "Waiting for approval"
-			current.pendingSshConsent != null -> "Waiting for SSH consent"
-			current.isCompacting -> "Compacting context"
-			call != null -> "Using ${call.displayName}"
-			streaming && lastAssistant?.plainText.isNullOrBlank() -> "Thinking"
-			streaming -> "Writing reply"
-			else -> "Finished"
+			current.pendingApproval != null -> context.getString(R.string.chat_phase_approval)
+			current.pendingSshConsent != null -> context.getString(R.string.chat_phase_ssh)
+			current.isCompacting -> context.getString(R.string.chat_phase_compacting)
+			call != null -> context.getString(R.string.chat_phase_using, call.displayName)
+			streaming && lastAssistant?.plainText.isNullOrBlank() ->
+				context.getString(R.string.chat_phase_thinking)
+			streaming -> context.getString(R.string.chat_phase_writing)
+			else -> context.getString(R.string.chat_phase_finished)
 		}
 		val status = TurnStatus(
 			conversationId = conversationId,
@@ -536,8 +540,7 @@ class ChatViewModel(
 				)
 				_state.update {
 					it.copy(
-						error = "The model in use cannot read images. " +
-							"Pick one that does, from the title bar.",
+						error = context.getString(R.string.chat_error_no_vision),
 					)
 				}
 				return@launch
@@ -545,14 +548,18 @@ class ChatViewModel(
 
 			val entity = conversation
 			if (entity == null) {
-				_state.update { it.copy(error = "This conversation is not ready yet.") }
+				_state.update {
+					it.copy(error = context.getString(R.string.chat_error_not_ready))
+				}
 				return@launch
 			}
 
 			val workspace = runCatching { repository.workspace(entity) }.getOrNull()
 			if (workspace == null) {
 				Diag.w("attach", "refused: workspace did not open conv=${Diag.shortId(entity.id)}")
-				_state.update { it.copy(error = "This conversation has no workspace.") }
+				_state.update {
+					it.copy(error = context.getString(R.string.chat_error_no_workspace))
+				}
 				return@launch
 			}
 
@@ -590,8 +597,11 @@ class ChatViewModel(
 						)
 						_state.update {
 							it.copy(
-								error = "Images must be ${mib(imageLimit)} or smaller; " +
-									"that one is ${mib(outcome.bytes)}.",
+								error = context.getString(
+									R.string.chat_error_image_too_large,
+									mib(imageLimit),
+									mib(outcome.bytes),
+								),
 							)
 						}
 						return@launch
@@ -799,7 +809,7 @@ class ChatViewModel(
 		val plan = planContextCompaction(current.messages, keepTurns)
 		if (plan == null) {
 			_state.update {
-				it.copy(error = "There are not enough earlier complete turns to compact.")
+				it.copy(error = context.getString(R.string.chat_error_not_enough_turns))
 			}
 			return
 		}
@@ -823,8 +833,7 @@ class ChatViewModel(
 				_state.update {
 					it.copy(
 						isCompacting = false,
-						error = "The conversation changed while it was being summarized, " +
-							"so the summary was discarded.",
+						error = context.getString(R.string.chat_error_changed_while_summarizing),
 					)
 				}
 				return@launch
@@ -840,7 +849,7 @@ class ChatViewModel(
 				_state.update {
 					it.copy(
 						isCompacting = false,
-						error = "Could not store the summary; the full transcript is still used.",
+						error = context.getString(R.string.chat_error_summary_not_stored),
 					)
 				}
 				return@launch
@@ -882,7 +891,9 @@ class ChatViewModel(
 	fun retryLastTurn() {
 		if (_state.value.isStreaming || _state.value.isCompacting) return
 		if (_state.value.messages.none { !it.fromUser && !it.isToolResult }) {
-			_state.update { it.copy(error = "There is no answer to retry yet.") }
+			_state.update {
+				it.copy(error = context.getString(R.string.chat_error_nothing_to_retry))
+			}
 			return
 		}
 		regenerate()
@@ -908,7 +919,7 @@ class ChatViewModel(
 			_state.update {
 				it.copy(
 					isCompacting = false,
-					error = "Add an API key for $providerName first, or switch on demo mode.",
+					error = context.getString(R.string.chat_error_add_key_demo, providerName),
 				)
 			}
 			return null
@@ -920,7 +931,7 @@ class ChatViewModel(
 			_state.update {
 				it.copy(
 					isCompacting = false,
-					error = "No usable model is available to summarize this conversation.",
+					error = context.getString(R.string.chat_error_no_model_to_summarize),
 				)
 			}
 			return null
@@ -954,7 +965,10 @@ class ChatViewModel(
 		}
 		if (completed == null) {
 			_state.update {
-				it.copy(isCompacting = false, error = "The summarizer timed out; nothing changed.")
+				it.copy(
+				isCompacting = false,
+				error = context.getString(R.string.chat_error_summarizer_timeout),
+			)
 			}
 			return null
 		}
@@ -962,7 +976,7 @@ class ChatViewModel(
 			_state.update {
 				it.copy(
 					isCompacting = false,
-					error = "The summarizer failed: $failure. The full transcript is still used.",
+					error = context.getString(R.string.chat_error_summarizer_failed, failure),
 				)
 			}
 			return null
@@ -972,7 +986,7 @@ class ChatViewModel(
 			_state.update {
 				it.copy(
 					isCompacting = false,
-					error = "The summarizer returned nothing; the full transcript is still used.",
+					error = context.getString(R.string.chat_error_summarizer_empty),
 				)
 			}
 			return null
@@ -1020,7 +1034,7 @@ class ChatViewModel(
 		if (!demo && !agents.hasKey(providerId)) {
 			Diag.w("turn", "regenerate refused: no API key and demo mode off")
 			_state.update {
-				it.copy(error = "Add an API key for $providerName first, or switch on demo mode.")
+				it.copy(error = context.getString(R.string.chat_error_add_key_demo, providerName))
 			}
 			return
 		}
@@ -1116,7 +1130,9 @@ class ChatViewModel(
 		val visible = _state.value.messages
 		val boundaryIndex = visible.indexOfFirst { it.id == point.afterMessageId }
 		if (boundaryIndex < 0) {
-			_state.update { it.copy(error = "That point is no longer in the conversation.") }
+			_state.update {
+				it.copy(error = context.getString(R.string.chat_error_point_gone))
+			}
 			return
 		}
 		val boundary = visible[boundaryIndex]
@@ -1127,7 +1143,7 @@ class ChatViewModel(
 		val dropped = visible.drop(boundaryIndex + 1)
 		if (dropped.any { it.hasIrreversibleCall() }) {
 			_state.update {
-				it.copy(error = "The later part of this turn ran SSH; those effects cannot be undone.")
+				it.copy(error = context.getString(R.string.chat_error_later_ssh))
 			}
 			return
 		}
@@ -1142,7 +1158,7 @@ class ChatViewModel(
 			((prefixLocal || startAvailable) && !checkpointAvailable)
 		) {
 			_state.update {
-				it.copy(error = "The checkpoint for that point is missing, so nothing was changed.")
+				it.copy(error = context.getString(R.string.chat_error_checkpoint_missing))
 			}
 			return
 		}
@@ -1150,7 +1166,7 @@ class ChatViewModel(
 		val demo = demoEnabled()
 		if (!demo && !agents.hasKey(providerId)) {
 			_state.update {
-				it.copy(error = "Add an API key for $providerName first, or switch on demo mode.")
+				it.copy(error = context.getString(R.string.chat_error_add_key_demo, providerName))
 			}
 			return
 		}
@@ -1172,7 +1188,7 @@ class ChatViewModel(
 				if (!restored) {
 					_state.update {
 						it.copy(
-							error = "Could not restore that checkpoint, so nothing was changed.",
+							error = context.getString(R.string.chat_error_restore_failed),
 						)
 					}
 					return@launch
@@ -1181,7 +1197,11 @@ class ChatViewModel(
 			runCatching {
 				repository.deleteDescendants(boundary.id, conversationId)
 			}.onFailure { failure ->
-				_state.update { it.copy(error = "Could not clear the later turns: ${failure.message}") }
+				_state.update {
+				it.copy(
+					error = context.getString(R.string.chat_error_clear_later_failed, failure.message.orEmpty()),
+				)
+			}
 				return@launch
 			}
 			_state.update {
@@ -1329,7 +1349,9 @@ class ChatViewModel(
 	 */
 	fun rollbackTo(messageId: String) {
 		if (_state.value.isStreaming) {
-			_state.update { it.copy(error = "Stop the reply before rewinding the conversation.") }
+			_state.update {
+				it.copy(error = context.getString(R.string.chat_error_stop_before_rewind))
+			}
 			return
 		}
 		val target = _state.value.messages.lastOrNull { it.fromUser }?.takeIf { it.id == messageId }
@@ -1343,8 +1365,7 @@ class ChatViewModel(
 		if (irreversible) {
 			_state.update {
 				it.copy(
-					error = "This turn ran SSH commands; their remote effects cannot " +
-						"be rolled back, so the conversation was left intact.",
+					error = context.getString(R.string.chat_error_rollback_ssh),
 				)
 			}
 			return
@@ -1373,8 +1394,7 @@ class ChatViewModel(
 				if (!restored) {
 					_state.update {
 						it.copy(
-							error = "Could not restore the workspace snapshot, so the " +
-								"conversation was left intact.",
+							error = context.getString(R.string.chat_error_snapshot_restore_failed),
 						)
 					}
 					return@launch
@@ -1389,7 +1409,14 @@ class ChatViewModel(
 				)
 			}.onFailure { failure ->
 				Diag.w("turn", "rollback delete failed", failure)
-				_state.update { it.copy(error = "Could not rewind the conversation: ${failure.message}") }
+				_state.update {
+					it.copy(
+						error = context.getString(
+							R.string.chat_error_rewind_failed,
+							failure.message.orEmpty(),
+						),
+					)
+				}
 				return@launch
 			}
 			repository.deleteTurnSnapshot(conversationId, target.id)
@@ -1462,7 +1489,9 @@ class ChatViewModel(
 				}
 				.onFailure { failure ->
 					Diag.w("chat", "rename failed conv=${Diag.shortId(conversationId)}", failure)
-					_state.update { it.copy(error = "Could not rename the conversation.") }
+					_state.update {
+				it.copy(error = context.getString(R.string.chat_error_rename_failed))
+			}
 				}
 		}
 	}
@@ -1490,12 +1519,16 @@ class ChatViewModel(
 						}
 						Diag.i("workspace", "promoted conv=${Diag.shortId(conversationId)}")
 					} else {
-						_state.update { it.copy(error = "Workspace not found.") }
+						_state.update {
+				it.copy(error = context.getString(R.string.chat_error_workspace_not_found))
+			}
 					}
 				}
 				.onFailure { failure ->
 					Diag.w("workspace", "promote failed", failure)
-					_state.update { it.copy(error = "Could not save the workspace.") }
+					_state.update {
+				it.copy(error = context.getString(R.string.chat_error_save_workspace_failed))
+			}
 				}
 		}
 	}
@@ -1597,7 +1630,7 @@ class ChatViewModel(
 		if (!demo && !agents.hasKey(providerId)) {
 			Diag.w("turn", "send refused: no API key and demo mode off provider=$providerId")
 			_state.update {
-				it.copy(error = "Add an API key for $providerName first, or switch on demo mode.")
+				it.copy(error = context.getString(R.string.chat_error_add_key_demo, providerName))
 			}
 			return
 		}
@@ -1679,21 +1712,23 @@ class ChatViewModel(
 			val demo = demoEnabled()
 			if (demo) {
 				_state.update {
-					it.copy(error = "Demo mode has no provider request to inspect.")
+					it.copy(error = context.getString(R.string.chat_error_demo_no_request))
 				}
 				return@launch
 			}
 			val provider = agents.provider(providerId)?.let { agents.providerFromRow(it) }
 			if (provider == null) {
 				_state.update {
-					it.copy(error = "Add an API key for $providerName to preview a request.")
+					it.copy(
+				error = context.getString(R.string.chat_error_add_key_preview, providerName),
+			)
 				}
 				return@launch
 			}
 			val turnModel = model ?: agent?.model
 				?: agents.models(providerId).getOrNull()?.firstOrNull()?.id
 			if (turnModel == null) {
-				_state.update { it.copy(error = "Choose a model for $providerName first.") }
+				_state.update { it.copy(error = context.getString(R.string.chat_error_choose_model, providerName)) }
 				return@launch
 			}
 			val result = runCatching {
@@ -1819,18 +1854,19 @@ class ChatViewModel(
 		val startIrreversible = lastTurn.any { it.hasIrreversibleCall() }
 		val startBlocked = when {
 			startIrreversible ->
-				"The rest of this turn ran SSH; those effects cannot be undone."
+				context.getString(R.string.chat_rewind_blocked_ssh)
 			lastTurn.any { it.hasLocalMutation() } && !startAvailable ->
-				"No start checkpoint exists for this turn."
+				context.getString(R.string.chat_rewind_blocked_start_missing)
 			else -> null
 		}
 		val points = mutableListOf(
 			RegenerationPoint(
 				checkpointId = SnapshotStore.START,
-				label = "From your message",
+				label = context.getString(R.string.chat_rewind_from_message),
 				afterMessageId = lastUser.id,
 				checkpointAvailable = startAvailable,
 				blockedReason = startBlocked,
+				isUserMessage = true,
 			),
 		)
 
@@ -1881,11 +1917,11 @@ class ChatViewModel(
 				(effectiveCheckpointId == SnapshotStore.START && startAvailable)
 			val blocked = when {
 				droppedIrreversible ->
-					"The rest of this turn ran SSH; those effects cannot be undone."
+					context.getString(R.string.chat_rewind_blocked_ssh)
 				startAvailable && !effectiveAvailable ->
-					"The checkpoint after this tool group is missing."
+					context.getString(R.string.chat_rewind_blocked_group_missing)
 				!startAvailable && prefixLocal ->
-					"No checkpoint exists for this turn."
+					context.getString(R.string.chat_rewind_blocked_no_checkpoint)
 				else -> null
 			}
 			val names = calls.mapNotNull { it.displayName }.distinct()
@@ -1893,9 +1929,13 @@ class ChatViewModel(
 			points += RegenerationPoint(
 				checkpointId = effectiveCheckpointId,
 				label = if (names.isEmpty()) {
-					"After tool group $group"
+					context.getString(R.string.chat_rewind_after_group, group)
 				} else {
-					"After tool group $group: ${names.joinToString(", ")}"
+					context.getString(
+						R.string.chat_rewind_after_group_named,
+						group,
+						names.joinToString(", "),
+					)
 				},
 				afterMessageId = boundary.id,
 				checkpointAvailable = effectiveAvailable,
@@ -1949,7 +1989,7 @@ class ChatViewModel(
 			_state.update {
 				it.copy(
 					isStreaming = false,
-					error = "No API key is configured for $providerName.",
+					error = context.getString(R.string.chat_error_no_key, providerName),
 				)
 			}
 			return
@@ -1965,7 +2005,7 @@ class ChatViewModel(
 			_state.update {
 				it.copy(
 					isStreaming = false,
-					error = "Choose a model for $providerName first.",
+					error = context.getString(R.string.chat_error_choose_model, providerName),
 				)
 			}
 			return
@@ -2015,8 +2055,7 @@ class ChatViewModel(
 				_state.update {
 					it.copy(
 						isStreaming = false,
-						error = "The model tried to call a tool during a text-only retry. " +
-							"Nothing was executed.",
+						error = context.getString(R.string.chat_error_text_only_tool_call),
 					)
 				}
 				return
@@ -2065,9 +2104,7 @@ class ChatViewModel(
 		_state.update {
 			it.copy(
 				isStreaming = false,
-				error = "Stopped after $maxRounds tool rounds. " +
-					"The assistant may be looping; raise the limit in the chat menu, " +
-					"or send another message to continue.",
+				error = context.getString(R.string.chat_error_round_limit, maxRounds),
 			)
 		}
 	}
@@ -2077,9 +2114,7 @@ class ChatViewModel(
 		_state.update {
 			it.copy(
 				isStreaming = false,
-				error = "Stopped after $maxCalls tool calls. " +
-					"The assistant may be looping; raise the call limit in Settings, " +
-					"or send another message to continue.",
+				error = context.getString(R.string.chat_error_call_limit, maxCalls),
 			)
 		}
 	}
@@ -2994,8 +3029,10 @@ class ChatViewModel(
 			Diag.e("tools", "workspace could not be opened; file tools unavailable", failure)
 			_state.update {
 				it.copy(
-					error = "The workspace for this conversation could not be opened, " +
-						"so file tools are unavailable: ${failure.message}",
+					error = context.getString(
+						R.string.chat_error_workspace_open_failed,
+						failure.message.orEmpty(),
+					),
 				)
 			}
 			null
@@ -3486,7 +3523,12 @@ class ChatViewModel(
 		// A cleared view model cannot deliver a later "false"; clear its stop
 		// handler and publish one final idle status for the notification layer.
 		TurnNotifications.clearStop(conversationId)
-		onTurnStatus(notificationStatus().copy(streaming = false, phase = "Finished"))
+		onTurnStatus(
+			notificationStatus().copy(
+				streaming = false,
+				phase = context.getString(R.string.chat_phase_finished),
+			),
+		)
 		super.onCleared()
 	}
 

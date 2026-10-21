@@ -67,6 +67,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -76,6 +77,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.design.Eyebrow
 import com.inhuman.core.design.Hairline
@@ -121,6 +123,12 @@ fun FilesScreen(
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	val context = LocalContext.current
 	val scope = rememberCoroutineScope()
+	val noFilesApp = stringResource(R.string.workspace_no_files_app)
+	val pathCopied = stringResource(R.string.workspace_path_copied)
+	val clipLabel = stringResource(R.string.files_clip_label)
+	val openWith = stringResource(R.string.files_open_with_chooser)
+	val noApp = stringResource(R.string.files_no_app)
+	val notReady = stringResource(R.string.files_not_ready)
 
 	// The view model is activity-scoped and keyed by conversation, so it
 	// survives leaving this screen. A file written while the screen was gone is
@@ -200,7 +208,11 @@ fun FilesScreen(
 					title = {
 						Column {
 							Text(
-								text = if (state.currentPath.isEmpty()) "Files" else state.currentPath.substringAfterLast('/'),
+								text = if (state.currentPath.isEmpty()) {
+									stringResource(R.string.files_title)
+								} else {
+									state.currentPath.substringAfterLast('/')
+								},
 								style = MaterialTheme.typography.titleLarge,
 								maxLines = 1,
 								overflow = TextOverflow.Ellipsis,
@@ -208,7 +220,13 @@ fun FilesScreen(
 							Text(
 								// The quota, shown because a user who hits it deserves
 								// to know it is a limit rather than a bug.
-								text = "${state.fileCount}/${state.maxFiles} files · ${human(state.usedBytes)} of ${human(state.totalBytes)}",
+								text = stringResource(
+									R.string.files_quota,
+									state.fileCount,
+									state.maxFiles,
+									human(state.usedBytes),
+									human(state.totalBytes),
+								),
 								style = MaterialTheme.typography.labelSmall,
 								color = MaterialTheme.colorScheme.onSurfaceVariant,
 							)
@@ -223,13 +241,13 @@ fun FilesScreen(
 					},
 					actions = {
 						IconButton(onClick = { showPath = true }) {
-							Icon(Icons.Outlined.Folder, contentDescription = "Workspace location")
+							Icon(Icons.Outlined.Folder, contentDescription = stringResource(R.string.files_workspace_location))
 						}
 						IconButton(onClick = { showDownloadDialog = true }) {
-							Icon(Icons.Filled.Download, contentDescription = "Download from a URL")
+							Icon(Icons.Filled.Download, contentDescription = stringResource(R.string.download_title))
 						}
 						IconButton(onClick = { importer.launch(arrayOf("*/*")) }) {
-							Icon(Icons.Filled.Upload, contentDescription = "Import a file")
+							Icon(Icons.Filled.Upload, contentDescription = stringResource(R.string.files_import))
 						}
 					},
 					colors = TopAppBarDefaults.topAppBarColors(
@@ -264,23 +282,21 @@ fun FilesScreen(
 							.padding(horizontal = comfortableGutter(), vertical = 32.dp),
 						verticalArrangement = Arrangement.spacedBy(10.dp),
 					) {
-						Eyebrow("Workspace / Empty")
+						Eyebrow(stringResource(R.string.files_empty_eyebrow))
 						Text(
 							text = if (state.rulesEnabled) {
-								"Nothing here yet."
+								stringResource(R.string.files_empty_title_rules)
 							} else {
-								"This workspace is empty."
+								stringResource(R.string.files_empty_title)
 							},
 							style = MaterialTheme.typography.headlineMedium,
 							color = MaterialTheme.colorScheme.onBackground,
 						)
 						Text(
 							text = if (state.rulesEnabled) {
-								"Ask the assistant to create a file, or use the import " +
-									"and download actions above."
+								stringResource(R.string.files_empty_body_rules)
 							} else {
-								"Import a file, download from a URL, or start a conversation " +
-									"in this workspace."
+								stringResource(R.string.files_empty_body)
 							},
 							style = MaterialTheme.typography.bodyMedium,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -346,19 +362,19 @@ fun FilesScreen(
 									viewModel.closePreview()
 									viewModel.openForEdit(preview.relativePath)
 								},
-							) { Text("Edit") }
+							) { Text(stringResource(R.string.files_edit)) }
 						}
 						TextButton(
 							onClick = {
 								val workspaceId = state.workspaceId
 								if (workspaceId == null) {
-									Toast.makeText(context, "Workspace is not ready yet.", Toast.LENGTH_SHORT).show()
+									Toast.makeText(context, notReady, Toast.LENGTH_SHORT).show()
 								} else {
 									viewModel.closePreview()
-									openExternally(context, workspaceId, preview)
+									openExternally(context, workspaceId, preview, openWith, noApp)
 								}
 							},
-						) { Text("Open with…") }
+						) { Text(stringResource(R.string.files_open_with_ellipsis)) }
 					}
 					if (markdown && !showSource) {
 						MarkdownText(
@@ -380,12 +396,18 @@ fun FilesScreen(
 				}
 			},
 			confirmButton = {
-				TextButton(onClick = viewModel::closePreview) { Text("Close") }
+				TextButton(onClick = viewModel::closePreview) { Text(stringResource(R.string.files_close)) }
 			},
 			dismissButton = if (markdown) {
 				{
 					TextButton(onClick = { showSource = !showSource }) {
-						Text(if (showSource) "Rendered" else "Source")
+						Text(
+							if (showSource) {
+								stringResource(R.string.files_rendered)
+							} else {
+								stringResource(R.string.files_source)
+							},
+						)
 					}
 				}
 			} else {
@@ -415,21 +437,24 @@ fun FilesScreen(
 	pendingDelete?.let { entry ->
 		AlertDialog(
 			onDismissRequest = { pendingDelete = null },
-			title = { Text("Delete ${entry.name}?") },
+			title = { Text(stringResource(R.string.files_delete_title, entry.name)) },
 			text = {
 				Text(
-					if (entry.isDirectory) "The folder and everything in it will be removed. This cannot be undone."
-					else "This cannot be undone.",
+					if (entry.isDirectory) {
+						stringResource(R.string.files_delete_folder_body)
+					} else {
+						stringResource(R.string.files_delete_body)
+					},
 				)
 			},
 			confirmButton = {
 				TextButton(onClick = {
 					viewModel.delete(entry)
 					pendingDelete = null
-				}) { Text("Delete") }
+				}) { Text(stringResource(R.string.common_delete)) }
 			},
 			dismissButton = {
-				TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+				TextButton(onClick = { pendingDelete = null }) { Text(stringResource(R.string.common_cancel)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -440,10 +465,10 @@ fun FilesScreen(
 	dialogError?.let { message ->
 		AlertDialog(
 			onDismissRequest = { importError = null; viewModel.refresh() },
-			title = { Text("Could not do that") },
+			title = { Text(stringResource(R.string.files_error_title)) },
 			text = { Text(message) },
 			confirmButton = {
-				TextButton(onClick = { importError = null; viewModel.refresh() }) { Text("OK") }
+				TextButton(onClick = { importError = null; viewModel.refresh() }) { Text(stringResource(R.string.common_ok)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 		)
@@ -452,12 +477,11 @@ fun FilesScreen(
 	if (showPath) {
 		AlertDialog(
 			onDismissRequest = { showPath = false },
-			title = { Text("Workspace location") },
+			title = { Text(stringResource(R.string.files_workspace_location)) },
 			text = {
 				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 					Text(
-						"App-private absolute path. It is shown to you only: the assistant " +
-							"still sees relative paths and never this location.",
+						stringResource(R.string.files_path_body),
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
@@ -471,10 +495,10 @@ fun FilesScreen(
 					TextButton(
 						onClick = {
 							if (!openWorkspaceInFiles(context)) {
-								Toast.makeText(context, "No Files app available", Toast.LENGTH_SHORT).show()
+								Toast.makeText(context, noFilesApp, Toast.LENGTH_SHORT).show()
 							}
 						},
-					) { Text("Open in Files app") }
+					) { Text(stringResource(R.string.workspace_open_in_files)) }
 				}
 			},
 			confirmButton = {
@@ -482,14 +506,14 @@ fun FilesScreen(
 					onClick = {
 						val clipboard = context.getSystemService(ClipboardManager::class.java)
 						clipboard?.setPrimaryClip(
-							ClipData.newPlainText("Workspace path", state.absolutePath),
+							ClipData.newPlainText(clipLabel, state.absolutePath),
 						)
-						Toast.makeText(context, "Path copied", Toast.LENGTH_SHORT).show()
+						Toast.makeText(context, pathCopied, Toast.LENGTH_SHORT).show()
 					},
-				) { Text("Copy path") }
+				) { Text(stringResource(R.string.files_copy_path)) }
 			},
 			dismissButton = {
-				TextButton(onClick = { showPath = false }) { Text("Close") }
+				TextButton(onClick = { showPath = false }) { Text(stringResource(R.string.files_close)) }
 			},
 		)
 	}
@@ -528,6 +552,13 @@ private fun DownloadDialog(
 ) {
 	val context = LocalContext.current
 	val scope = rememberCoroutineScope()
+	val enterUrl = stringResource(R.string.download_enter_url)
+	val chooseFolderFirst = stringResource(R.string.download_choose_folder_first)
+	val downloadFailed = stringResource(R.string.download_failed)
+	val cancelledText = stringResource(R.string.download_cancelled)
+	val chosenFolder = stringResource(R.string.download_chosen_folder)
+	val selectedFolder = stringResource(R.string.download_selected_folder)
+	val cannotOpenFolder = stringResource(R.string.download_cannot_open_folder)
 
 	var url by remember { mutableStateOf("") }
 	var toWorkspace by remember { mutableStateOf(true) }
@@ -556,7 +587,7 @@ private fun DownloadDialog(
 			folderLabel = uri.lastPathSegment
 				?.substringAfterLast(':')
 				?.ifBlank { null }
-				?: "Selected folder"
+				?: selectedFolder
 		}
 	}
 
@@ -571,11 +602,11 @@ private fun DownloadDialog(
 	fun start() {
 		val target = url.trim()
 		if (target.isEmpty()) {
-			error = "Enter a URL first."
+			error = enterUrl
 			return
 		}
 		if (!toWorkspace && folderUri == null) {
-			error = "Choose a folder first."
+			error = chooseFolderFirst
 			return
 		}
 		error = null
@@ -614,12 +645,16 @@ private fun DownloadDialog(
 						)
 						result.onSuccess { saved ->
 							progress = saved.bytes
-							status = "Saved to workspace: ${saved.relativePath} (${human(saved.bytes)})"
+							status = context.getString(
+								R.string.download_saved_workspace,
+								saved.relativePath,
+								human(saved.bytes),
+							)
 						}.onFailure { failure ->
-							error = failure.message ?: "Download failed."
+							error = failure.message ?: downloadFailed
 						}
 					} else {
-						val tree = folderUri ?: throw IOException("Choose a folder first.")
+						val tree = folderUri ?: throw IOException(chooseFolderFirst)
 						val resolver = context.contentResolver
 						val parent = DocumentsContract.buildDocumentUriUsingTree(
 							tree,
@@ -633,7 +668,7 @@ private fun DownloadDialog(
 						)
 						try {
 							val output = resolver.openOutputStream(document)
-								?: throw IOException("Could not open the chosen folder.")
+								?: throw IOException(cannotOpenFolder)
 							output.use { out ->
 								CountingInputStream(opened.body, ::report).use { input ->
 									input.copyTo(out)
@@ -643,8 +678,12 @@ private fun DownloadDialog(
 							// threshold, so `progress` is still zero; the size
 							// shown has to fall back to the Content-Length.
 							val savedBytes = total ?: progress
-							status = "Saved $displayName (${human(savedBytes)}) to " +
-								(folderLabel ?: "the chosen folder")
+							status = context.getString(
+								R.string.download_saved_folder,
+								displayName,
+								human(savedBytes),
+								folderLabel ?: chosenFolder,
+							)
 						} catch (failure: Exception) {
 							runCatching { DocumentsContract.deleteDocument(resolver, document) }
 							throw failure
@@ -652,12 +691,12 @@ private fun DownloadDialog(
 					}
 				}
 			} catch (_: CancellationException) {
-				status = "Download cancelled."
+				status = cancelledText
 			} catch (failure: Exception) {
 				if (cancelled) {
-					status = "Download cancelled."
+					status = cancelledText
 				} else {
-					error = failure.message ?: "Download failed."
+					error = failure.message ?: downloadFailed
 				}
 			} finally {
 				active = null
@@ -680,7 +719,7 @@ private fun DownloadDialog(
 				onDismiss()
 			}
 		},
-		title = { Text("Download from a URL") },
+		title = { Text(stringResource(R.string.download_title)) },
 		text = {
 			Column(
 				modifier = Modifier.verticalScroll(rememberScrollState()),
@@ -699,18 +738,17 @@ private fun DownloadDialog(
 					modifier = Modifier.fillMaxWidth(),
 				)
 
-				Text("Save to", style = MaterialTheme.typography.labelLarge)
+				Text(stringResource(R.string.download_save_to), style = MaterialTheme.typography.labelLarge)
 				Row(verticalAlignment = Alignment.CenterVertically) {
 					RadioButton(
 						selected = toWorkspace,
 						onClick = { if (!busy) toWorkspace = true },
 						enabled = !busy,
 					)
-					Text("Conversation workspace")
+					Text(stringResource(R.string.download_to_workspace))
 				}
 				Text(
-					"downloads/ inside this conversation. It counts against the " +
-						"workspace quota and is visible in Files.",
+					stringResource(R.string.download_to_workspace_note),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					modifier = Modifier.padding(start = 40.dp),
@@ -722,18 +760,21 @@ private fun DownloadDialog(
 						onClick = { if (!busy) toWorkspace = false },
 						enabled = !busy,
 					)
-					Text("Another folder")
+					Text(stringResource(R.string.download_other_folder))
 				}
 				if (!toWorkspace) {
 					TextButton(
 						onClick = { folderPicker.launch(null) },
 						enabled = !busy,
 					) {
-						Text(folderLabel?.let { "Folder: $it" } ?: "Choose folder…")
+						Text(
+							folderLabel?.let {
+								stringResource(R.string.download_folder_label, it)
+							} ?: stringResource(R.string.download_choose_folder),
+						)
 					}
 					Text(
-						"Uses the system folder picker. The app does not gain " +
-							"general storage permission.",
+						stringResource(R.string.download_folder_note),
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 						modifier = Modifier.padding(start = 40.dp),
@@ -743,13 +784,13 @@ private fun DownloadDialog(
 				val size = total
 				if (size != null) {
 					Text(
-						"Size: ${human(size)}",
+						stringResource(R.string.download_size, human(size)),
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
 				} else if (busy) {
 					Text(
-						"Size not reported by the server.",
+						stringResource(R.string.download_size_unknown),
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
@@ -759,9 +800,13 @@ private fun DownloadDialog(
 					val knownTotal = total
 					Text(
 						if (knownTotal != null) {
-							"Downloading ${human(progress)} of ${human(knownTotal)}"
+							stringResource(
+								R.string.download_progress,
+								human(progress),
+								human(knownTotal),
+							)
 						} else {
-							"Downloading ${human(progress)}"
+							stringResource(R.string.download_progress_no_total, human(progress))
 						},
 						style = MaterialTheme.typography.bodySmall,
 					)
@@ -785,12 +830,12 @@ private fun DownloadDialog(
 		},
 		confirmButton = {
 			if (busy) {
-				TextButton(onClick = { cancel() }) { Text("Cancel") }
+				TextButton(onClick = { cancel() }) { Text(stringResource(R.string.common_cancel)) }
 			} else {
 				TextButton(
 					onClick = { start() },
 					enabled = url.isNotBlank() && (toWorkspace || folderUri != null),
-				) { Text("Download") }
+				) { Text(stringResource(R.string.download_action)) }
 			}
 		},
 		dismissButton = {
@@ -800,7 +845,7 @@ private fun DownloadDialog(
 					onDismiss()
 				},
 				enabled = !busy,
-			) { Text("Close") }
+			) { Text(stringResource(R.string.files_close)) }
 		},
 		containerColor = MaterialTheme.colorScheme.surface,
 		titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -854,7 +899,13 @@ private fun createDocumentUnique(
 	throw IOException("Could not create a file in the chosen folder.")
 }
 
-private fun openExternally(context: Context, workspaceId: String, preview: FilePreview) {
+private fun openExternally(
+	context: Context,
+	workspaceId: String,
+	preview: FilePreview,
+	chooserTitle: String,
+	noAppMessage: String,
+) {
 	val authority = "${context.packageName}.documents"
 	val documentId = "$workspaceId/${preview.relativePath}"
 	val uri = DocumentsContract.buildDocumentUri(authority, documentId)
@@ -869,9 +920,9 @@ private fun openExternally(context: Context, workspaceId: String, preview: FileP
 	}
 	val chosen = if (edit.resolveActivity(context.packageManager) != null) edit else view
 	runCatching {
-		context.startActivity(Intent.createChooser(chosen, "Open with"))
+		context.startActivity(Intent.createChooser(chosen, chooserTitle))
 	}.onFailure {
-		Toast.makeText(context, "No app can open this file.", Toast.LENGTH_SHORT).show()
+		Toast.makeText(context, noAppMessage, Toast.LENGTH_SHORT).show()
 	}
 }
 
@@ -913,14 +964,19 @@ private fun FileEditorDialog(
 							maxLines = 1,
 							overflow = TextOverflow.Ellipsis,
 						)
+						val chars = stringResource(R.string.files_editor_chars, editor.text.length)
 						Text(
-							"${editor.text.length} chars" + if (editor.dirty) " · unsaved" else "",
+							text = if (editor.dirty) {
+								stringResource(R.string.files_editor_unsaved, chars)
+							} else {
+								chars
+							},
 							style = MaterialTheme.typography.labelSmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
 					}
-					TextButton(onClick = ::requestClose, enabled = !busy) { Text("Close") }
-					TextButton(onClick = onSave, enabled = !busy) { Text("Save") }
+					TextButton(onClick = ::requestClose, enabled = !busy) { Text(stringResource(R.string.files_close)) }
+					TextButton(onClick = onSave, enabled = !busy) { Text(stringResource(R.string.common_save)) }
 				}
 				Hairline()
 				error?.let {
@@ -944,7 +1000,7 @@ private fun FileEditorDialog(
 						capitalization = KeyboardCapitalization.None,
 						autoCorrectEnabled = false,
 					),
-					label = { Text("Editing ${editor.relativePath}") },
+					label = { Text(stringResource(R.string.files_editor_label, editor.relativePath)) },
 				)
 			}
 		}
@@ -953,18 +1009,18 @@ private fun FileEditorDialog(
 	if (confirmDiscard) {
 		AlertDialog(
 			onDismissRequest = { confirmDiscard = false },
-			title = { Text("Discard changes?") },
-			text = { Text("The file on disk has not been changed.") },
+			title = { Text(stringResource(R.string.files_discard_title)) },
+			text = { Text(stringResource(R.string.files_discard_body)) },
 			confirmButton = {
 				TextButton(
 					onClick = {
 						confirmDiscard = false
 						onDismiss()
 					},
-				) { Text("Discard") }
+				) { Text(stringResource(R.string.files_discard)) }
 			},
 			dismissButton = {
-				TextButton(onClick = { confirmDiscard = false }) { Text("Keep editing") }
+				TextButton(onClick = { confirmDiscard = false }) { Text(stringResource(R.string.files_keep_editing)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -1038,7 +1094,7 @@ private fun FileRow(
 			IconButton(onClick = onExport) {
 				Icon(
 					Icons.Outlined.SaveAlt,
-					contentDescription = "Save a copy",
+					contentDescription = stringResource(R.string.files_save_copy),
 					modifier = Modifier.size(18.dp),
 				)
 			}
@@ -1053,7 +1109,7 @@ private fun FileRow(
 					Icon(
 						if (entry.rule == ToolPolicy.Free) Icons.Outlined.LockOpen
 						else Icons.Filled.Lock,
-						contentDescription = "What the agent may do with this",
+						contentDescription = stringResource(R.string.files_rule_button),
 						tint = if (entry.rule == ToolPolicy.Free) {
 							MaterialTheme.colorScheme.onSurfaceVariant
 						} else {
@@ -1079,7 +1135,7 @@ private fun FileRow(
 		IconButton(onClick = onDelete) {
 			Icon(
 				Icons.Outlined.Delete,
-				contentDescription = "Delete",
+				contentDescription = stringResource(R.string.common_delete),
 				// `outline` was used here first and the button was effectively
 				// invisible: it is a near-background grey by design, meant for
 				// hairlines rather than glyphs, and at roughly 2:1 contrast the
@@ -1101,11 +1157,12 @@ private fun FileRow(
  * policy. Two four-line `when`s are cheaper than the module edge -- but if a
  * fifth policy is ever added, this is the second place that has to learn it.
  */
+@Composable
 private fun ToolPolicy.label(): String = when (this) {
-	ToolPolicy.Free -> "Agent may change this"
-	ToolPolicy.Ask -> "Agent asks first"
-	ToolPolicy.Deny -> "Agent may look, not change"
-	ToolPolicy.Blind -> "Hidden from the agent"
+	ToolPolicy.Free -> stringResource(R.string.files_policy_free)
+	ToolPolicy.Ask -> stringResource(R.string.files_policy_ask)
+	ToolPolicy.Deny -> stringResource(R.string.files_policy_deny)
+	ToolPolicy.Blind -> stringResource(R.string.files_policy_blind)
 }
 
 private fun human(bytes: Long): String = when {

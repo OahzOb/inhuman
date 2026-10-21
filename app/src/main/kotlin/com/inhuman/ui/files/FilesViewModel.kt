@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.ConversationRepository
@@ -127,6 +128,7 @@ data class DownloadSave(val relativePath: String, val bytes: Long)
  * transcript, and costs only tokens.
  */
 class FilesViewModel(
+	private val context: Context,
 	private val repository: ConversationRepository,
 	private val conversationId: String? = null,
 	private val requestedWorkspaceId: String? = null,
@@ -201,7 +203,10 @@ class FilesViewModel(
 			val id = workspaceId
 			if (ws == null || id == null) {
 				Diag.w("files", "refresh: workspace not found")
-				_state.value = _state.value.copy(loading = false, error = "workspace not found")
+				_state.value = _state.value.copy(
+			loading = false,
+			error = context.getString(R.string.files_error_workspace_missing),
+		)
 				return@launch
 			}
 			val path = _state.value.currentPath
@@ -323,12 +328,14 @@ class FilesViewModel(
 			val ws = workspace() ?: return@launch
 			val file = (ws.resolve(path) as? SessionWorkspace.Resolution.Ok)?.file
 			if (file == null || file.isDirectory) {
-				_state.value = _state.value.copy(error = "That file cannot be edited.")
+				_state.value = _state.value.copy(
+				error = context.getString(R.string.files_error_not_editable),
+			)
 				return@launch
 			}
 			if (file.length() > ws.limits.maxReadBytes) {
 				_state.value = _state.value.copy(
-					error = "This file is too large for the in-app editor. Open it with another app instead.",
+					error = context.getString(R.string.files_error_too_large),
 				)
 				return@launch
 			}
@@ -339,7 +346,7 @@ class FilesViewModel(
 			}
 			if (text == null || text.contains('\u0000')) {
 				_state.value = _state.value.copy(
-					error = "This looks like a binary file. Open it with another app instead.",
+					error = context.getString(R.string.files_error_binary),
 				)
 				return@launch
 			}
@@ -375,7 +382,10 @@ class FilesViewModel(
 		viewModelScope.launch {
 			val ws = workspace()
 			if (ws == null) {
-				_state.value = _state.value.copy(editorBusy = false, error = "workspace not found")
+				_state.value = _state.value.copy(
+			editorBusy = false,
+			error = context.getString(R.string.files_error_workspace_missing),
+		)
 				return@launch
 			}
 			val bytes = editor.text.toByteArray(Charsets.UTF_8)

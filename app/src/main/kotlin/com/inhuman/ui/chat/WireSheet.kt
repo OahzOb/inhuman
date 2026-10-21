@@ -40,11 +40,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.inhuman.R
 import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.currentWindowFrame
@@ -380,6 +382,7 @@ private fun WireDialog(
 ) {
 	val clipboard = LocalClipboard.current
 	val clipboardScope = rememberCoroutineScope()
+	val clipLabel = stringResource(R.string.wire_clip_label)
 	val compact = currentWindowFrame().isCompact
 	var raw by remember { mutableStateOf(false) }
 	Dialog(
@@ -412,7 +415,10 @@ private fun WireDialog(
 							Text(if (raw) "Sheet" else "Raw JSON", style = MaterialTheme.typography.labelMedium)
 						}
 						IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
-							Icon(Icons.Filled.Close, contentDescription = "Close wire view")
+							Icon(
+								Icons.Filled.Close,
+								contentDescription = stringResource(R.string.wire_close_view),
+							)
 						}
 					}
 					Text(
@@ -492,11 +498,11 @@ private fun WireDialog(
 						onClick = {
 							clipboardScope.launch {
 								clipboard.setClipEntry(
-									ClipEntry(ClipData.newPlainText("Wire JSON", rawJson)),
+									ClipEntry(ClipData.newPlainText(clipLabel, rawJson)),
 								)
 							}
 						},
-					) { Text("Copy JSON") }
+					) { Text(stringResource(R.string.wire_copy_json)) }
 				}
 			}
 		}
@@ -797,12 +803,12 @@ private fun WireLongText(
 					onClick = { expanded = true },
 					modifier = Modifier.height(28.dp),
 				) {
-					Text("Show more", style = MaterialTheme.typography.labelSmall)
+					Text(stringResource(R.string.wire_show_more), style = MaterialTheme.typography.labelSmall)
 				}
 			}
 		} else {
 			// The expanded block scrolls inside a bounded box. Leaving the whole
-			// body unbounded put "Show less" at the bottom of a multi-screen
+			// body unbounded put stringResource(R.string.wire_show_less) at the bottom of a multi-screen
 			// system prompt, so the only way out was to scroll to the end. The
 			// control is now always at the top of the expanded region.
 			Row(
@@ -819,7 +825,7 @@ private fun WireLongText(
 					onClick = { expanded = false },
 					modifier = Modifier.height(28.dp),
 				) {
-					Text("Show less", style = MaterialTheme.typography.labelSmall)
+					Text(stringResource(R.string.wire_show_less), style = MaterialTheme.typography.labelSmall)
 				}
 			}
 			Box(

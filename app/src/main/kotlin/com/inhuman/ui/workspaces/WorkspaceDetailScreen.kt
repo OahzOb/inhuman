@@ -47,11 +47,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.inhuman.R
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.design.Layout
@@ -79,6 +82,10 @@ fun WorkspaceDetailScreen(
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	val context = LocalContext.current
+	val fallbackTitle = stringResource(R.string.workspace_fallback_title)
+	val copyLabel = stringResource(R.string.workspace_copy_path)
+	val pathCopied = stringResource(R.string.workspace_path_copied)
+	val noFilesApp = stringResource(R.string.workspace_no_files_app)
 	var menuOpen by remember { mutableStateOf(false) }
 	var showRename by remember { mutableStateOf(false) }
 	var renameInput by remember { mutableStateOf("") }
@@ -98,7 +105,7 @@ fun WorkspaceDetailScreen(
 			TopAppBar(
 				title = {
 					Text(
-						text = workspace?.name ?: "Workspace",
+						text = workspace?.name ?: fallbackTitle,
 						style = MaterialTheme.typography.titleLarge,
 						maxLines = 1,
 						overflow = TextOverflow.Ellipsis,
@@ -110,11 +117,11 @@ fun WorkspaceDetailScreen(
 				actions = {
 					Box {
 						IconButton(onClick = { menuOpen = true }) {
-							Icon(Icons.Filled.MoreVert, contentDescription = "Workspace menu")
+							Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.workspace_menu))
 						}
 						DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
 							DropdownMenuItem(
-								text = { Text("Rename workspace") },
+								text = { Text(stringResource(R.string.workspace_rename)) },
 								onClick = {
 									menuOpen = false
 									renameInput = workspace?.name.orEmpty()
@@ -122,7 +129,7 @@ fun WorkspaceDetailScreen(
 								},
 							)
 							DropdownMenuItem(
-								text = { Text("Delete workspace") },
+								text = { Text(stringResource(R.string.workspace_delete)) },
 								onClick = {
 									menuOpen = false
 									showDelete = true
@@ -156,7 +163,7 @@ fun WorkspaceDetailScreen(
 						color = MaterialTheme.colorScheme.error,
 						modifier = Modifier.weight(1f),
 					)
-					TextButton(onClick = viewModel::clearError) { Text("Dismiss") }
+					TextButton(onClick = viewModel::clearError) { Text(stringResource(R.string.common_dismiss)) }
 				}
 			}
 
@@ -166,12 +173,17 @@ fun WorkspaceDetailScreen(
 				horizontalArrangement = Arrangement.spacedBy(12.dp),
 			) {
 				Text(
-					text = "${state.usage.files} files · ${humanBytes(state.usage.bytes)}",
+					text = pluralStringResource(
+						R.plurals.workspace_usage,
+						state.usage.files,
+						state.usage.files,
+						humanBytes(state.usage.bytes),
+					),
 					style = MaterialTheme.typography.bodyMedium,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					modifier = Modifier.weight(1f),
 				)
-				OutlinedButton(onClick = onOpenFiles) { Text("Files") }
+				OutlinedButton(onClick = onOpenFiles) { Text(stringResource(R.string.workspace_files_button)) }
 			}
 
 			Surface(
@@ -185,7 +197,7 @@ fun WorkspaceDetailScreen(
 				) {
 					Row(verticalAlignment = Alignment.CenterVertically) {
 						Text(
-							text = "Absolute path",
+							text = stringResource(R.string.workspace_absolute_path),
 							style = MaterialTheme.typography.labelLarge,
 							modifier = Modifier.weight(1f),
 						)
@@ -193,14 +205,14 @@ fun WorkspaceDetailScreen(
 							onClick = {
 								val clipboard = context.getSystemService(ClipboardManager::class.java)
 								clipboard?.setPrimaryClip(
-									ClipData.newPlainText("Workspace path", state.absolutePath),
+									ClipData.newPlainText(copyLabel, state.absolutePath),
 								)
-								Toast.makeText(context, "Path copied", Toast.LENGTH_SHORT).show()
+								Toast.makeText(context, pathCopied, Toast.LENGTH_SHORT).show()
 							},
 						) {
 							Icon(
 								Icons.Outlined.ContentCopy,
-								contentDescription = "Copy workspace path",
+								contentDescription = copyLabel,
 							)
 						}
 					}
@@ -212,17 +224,17 @@ fun WorkspaceDetailScreen(
 						)
 					}
 					Text(
-						text = "App-private. The assistant only sees relative paths and never this location.",
+						text = stringResource(R.string.workspace_path_note),
 						style = MaterialTheme.typography.labelSmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
 					TextButton(
 						onClick = {
 							if (!openWorkspaceInFiles(context)) {
-								Toast.makeText(context, "No Files app available", Toast.LENGTH_SHORT).show()
+								Toast.makeText(context, noFilesApp, Toast.LENGTH_SHORT).show()
 							}
 						},
-					) { Text("Open in Files app") }
+					) { Text(stringResource(R.string.workspace_open_in_files)) }
 				}
 			}
 
@@ -231,15 +243,15 @@ fun WorkspaceDetailScreen(
 				verticalAlignment = Alignment.CenterVertically,
 				horizontalArrangement = Arrangement.SpaceBetween,
 			) {
-				Text("Conversations", style = MaterialTheme.typography.titleSmall)
+				Text(stringResource(R.string.workspace_conversations), style = MaterialTheme.typography.titleSmall)
 				TextButton(onClick = viewModel::startNewConversation) {
-					Text("New conversation")
+					Text(stringResource(R.string.workspace_new_conversation))
 				}
 			}
 
 			if (state.conversations.isEmpty() && !state.loading) {
 				Text(
-					text = "No conversations use this workspace yet.",
+					text = stringResource(R.string.workspace_no_conversations),
 					style = MaterialTheme.typography.bodyMedium,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					modifier = Modifier.padding(vertical = 8.dp),
@@ -263,12 +275,12 @@ fun WorkspaceDetailScreen(
 	if (showRename) {
 		AlertDialog(
 			onDismissRequest = { showRename = false },
-			title = { Text("Rename workspace") },
+			title = { Text(stringResource(R.string.workspace_rename)) },
 			text = {
 				OutlinedTextField(
 					value = renameInput,
 					onValueChange = { renameInput = it },
-					label = { Text("Name") },
+					label = { Text(stringResource(R.string.common_name)) },
 					singleLine = true,
 					modifier = Modifier.fillMaxWidth(),
 				)
@@ -280,10 +292,10 @@ fun WorkspaceDetailScreen(
 						showRename = false
 						viewModel.rename(renameInput)
 					},
-				) { Text("Save") }
+				) { Text(stringResource(R.string.common_save)) }
 			},
 			dismissButton = {
-				TextButton(onClick = { showRename = false }) { Text("Cancel") }
+				TextButton(onClick = { showRename = false }) { Text(stringResource(R.string.common_cancel)) }
 			},
 		)
 	}
@@ -291,7 +303,7 @@ fun WorkspaceDetailScreen(
 	state.choosingAgent?.let { available ->
 		AlertDialog(
 			onDismissRequest = viewModel::cancelChoosingAgent,
-			title = { Text("Choose an assistant") },
+			title = { Text(stringResource(R.string.workspace_choose_assistant)) },
 			text = {
 				Column(
 					modifier = Modifier
@@ -309,7 +321,7 @@ fun WorkspaceDetailScreen(
 				}
 			},
 			confirmButton = {
-				TextButton(onClick = viewModel::cancelChoosingAgent) { Text("Cancel") }
+				TextButton(onClick = viewModel::cancelChoosingAgent) { Text(stringResource(R.string.common_cancel)) }
 			},
 		)
 	}
@@ -318,17 +330,21 @@ fun WorkspaceDetailScreen(
 		val hasConversations = state.conversations.isNotEmpty()
 		AlertDialog(
 			onDismissRequest = { showDelete = false },
-			title = { Text("Delete workspace?") },
+			title = { Text(stringResource(R.string.workspace_delete_title)) },
 			text = {
 				Text(
 					if (hasConversations) {
-						"This workspace still has ${state.conversations.size} " +
-							"conversation${if (state.conversations.size == 1) "" else "s"}. " +
-							"Delete them first; deleting a workspace never deletes its files " +
-							"while conversations remain."
+						pluralStringResource(
+							R.plurals.workspace_delete_body_with_conversations,
+							state.conversations.size,
+							state.conversations.size,
+						)
 					} else {
-						"This deletes the workspace and its ${state.usage.files} files. " +
-							"This cannot be undone."
+						pluralStringResource(
+							R.plurals.workspace_delete_body_files,
+							state.usage.files,
+							state.usage.files,
+						)
 					},
 				)
 			},
@@ -339,10 +355,10 @@ fun WorkspaceDetailScreen(
 						showDelete = false
 						viewModel.delete(onDeleted)
 					},
-				) { Text("Delete") }
+				) { Text(stringResource(R.string.common_delete)) }
 			},
 			dismissButton = {
-				TextButton(onClick = { showDelete = false }) { Text("Cancel") }
+				TextButton(onClick = { showDelete = false }) { Text(stringResource(R.string.common_cancel)) }
 			},
 		)
 	}

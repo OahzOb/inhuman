@@ -8,7 +8,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.inhuman.R
 
 /**
  * The one marker that says a tool spends money at a third party.
@@ -31,7 +33,7 @@ fun PaidBadge(modifier: Modifier = Modifier) {
 		shape = RoundedCornerShape(4.dp),
 	) {
 		Text(
-			text = "PAID",
+			text = stringResource(R.string.badge_paid),
 			style = MaterialTheme.typography.labelSmall,
 			modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
 		)
@@ -53,9 +55,7 @@ fun PaidToolsNotice(modifier: Modifier = Modifier) {
 		shape = RoundedCornerShape(8.dp),
 	) {
 		Text(
-			text = "web_search and web_fetch call the search/fetch service configured in " +
-				"Settings. They are billed per call by that provider; the other tools do " +
-				"not call a paid service.",
+			text = stringResource(R.string.notice_paid_tools),
 			style = MaterialTheme.typography.bodySmall,
 			modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
 		)

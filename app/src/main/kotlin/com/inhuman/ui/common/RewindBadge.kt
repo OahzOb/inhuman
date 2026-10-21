@@ -7,7 +7,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.inhuman.R
 
 /**
  * Whether a turn that uses this tool can be rewound, stated next to the name.
@@ -35,7 +37,11 @@ fun RewindBadge(canRewind: Boolean, modifier: Modifier = Modifier) {
 		shape = RoundedCornerShape(4.dp),
 	) {
 		Text(
-			text = if (canRewind) "REWIND" else "NO REWIND",
+			text = if (canRewind) {
+				stringResource(R.string.badge_rewind)
+			} else {
+				stringResource(R.string.badge_no_rewind)
+			},
 			style = MaterialTheme.typography.labelSmall,
 			modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
 		)
