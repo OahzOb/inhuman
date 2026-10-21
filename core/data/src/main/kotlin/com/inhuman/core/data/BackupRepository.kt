@@ -1,6 +1,7 @@
 package com.inhuman.core.data
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.Database
@@ -25,6 +26,20 @@ import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
+
+/**
+ * What a backup contains, read before the user commits to replacing anything.
+ *
+ * The counts come from the archived database itself, not from the filename or
+ * the size, so an empty or unrelated file cannot look like a useful backup.
+ */
+data class BackupPreview(
+	val conversations: Int,
+	val messages: Int,
+	val workspaces: Int,
+	val databaseVersion: Int,
+	val createdAt: Long?,
+)
 
 /**
  * Explicit, encrypted backup of the whole app-private dataset.
@@ -106,6 +121,74 @@ class BackupRepository(
 	}
 
 	/**
+	 * Decrypt enough of a backup to show what importing it would do.
+	 *
+	 * No marker is written and the current data is untouched. The archive is
+	 * decrypted a second time by [stageImport] when the user confirms; that is
+	 * deliberate, because staging on a cancelled preview would apply the backup
+	 * on the next launch.
+	 */
+	suspend fun inspect(uri: Uri, passphrase: CharArray): BackupPreview = withContext(Dispatchers.IO) {
+		val work = File(appContext.cacheDir, "backup-preview-${System.currentTimeMillis()}")
+		work.mkdirs()
+		try {
+			val zip = File(work, "preview.zip")
+			decryptTo(uri, zip, passphrase)
+			val database = File(work, "inhuman.db")
+			var manifestText: String? = null
+			ZipInputStream(BufferedInputStream(FileInputStream(zip))).use { input ->
+				while (true) {
+					val entry = input.nextEntry ?: break
+					if (entry.isDirectory) continue
+					val allowed = entry.name == "inhuman.db" ||
+						entry.name == "manifest.json" ||
+						entry.name.startsWith("conversations/")
+					if (!allowed) throw IOException("Unexpected file in backup: ${entry.name}")
+					when (entry.name) {
+						"inhuman.db" -> BufferedOutputStream(FileOutputStream(database)).use {
+							input.copyTo(it)
+						}
+						"manifest.json" -> manifestText = input.readBytes()
+							.toString(Charsets.UTF_8)
+						// Workspaces are not needed for the preview.
+						else -> Unit
+					}
+				}
+			}
+			if (!isSqlite(database)) {
+				throw IOException("The backup does not contain a valid database.")
+			}
+			val counts = SQLiteDatabase.openDatabase(
+				database.path,
+				null,
+				SQLiteDatabase.OPEN_READONLY,
+			).use { db ->
+				Triple(
+					count(db, "conversations"),
+					count(db, "messages"),
+					count(db, "workspaces"),
+				) to db.version
+			}
+			val createdAt = manifestText
+				?.let { Regex("\"createdAt\"\\s*:\\s*(\\d+)").find(it)?.groupValues?.get(1)?.toLongOrNull() }
+			BackupPreview(
+				conversations = counts.first.first,
+				messages = counts.first.second,
+				workspaces = counts.first.third,
+				databaseVersion = counts.second,
+				createdAt = createdAt,
+			)
+		} finally {
+			work.deleteRecursively()
+		}
+	}
+
+	private fun count(db: SQLiteDatabase, table: String): Int =
+		db.rawQuery("SELECT COUNT(*) FROM $table", null).use { cursor ->
+			if (cursor.moveToFirst()) cursor.getInt(0) else 0
+		}
+
+	/**
 	 * Decrypt and validate a backup into the staging directory.
 	 *
 	 * The caller must restart (or otherwise kill the process) before
@@ -123,6 +206,8 @@ class BackupRepository(
 			if (!isSqlite(restored)) {
 				throw IOException("The backup does not contain a valid database.")
 			}
+			// A new import supersedes a pending undo.
+			File(appContext.filesDir, UNDO_PENDING).delete()
 			File(appContext.filesDir, PENDING_MARKER).writeText("1")
 			Diag.i("backup", "import staged")
 		} catch (failure: Exception) {
@@ -218,9 +303,61 @@ class BackupRepository(
 		}
 	}
 
+	/**
+	 * Keep a copy of the data that the last import replaced.
+	 *
+	 * This is intentionally a plain app-private copy rather than another
+	 * encrypted export: it is one app-lifetime safety net, not a user document,
+	 * and requiring the passphrase again to undo an import would make the
+	 * safety net useless exactly when someone mistyped the file.
+	 */
+	fun hasUndo(): Boolean = File(appContext.filesDir, UNDO_DB).isFile
+
+	/**
+	 * Stage the pre-import copy for the same restart-swap path as an import.
+	 *
+	 * The staged files are copied, not moved, so a crash before the process
+	 * restarts leaves the undo available.
+	 */
+	suspend fun stageUndo(): Boolean = withContext(Dispatchers.IO) {
+		val undoDb = File(appContext.filesDir, UNDO_DB)
+		if (!undoDb.isFile) return@withContext false
+		val staging = stagingDir(appContext)
+		if (staging.exists()) staging.deleteRecursively()
+		staging.mkdirs()
+		try {
+			undoDb.copyTo(File(staging, "inhuman.db"), overwrite = true)
+			val undoWorkspaces = File(appContext.filesDir, UNDO_WORKSPACES)
+			if (undoWorkspaces.isDirectory) {
+				undoWorkspaces.copyRecursively(File(staging, "conversations"), overwrite = true)
+			}
+			File(appContext.filesDir, PENDING_MARKER).writeText("1")
+			File(appContext.filesDir, UNDO_PENDING).writeText("1")
+			Diag.i("backup", "undo staged")
+			true
+		} catch (failure: Exception) {
+			staging.deleteRecursively()
+			Diag.w("backup", "could not stage undo", failure)
+			false
+		}
+	}
+
+	/**
+	 * Drop the pre-import copy, e.g. after the user explicitly discards it.
+	 */
+	fun clearUndo() {
+		File(appContext.filesDir, UNDO_DB).delete()
+		File(appContext.filesDir, UNDO_WORKSPACES).deleteRecursively()
+		File(appContext.filesDir, UNDO_MARKER).delete()
+	}
+
 	companion object {
 		const val PENDING_MARKER = "backup-restore.pending"
 		private const val STAGING = "backup-restore-staging"
+		private const val UNDO_DB = "backup-undo/inhuman.db"
+		private const val UNDO_WORKSPACES = "backup-undo/conversations"
+		private const val UNDO_MARKER = "backup-undo/available"
+		private const val UNDO_PENDING = "backup-undo.pending"
 		private val MAGIC = "INHUMAN_BACKUP_1\n".toByteArray(Charsets.US_ASCII)
 		private const val SALT_BYTES = 16
 		private const val IV_BYTES = 12
@@ -257,11 +394,20 @@ class BackupRepository(
 			val oldWorkspaces = File(files, "conversations.pre-restore")
 			val nextDb = File(databaseDir, "${InhumanDatabase.NAME}.restore")
 			val nextWorkspaces = File(files, "conversations.restore")
+			val undoing = File(files, UNDO_PENDING).isFile
+			val undoDb = File(files, UNDO_DB)
+			val undoWorkspaces = File(files, UNDO_WORKSPACES)
 			var movedDb = false
 			var movedWorkspaces = false
 			var installedDb = false
 			var installedWorkspaces = false
 			try {
+				// A normal import replaces the undo slot; an undo consumes it.
+				if (!undoing) {
+					undoDb.delete()
+					undoWorkspaces.deleteRecursively()
+					File(files, UNDO_MARKER).delete()
+				}
 				// Copy first, then swap. A failure before the rename leaves the
 				// running install untouched and the staging directory available
 				// for another attempt.
@@ -295,13 +441,37 @@ class BackupRepository(
 					throw IOException("Could not install workspaces")
 				}
 				installedWorkspaces = true
-				oldDb.delete()
-				oldWorkspaces.deleteRecursively()
+				if (undoing) {
+					oldDb.delete()
+					oldWorkspaces.deleteRecursively()
+					undoDb.delete()
+					undoWorkspaces.deleteRecursively()
+					File(files, UNDO_PENDING).delete()
+					File(files, UNDO_MARKER).delete()
+				} else {
+					// Keep the replaced data for one-tap Undo. It is app-private
+					// and never part of an export.
+					if (movedDb) {
+						undoDb.parentFile?.mkdirs()
+						if (!oldDb.renameTo(undoDb)) {
+							Diag.w("backup", "could not keep pre-import database for undo")
+							oldDb.delete()
+						}
+					}
+					if (movedWorkspaces) {
+						undoWorkspaces.parentFile?.mkdirs()
+						if (!oldWorkspaces.renameTo(undoWorkspaces)) {
+							Diag.w("backup", "could not keep pre-import workspaces for undo")
+							oldWorkspaces.deleteRecursively()
+						}
+					}
+					if (undoDb.isFile) File(files, UNDO_MARKER).writeText("1")
+				}
 				// Snapshots point at a workspace state that no longer matches.
 				Database.rollbackRoot(context).deleteRecursively()
 				marker.delete()
 				staging.deleteRecursively()
-				Diag.i("backup", "restore applied")
+				Diag.i("backup", if (undoing) "undo applied" else "restore applied")
 			} catch (failure: Exception) {
 				Diag.e("backup", "restore failed; current data kept", failure)
 				if (installedDb) currentDb.delete()

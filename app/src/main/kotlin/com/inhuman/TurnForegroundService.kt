@@ -37,19 +37,36 @@ class TurnForegroundService : Service() {
 	}
 
 	override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+		if (intent?.action == ACTION_STOP) {
+			ActiveTurn.requestStop()
+			stopSelf()
+			return START_NOT_STICKY
+		}
+		val conversationId = intent?.getStringExtra(EXTRA_CONVERSATION_ID)
+		val title = intent?.getStringExtra(EXTRA_TITLE)?.takeIf { it.isNotBlank() }
 		val open = PendingIntent.getActivity(
 			this,
 			0,
-			Intent(this, MainActivity::class.java),
+			Intent(this, MainActivity::class.java)
+				.putExtra(EXTRA_CONVERSATION_ID, conversationId)
+				.putExtra(EXTRA_TITLE, title),
+			PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+		)
+		val stop = PendingIntent.getService(
+			this,
+			1,
+			Intent(this, TurnForegroundService::class.java).setAction(ACTION_STOP),
 			PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
 		)
 		val notification = NotificationCompat.Builder(this, CHANNEL_ID)
 			.setSmallIcon(R.drawable.ic_stat_turn)
-			.setContentTitle("inhuman")
+			.setContentTitle(title ?: "inhuman")
 			.setContentText("The assistant is still working on this reply.")
 			.setContentIntent(open)
+			.addAction(0, "Stop", stop)
 			.setOngoing(true)
 			.setSilent(true)
+			.setOnlyAlertOnce(true)
 			.setCategory(NotificationCompat.CATEGORY_PROGRESS)
 			.build()
 		ServiceCompat.startForeground(
@@ -66,5 +83,8 @@ class TurnForegroundService : Service() {
 	companion object {
 		const val CHANNEL_ID = "turn_progress"
 		const val NOTIFICATION_ID = 41
+		const val ACTION_STOP = "com.inhuman.action.STOP_TURN"
+		const val EXTRA_TITLE = "com.inhuman.extra.TITLE"
+		const val EXTRA_CONVERSATION_ID = "com.inhuman.extra.CONVERSATION_ID"
 	}
 }

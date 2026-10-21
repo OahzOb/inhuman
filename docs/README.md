@@ -106,7 +106,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :app:testDebugUnitTest --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 353 tests in 40 suites, 0 failures, 1 skipped** — the skip is
+**BUILD SUCCESSFUL, 357 tests in 41 suites, 0 failures, 1 skipped** — the skip is
 `DeepSeekWebLiveTest`, which talks to the real paid Search and Fetch APIs and
 needs `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 
@@ -141,9 +141,10 @@ they only run against a device:
 | `core/data/src/androidTest/…/WorkspaceDocumentsProviderTest` | The provider's actual folder ids: a re-queried folder keeps its title, and delete/rename are refused |
 | `core/data/src/androidTest/…/ProviderProfileTest` | A conversation copies its assistant's provider; a referenced provider cannot be deleted; key slots are separate |
 | `app/src/androidTest/…/RealProviderProbeTest` | One real `GET /models` when the device already holds a DeepSeek key; a no-op without one rather than a fake pass |
+| `core/data/src/androidTest/…/ConversationSearchTest` | Message and title search, ordering, and literal `%` handling |
 
 Run them with `:app:connectedDebugAndroidTest` / `:core:data:connectedDebugAndroidTest`,
-or `adb shell am instrument`. The `:core:data` run is **24 tests**, and the app
+or `adb shell am instrument`. The `:core:data` run is **27 tests**, and the app
 suite is **6 tests**, at the time of
 writing. The first two have their measured
 results in [port-assessment.md](port-assessment.md); the rest are the evidence

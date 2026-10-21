@@ -92,6 +92,13 @@ interface ConversationDao {
 	@Query("SELECT * FROM conversations ORDER BY pinned DESC, updatedAt DESC, id ASC")
 	fun observeAll(): Flow<List<ConversationEntity>>
 
+	/** Title-only search, for a conversation whose contents do not match. */
+	@Query(
+		"SELECT * FROM conversations WHERE title LIKE '%' || :query || '%' ESCAPE '\\' " +
+			"ORDER BY pinned DESC, updatedAt DESC, id ASC LIMIT :limit",
+	)
+	suspend fun searchTitles(query: String, limit: Int): List<ConversationEntity>
+
 	@Query("SELECT * FROM conversations WHERE id = :id")
 	suspend fun byId(id: String): ConversationEntity?
 
@@ -171,6 +178,22 @@ interface ConversationDao {
 	suspend fun delete(id: String)
 }
 
+/**
+ * One message hit for global search, joined to the conversation title.
+ *
+ * Kept as a projection rather than loading full [MessageEntity] rows: a hit
+ * only needs the text around the match, and a long answer would otherwise load
+ * several kilobytes per result into the UI process.
+ */
+data class MessageSearchRow(
+	val messageId: String,
+	val conversationId: String,
+	val conversationTitle: String,
+	val role: String,
+	val content: String,
+	val createdAt: Long,
+)
+
 @Dao
 interface MessageDao {
 
@@ -195,6 +218,29 @@ interface MessageDao {
 
 	@Query("SELECT * FROM messages WHERE id = :id")
 	suspend fun byId(id: String): MessageEntity?
+
+	/**
+	 * Case-insensitive search over user and assistant text.
+	 *
+	 * `%` and `_` are escaped by the caller and the pattern uses `ESCAPE '\'`,
+	 * so searching for a literal percent sign does not turn into a wildcard.
+	 * Tool results are excluded: they are machinery, and searching them would
+	 * bury a conversation in matches the user never wrote or read as prose.
+	 */
+	@Query(
+		"""
+		SELECT m.id AS messageId, m.conversationId AS conversationId,
+		       c.title AS conversationTitle, m.role AS role, m.content AS content,
+		       m.createdAt AS createdAt
+		FROM messages m JOIN conversations c ON c.id = m.conversationId
+		WHERE m.role IN ('user', 'assistant')
+		  AND m.content LIKE '%' || :query || '%' ESCAPE '\'
+		ORDER BY m.createdAt DESC, m.id ASC
+		LIMIT :limit
+		""",
+	)
+	suspend fun search(query: String, limit: Int): List<MessageSearchRow>
+
 
 	@Insert(onConflict = OnConflictStrategy.REPLACE)
 	suspend fun upsert(message: MessageEntity)

@@ -68,6 +68,8 @@ import com.inhuman.core.design.comfortableGutter
 import com.inhuman.diagnostics.AppDiagnostics
 import com.inhuman.ui.chat.ProviderDraft
 import com.inhuman.ui.chat.SettingsViewModel
+import java.text.DateFormat
+import java.util.Date
 import com.inhuman.ui.common.FlowRowCompat
 import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.PaidToolsNotice
@@ -90,6 +92,7 @@ fun SettingsScreen(
 	var backupMode by remember { mutableStateOf<BackupMode?>(null) }
 	var backupUri by remember { mutableStateOf<Uri?>(null) }
 	var showBackupPassphrase by remember { mutableStateOf(false) }
+	var showUndoConfirm by remember { mutableStateOf(false) }
 	var backupPassphrase by remember { mutableStateOf("") }
 	var backupPassphraseConfirm by remember { mutableStateOf("") }
 
@@ -414,12 +417,7 @@ fun SettingsScreen(
 					"assistant and policy. API keys are deliberately not included.",
 				modifier = Modifier.widthIn(max = Layout.ReadableMeasure),
 			)
-			Row(
-				modifier = Modifier
-					.widthIn(max = Layout.ReadableMeasure)
-					.fillMaxWidth(),
-				horizontalArrangement = Arrangement.spacedBy(10.dp),
-			) {
+			FlowRowCompat {
 				OutlinedButton(
 					onClick = { exportLauncher.launch("inhuman-backup") },
 					enabled = !state.backupBusy,
@@ -430,10 +428,19 @@ fun SettingsScreen(
 					enabled = !state.backupBusy,
 					shape = MaterialTheme.shapes.small,
 				) { Text("Import backup") }
+				if (state.backupCanUndo) {
+					OutlinedButton(
+						onClick = { showUndoConfirm = true },
+						enabled = !state.backupBusy,
+						shape = MaterialTheme.shapes.small,
+					) { Text("Undo last import") }
+				}
 			}
 			Text(
 				text = "Export asks for a passphrase and writes one encrypted file. " +
-					"Import replaces the current data only after the app restarts.",
+					"Import first shows what the file contains. The current data is " +
+					"replaced only after a restart, and the previous copy is kept for " +
+					"one Undo.",
 				modifier = Modifier
 					.widthIn(max = Layout.ReadableMeasure)
 					.fillMaxWidth(),
@@ -554,7 +561,7 @@ fun SettingsScreen(
 				backupPassphraseConfirm = ""
 			},
 			title = {
-				Text(if (mode == BackupMode.Export) "Encrypt backup" else "Open backup")
+				Text(if (mode == BackupMode.Export) "Encrypt backup" else "Inspect backup")
 			},
 			text = {
 				Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -565,7 +572,8 @@ fun SettingsScreen(
 								"not included. The passphrase cannot be recovered."
 						} else {
 							"Enter the passphrase used when this backup was created. " +
-								"The current data is replaced only after the app restarts."
+								"The file is read and summarized first; nothing is replaced " +
+								"until you confirm and restart."
 						},
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -603,12 +611,12 @@ fun SettingsScreen(
 						if (mode == BackupMode.Export) {
 							viewModel.exportBackup(uri, passphrase)
 						} else {
-							viewModel.importBackup(uri, passphrase)
+							viewModel.previewImport(uri, passphrase)
 						}
 					},
 					enabled = canSubmit,
 					shape = MaterialTheme.shapes.small,
-				) { Text(if (mode == BackupMode.Export) "Export" else "Import") }
+				) { Text(if (mode == BackupMode.Export) "Export" else "Inspect") }
 			},
 			dismissButton = {
 				TextButton(
@@ -618,6 +626,77 @@ fun SettingsScreen(
 						backupPassphraseConfirm = ""
 					},
 				) { Text("Cancel") }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+
+	state.backupPreview?.let { preview ->
+		AlertDialog(
+			onDismissRequest = viewModel::cancelImport,
+			title = { Text("Import this backup?") },
+			text = {
+				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+					Text(
+						text = "${preview.conversations} " +
+							(if (preview.conversations == 1) "conversation, " else "conversations, ") +
+							"${preview.messages} messages, ${preview.workspaces} " +
+							(if (preview.workspaces == 1) "workspace." else "workspaces."),
+						style = MaterialTheme.typography.bodyLarge,
+					)
+					preview.createdAt?.let { createdAt ->
+						Text(
+							text = "Exported " + DateFormat.getDateTimeInstance(
+								DateFormat.MEDIUM,
+								DateFormat.SHORT,
+							).format(Date(createdAt)),
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+					Text(
+						text = "Database version ${preview.databaseVersion}. " +
+							"Nothing changes until the app restarts. The current data is " +
+							"kept for one Undo; API keys are never replaced.",
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
+			},
+			confirmButton = {
+				Button(onClick = viewModel::confirmImport) { Text("Import") }
+			},
+			dismissButton = {
+				TextButton(onClick = viewModel::cancelImport) { Text("Cancel") }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+
+	if (showUndoConfirm) {
+		AlertDialog(
+			onDismissRequest = { showUndoConfirm = false },
+			title = { Text("Undo the last import?") },
+			text = {
+				Text(
+					"The data that was present before the last import is still on " +
+						"this device. Restoring it also needs a restart.",
+				)
+			},
+			confirmButton = {
+				Button(
+					onClick = {
+						showUndoConfirm = false
+						viewModel.undoLastImport()
+					},
+				) { Text("Undo import") }
+			},
+			dismissButton = {
+				TextButton(onClick = { showUndoConfirm = false }) { Text("Cancel") }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,

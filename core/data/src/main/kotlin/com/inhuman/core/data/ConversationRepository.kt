@@ -49,6 +49,23 @@ data class Branches(
 }
 
 /**
+ * One global-search result.
+ *
+ * [messageId] is null for a conversation-title match; the UI opens that
+ * conversation at the bottom rather than trying to focus a message that does
+ * not exist. A message hit carries enough context to render a snippet without a
+ * second query.
+ */
+data class ConversationSearchHit(
+	val conversationId: String,
+	val conversationTitle: String,
+	val messageId: String?,
+	val role: String?,
+	val snippet: String,
+	val createdAt: Long,
+)
+
+/**
  * The application's view of stored conversations and workspaces.
  *
  * Owns three things that must stay consistent with each other:
@@ -85,6 +102,61 @@ class ConversationRepository(
 	private val store = ConversationStore(db)
 
 	fun observeAll(): Flow<List<ConversationEntity>> = db.conversations().observeAll()
+
+	/**
+	 * Search conversation titles and the user/assistant text inside them.
+	 *
+	 * Backed by `LIKE` rather than FTS on purpose: this is an app-private
+	 * dataset of at most a few thousand messages, and an FTS table would add a
+	 * schema version and a second copy of every message without changing the
+	 * result a person sees. The query escapes `%`/`_` so punctuation is literal.
+	 */
+	suspend fun search(rawQuery: String, limit: Int = 60): List<ConversationSearchHit> =
+		withContext(Dispatchers.IO) {
+			val query = rawQuery.trim()
+			if (query.isEmpty()) return@withContext emptyList()
+			val pattern = likePattern(query)
+			val messageHits = db.messages().search(pattern, limit)
+			val titleHits = db.conversations().searchTitles(pattern, limit)
+			val titleResults = titleHits.map { conversation ->
+				ConversationSearchHit(
+					conversationId = conversation.id,
+					conversationTitle = conversation.title,
+					messageId = null,
+					role = null,
+					snippet = "Conversation title",
+					createdAt = conversation.updatedAt,
+				)
+			}
+			val messageResults = messageHits.map { hit ->
+				ConversationSearchHit(
+					conversationId = hit.conversationId,
+					conversationTitle = hit.conversationTitle,
+					messageId = hit.messageId,
+					role = hit.role,
+					snippet = snippet(hit.content, query),
+					createdAt = hit.createdAt,
+				)
+			}
+			// A title match is the strongest signal, so it comes first. Message
+			// hits keep the newest-first order of the query.
+			(titleResults + messageResults).take(limit)
+		}
+
+	private fun likePattern(query: String): String = query
+		.replace("\\", "\\\\")
+		.replace("%", "\\%")
+		.replace("_", "\\_")
+
+	private fun snippet(content: String, query: String): String {
+		val clean = content.replace(Regex("\\s+"), " ").trim()
+		val at = clean.indexOf(query, ignoreCase = true).coerceAtLeast(0)
+		val from = (at - 48).coerceAtLeast(0)
+		val to = (at + query.length + 96).coerceAtMost(clean.length)
+		val prefix = if (from > 0) "…" else ""
+		val suffix = if (to < clean.length) "…" else ""
+		return prefix + clean.substring(from, to) + suffix
+	}
 
 	fun observeConversation(id: String): Flow<Conversation?> =
 		db.messages().observeAll(id).map { all ->

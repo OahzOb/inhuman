@@ -508,12 +508,25 @@ Import is deliberately two-phase:
    which a clean install exposed as a no-op. The app then starts Room normally,
    so migrations run against the restored database.
 
+Before any of that, **Inspect backup** decrypts to a cache directory and opens
+the archived database read-only to show conversation/message/workspace counts,
+the export time and the database version. It writes no marker, so cancelling a
+preview cannot apply the backup later. The passphrase is held only between the
+preview and the confirm button.
+
+A successful normal import keeps the replaced database and workspaces under
+`filesDir/backup-undo/` and shows **Undo last import**. Undo copies that pair into
+the same staging path with `backup-undo.pending`; the next launch swaps it back
+and then deletes it. A new import replaces the undo slot. The copy is
+app-private and is not part of an export; it exists so a mistaken restore has a
+way back.
+
 The UI says the app must restart for this reason. There is no hot restore: no
 open Room connection is ever replaced underneath its callers.
 
 ## Tests in this module
 
-Three JVM files and four device files:
+Three JVM files and five device files:
 
 | Test | Locks in |
 | --- | --- |
@@ -524,6 +537,7 @@ Three JVM files and four device files:
 | `WorkspaceLifecycleTest` (device) | A temporary workspace dies with its conversation; a permanent one survives and can hold two; promotion changes the row without moving the directory. |
 | `ConversationLookupTest` (device) | The `id` / `workspaceId` distinction the documents provider depends on. |
 | `WorkspaceDocumentsProviderTest` (device) | A re-queried workspace folder keeps its display name, and delete/rename of the workspace root are refused. |
+| `ConversationSearchTest` (device) | Message text, title-first ordering, and literal `%` escaping in global search. |
 
 The cycle case does **not** exercise the `seen` guard — that needs a root whose
 `selectedChildId` points into a cycle. Worth adding if you touch that function.

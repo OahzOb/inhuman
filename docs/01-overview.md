@@ -93,7 +93,15 @@ Confirmed by `README.md:17-29` and by the code:
 - An encrypted, passphrase-protected backup of the database and workspaces;
   import is staged and applied before Room opens on the next launch.
 - A foreground service while a reply is streaming, so a long model/tool turn is
-  not killed when the screen goes off.
+  not killed when the screen goes off. Its notification names the conversation,
+  opens it on tap, and offers **Stop**.
+- Global search over conversation titles and message text, with jump-to-message
+  and a temporary highlight.
+- Actionable chat errors: Retry, Compact and retry, or Provider settings, plus
+  Copy details; no error is only a dead-end Dismiss.
+- Encrypted backup import shows a preview (conversation/message/workspace
+  counts, export time) before replacing anything, and keeps the replaced data
+  for one **Undo last import**.
 - A local diagnostic log records turns, tool calls, HTTP failures and crashes;
   Settings → Diagnostics can show its size, share it or clear it
   ([10-diagnostics.md](10-diagnostics.md)).

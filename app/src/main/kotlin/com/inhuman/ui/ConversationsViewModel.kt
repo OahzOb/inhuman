@@ -4,14 +4,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
+import com.inhuman.core.data.ConversationSearchHit
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 
@@ -25,6 +28,10 @@ data class ConversationsUiState(
 	/** Permanent workspaces offered by the Create sheet, in display order. */
 	val permanentWorkspaces: List<com.inhuman.core.data.db.WorkspaceEntity> = emptyList(),
 	val loaded: Boolean = false,
+	/** What the home search field currently contains. */
+	val searchQuery: String = "",
+	val searchResults: List<ConversationSearchHit> = emptyList(),
+	val searching: Boolean = false,
 	/**
 	 * Assistants to choose from, non-null only while the picker is open.
 	 *
@@ -61,6 +68,7 @@ class ConversationsViewModel(
 	 * because the conversation row cannot be created before that decision.
 	 */
 	private var pendingWorkspaceId: String? = null
+	private var searchJob: Job? = null
 
 	init {
 		viewModelScope.launch {
@@ -213,5 +221,43 @@ class ConversationsViewModel(
 	fun setPinned(conversation: ConversationEntity, pinned: Boolean) {
 		Diag.d("conv", "pin id=${Diag.shortId(conversation.id)} pinned=$pinned")
 		viewModelScope.launch { repository.setPinned(conversation.id, pinned) }
+	}
+
+	/**
+	 * Debounced global search.
+	 *
+	 * The field is deliberately not backed by a database flow: each keystroke
+	 * would re-run the `LIKE` query, and a title like "test" can match many
+	 * message rows. A 250 ms delay is enough to make typing feel immediate while
+	 * keeping the query count proportional to pauses, not keys.
+	 */
+	fun onSearchQueryChange(query: String) {
+		_state.update { it.copy(searchQuery = query) }
+		searchJob?.cancel()
+		if (query.isBlank()) {
+			_state.update { it.copy(searchResults = emptyList(), searching = false) }
+			return
+		}
+		searchJob = viewModelScope.launch {
+			delay(250)
+			_state.update { it.copy(searching = true) }
+			val results = runCatching { repository.search(query) }
+				.onFailure { failure ->
+					Diag.w("search", "query failed chars=${query.length}", failure)
+				}
+				.getOrDefault(emptyList())
+			// A slower query for an older prefix must not overwrite the results
+			// for what the user is typing now.
+			if (_state.value.searchQuery == query) {
+				_state.update {
+					it.copy(searchResults = results, searching = false)
+				}
+			}
+		}
+	}
+
+	fun clearSearch() {
+		searchJob?.cancel()
+		_state.update { it.copy(searchQuery = "", searchResults = emptyList(), searching = false) }
 	}
 }

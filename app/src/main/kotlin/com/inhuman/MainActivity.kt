@@ -45,17 +45,35 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 class MainActivity : ComponentActivity() {
+
+	/** A conversation requested by a notification tap, consumed by the root. */
+	private val pendingConversationId = mutableStateOf<String?>(null)
+
 	override fun onCreate(savedInstanceState: Bundle?) {
 		enableEdgeToEdge()
 		super.onCreate(savedInstanceState)
+		if (savedInstanceState == null) {
+			pendingConversationId.value =
+				intent?.getStringExtra(TurnForegroundService.EXTRA_CONVERSATION_ID)
+		}
 		setContent {
 			InhumanTheme {
 				// Named Root, not InhumanApp: InhumanApp is the Application
 				// class in this same package, and a composable of the same name
 				// is an overload ambiguity rather than a shadowing warning.
-				InhumanRoot()
+				InhumanRoot(
+					deepLinkedConversation = pendingConversationId.value,
+					onDeepLinkConsumed = { pendingConversationId.value = null },
+				)
 			}
 		}
+	}
+
+	override fun onNewIntent(intent: Intent) {
+		super.onNewIntent(intent)
+		setIntent(intent)
+		val conversation = intent.getStringExtra(TurnForegroundService.EXTRA_CONVERSATION_ID)
+		if (conversation != null) pendingConversationId.value = conversation
 	}
 }
 
@@ -68,7 +86,10 @@ class MainActivity : ComponentActivity() {
  * change of where this list lives, not a rewrite of the screens.
  */
 @Composable
-private fun InhumanRoot() {
+private fun InhumanRoot(
+	deepLinkedConversation: String?,
+	onDeepLinkConsumed: () -> Unit,
+) {
 	val context = androidx.compose.ui.platform.LocalContext.current
 	// One store and one repository for the process. The Keystore lookup inside
 	// SecureStore is not free, and Room's concurrency is per-instance -- two
@@ -112,6 +133,8 @@ private fun InhumanRoot() {
 	// The same applies to the flags below: a rotation with the Files browser
 	// open should leave it open.
 	var openConversationId by rememberSaveable { mutableStateOf<String?>(null) }
+	/** A message to reveal after opening from search or a notification. */
+	var chatFocusMessageId by rememberSaveable { mutableStateOf<String?>(null) }
 	var showSettings by rememberSaveable { mutableStateOf(false) }
 	var showFiles by rememberSaveable { mutableStateOf(false) }
 	var showAgents by rememberSaveable { mutableStateOf(false) }
@@ -122,6 +145,21 @@ private fun InhumanRoot() {
 	var filesWorkspaceId by rememberSaveable { mutableStateOf<String?>(null) }
 	/** Where Back returns after closing a conversation opened inside a workspace. */
 	var chatOriginWorkspaceId by rememberSaveable { mutableStateOf<String?>(null) }
+
+	val pendingConversation = deepLinkedConversation
+	LaunchedEffect(pendingConversation) {
+		if (pendingConversation != null) {
+			showSettings = false
+			showAgents = false
+			showFiles = false
+			showWorkspaces = false
+			openWorkspaceId = null
+			chatOriginWorkspaceId = null
+			chatFocusMessageId = null
+			openConversationId = pendingConversation
+			onDeepLinkConsumed()
+		}
+	}
 
 	// Whether a screen has an internal dialog open, so Back closes that before
 	// it navigates. Without this, Back on a screen showing a dialog would leave
@@ -321,9 +359,11 @@ private fun InhumanRoot() {
 						sshToolEnabled = {
 							secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1"
 						},
-						onStreamingChanged = { streaming ->
+						onStreamingChanged = { streaming, title ->
 							val app = context.applicationContext
 							val intent = Intent(app, TurnForegroundService::class.java)
+								.putExtra(TurnForegroundService.EXTRA_TITLE, title)
+								.putExtra(TurnForegroundService.EXTRA_CONVERSATION_ID, id)
 							runCatching {
 								if (streaming) {
 									ContextCompat.startForegroundService(app, intent)
@@ -338,8 +378,11 @@ private fun InhumanRoot() {
 			val vm: ChatViewModel = viewModel(key = "chat-$id", factory = factory)
 			ChatScreen(
 				viewModel = vm,
+				focusMessageId = chatFocusMessageId,
+				onFocusConsumed = { chatFocusMessageId = null },
 				onBack = {
 					openConversationId = null
+					chatFocusMessageId = null
 					val origin = chatOriginWorkspaceId
 					chatOriginWorkspaceId = null
 					if (origin != null) {
@@ -408,7 +451,13 @@ private fun InhumanRoot() {
 				viewModel = vm,
 				onOpenConversation = {
 					chatOriginWorkspaceId = null
+					chatFocusMessageId = null
 					openConversationId = it
+				},
+				onOpenSearchHit = { hit ->
+					chatOriginWorkspaceId = null
+					chatFocusMessageId = hit.messageId
+					openConversationId = hit.conversationId
 				},
 				onOpenSettings = { showSettings = true },
 				onOpenAgents = { showAgents = true },

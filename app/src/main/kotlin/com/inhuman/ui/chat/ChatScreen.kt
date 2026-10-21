@@ -128,6 +128,9 @@ import java.util.Date
 @Composable
 fun ChatScreen(
 	viewModel: ChatViewModel,
+	/** A message to reveal after opening from search or a notification. */
+	focusMessageId: String? = null,
+	onFocusConsumed: () -> Unit = {},
 	onBack: () -> Unit,
 	onOpenSettings: () -> Unit,
 	onOpenFiles: () -> Unit = {},
@@ -179,6 +182,9 @@ fun ChatScreen(
 	// state: it is about what this screen is showing, and a rotation that
 	// closed it is the correct outcome.
 	var showContextDetail by remember { mutableStateOf(false) }
+	// A search hit stays highlighted long enough to be found by eye. The id is
+	// local so a later recomposition does not need to keep the search route.
+	var highlightedMessageId by remember(focusMessageId) { mutableStateOf(focusMessageId) }
 
 	// Named `ctx`, not `context`: the bare name collides with the Kotlin
 	// stdlib's `context(...)` at every call site that has a lambda in scope, and
@@ -616,6 +622,42 @@ fun ChatScreen(
 			// invalidates the list rather than the whole screen. See the note
 			// above the state reads.
 			val messages by viewModel.state.map { it.messages }.collectAsStateWithLifecycle(emptyList())
+			// Reveal a message opened from search. Wait for the list to measure
+			// before asking for an index; on a cold open `totalItemsCount` is 0
+			// for a frame, and `scrollToItem` would silently do nothing.
+			LaunchedEffect(focusMessageId, messages.size) {
+				val targetId = focusMessageId ?: return@LaunchedEffect
+				// The transcript starts empty while Room loads. Do not consume the
+				// focus yet: `messages.size` changes when the rows arrive and this
+				// effect runs again.
+				if (messages.isEmpty()) return@LaunchedEffect
+				val index = messages.indexOfFirst { it.id == targetId }
+				if (index < 0) {
+					onFocusConsumed()
+					return@LaunchedEffect
+				}
+				var attempts = 0
+				while (listState.layoutInfo.totalItemsCount == 0 && attempts++ < 40) {
+					delay(50)
+				}
+				val leading = (if (compaction != null) 1 else 0) + (if (isCompacting) 1 else 0)
+				if (listState.layoutInfo.totalItemsCount > index + leading) {
+					// Searching an older message is a deliberate move away from
+					// the newest reply; do not let the follow observer pull it
+					// back to the bottom.
+					followLatest = false
+					programmaticScroll = true
+					try {
+						listState.scrollToItem(index + leading)
+					} finally {
+						programmaticScroll = false
+					}
+					highlightedMessageId = targetId
+					delay(2400)
+					highlightedMessageId = null
+					onFocusConsumed()
+				}
+			}
 			// Structured so Compose can skip it: two stable fields beat a
 			// `ContextUsage` read through a state object that changes for
 			// unrelated reasons.
@@ -695,6 +737,7 @@ fun ChatScreen(
 							)
 						MessageBubble(
 							message = message,
+							highlighted = message.id == highlightedMessageId,
 							isLatestAssistant = isLastAssistant,
 							isStreaming = isStreaming,
 							showRewind = showRewind,
@@ -1907,6 +1950,7 @@ private fun toolResultSummary(
 @Composable
 private fun MessageBubble(
 	message: ChatMessageUi,
+	highlighted: Boolean = false,
 	isLatestAssistant: Boolean,
 	isStreaming: Boolean,
 	showRewind: Boolean,
@@ -1968,7 +2012,16 @@ private fun MessageBubble(
 	}
 
 	Column(
-		modifier = Modifier.fillMaxWidth(),
+		modifier = Modifier
+			.fillMaxWidth()
+			.background(
+				if (highlighted) {
+					MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+				} else {
+					androidx.compose.ui.graphics.Color.Transparent
+				},
+				RoundedCornerShape(4.dp),
+			),
 		horizontalAlignment = alignment,
 		verticalArrangement = Arrangement.spacedBy(6.dp),
 	) {

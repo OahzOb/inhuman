@@ -7,6 +7,7 @@ import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
 import com.inhuman.core.data.AgentRepository
+import com.inhuman.core.data.BackupPreview
 import com.inhuman.core.data.BackupRepository
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.db.ProviderIds
@@ -65,6 +66,10 @@ data class SettingsUiState(
 	val backupStatusIsError: Boolean = false,
 	/** Set after a successful import; the app must restart to apply it. */
 	val backupNeedsRestart: Boolean = false,
+	/** What the selected backup contains, after decryption and before import. */
+	val backupPreview: BackupPreview? = null,
+	/** Whether the data replaced by the last import can still be restored. */
+	val backupCanUndo: Boolean = false,
 	/** Reply from the built-in scripted source instead of DeepSeek. */
 	val demoMode: Boolean = false,
 	/**
@@ -113,6 +118,10 @@ class SettingsViewModel(
 	private val _state = MutableStateFlow(SettingsUiState())
 	val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
+	/** Held only between a successful preview and the confirm button. */
+	private var pendingImportUri: Uri? = null
+	private var pendingImportPassphrase: CharArray? = null
+
 	init {
 		_state.value = SettingsUiState(
 			demoMode = secure.get(SecureStore.KEY_DEMO_MODE) == "1",
@@ -123,6 +132,7 @@ class SettingsViewModel(
 			webExaKeyInput = secure.get(SecureStore.KEY_WEB_EXA_API_KEY).orEmpty(),
 			hasWebDeepSeekKey = secure.hasUsable(SecureStore.KEY_WEB_DEEPSEEK_API_KEY),
 			hasWebExaKey = secure.hasUsable(SecureStore.KEY_WEB_EXA_API_KEY),
+			backupCanUndo = backup.hasUndo(),
 		)
 		viewModelScope.launch {
 			agents.observeProviders().collect { list ->
@@ -484,22 +494,58 @@ class SettingsViewModel(
 	}
 
 	/**
-	 * Decrypt and validate a backup, but do not swap it in yet.
+	 * Decrypt a backup and show what it contains, without staging anything.
 	 *
-	 * The swap runs in `InhumanApp.onCreate` before Room is opened. Replacing a
-	 * live database under an open connection would be the data-loss path this
-	 * staging step exists to avoid.
+	 * The passphrase is held only until the user confirms or cancels; it is not
+	 * part of the observable UI state.
 	 */
-	fun importBackup(uri: Uri, passphrase: CharArray) {
+	fun previewImport(uri: Uri, passphrase: CharArray) {
+		if (_state.value.backupBusy) return
+		pendingImportUri = uri
+		pendingImportPassphrase?.fill('\u0000')
+		pendingImportPassphrase = passphrase.copyOf()
+		passphrase.fill('\u0000')
+		_state.value = _state.value.copy(
+			backupBusy = true,
+			backupStatus = null,
+			backupNeedsRestart = false,
+			backupPreview = null,
+		)
+		viewModelScope.launch {
+			val result = runCatching { backup.inspect(uri, pendingImportPassphrase!!) }
+			if (result.isFailure) {
+				pendingImportPassphrase?.fill('\u0000')
+				pendingImportPassphrase = null
+				pendingImportUri = null
+			}
+			_state.value = _state.value.copy(
+				backupBusy = false,
+				backupPreview = result.getOrNull(),
+				backupStatus = result.exceptionOrNull()?.let { failure ->
+					Diag.w("backup", "preview failed", failure)
+					"Could not read that backup: ${failure.message ?: "wrong passphrase or damaged file"}"
+				},
+				backupStatusIsError = result.isFailure,
+			)
+		}
+	}
+
+	/** Stage the previewed backup. Nothing is replaced until the next launch. */
+	fun confirmImport() {
+		val uri = pendingImportUri ?: return
+		val passphrase = pendingImportPassphrase ?: return
 		if (_state.value.backupBusy) return
 		_state.value = _state.value.copy(
 			backupBusy = true,
 			backupStatus = null,
 			backupNeedsRestart = false,
+			backupPreview = null,
 		)
 		viewModelScope.launch {
 			val result = runCatching { backup.stageImport(uri, passphrase) }
 			passphrase.fill('\u0000')
+			pendingImportPassphrase = null
+			pendingImportUri = null
 			_state.value = _state.value.copy(
 				backupBusy = false,
 				backupStatus = result.fold(
@@ -518,7 +564,47 @@ class SettingsViewModel(
 		}
 	}
 
+	fun cancelImport() {
+		pendingImportPassphrase?.fill('\u0000')
+		pendingImportPassphrase = null
+		pendingImportUri = null
+		_state.value = _state.value.copy(backupPreview = null)
+	}
+
+	/**
+	 * Stage the copy kept by the last import. Also needs a restart, because the
+	 * database must not be replaced under Room.
+	 */
+	fun undoLastImport() {
+		if (_state.value.backupBusy) return
+		_state.value = _state.value.copy(
+			backupBusy = true,
+			backupStatus = null,
+			backupNeedsRestart = false,
+		)
+		viewModelScope.launch {
+			val staged = runCatching { backup.stageUndo() }.getOrDefault(false)
+			_state.value = _state.value.copy(
+				backupBusy = false,
+				backupStatus = if (staged) {
+					"Previous data staged. Restart the app to undo the last import."
+				} else {
+					"No previous import is available to undo."
+				},
+				backupStatusIsError = !staged,
+				backupNeedsRestart = staged,
+				backupCanUndo = if (staged) false else _state.value.backupCanUndo,
+			)
+		}
+	}
+
 	fun clearBackupStatus() {
 		_state.value = _state.value.copy(backupStatus = null, backupStatusIsError = false)
+	}
+
+	override fun onCleared() {
+		pendingImportPassphrase?.fill('\u0000')
+		pendingImportPassphrase = null
+		super.onCleared()
 	}
 }

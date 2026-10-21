@@ -128,10 +128,14 @@ A streaming turn starts `TurnForegroundService` through the
 `onStreamingChanged` callback passed to `ChatViewModel` at wiring time. The
 callback lives in `MainActivity` and uses the application context, not a screen's
 composition: navigating back while a reply runs must not stop the service and
-leave the turn to be killed. The service stops on the next `false` and in
-`ChatViewModel.onCleared`. It is a `dataSync` service with a low-importance,
-silent notification; denying `POST_NOTIFICATIONS` hides the notice but does not
-stop the service.
+leave the turn to be killed. It carries the conversation id and title, so the
+notification names the conversation and taps through to it. The notification's
+**Stop** action calls `ActiveTurn.requestStop()`, which invokes the view model's
+own `stop()` without exposing it to the service; the service then stops itself.
+The token in `ActiveTurn` keeps an old view model from clearing a newer turn.
+The service stops on the next `false` and in `ChatViewModel.onCleared`. It is a
+`dataSync` service with a low-importance, silent notification; denying
+`POST_NOTIFICATIONS` hides the notice but does not stop the service.
 
 A pending backup restore is applied in `InhumanApp.onCreate`, before any
 repository opens Room, because replacing a live database under an open connection

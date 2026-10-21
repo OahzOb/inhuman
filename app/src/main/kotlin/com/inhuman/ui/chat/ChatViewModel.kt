@@ -2,6 +2,7 @@ package com.inhuman.ui.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inhuman.ActiveTurn
 import com.inhuman.core.ai.ChatMessage
 import com.inhuman.core.ai.ChatProvider
 import com.inhuman.core.ai.ChatRequest
@@ -133,17 +134,26 @@ class ChatViewModel(
 	 * The app layer owns the foreground service; the view model deliberately
 	 * knows nothing about Android services or notifications.
 	 */
-	private val onStreamingChanged: (Boolean) -> Unit = {},
+	private val onStreamingChanged: (Boolean, String) -> Unit = { _, _ -> },
 ) : ViewModel() {
 
 	private val _state = MutableStateFlow(ChatUiState())
 	val state: StateFlow<ChatUiState> = _state.asStateFlow()
 
+	private val turnToken = Any()
+
 	init {
 		viewModelScope.launch {
-			_state.map { it.isStreaming }
+			_state.map { it.isStreaming to it.title }
 				.distinctUntilChanged()
-				.collect { onStreamingChanged(it) }
+				.collect { (streaming, title) ->
+					if (streaming) {
+						ActiveTurn.register(turnToken) { stop() }
+					} else {
+						ActiveTurn.clear(turnToken)
+					}
+					onStreamingChanged(streaming, title)
+				}
 		}
 	}
 
@@ -3283,7 +3293,8 @@ class ChatViewModel(
 	override fun onCleared() {
 		// A cleared view model cannot deliver a later "false"; stop the
 		// foreground service here rather than leaving it until the process dies.
-		onStreamingChanged(false)
+		ActiveTurn.clear(turnToken)
+		onStreamingChanged(false, _state.value.title)
 		super.onCleared()
 	}
 

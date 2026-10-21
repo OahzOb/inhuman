@@ -33,18 +33,21 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.mutableStateOf
@@ -61,6 +64,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.data.db.ConversationEntity
+import com.inhuman.core.data.ConversationSearchHit
 import com.inhuman.core.design.Eyebrow
 import com.inhuman.core.design.FormFactor
 import com.inhuman.core.design.Hairline
@@ -89,6 +93,7 @@ import java.util.Date
 fun ConversationsScreen(
 	viewModel: ConversationsViewModel,
 	onOpenConversation: (String) -> Unit,
+	onOpenSearchHit: (ConversationSearchHit) -> Unit = { onOpenConversation(it.conversationId) },
 	onOpenSettings: () -> Unit,
 	onOpenAgents: () -> Unit,
 	onOpenWorkspaces: () -> Unit,
@@ -176,6 +181,12 @@ fun ConversationsScreen(
 						ConversationPanel(
 							conversations = state.conversations,
 							workspaceNames = state.workspaceNames,
+							searchQuery = state.searchQuery,
+							searchResults = state.searchResults,
+							searching = state.searching,
+							onSearchChange = viewModel::onSearchQueryChange,
+							onClearSearch = viewModel::clearSearch,
+							onOpenSearchHit = onOpenSearchHit,
 							onOpen = onOpenConversation,
 							onTogglePin = viewModel::setPinned,
 							onRequestDelete = { pendingDelete = it },
@@ -190,6 +201,12 @@ fun ConversationsScreen(
 				else -> ConversationPanel(
 					conversations = state.conversations,
 					workspaceNames = state.workspaceNames,
+					searchQuery = state.searchQuery,
+					searchResults = state.searchResults,
+					searching = state.searching,
+					onSearchChange = viewModel::onSearchQueryChange,
+					onClearSearch = viewModel::clearSearch,
+					onOpenSearchHit = onOpenSearchHit,
 					onOpen = onOpenConversation,
 					onTogglePin = viewModel::setPinned,
 					onRequestDelete = { pendingDelete = it },
@@ -652,6 +669,12 @@ private fun HomeRail(
 private fun ConversationPanel(
 	conversations: List<ConversationEntity>,
 	workspaceNames: Map<String, String>,
+	searchQuery: String,
+	searchResults: List<ConversationSearchHit>,
+	searching: Boolean,
+	onSearchChange: (String) -> Unit,
+	onClearSearch: () -> Unit,
+	onOpenSearchHit: (ConversationSearchHit) -> Unit,
 	onOpen: (String) -> Unit,
 	onTogglePin: (ConversationEntity, Boolean) -> Unit,
 	onRequestDelete: (ConversationEntity) -> Unit,
@@ -693,16 +716,57 @@ private fun ConversationPanel(
 			}
 			Spacer(Modifier.height(10.dp))
 			Hairline()
-			Spacer(Modifier.height(if (conversations.isEmpty()) 34.dp else 4.dp))
-			if (conversations.isEmpty()) {
-				EmptyState(
+			Spacer(Modifier.height(8.dp))
+			OutlinedTextField(
+				value = searchQuery,
+				onValueChange = onSearchChange,
+				modifier = Modifier.fillMaxWidth(),
+				singleLine = true,
+				shape = MaterialTheme.shapes.small,
+				placeholder = {
+					Text(
+						text = "Search conversations and messages",
+						style = MaterialTheme.typography.bodyMedium,
+					)
+				},
+				leadingIcon = {
+					Icon(
+						Icons.Outlined.Search,
+						contentDescription = null,
+						modifier = Modifier.size(18.dp),
+					)
+				},
+				trailingIcon = if (searchQuery.isNotEmpty()) {
+					{
+						IconButton(onClick = onClearSearch) {
+							Icon(
+								Icons.Filled.Close,
+								contentDescription = "Clear search",
+								modifier = Modifier.size(18.dp),
+							)
+						}
+					}
+				} else {
+					null
+				},
+			)
+			Spacer(Modifier.height(if (searchQuery.isBlank() && conversations.isEmpty()) 26.dp else 4.dp))
+			when {
+				searchQuery.isNotBlank() -> SearchResults(
+					query = searchQuery,
+					results = searchResults,
+					searching = searching,
+					onOpen = onOpenSearchHit,
+				)
+
+				conversations.isEmpty() -> EmptyState(
 					showStartButton = showStartButton,
 					onCreate = onCreate,
 					onOpenWorkspaces = onOpenWorkspaces,
 					onOpenAssistants = onOpenAssistants,
 				)
-			} else {
-				ConversationList(
+
+				else -> ConversationList(
 					conversations = conversations,
 					workspaceNames = workspaceNames,
 					onOpen = onOpen,
@@ -711,6 +775,81 @@ private fun ConversationPanel(
 				)
 			}
 		}
+	}
+}
+
+@Composable
+private fun SearchResults(
+	query: String,
+	results: List<ConversationSearchHit>,
+	searching: Boolean,
+	onOpen: (ConversationSearchHit) -> Unit,
+) {
+	when {
+		results.isEmpty() && searching -> Text(
+			text = "Searching…",
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			modifier = Modifier.padding(vertical = 10.dp),
+		)
+
+		results.isEmpty() -> Text(
+			text = "No matches for “$query”.",
+			style = MaterialTheme.typography.bodyMedium,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			modifier = Modifier.padding(vertical = 10.dp),
+		)
+
+		else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+			itemsIndexed(
+				results,
+				key = { _, hit -> "${hit.conversationId}:${hit.messageId ?: "title"}" },
+			) { _, hit ->
+				SearchResultRow(hit = hit, onOpen = { onOpen(hit) })
+				Hairline()
+			}
+		}
+	}
+}
+
+@Composable
+private fun SearchResultRow(
+	hit: ConversationSearchHit,
+	onOpen: () -> Unit,
+) {
+	Column(
+		modifier = Modifier
+			.fillMaxWidth()
+			.clickable(onClick = onOpen)
+			.padding(vertical = 12.dp),
+		verticalArrangement = Arrangement.spacedBy(4.dp),
+	) {
+		Row(verticalAlignment = Alignment.CenterVertically) {
+			Text(
+				text = hit.conversationTitle.ifBlank { "Untitled conversation" },
+				style = MaterialTheme.typography.titleSmall,
+				color = MaterialTheme.colorScheme.onSurface,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis,
+				modifier = Modifier.weight(1f),
+			)
+			Spacer(Modifier.width(8.dp))
+			Eyebrow(
+				text = when (hit.role) {
+					"user" -> "You"
+					"assistant" -> "Assistant"
+					else -> "Title"
+				},
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+		Text(
+			text = if (hit.messageId == null) "Conversation title" else hit.snippet,
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			maxLines = 3,
+			overflow = TextOverflow.Ellipsis,
+		)
 	}
 }
 

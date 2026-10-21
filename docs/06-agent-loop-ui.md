@@ -349,34 +349,48 @@ This was found by opening the keyboard, not by reading the modifier chain.
 ### Scrolling
 
 The transcript has a **follow intent**, not an `atBottom` condition alone.
-`followLatest` starts true, is turned off by a real user gesture
-(`NestedScrollConnection`, `NestedScrollSource.UserInput`), and is turned back
-on when a gesture/fling ends at the bottom. Content growth never changes it.
-A `programmaticScroll` flag keeps the jump/follow scroll itself from being
-mistaken for a user gesture; without it the jump set `followLatest = true` and
-its own nested-scroll callback immediately set it back to false.
-That distinction matters because a growing last item moves its own bottom below
-the viewport: deriving "should follow" from `atBottom` would stop following at
-the exact moment the item grew.
+`followLatest` starts true; any nested-scroll source except `SideEffect` turns it
+off. The old code compared only `NestedScrollSource.UserInput`, but current
+Compose reports a drag/fling as `Drag`/`Fling`, so following stayed on during a
+manual scroll and the list snapped back. Following is turned back on only when a
+gesture/fling ends at the bottom, never because a fast fling passed through the
+bottom for a frame. A `programmaticScroll` flag keeps the app's own scroll from
+being mistaken for a user gesture.
 
-The follow effect is keyed on `messageCount`, the last message's text length,
-**and the last item's measured height**. The height key is what makes a live
-`Thinking`/tool accordion follow while it expands or collapses: those change
-layout without adding a message or a character to the answer. The effect uses
-`scrollToItem`, not an animated scroll, because an animation racing the next
-chunk makes streaming look unsteady.
+One stable layout observer replaces the old effect keyed on message count, text
+length, last-item height and offset. Those geometry keys changed *because of*
+the programmatic scroll, cancelling and restarting the effect — the visible
+jump/skip. The observer conflates layout changes and scrolls only while
+`followLatest` is true, no programmatic scroll is running, the user is not
+scrolling, and the list is not already at the bottom. This also covers opening a
+long conversation before its first layout has been measured.
 
-`atBottom` means the last item is fully at the viewport bottom, not "within two
-items". Auto-scrolling unconditionally would fight a user reading back.
-
+When the newest row is already visible, `scrollToLatest` does not call
+`scrollToItem`: that aligns its top with the viewport top and the following
+`scrollBy` has to run back down, which used to jump on every streaming tick.
 When `followLatest` is false, a `FilledIconButton` with a down arrow overlays the
-transcript's bottom-end (`contentDescription = "Jump to latest message"`). It
-sets `followLatest = true` before the jump, so the rest of the reply keeps
-following. The jump is not one `scrollToItem`: a long
-last reply is taller than the viewport and its height is still being measured
-when the jump starts, so a single pass lands short once Markdown lays out. It
-walks forward in finite `scrollBy` steps and repeats up to four times after a
-frame, which is what makes the final position stick.
+transcript's bottom-end; it sets `followLatest = true` before walking forward in
+finite `scrollBy` steps.
+
+### Errors are actions
+
+`chatErrorAction` maps the provider/turn error string to one recovery:
+`Retry`, `CompactAndRetry`, or `OpenProviderSettings`; the raw message remains
+available under **Copy details**. The classification is conservative — an
+ordinary UI error gets no action. **Retry** calls `regenerate()`, which keeps
+the tool definitions for the cache prefix but suppresses tool calls, so a
+failure after a write cannot execute it twice. **Compact and retry** persists
+the summary before retrying, so a second failure does not throw away the paid
+summarizer work.
+
+### Search and jump-to-message
+
+Home's search field searches conversation titles and user/assistant text through
+`ConversationRepository.search` (escaped `LIKE`, newest first; title matches
+first). Tapping a message hit opens the conversation with `focusMessageId`;
+`ChatScreen` waits until the list has measured, disables follow, scrolls to that
+item and keeps a subtle primary-tinted band for 2.4 s. A title hit has no message
+id and opens the conversation normally.
 
 ### The approval dialog (`:423-456`)
 
