@@ -402,6 +402,11 @@ When `followLatest` is false, a `FilledIconButton` with a down arrow overlays th
 transcript's bottom-end; it sets `followLatest = true` before walking forward in
 finite `scrollBy` steps.
 
+The button is gated on **`!followLatest`**, not **`!atBottom`**. During a stream
+the growing last row moves below the viewport between automatic scrolls, so
+`atBottom` alternates and the button appeared/disappeared on every token. The
+intent flag stays true across content growth; only user input releases it.
+
 ### Errors are actions
 
 `chatErrorAction` maps the provider/turn error string to one recovery:

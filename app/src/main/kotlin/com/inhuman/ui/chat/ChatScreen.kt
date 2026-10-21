@@ -812,12 +812,13 @@ fun ChatScreen(
 					}
 				}
 
-				// Only while the transcript is scrolled away from the newest
-				// message. It is an overlay rather than a row so it does not
-				// change the layout when it appears, and it is inside the
-				// transcript's Box so it sits above the composer rather than
-				// over the input.
-				if (!atBottom && messages.isNotEmpty()) {
+				// Show the jump control only when following has actually been
+				// released by user input, not whenever `atBottom` is momentarily
+				// false. During a stream the growing last row moves below the
+				// viewport between automatic scrolls, so `atBottom` alternates and
+				// the button flickered on every token. `followLatest` is the
+				// intent; it stays true across content growth.
+				if (!followLatest && messages.isNotEmpty()) {
 					FilledIconButton(
 						onClick = {
 							followLatest = true
