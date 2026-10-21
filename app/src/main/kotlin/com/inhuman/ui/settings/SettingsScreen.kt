@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -26,6 +27,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,6 +48,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -197,18 +201,23 @@ fun SettingsScreen(
 
 			Hairline(Modifier.padding(vertical = 14.dp))
 
+			SettingsFold(
+				code = "02 / Web",
+				title = "Web tools",
+				summary = "Search and fetch backends, with their own keys",
+			) {
 			Column(
 				modifier = Modifier
 					.widthIn(max = Layout.ReadableMeasure)
 					.fillMaxWidth(),
 				verticalArrangement = Arrangement.spacedBy(8.dp),
 			) {
-				SectionHeading(
-					code = "02 / Web",
-					title = "Web tools",
-					detail = "web_search and web_fetch use their own keys, not the chat " +
+				Text(
+					text = "web_search and web_fetch use their own keys, not the chat " +
 						"provider's. Pick a backend for each; calls are billed by the service " +
 						"you choose.",
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 				Eyebrow("Search backend")
 				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -295,12 +304,13 @@ fun SettingsScreen(
 					)
 				}
 			}
+			}
 
-			HorizontalDivider(
-				modifier = Modifier.padding(vertical = 8.dp),
-				color = MaterialTheme.colorScheme.outlineVariant,
-			)
-
+			SettingsFold(
+				code = "03 / Runtime",
+				title = "Demo & SSH",
+				summary = "Scripted replies without a key, and the remote-shell switch",
+			) {
 			// Demo mode.
 			//
 			// This exists because the streaming path is the part most likely to
@@ -409,19 +419,19 @@ fun SettingsScreen(
 					)
 				}
 			}
+			}
 
-			Column(
-				modifier = Modifier
-					.widthIn(max = Layout.ReadableMeasure)
-					.fillMaxWidth(),
-				verticalArrangement = Arrangement.spacedBy(8.dp),
+			SettingsFold(
+				code = "04 / Turn limits",
+				title = "Tool calls per turn",
+				summary = "${state.toolRoundLimit} rounds before a turn stops",
 			) {
-				SectionHeading(
-					code = "03 / Turn limits",
-					title = "Tool calls per turn",
-					detail = "A global budget for every conversation. One round can contain " +
+				Text(
+					text = "A global budget for every conversation. One round can contain " +
 						"several tool calls, so this limits model/tool round trips, not the " +
 						"number of calls inside a round.",
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 				FlowRowCompat {
 					listOf(4, 8, 16, 24, 32, 64).forEach { rounds ->
@@ -440,14 +450,16 @@ fun SettingsScreen(
 				)
 			}
 
-			Hairline(Modifier.widthIn(max = Layout.ReadableMeasure))
-
-			SectionHeading(
-				code = "04 / Backup",
+			SettingsFold(
+				code = "05 / Backup",
 				title = "Backup",
-				detail = "An encrypted file of every conversation, workspace file, " +
+				summary = "Encrypted export and import of data and workspaces",
+			) {
+			Text(
+				text = "An encrypted file of every conversation, workspace file, " +
 					"assistant and policy. API keys are deliberately not included.",
-				modifier = Modifier.widthIn(max = Layout.ReadableMeasure),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 			FlowRowCompat {
 				OutlinedButton(
@@ -506,7 +518,7 @@ fun SettingsScreen(
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 			}
-			Hairline(Modifier.widthIn(max = Layout.ReadableMeasure))
+			}
 
 			state.status?.let { status ->
 				Text(
@@ -523,12 +535,29 @@ fun SettingsScreen(
 				)
 			}
 
-			ApprovalRulesSection(
-				rules = state.approvalRules,
-				onRuleChange = viewModel::setApprovalRule,
-			)
+			SettingsFold(
+				code = "06 / Approvals",
+				title = "Before a tool runs",
+				summary = if (state.approvalRules.isEmpty()) {
+					"All tools run by default; tap to tighten one"
+				} else {
+					"${state.approvalRules.size} tool rule" +
+						(if (state.approvalRules.size == 1) "" else "s") + " configured"
+				},
+			) {
+				ApprovalRulesSection(
+					rules = state.approvalRules,
+					onRuleChange = viewModel::setApprovalRule,
+				)
+			}
 
-			DiagnosticsSection()
+			SettingsFold(
+				code = "07 / Diagnostics",
+				title = "Diagnostics",
+				summary = "The local flight recorder and how to share it",
+			) {
+				DiagnosticsSection()
+			}
 		}
 	}
 
@@ -961,6 +990,76 @@ private fun ProviderEditorDialog(
  * want it gone -- but it is confirmed, because the one moment the record is
  * valuable is the moment just before someone decides it is in the way.
  */
+/**
+ * One foldable settings group.
+ *
+ * Settings grew into a single multi-screen scroll: provider keys, web keys,
+ * demo/SSH switches, turn limits, backup and every tool policy at once. The
+ * groups keep the same content but let the user open one concern at a time.
+ * `rememberSaveable` preserves the open group across rotation; the state is a
+ * reading preference, not an edit.
+ */
+@Composable
+private fun SettingsFold(
+	code: String,
+	title: String,
+	summary: String,
+	initiallyExpanded: Boolean = false,
+	content: @Composable ColumnScope.() -> Unit,
+) {
+	var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
+	Column(
+		modifier = Modifier
+			.widthIn(max = Layout.ReadableMeasure)
+			.fillMaxWidth(),
+	) {
+		Row(
+			modifier = Modifier
+				.fillMaxWidth()
+				.clickable { expanded = !expanded }
+				.padding(vertical = 10.dp),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			Column(
+				modifier = Modifier.weight(1f),
+				verticalArrangement = Arrangement.spacedBy(2.dp),
+			) {
+				Eyebrow(code)
+				Text(
+					text = title,
+					style = MaterialTheme.typography.titleLarge,
+					color = MaterialTheme.colorScheme.onBackground,
+				)
+				Text(
+					text = summary,
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					maxLines = 2,
+				)
+			}
+			Icon(
+				imageVector = if (expanded) {
+					Icons.Filled.KeyboardArrowUp
+				} else {
+					Icons.Filled.KeyboardArrowDown
+				},
+				contentDescription = if (expanded) "Collapse $title" else "Expand $title",
+				tint = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+		if (expanded) {
+			Column(
+				modifier = Modifier
+					.fillMaxWidth()
+					.padding(bottom = 10.dp),
+				verticalArrangement = Arrangement.spacedBy(8.dp),
+				content = content,
+			)
+		}
+		Hairline()
+	}
+}
+
 @Composable
 private fun DiagnosticsSection() {
 	val context = LocalContext.current
@@ -973,11 +1072,6 @@ private fun DiagnosticsSection() {
 			.fillMaxWidth(),
 		verticalArrangement = Arrangement.spacedBy(6.dp),
 	) {
-		Text(
-			text = "Diagnostics",
-			style = MaterialTheme.typography.titleMedium,
-			color = MaterialTheme.colorScheme.onBackground,
-		)
 		Text(
 			// The promise matters as much as the feature: this is the
 			// user's data, and a log is exactly where content leaks by
@@ -1090,11 +1184,6 @@ private fun ApprovalRulesSection(
 			.fillMaxWidth(),
 		verticalArrangement = Arrangement.spacedBy(6.dp),
 	) {
-		Text(
-			text = "Before a tool runs",
-			style = MaterialTheme.typography.titleMedium,
-			color = MaterialTheme.colorScheme.onBackground,
-		)
 		Text(
 			text = "Local tools run without asking, because everything they reach " +
 				"is a copy inside this conversation's own folder. SSH is different: " +

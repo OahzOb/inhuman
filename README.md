@@ -367,7 +367,7 @@ false`); run lint separately when the network is available.
 
 ### Backup and long turns
 
-Settings → **04 / Backup** writes one AES-256-GCM encrypted file of the
+Settings → **05 / Backup** writes one AES-256-GCM encrypted file of the
 database and every workspace file, using PBKDF2-HMAC-SHA256 (210,000 iterations).
 The passphrase is never stored and cannot be recovered. **API keys are not in the
 backup** — they are Keystore-backed and not portable. Rollback snapshots are also
