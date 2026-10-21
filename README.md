@@ -45,11 +45,16 @@ default**, branch switching, image attachments, usage reporting, a context
 gauge above the composer, temporary/permanent workspaces with the absolute
 location available to the user, global title/message search with
 jump-to-message, actionable error recovery, encrypted backup import preview and
-one-step undo, a conversation-aware notification with Stop, a readable wire
-inspector for the exact system message, tool schemas, messages and raw tool
-calls, with long text collapsed, an in-app text editor, Open with… support so
-another app can edit and save a workspace file, and multi-select deletion for
-conversations and permanent workspaces.
+one-step undo, per-conversation progress notifications with a grouped summary,
+Stop/Stop all and an approval **Review** action, a readable wire inspector for
+the exact system message, tool schemas, messages and raw tool calls (including
+final replies and reasoning), with long text collapsed, an in-app text editor,
+Open with… support so another app can edit and save a workspace file, and
+multi-select deletion for conversations and permanent workspaces. The layout
+follows the window's width **and** height, with an Auto/Compact/Comfortable
+override; Settings is folded by concern; tool rounds and total tool calls have
+separate global budgets; and `ssh_exec` is absent from every picker while its
+global switch is off.
 
 **Demo mode exercises the tool loop, not just the stream.** With file tools
 switched on it creates a file and then deletes it, so the tool loop, the
@@ -385,7 +390,9 @@ A streaming reply starts a `dataSync` foreground service (`TurnForegroundService
 from the `TurnStatus` reported by the chat view model, so screen-off does not let
 Android kill a long model/tool turn. One notification per active conversation
 shows the current phase, a chronometer and Stop; two or more are grouped under a
-summary with Open and Stop all. When the app is in the background, completion
+summary with Open and Stop all. When a tool call or SSH consent is waiting, the
+turn's notification also offers **Review**, which opens the conversation rather
+than approving from the lock screen. When the app is in the background, completion
 uses a separate `Finished replies` channel with a private lock-screen version and
 a plain-text preview; it is not posted while the app is in the foreground. On
 Android 13+ the notification permission is requested on the first turn; if it
