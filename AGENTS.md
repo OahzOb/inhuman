@@ -95,26 +95,41 @@ escape hatch without answering it there first.
 
 ---
 
-## Two screens, always
+## Window ratios, always
 
-**Every change is verified on both a phone-sized and a tablet-sized screen.**
-Not "checked on one and reasoned about for the other" — actually run on both.
+**Every change is verified on both a phone-sized and a tablet-sized window, and
+on the ratios in between.** Not "checked on one and reasoned about for the other"
+— actually run them. Width alone is not a layout: a 16:9 phone in landscape is
+640dp wide but only 360dp tall, and a square foldable is 700dp on both axes.
+`WindowFrame` (`core/design/.../Layout.kt`) classifies width **and** height;
+`usesTwoPane`, `isCompact` and `usesFab` are derived from both.
 
-| | AVD | size |
+| Case | dp | expected shell |
 | --- | --- | --- |
-| Tablet | `dsh_tablet` | 2560x1600 @ 320dpi → **1280dp wide**, `Expanded` |
-| Phone | `inhuman_phone` | phone form factor, `Compact` |
+| 16:9 phone portrait | 360×640 | single pane, FAB |
+| 20:9 phone portrait | 360×800 | single pane, FAB |
+| 16:9 phone landscape | 640×360 | single pane, header Create |
+| square foldable | 700×700 | single pane, header Create |
+| 4:3 tablet | 1024×768 | two panes |
+| 16:10 tablet | 1280×800 | two panes |
+| large font phone | 360×640 @ 1.5× | overflow destinations |
 
 ```powershell
 emulator -avd dsh_tablet        # Android 15, x86_64, Pixel Tablet
-emulator -avd inhuman_phone
+# one emulator at a time: the local host does not have memory for several
 ```
+
+A single AVD can be resized with `adb shell wm size WxH` and
+`adb shell wm density DPI`, then `wm size reset` / `wm density reset`. This is a
+useful ratio test, not a substitute for the two device profiles. The physical
+phone is deployable and inspectable, but HyperOS may refuse `adb shell input`.
 
 The phone-sized case is not a smaller copy of the tablet case and must not be
 treated as one. They differ in ways that have already caused bugs here: the
-primary action is a FAB on a phone and a top-bar button on a tablet
-(`prefersFabForPrimaryAction`), the gutter is 20dp against 32dp
-(`comfortableGutter`), and 1280dp of width is enough for a paragraph to become
+primary action is a FAB on a compact-width phone, a header Create on a medium
+single pane, and a top-bar button on a two-pane tablet
+(`prefersFabForPrimaryAction`); the gutter is 20dp against 32dp
+(`comfortableGutter`); and 1280dp of width is enough for a paragraph to become
 unreadable if nothing caps it.
 
 ### Space utilisation is the point, not the side effect

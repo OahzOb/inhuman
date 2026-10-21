@@ -36,7 +36,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,6 +44,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.Layout
+import com.inhuman.core.design.currentWindowFrame
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -376,7 +376,7 @@ private fun WireDialog(
 	onDismiss: () -> Unit,
 ) {
 	val clipboard = LocalClipboardManager.current
-	val compact = LocalConfiguration.current.screenWidthDp < 600
+	val compact = currentWindowFrame().isCompact
 	var raw by remember { mutableStateOf(false) }
 	Dialog(
 		onDismissRequest = onDismiss,
@@ -531,7 +531,7 @@ private fun WireKeyValues(values: List<Pair<String, String>>) {
  */
 @Composable
 private fun WireField(key: String, value: String, maxLines: Int) {
-	val compact = LocalConfiguration.current.screenWidthDp < 600
+	val compact = currentWindowFrame().isCompact
 	if (compact) {
 		Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
 			Text(

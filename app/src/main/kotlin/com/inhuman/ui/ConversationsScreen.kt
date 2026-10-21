@@ -69,7 +69,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.ConversationSearchHit
 import com.inhuman.core.design.Eyebrow
-import com.inhuman.core.design.FormFactor
+import com.inhuman.core.design.WindowWidthClass
+import com.inhuman.core.design.currentWindowFrame
 import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.InhumanTheme
 import com.inhuman.core.design.Layout
@@ -78,7 +79,6 @@ import com.inhuman.core.design.StatusDot
 import com.inhuman.core.design.WorkbenchGrid
 import com.inhuman.core.design.Wordmark
 import com.inhuman.core.design.comfortableGutter
-import com.inhuman.core.design.currentFormFactor
 import com.inhuman.core.design.prefersFabForPrimaryAction
 import kotlinx.coroutines.delay
 import java.text.DateFormat
@@ -133,14 +133,18 @@ fun ConversationsScreen(
 		if (state.conversations.none { it.id == id }) pendingDelete = null
 	}
 
-	val formFactor = currentFormFactor()
+	val frame = currentWindowFrame()
 	val useFab = prefersFabForPrimaryAction()
-	val wide = formFactor != FormFactor.Compact
+	val twoPane = frame.usesTwoPane
+	val wideHeader = frame.widthClass == WindowWidthClass.Expanded
+	val compactActions = frame.usesHeaderOverflow
 
 	Scaffold(
 		topBar = {
 			HomeHeader(
-				wide = wide,
+				wide = wideHeader,
+				showCreate = !useFab,
+				compactActions = compactActions,
 				onOpenWorkspaces = onOpenWorkspaces,
 				onOpenAgents = onOpenAgents,
 				onOpenSettings = onOpenSettings,
@@ -172,7 +176,7 @@ fun ConversationsScreen(
 				// is about to appear.
 				!state.loaded -> Unit
 
-				wide -> Row(modifier = Modifier.fillMaxSize()) {
+				twoPane -> Row(modifier = Modifier.fillMaxSize()) {
 					HomeRail(
 						conversationCount = state.conversations.size,
 						modifier = Modifier
@@ -208,6 +212,7 @@ fun ConversationsScreen(
 							onCreate = { showCreateSheet = true },
 							onOpenWorkspaces = onOpenWorkspaces,
 							onOpenAssistants = onOpenAgents,
+							compactLayout = frame.isCompact,
 							showStartButton = true,
 						)
 					}
@@ -237,8 +242,11 @@ fun ConversationsScreen(
 					onCreate = { showCreateSheet = true },
 					onOpenWorkspaces = onOpenWorkspaces,
 					onOpenAssistants = onOpenAgents,
+					compactLayout = frame.isCompact,
 					showStartButton = false,
-					modifier = Modifier.fillMaxSize(),
+					modifier = Modifier
+						.fillMaxSize()
+						.padding(bottom = if (useFab) 72.dp else 0.dp),
 				)
 			}
 		}
@@ -599,6 +607,8 @@ private fun CreateChoice(
 @Composable
 private fun HomeHeader(
 	wide: Boolean,
+	showCreate: Boolean,
+	compactActions: Boolean,
 	onOpenWorkspaces: () -> Unit,
 	onOpenAgents: () -> Unit,
 	onOpenSettings: () -> Unit,
@@ -611,15 +621,19 @@ private fun HomeHeader(
 				.padding(horizontal = comfortableGutter(), vertical = 14.dp),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
-			Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-				Wordmark()
+			Column(
+				modifier = Modifier.weight(1f),
+				verticalArrangement = Arrangement.spacedBy(2.dp),
+			) {
+				Wordmark(size = if (compactActions) 16 else 20)
 				Text(
 					text = "PRIVATE AGENT WORKBENCH",
 					style = MaterialTheme.typography.labelSmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis,
 				)
 			}
-			Spacer(Modifier.weight(1f))
 			if (wide) {
 				HeaderTextAction("Workspaces", Icons.Outlined.FolderOpen, onOpenWorkspaces)
 				HeaderTextAction("Assistants", Icons.Outlined.Person, onOpenAgents)
@@ -637,6 +651,43 @@ private fun HomeHeader(
 					Spacer(Modifier.width(6.dp))
 					Text("Create", style = MaterialTheme.typography.labelLarge)
 				}
+			} else if (compactActions) {
+				// At a large font scale the wordmark alone can consume most of a
+				// 360dp bar; three 48dp destinations then push Settings off-screen.
+				// One menu keeps every destination reachable without shrinking the
+				// logo or hiding Settings silently.
+				Box {
+					var menu by remember { mutableStateOf(false) }
+					IconButton(onClick = { menu = true }) {
+						Icon(Icons.Filled.MoreVert, contentDescription = "More destinations")
+					}
+					DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+						DropdownMenuItem(
+							text = { Text("Workspaces") },
+							leadingIcon = { Icon(Icons.Outlined.FolderOpen, contentDescription = null) },
+							onClick = {
+								menu = false
+								onOpenWorkspaces()
+							},
+						)
+						DropdownMenuItem(
+							text = { Text("Assistants") },
+							leadingIcon = { Icon(Icons.Outlined.Person, contentDescription = null) },
+							onClick = {
+								menu = false
+								onOpenAgents()
+							},
+						)
+						DropdownMenuItem(
+							text = { Text("Settings") },
+							leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
+							onClick = {
+								menu = false
+								onOpenSettings()
+							},
+						)
+					}
+				}
 			} else {
 				// The three destinations used to live behind a three-dot menu.
 				// On a phone the icons fit on the bar, and hiding them only made
@@ -649,6 +700,21 @@ private fun HomeHeader(
 				}
 				IconButton(onClick = onOpenSettings) {
 					Icon(Icons.Outlined.Settings, contentDescription = "Settings")
+				}
+				if (showCreate) {
+					Button(
+						onClick = onCreate,
+						shape = MaterialTheme.shapes.small,
+						contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+					) {
+						Icon(
+							Icons.Filled.Add,
+							contentDescription = null,
+							modifier = Modifier.size(16.dp),
+						)
+						Spacer(Modifier.width(4.dp))
+						Text("Create", style = MaterialTheme.typography.labelMedium)
+					}
 				}
 			}
 		}
@@ -746,10 +812,11 @@ private fun ConversationPanel(
 	onCreate: () -> Unit,
 	onOpenWorkspaces: () -> Unit,
 	onOpenAssistants: () -> Unit,
+	compactLayout: Boolean,
 	showStartButton: Boolean,
 	modifier: Modifier = Modifier,
 ) {
-	val compact = currentFormFactor() == FormFactor.Compact
+	val compact = compactLayout
 	Box(
 		modifier = modifier,
 		contentAlignment = Alignment.TopCenter,
@@ -851,8 +918,14 @@ private fun ConversationPanel(
 					shape = MaterialTheme.shapes.small,
 					placeholder = {
 						Text(
-							text = "Search conversations and messages",
+							text = if (currentWindowFrame().fontScale > 1.3f) {
+								"Search"
+							} else {
+								"Search conversations and messages"
+							},
 							style = MaterialTheme.typography.bodyMedium,
+							maxLines = 1,
+							overflow = TextOverflow.Ellipsis,
 						)
 					},
 					leadingIcon = {

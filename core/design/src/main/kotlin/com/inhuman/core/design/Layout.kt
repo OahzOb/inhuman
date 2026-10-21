@@ -7,15 +7,105 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * The few form-factor questions this app actually asks.
+ * The two dimensions a layout actually has to reason about.
+ *
+ * Width alone is not enough. A 16:9 phone in landscape is 640dp wide but only
+ * 360dp tall: it crosses the width breakpoint for a tablet while having less
+ * vertical room than a phone portrait. Treating it as a tablet produced a
+ * two-pane rail with almost no room for either pane.
+ *
+ * Height uses the same 480/900dp boundaries as the width classes, so a layout
+ * can say "wide but short" without inventing device names. Both values come from
+ * `LocalConfiguration`, which describes the current *window* (split-screen and
+ * foldables included), not the physical display.
+ */
+enum class WindowWidthClass { Compact, Medium, Expanded }
+
+enum class WindowHeightClass { Compact, Medium, Expanded }
+
+/**
+ * A snapshot of the window constraints, independent of Compose.
+ *
+ * Keeping the classification pure makes the breakpoints testable without a
+ * device; [currentWindowFrame] is the only Compose-aware entry point.
+ */
+data class WindowFrame(
+	val widthDp: Int,
+	val heightDp: Int,
+	val fontScale: Float = 1f,
+) {
+	val widthClass: WindowWidthClass = when {
+		widthDp < 600 -> WindowWidthClass.Compact
+		widthDp < 840 -> WindowWidthClass.Medium
+		else -> WindowWidthClass.Expanded
+	}
+
+	val heightClass: WindowHeightClass = when {
+		heightDp < 480 -> WindowHeightClass.Compact
+		heightDp < 900 -> WindowHeightClass.Medium
+		else -> WindowHeightClass.Expanded
+	}
+
+	/** True when either axis is phone-sized; short landscape belongs here too. */
+	val isCompact: Boolean =
+		widthClass == WindowWidthClass.Compact || heightClass == WindowHeightClass.Compact
+
+	val isLandscape: Boolean = widthDp > heightDp
+
+	val aspectRatio: Float = if (heightDp <= 0) 0f else widthDp.toFloat() / heightDp
+
+	/**
+	 * A two-pane home needs width for the rail *and* height for the list.
+	 *
+	 * The previous rule was `width >= 600`, which made a 640x360 landscape phone
+	 * look like a tablet. Requiring an Expanded width and at least Medium height
+	 * keeps the rail for real tablets and large foldables, while leaving a wide,
+	 * short window as one scrollable column.
+	 */
+	val usesTwoPane: Boolean =
+		widthClass == WindowWidthClass.Expanded && heightClass != WindowHeightClass.Compact
+
+	/** A FAB only on a genuinely narrow window; medium gets a header action. */
+	val usesFab: Boolean = widthClass == WindowWidthClass.Compact
+
+	/**
+	 * Compact window with large text cannot fit three destinations beside the
+	 * wordmark; collapse them into one menu rather than clipping Settings.
+	 */
+	val usesHeaderOverflow: Boolean =
+		widthClass == WindowWidthClass.Compact && fontScale > 1.2f
+
+	/** Width-only compatibility for callers that genuinely only care about width. */
+	val formFactor: FormFactor = when (widthClass) {
+		WindowWidthClass.Compact -> FormFactor.Compact
+		WindowWidthClass.Medium -> FormFactor.Medium
+		WindowWidthClass.Expanded -> FormFactor.Expanded
+	}
+}
+
+@Composable
+@ReadOnlyComposable
+fun currentWindowFrame(): WindowFrame {
+	val configuration = LocalConfiguration.current
+	return WindowFrame(
+		widthDp = configuration.screenWidthDp,
+		heightDp = configuration.screenHeightDp,
+		fontScale = configuration.fontScale,
+	)
+}
+
+/**
+ * The few window questions this app actually asks.
  *
  * Deliberately not `material3-window-size-class`: that library wants a whole
- * activity-level setup and reports a class, while everything here needs is a
- * number and a boolean. Reading `screenWidthDp` and comparing is less machinery
- * for the same answer, and it keeps `core:design` free of another dependency.
+ * activity-level setup and reports a class, while this app needs width, height
+ * and a handful of derived booleans. The important part is that **width alone is
+ * not a layout**: a 16:9 phone in landscape is 640dp wide but only 360dp tall,
+ * and a square foldable is 700dp on both axes. Both must stay single-pane even
+ * though their widths cross the old 600dp threshold.
  *
- * The breakpoints are the long-standing Android ones: 600dp is where a device
- * stops being a phone in the layout sense regardless of what it is marketed as.
+ * Values come from `LocalConfiguration`, which describes the current *window*
+ * (split-screen and foldables included), not the physical display.
  */
 enum class FormFactor {
 	/** A phone in portrait: narrow enough that long paragraphs hurt. */
@@ -106,40 +196,35 @@ object Layout {
 }
 
 /**
- * The current form factor, derived from the window width in dp.
+ * The current width-only form factor.
  *
- * Uses the *window* width from LocalConfiguration rather than the physical
- * display, so a foldable or a multi-window split reports the size it actually
- * has. Reading the display metrics instead is the classic bug where a
- * split-screen app lays itself out for a full screen it does not occupy.
+ * Kept for callers that only need horizontal density; new layout decisions
+ * should use [currentWindowFrame], because a short landscape window is not a
+ * tablet even when its width says so.
  */
 @Composable
 @ReadOnlyComposable
-fun currentFormFactor(): FormFactor =
-	when (LocalConfiguration.current.screenWidthDp) {
-		in 0..599 -> FormFactor.Compact
-		in 600..839 -> FormFactor.Medium
-		else -> FormFactor.Expanded
-	}
+fun currentFormFactor(): FormFactor = currentWindowFrame().formFactor
 
 /**
- * A comfortable horizontal gutter for the current window width.
+ * A comfortable horizontal gutter for the current window.
  *
- * On a phone 32dp of gutter out of 411dp is 8% of the screen spent on nothing.
+ * A short window also gets the compact gutter: on a 16:9 phone in landscape the
+ * extra 12dp per side comes directly out of the vertical space the content
+ * needs.
  */
 @Composable
 @ReadOnlyComposable
 fun comfortableGutter(): Dp =
-	if (currentFormFactor() == FormFactor.Compact) Layout.GutterCompact else Layout.GutterWide
+	if (currentWindowFrame().isCompact) Layout.GutterCompact else Layout.GutterWide
 
 /**
  * Whether a floating action button is the right affordance.
  *
- * On a phone a top-bar action sits in the hardest place to reach one-handed.
- * On a tablet the top bar is fine and a FAB would be redundant, so the two
- * form factors get different answers rather than the same one scaled.
+ * Only a compact-width window uses the FAB. Medium single-pane windows
+ * (landscape phones, square foldables) are too short for a floating button to
+ * hover over a list without covering a row, so they keep Create in the header.
  */
 @Composable
 @ReadOnlyComposable
-fun prefersFabForPrimaryAction(): Boolean =
-	currentFormFactor() == FormFactor.Compact
+fun prefersFabForPrimaryAction(): Boolean = currentWindowFrame().usesFab

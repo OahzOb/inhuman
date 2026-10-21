@@ -99,14 +99,13 @@ import com.inhuman.core.data.SnapshotStats
 import com.inhuman.core.data.SnapshotTurn
 import com.inhuman.core.data.WorkspaceChange
 import com.inhuman.core.design.Eyebrow
-import com.inhuman.core.design.FormFactor
+import com.inhuman.core.design.currentWindowFrame
 import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.MetaLine
 import com.inhuman.core.design.StatusDot
 import com.inhuman.core.design.WorkbenchGrid
 import com.inhuman.core.design.comfortableGutter
-import com.inhuman.core.design.currentFormFactor
 import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.RemoteBadge
 import com.inhuman.ui.common.RewindBadge
@@ -764,7 +763,7 @@ fun ChatScreen(
 								modifier = Modifier
 									.widthIn(max = 760.dp)
 									.fillMaxWidth()
-									.padding(top = if (currentFormFactor() == FormFactor.Compact) 20.dp else 48.dp),
+									.padding(top = if (currentWindowFrame().isCompact) 20.dp else 48.dp),
 							)
 						}
 					}

@@ -77,6 +77,11 @@ fun WideDialog(
 	maxBodyHeight: Dp = 420.dp,
 	body: @Composable ColumnScope.() -> Unit,
 ) {
+	// A fixed 420dp body plus title/actions overflows a 360dp-tall landscape
+	// phone. Leave room for the dialog chrome, but never shrink the body below a
+	// usable two rows.
+	val bodyCeiling = (currentWindowFrame().heightDp - 180).coerceAtLeast(160).dp
+	val effectiveBodyHeight = minOf(maxBodyHeight, bodyCeiling)
 	Dialog(
 		onDismissRequest = onDismissRequest,
 		properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -106,7 +111,7 @@ fun WideDialog(
 
 				Column(
 					modifier = Modifier
-						.heightIn(max = maxBodyHeight)
+						.heightIn(max = effectiveBodyHeight)
 						.verticalScroll(rememberScrollState()),
 					verticalArrangement = Arrangement.spacedBy(9.dp),
 					content = body,

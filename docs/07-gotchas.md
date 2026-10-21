@@ -842,6 +842,26 @@ conversations. `applyPendingRestore` now swaps the database under `databases/`
 (and creates that directory when absent), and a clean-install restore was
 verified to recover 1 conversation / 18 messages / 1 summary.
 
+### B28. Width was treated as the whole window — **FIXED**
+
+`currentFormFactor()` reduced the window to `screenWidthDp`, so a 16:9 phone in
+landscape (640×360) and a 700×700 square foldable both got the tablet shell. The
+first had almost no vertical room for a rail; both lost the primary Create action
+because the FAB was keyed to Compact width while the header only showed Create in
+the two-pane layout.
+
+`WindowFrame` now carries width and height classes plus font scale. The shell uses
+`usesTwoPane` (Expanded width **and** at least Medium height), `usesFab` (Compact
+width only), and `usesHeaderOverflow` (Compact width with font scale >1.2).
+Medium single-pane windows get Create in the header. The `WideDialog` body
+ceiling is also derived from window height.
+
+**The regression that made this visible was a screenshot matrix, not a type
+check:** at 360×640, 640×360, 700×700, 1024×768, and 1280×800 with one AVD, the
+landscape and foldable home screens had no Create action at all. `WindowFrameTest`
+now covers those classifications; the screenshots are still required because the
+missing control was a composition decision no pure classifier could catch.
+
 ---
 
 ## C. Comments that contradict the code

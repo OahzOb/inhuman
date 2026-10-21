@@ -342,6 +342,36 @@ column is wider because it contains code and tables, not just prose. The cap was
 inert at seven other sites; all now constrain first and fill second, and the
 576dp tablet measurement is in [07-gotchas.md](07-gotchas.md) B5.
 
+### Window ratios, not just width
+
+`WindowFrame` (`core/design/.../Layout.kt`) classifies both axes:
+`Compact/Medium/Expanded` width (`<600/<840/≥840`) and height
+(`<480/<900/≥900`), plus font scale. The derived facts are the ones the shell
+actually asks: `isCompact` if either axis is phone-sized, `usesTwoPane` only for
+Expanded width with at least Medium height, and `usesFab` only for Compact width.
+
+That fixes two concrete failures found by running the matrix:
+
+- **16:9 landscape phone, 640×360.** Width-only logic called it a tablet and
+  produced a two-pane rail with almost no vertical room. It is now a single
+  pane, with Create in the header rather than an overlapping FAB.
+- **700×700 square foldable.** Width-only logic also gave it the tablet shell.
+  It is now a single pane; the header has Create because a FAB over a short list
+  covers a row.
+- **360×640 @ 1.5× font.** Three 48dp header destinations plus the wordmark
+  pushed Settings off-screen. The header now uses one overflow menu when
+  `usesHeaderOverflow` is true.
+
+`WideDialog`'s body ceiling is derived from the window height instead of a fixed
+420dp, so a form opened in a 360dp-tall landscape window still has visible
+actions. The Wire sheet uses `isCompact` for both its field layout and its
+height, which is why a wide, short window stacks fields rather than trying to
+draw tablet columns.
+
+The ratio matrix is in `AGENTS.md` and is part of verification, not an optional
+extra.
+
+
 **The composer must not consume `safeDrawing` before `imePadding()`.** That
 inset includes the IME; consuming it first left the composer under the keyboard.
 This was found by opening the keyboard, not by reading the modifier chain.
@@ -758,6 +788,7 @@ it; the sandbox's no-network rule applies to code the model writes), and
 | `ContextUsageTest` | Window-without-measurement is known but not computable; no window ⇒ no fraction and `summary` is a bare count; neither ⇒ nothing drawn; 25% of 1M ⇒ `25% · 262K / 1M`; a non-zero amount never shows 0%; over-window clamps to 100% / 0 left; `contextWindow = 0` treated as absent; `TokenFormat` grouping, including "10K" for 9,960 and never a comma. |
 | `WireHistoryTest` | A dangling assistant `tool_calls` gets its missing tool result inserted **before** the next user message, not at the end; a complete block and a call-free assistant message are untouched. Also that SSH tool arguments lose `password`/`privateKey`/`passphrase` before storage, including the wrapped form. This is the HTTP-400-on-every-later-turn repair and the credential-persistence guard. |
 | `SnapshotStoreTest` | `start` and a later tool checkpoint restore their own file versions; added/deleted/modified paths are diffed by content; stats count turns and pruning keeps the newest; `turns` lists each retained turn with its checkpoint count, newest first. This is the file half of checkpointed rollback. |
+| `WindowFrameTest` | A 640×360 landscape phone and a 900×400 wide-short window stay single-pane; a 700×700 foldable is Medium/single-pane; 1024×768 and 1280×900 use two panes; a 360dp phone uses a FAB and the 1.5× font case uses the header overflow. This is the axis-classification half; the screenshot matrix is still required for composition mistakes. |
 
 These are pure JVM logic for the reason `AGENTS.md` gives: the device cannot
 observe these states, so the argument has to live in a test.
