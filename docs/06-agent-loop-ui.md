@@ -425,11 +425,11 @@ title hit has no message id and opens the conversation normally.
 ### Wire inspector
 
 `WireSheet.kt`. The chat menu offers **Preview next request** and **Inspect last
-request**; an assistant message that requested tools has a `{}` action and a
-**View wire format** link under its tool group. The sheet is a readable
-projection of the real body, not a second serializer:
-`ChatProvider.previewRequest` must call the same builder as `stream`, and the
-last body is kept in `ChatViewModel.wire` in memory. It shows:
+request**; **every completed assistant message** has a `{}` action, including a
+final text reply and a reasoning-only message, not only a message that requested
+tools. The sheet is a readable projection of the real body, not a second
+serializer: `ChatProvider.previewRequest` must call the same builder as `stream`,
+and the last body is kept in `ChatViewModel.wire` in memory. It shows:
 
 - request parameters (`model`, `stream`, `thinking`, `reasoning_effort`,
   `stream_options`, `user_id`);
@@ -449,11 +449,12 @@ prompt no longer requires scrolling to its end. Images are shown as
 **Copy JSON**. Demo mode has no provider body and says so rather than inventing
 a fake request.
 
-The `{}` **View wire format** action sits in the existing **Used N tools**
-header row, not in an action row underneath the tool list. The old row spent a
-full line on a single 32dp button and pushed the answer down; the header already
-has a trailing slot for counts and badges. The separate text link inside the
-expanded tool list was removed as a duplicate.
+The `{}` action shares the existing bottom action row (source, copy, rewind)
+when that row exists, so final replies and thinking blocks gain no extra line.
+A reasoning-only message with no text and no rewind uses the assistant header
+instead. The old separate **View wire format** text link inside the tool list
+was removed as a duplicate, and the action is no longer gated on `toolCalls`:
+`content`, `reasoning_content` and `tool_calls` all need the same inspector.
 
 On compact widths the sheet switches from parameter tables to stacked
 key/value blocks, so a search query is not squeezed into a ribbon beside a fixed

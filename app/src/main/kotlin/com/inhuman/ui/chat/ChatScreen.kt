@@ -2022,7 +2022,18 @@ private fun MessageBubble(
 ) {
 	val alignment = if (message.fromUser) Alignment.End else Alignment.Start
 	val context = LocalContext.current
-	val hasWire = !message.fromUser && !isStreaming && message.toolCalls.isNotEmpty()
+	// Every completed assistant message has a wire form: a final answer has
+	// content, a reasoning-only message has reasoning_content, and a tool round
+	// has tool_calls. Gating this on toolCalls made thinking and final replies
+	// invisible in the inspector.
+	val hasWire = !message.fromUser && !isStreaming
+	val hasTextActions = !message.fromUser &&
+		!message.isStreaming &&
+		message.plainText.isNotBlank()
+	// Put the wire button in the existing bottom action row when that row exists.
+	// Only a message with no text and no rewind needs a header fallback; this is
+	// what keeps a lone {} from creating an otherwise empty line.
+	val showBottomWire = hasWire && (hasTextActions || showRewind)
 
 	// Per-message view state, not stored: "show me the Markdown" and "repair the
 	// unclosed fence for display" are ways of reading this answer, not edits to
@@ -2106,6 +2117,20 @@ private fun MessageBubble(
 					MaterialTheme.colorScheme.primary
 				},
 			)
+			if (hasWire && !showBottomWire) {
+				Spacer(Modifier.weight(1f))
+				IconButton(
+					onClick = onShowWire,
+					modifier = Modifier.size(32.dp),
+				) {
+					Icon(
+						imageVector = Icons.Outlined.DataObject,
+						contentDescription = "View wire format",
+						tint = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.size(16.dp),
+					)
+				}
+			}
 		}
 		Box(
 			modifier = if (message.fromUser) {
@@ -2176,23 +2201,6 @@ private fun MessageBubble(
 						summary = if (calls.size == 1) "Used one tool" else "Used ${calls.size} tools",
 						trailing = calls.count { it.state == ToolCallUi.State.Failed }
 							.takeIf { it > 0 }?.let { "$it failed" },
-						trailingAction = if (hasWire) {
-							{
-								IconButton(
-									onClick = onShowWire,
-									modifier = Modifier.size(32.dp),
-								) {
-									Icon(
-										imageVector = Icons.Outlined.DataObject,
-										contentDescription = "View wire format",
-										tint = MaterialTheme.colorScheme.onSurfaceVariant,
-										modifier = Modifier.size(16.dp),
-									)
-								}
-							}
-						} else {
-							null
-						},
 						autoExpand = live == LiveAssistantSection.Tools,
 					) {
 						Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed)) {
@@ -2344,11 +2352,7 @@ private fun MessageBubble(
 
 		// One compact action bar per message. Source and copy are local to the
 		// message; rewind is the single restart control for the turn.
-		val hasTextActions = !message.fromUser &&
-			!message.isStreaming &&
-			message.plainText.isNotBlank()
-
-		if (hasTextActions || showRewind) {
+		if (hasTextActions || showRewind || showBottomWire) {
 			Row(
 				modifier = Modifier.padding(top = 2.dp),
 				horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -2381,6 +2385,20 @@ private fun MessageBubble(
 						Icon(
 							imageVector = Icons.Outlined.ContentCopy,
 							contentDescription = "Copy reply",
+							tint = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.size(16.dp),
+						)
+					}
+				}
+
+				if (showBottomWire) {
+					IconButton(
+						onClick = onShowWire,
+						modifier = Modifier.size(32.dp),
+					) {
+						Icon(
+							imageVector = Icons.Outlined.DataObject,
+							contentDescription = "View wire format",
 							tint = MaterialTheme.colorScheme.onSurfaceVariant,
 							modifier = Modifier.size(16.dp),
 						)
