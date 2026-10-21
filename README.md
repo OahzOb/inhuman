@@ -380,10 +380,14 @@ with the current database and workspace directory renamed aside until the new
 ones are in place. A failure restores the old ones.
 
 A streaming reply starts a `dataSync` foreground service (`TurnForegroundService`)
-from the chat view model's `onStreamingChanged`, so screen-off does not let
-Android kill a long model/tool turn. It stops as soon as `isStreaming` is false.
-On Android 13+ the notification permission is requested on the first turn; if it
-is denied the service still runs, only the notice is hidden.
+from the `TurnStatus` reported by the chat view model, so screen-off does not let
+Android kill a long model/tool turn. One notification per active conversation
+shows the current phase, a chronometer and Stop; two or more are grouped under a
+summary with Open and Stop all. When the app is in the background, completion
+uses a separate `Finished replies` channel with a private lock-screen version and
+a plain-text preview; it is not posted while the app is in the foreground. On
+Android 13+ the notification permission is requested on the first turn; if it
+is denied the service still runs, only the notices are hidden.
 
 ### Emulator
 

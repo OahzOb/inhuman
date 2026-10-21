@@ -2,7 +2,8 @@ package com.inhuman.ui.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.inhuman.ActiveTurn
+import com.inhuman.TurnNotifications
+import com.inhuman.TurnStatus
 import com.inhuman.core.ai.ChatMessage
 import com.inhuman.core.ai.ChatProvider
 import com.inhuman.core.ai.ChatRequest
@@ -134,7 +135,7 @@ class ChatViewModel(
 	 * The app layer owns the foreground service; the view model deliberately
 	 * knows nothing about Android services or notifications.
 	 */
-	private val onStreamingChanged: (Boolean, String) -> Unit = { _, _ -> },
+	private val onTurnStatus: (TurnStatus) -> Unit = {},
 ) : ViewModel() {
 
 	private val _state = MutableStateFlow(ChatUiState())
@@ -144,21 +145,60 @@ class ChatViewModel(
 	private val _wire = MutableStateFlow<WireSnapshot?>(null)
 	val wire: StateFlow<WireSnapshot?> = _wire.asStateFlow()
 
-	private val turnToken = Any()
+	private var turnStartedAt = 0L
 
 	init {
 		viewModelScope.launch {
-			_state.map { it.isStreaming to it.title }
+			_state.map { notificationStatus() }
 				.distinctUntilChanged()
-				.collect { (streaming, title) ->
-					if (streaming) {
-						ActiveTurn.register(turnToken) { stop() }
+				.collect { status ->
+					if (status.streaming) {
+						TurnNotifications.registerStop(conversationId) { stop() }
 					} else {
-						ActiveTurn.clear(turnToken)
+						TurnNotifications.clearStop(conversationId)
 					}
-					onStreamingChanged(streaming, title)
+					onTurnStatus(status)
 				}
 		}
+	}
+
+	/**
+	 * A status with only the facts the notification layer needs.
+	 *
+	 * It deliberately does not include the transcript: a new token must not
+	 * republish a notification, and the phase changes are enough to tell the
+	 * user what the turn is doing. The preview is filled only on completion.
+	 */
+	private fun notificationStatus(): TurnStatus {
+		val current = _state.value
+		val streaming = current.isStreaming
+		if (streaming && turnStartedAt == 0L) turnStartedAt = System.currentTimeMillis()
+		val lastAssistant = current.messages.lastOrNull { !it.fromUser && !it.isToolResult }
+		val call = lastAssistant?.toolCalls?.lastOrNull {
+			it.state == ToolCallUi.State.Streaming ||
+				it.state == ToolCallUi.State.Ready ||
+				it.state == ToolCallUi.State.Running
+		}
+		val phase = when {
+			current.pendingApproval != null -> "Waiting for approval"
+			current.pendingSshConsent != null -> "Waiting for SSH consent"
+			current.isCompacting -> "Compacting context"
+			call != null -> "Using ${call.displayName}"
+			streaming && lastAssistant?.plainText.isNullOrBlank() -> "Thinking"
+			streaming -> "Writing reply"
+			else -> "Finished"
+		}
+		val status = TurnStatus(
+			conversationId = conversationId,
+			title = current.title,
+			phase = phase,
+			startedAt = if (turnStartedAt == 0L) System.currentTimeMillis() else turnStartedAt,
+			streaming = streaming,
+			preview = if (!streaming) lastAssistant?.plainText?.take(240) else null,
+			failed = !streaming && current.error != null,
+		)
+		if (!streaming) turnStartedAt = 0L
+		return status
 	}
 
 	private var conversation: ConversationEntity? = null
@@ -3390,10 +3430,10 @@ class ChatViewModel(
 	}
 
 	override fun onCleared() {
-		// A cleared view model cannot deliver a later "false"; stop the
-		// foreground service here rather than leaving it until the process dies.
-		ActiveTurn.clear(turnToken)
-		onStreamingChanged(false, _state.value.title)
+		// A cleared view model cannot deliver a later "false"; clear its stop
+		// handler and publish one final idle status for the notification layer.
+		TurnNotifications.clearStop(conversationId)
+		onTurnStatus(notificationStatus().copy(streaming = false, phase = "Finished"))
 		super.onCleared()
 	}
 

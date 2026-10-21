@@ -124,18 +124,25 @@ two or three levels at once.
 
 ### Process lifetime
 
-A streaming turn starts `TurnForegroundService` through the
-`onStreamingChanged` callback passed to `ChatViewModel` at wiring time. The
-callback lives in `MainActivity` and uses the application context, not a screen's
-composition: navigating back while a reply runs must not stop the service and
-leave the turn to be killed. It carries the conversation id and title, so the
-notification names the conversation and taps through to it. The notification's
-**Stop** action calls `ActiveTurn.requestStop()`, which invokes the view model's
-own `stop()` without exposing it to the service; the service then stops itself.
-The token in `ActiveTurn` keeps an old view model from clearing a newer turn.
-The service stops on the next `false` and in `ChatViewModel.onCleared`. It is a
-`dataSync` service with a low-importance, silent notification; denying
-`POST_NOTIFICATIONS` hides the notice but does not stop the service.
+A streaming turn reports a `TurnStatus` from `ChatViewModel` through the
+`onTurnStatus` callback at wiring time. `MainActivity` passes it to
+`TurnNotifications`, which owns a map keyed by conversation id; the view model
+also registers a per-conversation stop callback there. `TurnForegroundService`
+only renders that map. With one turn its notification is the foreground
+notification; with several, a summary notification is foreground and each turn
+gets a child with its own Open/Stop. This is what makes two simultaneous
+conversations safe — the old singleton id and single stop handler could overwrite
+or stop the wrong turn.
+
+`TurnStatus` carries the current phase (Thinking, Using a tool, Waiting for
+approval/consent, Writing reply), the conversation title and the start time.
+The service uses a chronometer and updates on phase changes, not on every token.
+The progress channel is low-importance and silent. A finish does not post a
+completion while the app is in the foreground; in the background it posts a
+separate `turn_complete` notification with a plain-text preview, private lock
+screen version, and tap-to-open. The service stops on the final `false` and in
+`ChatViewModel.onCleared`; denying `POST_NOTIFICATIONS` hides the notices but
+does not stop the service.
 
 A pending backup restore is applied in `InhumanApp.onCreate`, before any
 repository opens Room, because replacing a live database under an open connection

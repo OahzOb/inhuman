@@ -17,7 +17,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.core.content.ContextCompat
 import com.inhuman.core.ai.ssh.SshClient
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.AgentRepository
@@ -54,7 +53,7 @@ class MainActivity : ComponentActivity() {
 		super.onCreate(savedInstanceState)
 		if (savedInstanceState == null) {
 			pendingConversationId.value =
-				intent?.getStringExtra(TurnForegroundService.EXTRA_CONVERSATION_ID)
+				intent?.getStringExtra(TurnNotifications.EXTRA_CONVERSATION_ID)
 		}
 		setContent {
 			InhumanTheme {
@@ -72,7 +71,7 @@ class MainActivity : ComponentActivity() {
 	override fun onNewIntent(intent: Intent) {
 		super.onNewIntent(intent)
 		setIntent(intent)
-		val conversation = intent.getStringExtra(TurnForegroundService.EXTRA_CONVERSATION_ID)
+		val conversation = intent.getStringExtra(TurnNotifications.EXTRA_CONVERSATION_ID)
 		if (conversation != null) pendingConversationId.value = conversation
 	}
 }
@@ -359,18 +358,8 @@ private fun InhumanRoot(
 						sshToolEnabled = {
 							secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1"
 						},
-						onStreamingChanged = { streaming, title ->
-							val app = context.applicationContext
-							val intent = Intent(app, TurnForegroundService::class.java)
-								.putExtra(TurnForegroundService.EXTRA_TITLE, title)
-								.putExtra(TurnForegroundService.EXTRA_CONVERSATION_ID, id)
-							runCatching {
-								if (streaming) {
-									ContextCompat.startForegroundService(app, intent)
-								} else {
-									app.stopService(intent)
-								}
-							}
+						onTurnStatus = { status ->
+							TurnNotifications.update(context.applicationContext, status)
 						},
 					)
 				}

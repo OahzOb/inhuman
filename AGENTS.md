@@ -297,10 +297,13 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   database and workspace directory before any repository opens Room. The current
   files are renamed aside first and restored if the swap fails. Never perform
   this while a Room connection is open. API keys are intentionally absent.
-- **The foreground service follows `isStreaming`.** `ChatViewModel` reports the
-  transition; `MainActivity` starts/stops `TurnForegroundService`. Do not tie
-  it to a screen's composition, or navigating back would stop the service while
-  the turn keeps billing.
+- **Turn notifications are keyed by conversation.** `ChatViewModel` reports a
+  `TurnStatus`; `MainActivity` passes it to `TurnNotifications`; the foreground
+  service renders one notification per active turn, and a summary only when
+  several run. Do not reintroduce a single notification id/stop handler: it
+  would overwrite or stop the wrong conversation. Do not tie the service to a
+  screen's composition, or navigating back would stop it while the turn keeps
+  billing.
 - **Diagnostics never records a key, a prompt or file content, and never throws
   into the call site.** A logger that can fail a turn is a second bug; one that
   keeps the user's text is a leak with a retention policy. `docs/10-diagnostics.md`

@@ -1,8 +1,7 @@
 package com.inhuman
 
-import android.app.NotificationChannel
+import android.app.Notification
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -11,80 +10,140 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 
 /**
- * Keeps the process alive while a reply is streaming.
+ * Keeps the process alive and renders one notification per running turn.
  *
- * A turn can spend minutes in a provider call or a tool round. Without a
- * foreground service, Android is free to kill the process when the screen turns
- * off, losing the reply after the user was billed for it. The notification is
- * deliberately quiet: it reports that the assistant is working, not a progress
- * bar the app cannot measure.
+ * With one turn its own notification is the foreground notification. With
+ * several turns a summary notification is foreground and each turn gets a child
+ * notification with its own Open/Stop actions. Turn state lives in
+ * [TurnNotifications]; this service only renders it.
  */
 class TurnForegroundService : Service() {
 
+	private val posted = mutableSetOf<Int>()
+
 	override fun onCreate() {
 		super.onCreate()
-		val manager = getSystemService(NotificationManager::class.java)
-		manager.createNotificationChannel(
-			NotificationChannel(
-				CHANNEL_ID,
-				"Assistant replies",
-				NotificationManager.IMPORTANCE_LOW,
-			).apply {
-				description = "Shown while a reply is being generated."
-				setShowBadge(false)
-			},
-		)
+		TurnNotifications.ensureChannels(this)
 	}
 
 	override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-		if (intent?.action == ACTION_STOP) {
-			ActiveTurn.requestStop()
-			stopSelf()
-			return START_NOT_STICKY
+		when (intent?.action) {
+			TurnNotifications.ACTION_STOP -> {
+				intent.getStringExtra(TurnNotifications.EXTRA_CONVERSATION_ID)?.let {
+					TurnNotifications.stopTurn(it)
+				}
+			}
+
+			TurnNotifications.ACTION_STOP_ALL -> TurnNotifications.stopAll()
 		}
-		val conversationId = intent?.getStringExtra(EXTRA_CONVERSATION_ID)
-		val title = intent?.getStringExtra(EXTRA_TITLE)?.takeIf { it.isNotBlank() }
-		val open = PendingIntent.getActivity(
-			this,
-			0,
-			Intent(this, MainActivity::class.java)
-				.putExtra(EXTRA_CONVERSATION_ID, conversationId)
-				.putExtra(EXTRA_TITLE, title),
-			PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-		)
-		val stop = PendingIntent.getService(
-			this,
-			1,
-			Intent(this, TurnForegroundService::class.java).setAction(ACTION_STOP),
-			PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-		)
-		val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+		refresh()
+		return START_NOT_STICKY
+	}
+
+	private fun refresh() {
+		val turns = TurnNotifications.snapshot()
+		val manager = getSystemService(NotificationManager::class.java)
+		if (turns.isEmpty()) {
+			ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+			posted.forEach { manager.cancel(it) }
+			posted.clear()
+			stopSelf()
+			return
+		}
+
+		val previous = posted.toSet()
+		posted.clear()
+		if (turns.size == 1) {
+			val turn = turns.single()
+			val id = TurnNotifications.childId(turn.conversationId)
+			ServiceCompat.startForeground(
+				this,
+				id,
+				childNotification(turn, grouped = false),
+				ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+			)
+			posted += id
+		} else {
+			ServiceCompat.startForeground(
+				this,
+				TurnNotifications.SUMMARY_ID,
+				summaryNotification(turns),
+				ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+			)
+			posted += TurnNotifications.SUMMARY_ID
+			turns.forEach { turn ->
+				val id = TurnNotifications.childId(turn.conversationId)
+				manager.notify(id, childNotification(turn, grouped = true))
+				posted += id
+			}
+		}
+		(previous - posted).forEach { manager.cancel(it) }
+	}
+
+	private fun childNotification(status: TurnStatus, grouped: Boolean): Notification {
+		val public = NotificationCompat.Builder(this, TurnNotifications.CHANNEL_PROGRESS)
 			.setSmallIcon(R.drawable.ic_stat_turn)
-			.setContentTitle(title ?: "inhuman")
-			.setContentText("The assistant is still working on this reply.")
-			.setContentIntent(open)
-			.addAction(0, "Stop", stop)
+			.setContentTitle("inhuman")
+			.setContentText("Reply in progress")
+			.build()
+		return NotificationCompat.Builder(this, TurnNotifications.CHANNEL_PROGRESS)
+			.setSmallIcon(R.drawable.ic_stat_turn)
+			.setContentTitle(status.title.ifBlank { "Conversation" })
+			.setContentText(status.phase)
+			.setSubText("inhuman")
+			.setWhen(status.startedAt)
+			.setUsesChronometer(true)
+			.setShowWhen(true)
+			.setContentIntent(TurnNotifications.openIntent(this, status.conversationId))
+			.addAction(0, "Stop", TurnNotifications.stopIntent(this, status.conversationId))
 			.setOngoing(true)
 			.setSilent(true)
 			.setOnlyAlertOnce(true)
 			.setCategory(NotificationCompat.CATEGORY_PROGRESS)
+			.setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+			.setPublicVersion(public)
+			.apply { if (grouped) setGroup(GROUP) }
 			.build()
-		ServiceCompat.startForeground(
-			this,
-			NOTIFICATION_ID,
-			notification,
-			ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
-		)
-		return START_NOT_STICKY
+	}
+
+	private fun summaryNotification(turns: List<TurnStatus>): Notification {
+		val latest = turns.last()
+		val public = NotificationCompat.Builder(this, TurnNotifications.CHANNEL_PROGRESS)
+			.setSmallIcon(R.drawable.ic_stat_turn)
+			.setContentTitle("inhuman")
+			.setContentText("${turns.size} replies in progress")
+			.build()
+		val inbox = NotificationCompat.InboxStyle()
+			.setBigContentTitle("${turns.size} replies running")
+		turns.take(5).forEach { turn ->
+			inbox.addLine("${turn.title.ifBlank { "Conversation" }} — ${turn.phase}")
+		}
+		return NotificationCompat.Builder(this, TurnNotifications.CHANNEL_PROGRESS)
+			.setSmallIcon(R.drawable.ic_stat_turn)
+			.setContentTitle("${turns.size} replies running")
+			.setContentText("${latest.title.ifBlank { "Conversation" }} · ${latest.phase}")
+			.setStyle(inbox)
+			.setSubText("inhuman")
+			.setWhen(turns.minOf { it.startedAt })
+			.setUsesChronometer(true)
+			.setShowWhen(true)
+			.setContentIntent(TurnNotifications.openIntent(this, latest.conversationId))
+			.addAction(0, "Open", TurnNotifications.openIntent(this, latest.conversationId))
+			.addAction(0, "Stop all", TurnNotifications.stopAllIntent(this))
+			.setOngoing(true)
+			.setSilent(true)
+			.setOnlyAlertOnce(true)
+			.setCategory(NotificationCompat.CATEGORY_PROGRESS)
+			.setGroup(GROUP)
+			.setGroupSummary(true)
+			.setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+			.setPublicVersion(public)
+			.build()
 	}
 
 	override fun onBind(intent: Intent?): IBinder? = null
 
 	companion object {
-		const val CHANNEL_ID = "turn_progress"
-		const val NOTIFICATION_ID = 41
-		const val ACTION_STOP = "com.inhuman.action.STOP_TURN"
-		const val EXTRA_TITLE = "com.inhuman.extra.TITLE"
-		const val EXTRA_CONVERSATION_ID = "com.inhuman.extra.CONVERSATION_ID"
+		private const val GROUP = "inhuman.turns"
 	}
 }
