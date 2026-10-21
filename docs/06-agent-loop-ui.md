@@ -417,6 +417,14 @@ collapsed to a few lines with **Show more**. Images are shown as
 **Copy JSON**. Demo mode has no provider body and says so rather than inventing
 a fake request.
 
+On compact widths the sheet switches from parameter tables to stacked
+key/value blocks, so a search query is not squeezed into a ribbon beside a fixed
+label column. Tool calls lead with the tool name and a shortened call id; the
+exact id remains in **Raw JSON**. The sheet is capped at `Layout.ChatMeasure`
+on a tablet rather than spanning the whole 1280dp window. The phone header puts
+**Raw JSON** and close beside the title and moves the subtitle onto its own line,
+because the previous row wrapped both.
+
 The request snapshot is deliberately not persisted: it is a view of one
 in-flight/last request, not another copy of the transcript. The assistant raw
 view is reconstructed from the already-persisted `toolCallsJson`, so it survives

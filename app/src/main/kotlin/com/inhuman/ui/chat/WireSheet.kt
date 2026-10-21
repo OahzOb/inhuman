@@ -5,6 +5,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -13,11 +14,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -30,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.inhuman.core.design.Hairline
+import com.inhuman.core.design.Layout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -368,6 +376,7 @@ private fun WireDialog(
 	onDismiss: () -> Unit,
 ) {
 	val clipboard = LocalClipboardManager.current
+	val compact = LocalConfiguration.current.screenWidthDp < 600
 	var raw by remember { mutableStateOf(false) }
 	Dialog(
 		onDismissRequest = onDismiss,
@@ -375,28 +384,43 @@ private fun WireDialog(
 	) {
 		Surface(
 			modifier = Modifier
-				.fillMaxWidth(0.94f)
-				.fillMaxHeight(0.88f),
+				.widthIn(max = Layout.ChatMeasure)
+				.fillMaxWidth(if (compact) 0.98f else 0.94f)
+				.fillMaxHeight(if (compact) 0.94f else 0.88f),
 			color = MaterialTheme.colorScheme.surface,
 			shape = RoundedCornerShape(12.dp),
 			tonalElevation = 6.dp,
 		) {
-			Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-				Row(verticalAlignment = Alignment.CenterVertically) {
-					Column(modifier = Modifier.weight(1f)) {
-						Text(title, style = MaterialTheme.typography.titleMedium)
+			Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+				Column {
+					Row(verticalAlignment = Alignment.CenterVertically) {
 						Text(
-							subtitle,
-							style = MaterialTheme.typography.labelSmall,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-							fontFamily = FontFamily.Monospace,
+							title,
+							style = MaterialTheme.typography.titleMedium,
+							maxLines = 1,
+							overflow = TextOverflow.Ellipsis,
+							modifier = Modifier.weight(1f),
 						)
+						TextButton(
+							onClick = { raw = !raw },
+							contentPadding = PaddingValues(horizontal = 8.dp),
+						) {
+							Text(if (raw) "Sheet" else "Raw JSON", style = MaterialTheme.typography.labelMedium)
+						}
+						IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+							Icon(Icons.Filled.Close, contentDescription = "Close wire view")
+						}
 					}
-					TextButton(onClick = { raw = !raw }) {
-						Text(if (raw) "Sheet" else "Raw JSON")
-					}
-					TextButton(onClick = onDismiss) { Text("Close") }
+					Text(
+						subtitle,
+						style = MaterialTheme.typography.labelSmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						fontFamily = FontFamily.Monospace,
+						maxLines = 2,
+						overflow = TextOverflow.Ellipsis,
+					)
 				}
+				Spacer(Modifier.height(6.dp))
 				Hairline()
 				Spacer(Modifier.height(8.dp))
 				if (error != null) {
@@ -493,16 +517,41 @@ private fun WireKeyValues(values: List<Pair<String, String>>) {
 	if (values.isEmpty()) return
 	Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
 		values.forEach { (key, value) ->
-			Row {
-				Text(
-					key,
-					modifier = Modifier.width(112.dp),
-					style = MaterialTheme.typography.labelSmall,
-					fontFamily = FontFamily.Monospace,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-				WireLongText(value, maxLines = 2)
-			}
+			WireField(key, value, maxLines = 2)
+		}
+	}
+}
+
+/**
+ * A key/value pair that chooses one or two columns.
+ *
+ * On a phone a fixed label column leaves so little width for a search query that
+ * the value becomes a narrow ribbon; stacking is clearer. The tablet keeps the
+ * denser two-column form.
+ */
+@Composable
+private fun WireField(key: String, value: String, maxLines: Int) {
+	val compact = LocalConfiguration.current.screenWidthDp < 600
+	if (compact) {
+		Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+			Text(
+				key,
+				style = MaterialTheme.typography.labelSmall,
+				fontFamily = FontFamily.Monospace,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			WireLongText(value, maxLines = maxLines)
+		}
+	} else {
+		Row {
+			Text(
+				key,
+				modifier = Modifier.width(112.dp),
+				style = MaterialTheme.typography.labelSmall,
+				fontFamily = FontFamily.Monospace,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			WireLongText(value, maxLines = maxLines)
 		}
 	}
 }
@@ -558,7 +607,10 @@ private fun WireToolCard(tool: WireTool) {
 
 @Composable
 private fun WireParamRow(param: WireParam, depth: Int = 0) {
-	Column(modifier = Modifier.padding(start = (depth * 14).dp)) {
+	Column(
+		modifier = Modifier.padding(start = (depth * 14).dp),
+		verticalArrangement = Arrangement.spacedBy(1.dp),
+	) {
 		Row(verticalAlignment = Alignment.CenterVertically) {
 			Text(
 				param.name + if (param.required) "*" else "",
@@ -571,16 +623,15 @@ private fun WireParamRow(param: WireParam, depth: Int = 0) {
 				style = MaterialTheme.typography.labelSmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
-			param.description?.takeIf { it.isNotBlank() }?.let {
-				Spacer(Modifier.width(8.dp))
-				Text(
-					it,
-					style = MaterialTheme.typography.labelSmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-					maxLines = 1,
-					overflow = TextOverflow.Ellipsis,
-				)
-			}
+		}
+		param.description?.takeIf { it.isNotBlank() }?.let {
+			Text(
+				it,
+				style = MaterialTheme.typography.labelSmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 2,
+				overflow = TextOverflow.Ellipsis,
+			)
 		}
 		param.children.forEach { WireParamRow(it, depth + 1) }
 	}
@@ -615,7 +666,7 @@ private fun WireMessageCard(message: WireMessage) {
 			message.toolCallId?.let {
 				Spacer(Modifier.width(8.dp))
 				Text(
-					"call $it",
+					shortCallId(it),
 					style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
@@ -660,14 +711,20 @@ private fun WireCallCard(call: WireCall) {
 		modifier = Modifier.padding(start = 10.dp, top = 2.dp),
 		verticalArrangement = Arrangement.spacedBy(3.dp),
 	) {
-		Row {
+		Row(verticalAlignment = Alignment.CenterVertically) {
 			Text(
-				"call ${call.id.ifBlank { "?" }}",
+				call.name.ifBlank { "tool call" },
+				style = MaterialTheme.typography.labelLarge,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis,
+				modifier = Modifier.weight(1f),
+			)
+			Spacer(Modifier.width(8.dp))
+			Text(
+				shortCallId(call.id),
 				style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
 				color = MaterialTheme.colorScheme.primary,
 			)
-			Spacer(Modifier.width(8.dp))
-			Text(call.name, style = MaterialTheme.typography.labelLarge)
 		}
 		if (call.fields.isEmpty()) {
 			Text(
@@ -678,26 +735,29 @@ private fun WireCallCard(call: WireCall) {
 			if (call.argumentsRaw.isNotBlank()) WireLongText(call.argumentsRaw, maxLines = 3)
 		} else {
 			call.fields.forEach { (key, value) ->
-				Row {
-					Text(
-						key,
-						modifier = Modifier.width(110.dp),
-						style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-					)
-					WireLongText(value, maxLines = 3)
-				}
+				WireField(key, value, maxLines = 3)
 			}
 		}
 		call.results.forEach { result ->
 			Text(
-				"TOOL RESULT · call ${result.toolCallId ?: "?"}",
+				"TOOL RESULT · ${shortCallId(result.toolCallId.orEmpty())}",
 				style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
 				color = MaterialTheme.colorScheme.secondary,
 			)
 			result.content.forEach { WireLongText(it.text, maxLines = 3) }
 		}
 	}
+}
+
+/**
+ * Long provider ids carry a timestamp-like prefix and a random tail; truncating
+ * the middle keeps both ends recognisable without letting the id take the whole
+ * row. The raw JSON view still has the exact value.
+ */
+private fun shortCallId(id: String): String = when {
+	id.isBlank() -> "call ?"
+	id.length <= 22 -> id
+	else -> "${id.take(12)}…${id.takeLast(6)}"
 }
 
 @Composable
