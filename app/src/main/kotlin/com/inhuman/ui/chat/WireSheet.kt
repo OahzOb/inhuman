@@ -1,5 +1,6 @@
 package com.inhuman.ui.chat
 
+import android.content.ClipData
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -33,11 +34,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,6 +48,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.currentWindowFrame
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -186,7 +189,6 @@ private fun parseCall(element: JsonElement): WireCall? {
 private fun JsonElement.displayValue(): String = when (this) {
 	is JsonPrimitive -> if (isString) "\"${content}\"" else content
 	is JsonArray, is JsonObject -> compact()
-	else -> toString()
 }
 
 private fun parseParams(schema: JsonObject, depth: Int = 0): List<WireParam> {
@@ -376,7 +378,8 @@ private fun WireDialog(
 	error: String?,
 	onDismiss: () -> Unit,
 ) {
-	val clipboard = LocalClipboardManager.current
+	val clipboard = LocalClipboard.current
+	val clipboardScope = rememberCoroutineScope()
 	val compact = currentWindowFrame().isCompact
 	var raw by remember { mutableStateOf(false) }
 	Dialog(
@@ -486,7 +489,13 @@ private fun WireDialog(
 					horizontalArrangement = Arrangement.End,
 				) {
 					TextButton(
-						onClick = { clipboard.setText(AnnotatedString(rawJson)) },
+						onClick = {
+							clipboardScope.launch {
+								clipboard.setClipEntry(
+									ClipEntry(ClipData.newPlainText("Wire JSON", rawJson)),
+								)
+							}
+						},
 					) { Text("Copy JSON") }
 				}
 			}

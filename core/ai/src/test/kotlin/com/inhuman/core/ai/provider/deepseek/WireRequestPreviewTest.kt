@@ -46,7 +46,7 @@ class WireRequestPreviewTest {
 			userId = "conversation-1",
 		)
 
-		val body = provider.previewRequest(request)!!
+		val body = provider.previewRequest(request)
 		val messages = body["messages"]!!.jsonArray
 		assertEquals("You are a helpful assistant.", messages[0].jsonObject["content"]!!.jsonPrimitive.content)
 		assertEquals("hello", messages[1].jsonObject["content"]!!.jsonPrimitive.content)
