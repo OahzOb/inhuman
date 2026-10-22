@@ -108,4 +108,17 @@ class WireHistoryTest {
 		assertTrue(stored.contains("\"host\":\"example.test\""))
 		assertTrue(!stored.contains("KEY"))
 	}
+
+	@Test
+	fun `transfer credentials are removed but the paths are kept`() {
+		val stored = redactSshArguments(
+			"{\"host\":\"example.test\",\"username\":\"root\"," +
+				"\"localPath\":\"deploy/app.conf\",\"remotePath\":\"/etc/app.conf\"," +
+				"\"password\":\"secret\",\"privateKey\":\"KEY\"}",
+		)
+		assertTrue(stored.contains("\"localPath\":\"deploy/app.conf\""))
+		assertTrue(stored.contains("\"remotePath\":\"/etc/app.conf\""))
+		assertTrue(!stored.contains("secret"))
+		assertTrue(!stored.contains("KEY"))
+	}
 }

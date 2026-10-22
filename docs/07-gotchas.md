@@ -662,8 +662,10 @@ hiding the evidence. The correction is structural:
   mutation; after each completed tool group capture another checkpoint;
 - rollback restores `start` **before** deleting any rows; a failed restore
   leaves the conversation intact;
-- `ssh_exec` is tagged `reversible = false`; a turn containing it gets no
-  Edit/rollback point, only the reason. **Answer again** is still available.
+- `ssh_exec` and `ssh_upload` are tagged `reversible = false`; a turn containing
+  either gets no Edit/rollback point, only the reason. `ssh_download` is remote
+  but writes a workspace copy, so it stays reversible. **Answer again** is still
+  available.
 
 Snapshots are per turn and per tool group. The chat menu lists each stored turn
 with its checkpoint count, bytes and timestamp, totals them, and sets retention
@@ -682,11 +684,11 @@ deleted the turn, and restored the prompt.
 Three related UI failures, reported together:
 
 - Whether a turn could be rewound lived in the tool description, which is
-  collapsed by default. The name `ssh_exec` says what it runs, not that its
+  collapsed by default. The name of an SSH tool says what it runs, not that its
   effects are permanent. Every mutating tool now carries **REWIND** or **NO
   REWIND** in the same badge row as PAID and REMOTE, in the assistant editor,
-  the approval-rule row, and the approval dialog. `ssh_exec` shows both REMOTE
-  and NO REWIND.
+  the approval-rule row, and the approval dialog. `ssh_exec` and `ssh_upload`
+  show both REMOTE and NO REWIND; `ssh_download` shows REMOTE + REWIND.
 - Edit restored a snapshot without naming what it would revert. The turn's
   changed paths are now compared against the snapshot by content hash, stored
   on the final assistant row (`messages.changedFilesJson`, schema v10), shown
@@ -702,8 +704,9 @@ Verified on the pad: the file turn showed `Changed files / + notes.txt`, the
 dialog repeated the same path under "Files that will be restored", and the
 assistant text ran to the transcript edge. On the phone AVD the assistant
 answer did the same while the user bubble stayed capped; the tool editor showed
-`REWIND` on file tools and `REMOTE` + `NO REWIND` on `ssh_exec`. The persisted
-list survived a force-stop and relaunch.
+`REWIND` on file tools, `REMOTE` + `NO REWIND` on `ssh_exec`/`ssh_upload`, and
+`REMOTE` + `REWIND` on `ssh_download`. The persisted list survived a force-stop
+and relaunch.
 
 ### B20. Regeneration could only retry the last text, and one snapshot overwrote all history
 

@@ -65,16 +65,17 @@ data class PendingApproval(
  * The once-per-conversation SSH acknowledgement.
  *
  * Separate from [PendingApproval]: this is a capability grant, not a question
- * about one call. The first call's host and command are shown because they are
- * the most concrete warning available, but allowing this allows every later
- * SSH call in the conversation.
+ * about one call. The first call's host and operation are shown because they
+ * are the most concrete warning available, but allowing this allows every
+ * later SSH call in the conversation -- commands and file transfers alike.
  */
 data class SshConsent(
 	val messageId: String,
 	val call: ToolCallUi,
 	val host: String,
 	val username: String,
-	val command: String,
+	/** The first command, or the two paths and direction of the first transfer. */
+	val operation: String,
 	/** Present only when the model supplied an explicit host-key pin. */
 	val hostKeyFingerprint: String? = null,
 )

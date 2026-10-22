@@ -367,6 +367,13 @@ private fun InhumanRoot(
 			val id = openConversationId!!
 			val factory = remember(id, agents, secure) {
 				viewModelFactory {
+					// The SSH client owns only the TOFU host-key file in
+					// app storage. It stores no hosts and no credentials. One
+					// instance serves the exec and SFTP seams, so both use the
+					// same known_hosts file.
+					val ssh = SshClient(
+						File(context.applicationContext.filesDir, "ssh/known_hosts"),
+					)
 					ChatViewModel(
 						context = context.applicationContext,
 						repository = repository,
@@ -379,11 +386,8 @@ private fun InhumanRoot(
 						// reopening the conversation.
 						searchProvider = { WebToolProviders.search(secure) },
 						fetchProvider = { WebToolProviders.fetch(secure) },
-						// The SSH client owns only the TOFU host-key file in
-						// app storage. It stores no hosts and no credentials.
-						sshTransport = SshClient(
-							File(context.applicationContext.filesDir, "ssh/known_hosts"),
-						),
+						sshTransport = ssh,
+						sshFileTransport = ssh,
 						sshToolEnabled = {
 							secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1"
 						},

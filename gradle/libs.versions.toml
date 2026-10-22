@@ -95,6 +95,7 @@ okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 sshj = { module = "com.hierynomus:sshj", version.ref = "sshj" }
 bouncycastle-bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncyCastle" }
 sshd-core = { module = "org.apache.sshd:sshd-core", version.ref = "minaSshd" }
+sshd-sftp = { module = "org.apache.sshd:sshd-sftp", version.ref = "minaSshd" }
 slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
 
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }

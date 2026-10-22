@@ -180,7 +180,7 @@
 	<string name="settings_demo_title">Demo mode</string>
 	<string name="settings_demo_body">Replies are scripted on the device, and the file tools run for real. Nothing is sent anywhere and no key is needed. With tools switched on it creates a file and then deletes it, so the tool loop runs end to end without an account.</string>
 	<string name="settings_ssh_title">SSH tool</string>
-	<string name="settings_ssh_body">Off by default. When on, an assistant can be given ssh_exec. It does not configure any remote machine: the agent uses whatever host and credentials the user gives it. The first SSH call in each conversation shows a consent warning; after that, normal tool policy applies. The agent can then run any command on the remote machine, which may be irreversible. SSH tool arguments are redacted before the transcript is stored, but text you type is still stored.</string>
+	<string name="settings_ssh_body">Off by default. When on, an assistant can be given the SSH tools: ssh_exec runs commands, ssh_upload and ssh_download move files. It does not configure any remote machine: the agent uses whatever host and credentials the user gives it. The first SSH call in each conversation shows a consent warning; after that, normal tool policy applies. The agent can then run any command or replace files on the remote machine, which may be irreversible. SSH tool arguments are redacted before the transcript is stored, but text you type is still stored.</string>
 	<string name="settings_host_keys_none">No pinned host keys yet</string>
 	<string name="settings_host_keys_count">Pinned host keys (%1$d)</string>
 	<string name="settings_section_limits">04 / Turn limits</string>
@@ -292,7 +292,7 @@
 	<string name="badge_rewind">REWIND</string>
 	<string name="badge_no_rewind">NO REWIND</string>
 	<string name="notice_paid_tools">web_search and web_fetch call the search/fetch service configured in Settings. They are billed per call by that provider; the other tools do not call a paid service.</string>
-	<string name="notice_remote_tools">ssh_exec runs commands on another machine. The app does not configure hosts or keep a credential store; the agent uses what you give it. Damage at the remote end can be irreversible. It also requires the SSH tool switch in Settings, and the first call in a conversation asks for consent.</string>
+	<string name="notice_remote_tools">The SSH tools run commands and move files on another machine. The app does not configure hosts or keep a credential store; the agent uses what you give it. Damage at the remote end can be irreversible. They also require the SSH tool switch in Settings and consent once per conversation.</string>
 
 	<!-- Files: the conversation workspace browser. -->
 	<string name="files_title">Files</string>
@@ -397,7 +397,7 @@
 	<string name="agents_all">All</string>
 	<string name="agents_none">None</string>
 	<string name="agents_includes_future">Includes tools added in future versions.</string>
-	<string name="agents_ssh_excluded">ssh_exec is never included by “all”; select it explicitly.</string>
+	<string name="agents_ssh_excluded">SSH tools are never included by “all”; select them explicitly.</string>
 	<string name="agents_writes">writes</string>
 	<string name="agents_help_body">Tools marked “writes” change files in the conversation\'s folder. A reply that used one cannot be regenerated, because replaying the turn would write a second time.</string>
 	<string name="agents_preview_title">What the model receives</string>
@@ -487,13 +487,15 @@
 	<string name="chat_try_demo">Try demo mode</string>
 	<string name="chat_open_files">Open files</string>
 	<string name="chat_ssh_title">Allow SSH in this conversation?</string>
-	<string name="chat_ssh_body">The agent will be able to connect to %1$s@%2$s and run any command there. It can also connect to any other host it is given credentials for, without asking again in this conversation.</string>
-	<string name="chat_ssh_first_command">First command:\n%1$s</string>
+	<string name="chat_ssh_body">The agent will be able to connect to %1$s@%2$s, run any command there, and move files between this conversation\'s workspace and that machine. It can also connect to any other host it is given credentials for, without asking again in this conversation.</string>
+	<string name="chat_ssh_first_operation">First operation:\n%1$s</string>
 	<string name="chat_ssh_host_key">Pinned host key:\n%1$s</string>
 	<string name="chat_ssh_understand">I understand the agent can cause irreversible damage</string>
 	<string name="chat_ssh_warning">It can delete data, stop services, change access, install software, or expose files. Some damage cannot be undone. Prompt injection from a web page or a file can direct it.</string>
-	<string name="chat_ssh_password_note">If you paste a password or key, it becomes part of this conversation and is sent to the configured model provider. A key file in the workspace stays on the device and is read locally. Files in the workspace can be sent to the remote machine.</string>
+	<string name="chat_ssh_password_note">If you paste a password or key, it becomes part of this conversation and is sent to the configured model provider. A key file in the workspace stays on the device and is read locally. Files in the workspace can be sent to the remote machine, and remote files can be saved into the workspace.</string>
 	<string name="chat_allow_ssh">Allow SSH</string>
+	<string name="ssh_operation_upload">Upload %1$s → %2$s</string>
+	<string name="ssh_operation_download">Download %1$s → %2$s</string>
 	<string name="chat_tool_state_ready">ready</string>
 	<string name="chat_tool_state_running">running</string>
 	<string name="chat_tool_state_done">done</string>
@@ -627,6 +629,7 @@
 	<string name="chat_error_not_ready">This conversation is not ready yet.</string>
 	<string name="chat_error_no_workspace">This conversation has no workspace.</string>
 	<string name="chat_error_image_too_large">Images must be %1$s or smaller; that one is %2$s.</string>
+	<string name="chat_error_image_unreadable">Could not read or process that image.</string>
 	<string name="chat_error_not_enough_turns">There are not enough earlier complete turns to compact.</string>
 	<string name="chat_error_changed_while_summarizing">The conversation changed while it was being summarized, so the summary was discarded.</string>
 	<string name="chat_error_summary_not_stored">Could not store the summary; the full transcript is still used.</string>
@@ -675,11 +678,17 @@
 	<string name="wire_show_less">Show less</string>
 	<string name="wire_clip_label">Wire JSON</string>
 	<string name="wire_close_view">Close wire view</string>
+	<string name="wire_turn_title">Turn wire</string>
+	<plurals name="wire_turn_rounds">
+		<item quantity="one">%1$d round · content · reasoning · tool_calls</item>
+		<item quantity="other">%1$d rounds · content · reasoning · tool_calls</item>
+	</plurals>
 
 	<!-- Chat: the usage line. -->
 	<string name="usage_out">out</string>
 	<string name="usage_in">in</string>
 	<string name="usage_cache">cache</string>
+	<string name="usage_turn_total">Turn total</string>
 	<string name="usage_first_token">first token</string>
 	<string name="usage_generating">generating</string>
 	<string name="usage_speed">speed</string>

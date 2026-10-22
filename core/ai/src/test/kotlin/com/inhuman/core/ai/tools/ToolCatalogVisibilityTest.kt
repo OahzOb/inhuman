@@ -14,14 +14,18 @@ class ToolCatalogVisibilityTest {
 	@Test
 	fun sshIsAbsentFromTheVisibleCatalogueWhenDisabled() {
 		val visible = ToolCatalog.visible(includeSsh = false).map { it.name }
-		assertFalse("ssh_exec was visible while disabled", "ssh_exec" in visible)
+		ToolCatalog.all.filter { it.remote }.forEach { entry ->
+			assertFalse("${entry.name} was visible while disabled", entry.name in visible)
+		}
 		assertTrue("the ordinary tools disappeared too", "read_file" in visible)
 	}
 
 	@Test
 	fun sshAppearsOnlyWhenTheGlobalCapabilityIsOn() {
 		val visible = ToolCatalog.visible(includeSsh = true).map { it.name }
-		assertTrue("ssh_exec was not offered after enabling", "ssh_exec" in visible)
+		ToolCatalog.all.filter { it.remote }.forEach { entry ->
+			assertTrue("${entry.name} was not offered after enabling", entry.name in visible)
+		}
 		assertTrue("the ordinary tools disappeared too", "web_search" in visible)
 	}
 }

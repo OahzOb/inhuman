@@ -99,6 +99,20 @@ object ToolCatalog {
 			reversible = false,
 			remote = true,
 		),
+		Entry(
+			"ssh_upload",
+			"Send a workspace file to the remote machine",
+			mutates = true,
+			reversible = false,
+			remote = true,
+		),
+		Entry(
+			"ssh_download",
+			"Copy a remote file into the workspace",
+			mutates = true,
+			reversible = true,
+			remote = true,
+		),
 		Entry("write_file", "Create or replace a file", mutates = true),
 		Entry("append_file", "Add to the end of a file", mutates = true),
 		Entry("create_directory", "Make a folder inside the folder", mutates = true),
@@ -117,13 +131,13 @@ object ToolCatalog {
 	/**
 	 * The tools a picker should show for the current global capability state.
 	 *
-	 * `ssh_exec` is not merely unavailable while the global switch is off: it is
-	 * absent. Showing a disabled row still tells the user (and the model-facing
-	 * picker preview) that a remote shell exists; the switch in Runtime is the
-	 * only place that should advertise it.
+	 * Every remote tool is not merely unavailable while the global switch is
+	 * off: it is absent. Showing a disabled row still tells the user (and the
+	 * model-facing picker preview) that remote execution exists; the switch in
+	 * Runtime is the only place that should advertise it.
 	 */
 	fun visible(includeSsh: Boolean): List<Entry> =
-		if (includeSsh) all else all.filterNot { it.name == "ssh_exec" }
+		if (includeSsh) all else all.filterNot { it.remote }
 
 	/**
 	 * Whether a selection permits a tool.
@@ -147,14 +161,17 @@ object ToolCatalog {
 	 *
 	 * Asking the catalogue makes the rule say what it means: a tool is permitted
 	 * when the selection allows it **and it is a tool this app has**.
+	 *
+	 * ## Why every remote tool needs its own name
+	 *
+	 * `ssh_exec` was the first remote capability, and null predates it; reading
+	 * null as consent would hand every old assistant a remote shell. The file
+	 * transfers are the same capability and get the same rule -- a check that
+	 * special-cased one name would silently grant the other two.
 	 */
 	fun permits(selected: List<String>?, toolName: String): Boolean {
-		if (toolName !in names) return false
-		// SSH is never covered by the historical "null means everything"
-		// selection. That selection predates SSH, and reading it as consent
-		// would silently hand every old assistant a remote shell. It must be
-		// named explicitly in the selection.
-		if (toolName == "ssh_exec") return selected?.contains(toolName) == true
+		val entry = all.firstOrNull { it.name == toolName } ?: return false
+		if (entry.remote) return selected?.contains(toolName) == true
 		return selected == null || toolName in selected
 	}
 

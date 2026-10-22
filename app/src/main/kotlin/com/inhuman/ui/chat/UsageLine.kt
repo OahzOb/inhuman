@@ -41,14 +41,15 @@ import com.inhuman.R
  * is nothing to act on.
  */
 @Composable
-fun UsageLine(usage: UsageUi, modifier: Modifier = Modifier) {
+fun UsageLine(usage: UsageUi, modifier: Modifier = Modifier, prefix: String? = null) {
 	var expanded by remember { mutableStateOf(false) }
 
 	val outLabel = stringResource(R.string.usage_out)
 	val inLabel = stringResource(R.string.usage_in)
 	val cacheLabel = stringResource(R.string.usage_cache)
-	val summary = remember(usage, outLabel, inLabel, cacheLabel) {
+	val summary = remember(usage, outLabel, inLabel, cacheLabel, prefix) {
 		summaryOf(usage, outLabel, inLabel, cacheLabel)
+			.let { line -> if (prefix.isNullOrBlank() || line.isEmpty()) line else "$prefix · $line" }
 	}
 	if (summary.isEmpty()) return
 

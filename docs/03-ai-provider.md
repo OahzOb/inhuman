@@ -117,10 +117,24 @@ it do file IO, make it untestable without a filesystem, and put the read inside
 the transport where the workspace sandbox has not been consulted. Bytes are read
 at the moment history is assembled, through the sandbox.
 
-The attach path refuses an image larger than `maxReadBytes` (1 MiB) **at import
-time** and deletes the staged copy. It used to accept up to `maxWriteBytes`
-(4 MiB) and then have `loadImages` skip the file, so a 2 MiB image looked
-attached and was silently dropped when sent.
+The attach path prepares the image before staging it
+(`ImagePreprocessor.kt`). It decodes with a power-of-two `inSampleSize`, applies
+the EXIF orientation, fits the long edge to 1568 px, and re-encodes to JPEG
+(quality 85) or WebP (quality 90 for alpha/PNG/WebP/GIF sources), lowering
+quality and then dimensions until the result is at most `maxReadBytes`
+(1 MiB). Only the prepared copy is stored in `attachments/`; the original is not
+kept, because the transcript stores a path and the model would never see the
+full-size bytes anyway.
+
+This is **not** a provider requirement or a billing optimisation: every vision
+provider resizes before inference, and they bill by the resulting tokens, not by
+file size. The local limit exists because the bytes are base64-inlined into the
+request and held in memory on a phone -- and because provider byte limits differ
+(Claude 5 MB, DeepSeek 32 MB inline) while this app supports any
+OpenAI-compatible one. The provider's own resize rule is documented in
+[DeepSeek's Vision guide](https://api-docs.deepseek.com/guides/vision): images
+are scaled to roughly a 1300×1300 pixel budget and capped at 1024 tokens each,
+so a 2000×2000 and a 5000×5000 image cost the same after resizing.
 
 **Capabilities are checked before the image is ever built**
 (`ChatTypes.kt:56-61`). Sending an image to a text-only model returns **200** and
@@ -495,7 +509,9 @@ DeepSeek uses `Authorization: Bearer`; Exa uses `x-api-key`.
   and a tool result in the transcript carries the badge on its collapsed header.
 - Mutating tools also carry **REWIND** or **NO REWIND**, driven by
   `ToolCatalog.Entry.reversible`, in the same badge row. This is separate from
-  paid: `ssh_exec` is both `REMOTE` and `NO REWIND`; a local write is `REWIND`.
+  paid: `ssh_exec` and `ssh_upload` are both `REMOTE` and `NO REWIND`; a local
+  write is `REWIND`, and `ssh_download` is `REMOTE` but `REWIND` because it writes
+  a workspace copy.
   The name is not expected to carry the consequence by itself.
 - Why the badge is beside the name rather than left in a description is a
   design rule, not a styling choice:
@@ -581,7 +597,7 @@ $env:DEEPSEEK_LIVE_KEY = 'sk-...'
 It checks the request shape that fixtures cannot, and it is what caught the
 `&amp;` URL-encoding issue above.
 
-## `ssh_exec`: one exec call, no host inventory
+## The SSH tools: exec and SFTP, no host inventory
 
 `SshClient` (`core/ai/src/main/kotlin/com/inhuman/core/ai/ssh/SshClient.kt`) wraps
 **sshj 0.41.2**. JSch was tried first and rejected: its EdDSA implementation
@@ -591,7 +607,7 @@ BouncyCastle transitively; that is the dependency-size cost of modern keys.
 
 The client is deliberately narrow:
 
-- one **exec** channel, no PTY, no port forwarding, no SFTP;
+- one **exec** channel and one **SFTP** channel, no PTY, no port forwarding;
 - 15 s connect timeout, 120 s command timeout, 20,000-character cap per stream;
 - password auth, OpenSSH v1 private-key auth, optional passphrase;
 - TOFU known hosts in `filesDir/ssh/known_hosts`, written as standard
@@ -618,6 +634,33 @@ replay would run the remote command again) and `needsApproval = false`; the
 separate per-conversation consent gate is in `ChatViewModel`, and the ordinary
 `ToolPolicy` applies after it.
 
+### File transfer
+
+`SshFileTransport`
+(`core/ai/src/main/kotlin/com/inhuman/core/ai/ssh/SshFileTransport.kt`) is the
+SFTP seam; `SshClient` implements it alongside `SshTransport`, so one instance
+and one
+`known_hosts` file serve both. `SshUploadTool` reads one workspace file through
+the same `readWorkspaceFile` callback the exec tool uses for keys and writes it
+with chunked `RemoteFile.write`; `SshDownloadTool` reads chunked
+`RemoteFile.read` into memory and hands the bytes to `ChatViewModel`, which
+resolves the destination through `SessionWorkspace` and imports it with
+`WorkspaceTransfer`.
+
+- Upload is capped by the workspace read limit (1 MiB), download by the write
+  limit (4 MiB); the remote size is checked before a download starts.
+- Both refuse to overwrite unless `overwrite=true`. Upload is `reversible =
+  false` (`NO REWIND`) because replacing a remote file cannot be undone by
+  deleting the conversation; download is reversible, because the bytes land in a
+  workspace copy the rollback checkpoints can restore.
+- The parent folder of an upload must already exist on the remote; a download
+  creates its workspace parent folders after `resolve` confines them.
+- Binary-safe: no base64, no heredoc, no shell quoting. This is the reason the
+  tools exist next to `ssh_exec`; a real session had 54 heredocs and commands up
+  to 8.9 KB writing scripts to `/tmp`.
+
+### Consent and registration
+
 ### The Android BouncyCastle trap
 
 Android ships a **stripped** BouncyCastle under the provider name `BC`. sshj sees
@@ -636,13 +679,15 @@ therefore both device-tested, not just JVM-tested.
 
 ### Registration, not configuration
 
-SSH is registered only when **all** of these are true: the global Settings switch
-is on, the assistant/conversation tool selection explicitly names `ssh_exec`, and
-the transport exists. `ToolCatalog.permits` special-cases SSH: `null` means
-"everything" for historical assistants, but it does **not** mean consent to SSH.
-The app has no host editor, no allowlist and no credential store — the user tells
-the model how to connect, or puts a key file in the workspace and tells it the
-path.
+Each SSH tool is registered only when **all** of these are true: the global
+Settings switch is on, the assistant/conversation tool selection explicitly names
+that tool, and the matching transport exists (`SshTransport` for exec,
+`SshFileTransport` for the two transfers). `ToolCatalog.permits` treats every
+entry with `remote = true` as explicit-only: `null` means "everything" for
+historical assistants, but it does **not** mean consent to SSH, and special-casing
+one name would silently grant the other two. The app has no host editor, no
+allowlist and no credential store — the user tells the model how to connect, or
+puts a key file in the workspace and tells it the path.
 
 ## The tool catalogue
 
@@ -665,7 +710,7 @@ collapsing them would make one impossible to express (`ToolCatalog.kt:66-74`).
 `allSelection()` returns `null` for "select all" so that a later release adding
 a tool gives it to assistants that had chosen everything.
 
-The 12 tools and their `mutates` flags are tabulated in
+The 14 tools and their `mutates` flags are tabulated in
 [05-files-sandbox.md](05-files-sandbox.md) and
 [01-overview.md](01-overview.md).
 
@@ -688,5 +733,7 @@ All JVM, no device. The one that needs a live key and is skipped by design is
 | `TimeToolTest` | Zone handling and date arithmetic |
 | `ToolCatalogTest` | null vs empty, renamed tools, ordering (reads before writes), SSH is never covered by `null` |
 | `SshClientTest` | Password and Ed25519 auth against embedded MINA SSHD; TOFU reuse, changed-key refusal, explicit fingerprint, timeout, output cap, exit code |
+| `SshFileClientTest` | SFTP against embedded MINA: binary round trip, existing-file refusal and overwrite, download size limit, missing file |
 | `SshExecToolTest` | Password/identityFile/raw-key arguments, missing auth, host validation, wrapped `arguments` strings, transport errors |
+| `SshFileToolsTest` | Upload/download argument travel, local and remote limits, overwrite, workspace-save refusal, irreversibility flags |
 | `DemoProviderTest` | The scripted turn, including that it only calls tools it was offered |

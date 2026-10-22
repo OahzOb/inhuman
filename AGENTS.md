@@ -14,7 +14,7 @@ architecture from scratch:
 | --- | --- |
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
-| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the `ssh_exec` transport** |
+| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the SSH tools (`ssh_exec`, `ssh_upload`, `ssh_download`)** |
 | `docs/04-data-persistence.md` | Room schema v13, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
@@ -51,12 +51,13 @@ Two consequences bind every future change, and neither is negotiable:
 - **The capability boundary must be statable in one sentence a person can
   read.** The default sentence is: *code runs on your device, sees only what you
   hand it, cannot reach the network, and cannot reach your files.* One exception
-  exists, and only one: **`ssh_exec`, off by default, enabled globally, selected
-  explicitly on the assistant, and granted once per conversation.** When SSH is
-  on, the agent can run commands on a remote machine whose address and
-  credentials the user supplies; the app has no host/credential configuration
-  and redacts SSH tool arguments before storage. Do not add another exception
-  without answering `docs/08-port-philosophy.md` §1.2.1 and §1.5.
+  exists, and only one: **the SSH tools (`ssh_exec`, `ssh_upload`,
+  `ssh_download`), off by default, enabled globally, selected explicitly on the
+  assistant, and granted once per conversation.** When SSH is on, the agent can
+  run commands and move files on a remote machine whose address and credentials
+  the user supplies; the app has no host/credential configuration and redacts SSH
+  tool arguments before storage. Do not add another exception without answering
+  `docs/08-port-philosophy.md` §1.2.1 and §1.5.
 
 **Safety here comes from structure, not from prompts.** The agent can only see
 and change the workspace the conversation is attached to, and what the user
@@ -81,12 +82,13 @@ mean "ask" by default. The rule and its reasoning are
 `docs/08-port-philosophy.md` §1.4; apply it to every future paid capability, not
 just the two web tools.
 
-**Remote capability is disclosed separately.** `ssh_exec` carries `remote =
+**Remote capability is disclosed separately.** Every SSH tool carries `remote =
 true`, a filled `REMOTE` badge, a notice above the tool list, and a dedicated
 first-call consent dialog. The app never configures a host or a credential store;
 the user gives them to the agent. SSH tool arguments are redacted before the
 transcript is stored. The ordinary approval dialog must never show a password or
-private key — `ssh_exec` supplies a redacted `details` string.
+private key — the SSH tools supply a redacted `details` string; `ssh_upload` is
+also `NO REWIND` because it replaces a remote file.
 The rules are `docs/08-port-philosophy.md` §1.2.1 and §1.5.
 
 Full reasoning, plus the design questions and how each was answered, is in
@@ -287,8 +289,8 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
 - **Rollback restores the workspace before deleting the turn.** The **Edit your
   message** choice in Rewind restores the `start` checkpoint, then removes the
   message and all descendants and restores text/attachments. A restore failure
-  must leave the rows intact. A turn containing `reversible = false` (`ssh_exec`)
-  gets no Edit/rollback choice at all.
+  must leave the rows intact. A turn containing `reversible = false` (`ssh_exec`,
+  `ssh_upload`) gets no Edit/rollback choice at all.
 - **Checkpoints are content-addressed, per turn and per completed tool group.**
   `start` plus group manifests live under
   `filesDir/rollback/<conversation>/<user-id>`. Retention is 1/3/5/10 turns; the
@@ -300,8 +302,8 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   `conversations.sshAllowed`, checked before the ordinary policy, revoked by the
   chat menu and by the global Settings switch. Do not replace it with
   `needsApproval`, and do not let `toolsJson = null` mean SSH consent. While the
-  global switch is off, `ssh_exec` is **absent** from every picker, approval table,
-  home tool summary and request schema — not a disabled row. Use
+  global switch is off, every SSH tool is **absent** from every picker, approval
+  table, home tool summary and request schema — not a disabled row. Use
   `ToolCatalog.visible(sshEnabled)` for user-facing lists; a greyed row still
   advertises the capability.
 - **Every assistant `tool_calls` block needs tool results on the wire.** A

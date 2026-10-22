@@ -6,6 +6,8 @@ import kotlinx.coroutines.withContext
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.Buffer
 import net.schmizz.sshj.common.KeyType
+import net.schmizz.sshj.sftp.OpenMode
+import net.schmizz.sshj.sftp.RemoteFile
 import net.schmizz.sshj.transport.verification.HostKeyVerifier
 import com.hierynomus.sshj.userauth.keyprovider.OpenSSHKeyV1KeyFile
 import net.schmizz.sshj.userauth.password.PasswordFinder
@@ -77,7 +79,7 @@ interface SshTransport {
  * which is the default key type today. sshj's BouncyCastle dependency is the
  * price of accepting modern keys.
  */
-class SshClient(private val knownHostsFile: File) : SshTransport {
+class SshClient(private val knownHostsFile: File) : SshTransport, SshFileTransport {
 
 	override suspend fun execute(
 		host: String,
@@ -89,48 +91,20 @@ class SshClient(private val knownHostsFile: File) : SshTransport {
 		connectTimeoutMs: Int,
 		commandTimeoutMs: Int,
 	): SshResult = withContext(Dispatchers.IO) {
-		require(host.isNotBlank()) { "host is required" }
-		require(port in 1..65535) { "port must be between 1 and 65535" }
-		require(username.isNotBlank()) { "username is required" }
 		require(command.isNotBlank()) { "command is required" }
-		require(auth.password != null || auth.privateKey?.isNotEmpty() == true) {
-			"password or private key is required"
-		}
-
-		knownHostsFile.parentFile?.mkdirs()
-		ensureBouncyCastle()
-		val knownHosts = TofuKnownHosts(knownHostsFile, hostKeyFingerprint)
-		val ssh = SSHClient().apply {
-			connectTimeout = connectTimeoutMs
-			timeout = commandTimeoutMs
-			addHostKeyVerifier(knownHosts)
-		}
-
-		Diag.i(
-			"ssh",
-			"connect host=$host port=$port user=$username " +
-				"auth=${if (auth.privateKey?.isNotEmpty() == true) "key" else "password"}",
+		val (ssh, knownHosts) = openConnection(
+			host = host,
+			port = port,
+			username = username,
+			auth = auth,
+			explicitFingerprint = hostKeyFingerprint,
+			connectTimeoutMs = connectTimeoutMs,
+			socketTimeoutMs = commandTimeoutMs,
 		)
 
 		var session: net.schmizz.sshj.connection.channel.direct.Session? = null
 		var commandChannel: net.schmizz.sshj.connection.channel.direct.Session.Command? = null
 		try {
-			ssh.connect(host, port)
-			Diag.i("ssh", "connected host=$host fingerprint=${knownHosts.fingerprint ?: "-"}")
-
-			if (auth.privateKey?.isNotEmpty() == true) {
-				val provider = OpenSSHKeyV1KeyFile().apply {
-					init(
-						StringReader(String(auth.privateKey, Charsets.UTF_8)),
-						null,
-						auth.passphrase?.let { pass -> Passphrase(pass) },
-					)
-				}
-				ssh.authPublickey(username, provider)
-			} else {
-				ssh.authPassword(username, auth.password)
-			}
-
 			session = ssh.startSession()
 			commandChannel = session.exec(command)
 
@@ -172,6 +146,200 @@ class SshClient(private val knownHostsFile: File) : SshTransport {
 			runCatching { session?.close() }
 			runCatching { ssh.close() }
 		}
+	}
+
+	override suspend fun upload(
+		host: String,
+		port: Int,
+		username: String,
+		remotePath: String,
+		content: ByteArray,
+		auth: SshAuth,
+		hostKeyFingerprint: String?,
+		overwrite: Boolean,
+		connectTimeoutMs: Int,
+	): SshFileResult = withContext(Dispatchers.IO) {
+		require(remotePath.isNotBlank()) { "remotePath is required" }
+		val (ssh, knownHosts) = openConnection(
+			host = host,
+			port = port,
+			username = username,
+			auth = auth,
+			explicitFingerprint = hostKeyFingerprint,
+			connectTimeoutMs = connectTimeoutMs,
+			socketTimeoutMs = TRANSFER_TIMEOUT_MS,
+		)
+		try {
+			val sftp = ssh.newSFTPClient()
+			try {
+				if (!overwrite && sftp.statExistence(remotePath) != null) {
+					throw SshException("remote file exists: $remotePath")
+				}
+				val remote = sftp.open(
+					remotePath,
+					setOf(OpenMode.WRITE, OpenMode.CREAT, OpenMode.TRUNC),
+				)
+				try {
+					writeFully(remote, content)
+				} finally {
+					runCatching { remote.close() }
+				}
+				Diag.i("ssh", "upload done host=$host path=$remotePath bytes=${content.size}")
+				SshFileResult(content.size.toLong(), knownHosts.fingerprint.orEmpty())
+			} finally {
+				runCatching { sftp.close() }
+			}
+		} catch (e: SshException) {
+			throw e
+		} catch (e: Exception) {
+			Diag.w("ssh", "upload failed host=$host: ${e.message}")
+			throw SshException(e.message ?: "SFTP upload failed", e)
+		} finally {
+			runCatching { ssh.close() }
+		}
+	}
+
+	override suspend fun download(
+		host: String,
+		port: Int,
+		username: String,
+		remotePath: String,
+		auth: SshAuth,
+		hostKeyFingerprint: String?,
+		maxBytes: Long,
+		connectTimeoutMs: Int,
+	): SshDownloadedFile = withContext(Dispatchers.IO) {
+		require(remotePath.isNotBlank()) { "remotePath is required" }
+		val (ssh, knownHosts) = openConnection(
+			host = host,
+			port = port,
+			username = username,
+			auth = auth,
+			explicitFingerprint = hostKeyFingerprint,
+			connectTimeoutMs = connectTimeoutMs,
+			socketTimeoutMs = TRANSFER_TIMEOUT_MS,
+		)
+		try {
+			val sftp = ssh.newSFTPClient()
+			try {
+				if (sftp.statExistence(remotePath) == null) {
+					throw SshException("remote file not found: $remotePath")
+				}
+				val remote = sftp.open(remotePath, setOf(OpenMode.READ))
+				try {
+					val bytes = readFully(remote, maxBytes)
+					Diag.i("ssh", "download done host=$host path=$remotePath bytes=${bytes.size}")
+					SshDownloadedFile(bytes, knownHosts.fingerprint.orEmpty())
+				} finally {
+					runCatching { remote.close() }
+				}
+			} finally {
+				runCatching { sftp.close() }
+			}
+		} catch (e: SshException) {
+			throw e
+		} catch (e: Exception) {
+			Diag.w("ssh", "download failed host=$host: ${e.message}")
+			throw SshException(e.message ?: "SFTP download failed", e)
+		} finally {
+			runCatching { ssh.close() }
+		}
+	}
+
+	/**
+	 * Connect and authenticate, with one place for validation and TOFU.
+	 *
+	 * Extracted when the file-transfer calls arrived: three copies of the
+	 * connect/authenticate/close dance would drift, and the host-key check is
+	 * the one part that must never be forgotten.
+	 */
+	private fun openConnection(
+		host: String,
+		port: Int,
+		username: String,
+		auth: SshAuth,
+		explicitFingerprint: String?,
+		connectTimeoutMs: Int,
+		socketTimeoutMs: Int,
+	): Pair<SSHClient, TofuKnownHosts> {
+		require(host.isNotBlank()) { "host is required" }
+		require(port in 1..65535) { "port must be between 1 and 65535" }
+		require(username.isNotBlank()) { "username is required" }
+		require(auth.password != null || auth.privateKey?.isNotEmpty() == true) {
+			"password or private key is required"
+		}
+
+		knownHostsFile.parentFile?.mkdirs()
+		ensureBouncyCastle()
+		val knownHosts = TofuKnownHosts(knownHostsFile, explicitFingerprint)
+		val ssh = SSHClient().apply {
+			connectTimeout = connectTimeoutMs
+			timeout = socketTimeoutMs
+			addHostKeyVerifier(knownHosts)
+		}
+
+		Diag.i(
+			"ssh",
+			"connect host=$host port=$port user=$username " +
+				"auth=${if (auth.privateKey?.isNotEmpty() == true) "key" else "password"}",
+		)
+		try {
+			ssh.connect(host, port)
+			Diag.i("ssh", "connected host=$host fingerprint=${knownHosts.fingerprint ?: "-"}")
+			if (auth.privateKey?.isNotEmpty() == true) {
+				val provider = OpenSSHKeyV1KeyFile().apply {
+					init(
+						StringReader(String(auth.privateKey, Charsets.UTF_8)),
+						null,
+						auth.passphrase?.let { pass -> Passphrase(pass) },
+					)
+				}
+				ssh.authPublickey(username, provider)
+			} else {
+				ssh.authPassword(username, auth.password)
+			}
+			return ssh to knownHosts
+		} catch (e: Exception) {
+			runCatching { ssh.close() }
+			Diag.w("ssh", "failed host=$host: ${e.message}")
+			if (e is SshException) throw e
+			throw SshException(e.message ?: "SSH connection failed", e)
+		}
+	}
+
+	private fun writeFully(remote: RemoteFile, content: ByteArray) {
+		val buffer = ByteArray(TRANSFER_CHUNK)
+		var offset = 0
+		while (offset < content.size) {
+			val count = minOf(buffer.size, content.size - offset)
+			content.copyInto(buffer, 0, offset, offset + count)
+			remote.write(offset.toLong(), buffer, 0, count)
+			offset += count
+		}
+	}
+
+	private fun readFully(remote: RemoteFile, maxBytes: Long): ByteArray {
+		val size = remote.length()
+		if (size > maxBytes) {
+			throw SshException("remote file is $size bytes; the limit is $maxBytes")
+		}
+		val out = ByteArrayOutputStream(minOf(size, maxBytes).toInt().coerceAtLeast(64))
+		val buffer = ByteArray(TRANSFER_CHUNK)
+		var offset = 0L
+		while (offset < size) {
+			val want = minOf(buffer.size.toLong(), size - offset).toInt()
+			val read = remote.read(offset, buffer, 0, want)
+			if (read <= 0) break
+			out.write(buffer, 0, read)
+			offset += read
+			if (offset > maxBytes) {
+				throw SshException("remote file exceeds the limit of $maxBytes bytes")
+			}
+		}
+		if (offset < size) {
+			throw SshException("remote file ended early: $offset of $size bytes")
+		}
+		return out.toByteArray()
 	}
 
 	/**
@@ -260,6 +428,8 @@ class SshClient(private val knownHostsFile: File) : SshTransport {
 		const val DEFAULT_CONNECT_TIMEOUT_MS = 15_000
 		const val DEFAULT_COMMAND_TIMEOUT_MS = 120_000
 		private const val MAX_OUTPUT_BYTES = 20_000
+		private const val TRANSFER_TIMEOUT_MS = 120_000
+		private const val TRANSFER_CHUNK = 32 * 1024
 
 		/**
 		 * Android ships a stripped-down BouncyCastle under the provider name

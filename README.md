@@ -2,7 +2,7 @@
 
 An Android LLM chat client where **every conversation works inside a workspace**,
 and the assistant can read and write files inside that workspace — and nowhere
-else, except for the opt-in `ssh_exec` tool described below.
+else, except for the opt-in SSH tools described below.
 
 A workspace is **temporary** by default: it is created with its first
 conversation and deleted with it. **Save as permanent** (or creating a workspace
@@ -12,12 +12,13 @@ paths; the absolute location is a user-facing detail.
 
 The sandbox is the point. It is enforced in code, not requested in a prompt.
 
-**One capability can leave the device.** `ssh_exec` is off by default, requires
-the global Settings switch, must be selected explicitly on the assistant, and
-asks for a separate acknowledgement in each conversation before its first call.
-The app has no remote-host or credential configuration; the user supplies them to
-the agent. It is a deliberate exception to the local sandbox, not a "full access"
-mode.
+**One capability can leave the device.** The SSH tools (`ssh_exec`,
+`ssh_upload`, `ssh_download`) are off by default, require the global Settings
+switch, must be selected explicitly on the assistant, and ask for a separate
+acknowledgement in each conversation before the first call. They run commands and
+move files on a remote machine; the app has no remote-host or credential
+configuration, and the user supplies those to the agent. This is a deliberate
+exception to the local sandbox, not a "full access" mode.
 
 ---
 
@@ -53,7 +54,7 @@ Open with… support so another app can edit and save a workspace file, and
 multi-select deletion for conversations and permanent workspaces. The layout
 follows the window's width **and** height, with an Auto/Compact/Comfortable
 override; Settings is folded by concern; tool rounds and total tool calls have
-separate global budgets; and `ssh_exec` is absent from every picker while its
+separate global budgets; and every SSH tool is absent from every picker while its
 global switch is off.
 
 **Demo mode exercises the tool loop, not just the stream.** With file tools
@@ -75,10 +76,13 @@ be reached without an account.
 | `web_search` | paid search through DeepSeek or Exa; own key, independent of the chat provider |
 | `web_fetch` | paid fetch through DeepSeek or Exa; own key, independent of the chat provider |
 | `ssh_exec` | one command on a remote machine; **off by default**, explicit assistant selection, per-conversation consent, no host config |
+| `ssh_upload` | copy a workspace file to the remote machine over SFTP; **NO REWIND**, default refuses to overwrite |
+| `ssh_download` | copy a remote file into the workspace over SFTP; **REWIND**, default refuses to overwrite |
 
 Every mutating tool carries a **REWIND** or **NO REWIND** badge beside its name,
 in the same row as PAID and REMOTE. The name says what the tool does; the badge
-says whether the turn can be undone. `ssh_exec` is the only `NO REWIND` entry.
+says whether the turn can be undone. `ssh_exec` and `ssh_upload` are the
+`NO REWIND` entries.
 
 **Rewind** is the single restart control on the newest answer. It opens a picker
 of restart points:
@@ -98,7 +102,8 @@ last user message, removes the message and everything after it, and restores
 the text and attachments to the composer. If the turn wrote local files, the
 pre-turn start checkpoint is restored **before** any rows are deleted. A turn's
 changed files are listed under its answer (`+`/`~`/`-` paths) and repeated in
-the confirmation. A turn that ran SSH is **not** offered for rollback.
+the confirmation. A turn that ran `ssh_exec` or `ssh_upload` is **not** offered
+for rollback.
 
 Checkpoints are content-addressed per turn and per completed tool group; the
 chat menu shows how many turns and bytes are stored and lets you keep 1, 3, 5 or
@@ -115,19 +120,22 @@ model's summary of one; fetch is how the model reads a page that list pointed at
 Failures and empty results are not charged by DeepSeek; Exa bills under its own
 plan. Both tools are labelled **paid** wherever a tool is chosen.
 
-**`ssh_exec` is the one tool that leaves the device.** It is off in Settings by
-default; while off it is absent from every tool picker, approval table and the
-home tool summary, and is not sent in tool schemas. It must be enabled globally
-and selected explicitly on an assistant (the historical "all tools" selection
-does not include it), and shows a dedicated warning the first time a
-conversation uses it. After that it follows the normal approval policy, which
-defaults to running without asking. Remote commands are not a workspace copy:
-some damage cannot be undone. The app has no host list and no credential store;
-it provides the transport, and the user gives the agent the host, user and
-password/key file. SSH tool arguments are redacted before the tool-call row is
-stored, but text typed into the conversation is still stored verbatim. Standard
-host-key checking is TOFU with `SHA256:` fingerprints, fail-closed on a changed
-key. Details are in [docs/03-ai-provider.md](docs/03-ai-provider.md).
+**The SSH tools are the only tools that leave the device.** They are off in
+Settings by default; while off they are absent from every tool picker, approval
+table and the home tool summary, and are not sent in tool schemas. They must be
+enabled globally and selected explicitly on an assistant (the historical "all
+tools" selection does not include them), and show a dedicated warning the first
+time a conversation uses one. After that they follow the normal approval policy,
+which defaults to running without asking. Remote commands and replaced remote
+files are not a workspace copy: some damage cannot be undone. The app has no host
+list and no credential store; it provides the transport, and the user gives the
+agent the host, user and password/key file. SSH tool arguments are redacted
+before the tool-call row is stored, but text typed into the conversation is still
+stored verbatim. Standard host-key checking is TOFU with `SHA256:` fingerprints,
+fail-closed on a changed key. `ssh_upload` writes one workspace file over SFTP
+(1 MiB read limit), `ssh_download` saves one remote file into the workspace (4 MiB
+write limit), and both refuse to overwrite unless asked. Details are in
+[docs/03-ai-provider.md](docs/03-ai-provider.md).
 
 Search results are excerpts, not pages. DeepSeek search cleans campaign
 parameters from links before the model sees them, because it cites them back;

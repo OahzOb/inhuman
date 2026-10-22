@@ -33,5 +33,6 @@ dependencies {
 	testImplementation libs.junit
 	testImplementation libs.kotlinx.coroutines.test
 	testImplementation libs.sshd.core
+	testImplementation libs.sshd.sftp
 	testRuntimeOnly libs.slf4j.simple
 }

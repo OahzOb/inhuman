@@ -166,7 +166,7 @@
 	<string name="settings_demo_title">演示模式</string>
 	<string name="settings_demo_body">回复由设备本地按脚本生成，文件工具会真实执行。不会向任何地方发送内容，也不需要密钥。开启工具后它会创建一个文件再删除，因此无需账号就能端到端跑通工具循环。</string>
 	<string name="settings_ssh_title">SSH 工具</string>
-	<string name="settings_ssh_body">默认关闭。打开后，助手可以被授予 ssh_exec。应用不会配置任何远程机器：助手使用用户提供的地址和凭据。每个对话的第一次 SSH 调用会显示授权警告；之后按普通工具策略执行。助手随后可以在远程机器上运行任意命令，可能无法撤销。SSH 工具参数在写入记录前会被脱敏，但你输入的文本仍会被保存。</string>
+	<string name="settings_ssh_body">默认关闭。打开后，助手可以被授予 SSH 工具：ssh_exec 运行命令，ssh_upload 和 ssh_download 传输文件。应用不会配置任何远程机器：助手使用用户提供的地址和凭据。每个对话的第一次 SSH 调用会显示授权警告；之后按普通工具策略执行。助手随后可以在远程机器上运行任意命令或替换文件，可能无法撤销。SSH 工具参数在写入记录前会被脱敏，但你输入的文本仍会被保存。</string>
 	<string name="settings_host_keys_none">还没有固定的主机密钥</string>
 	<string name="settings_host_keys_count">已固定主机密钥（%1$d）</string>
 	<string name="settings_section_limits">04 / 轮次上限</string>
@@ -274,7 +274,7 @@
 	<string name="badge_rewind">可回退</string>
 	<string name="badge_no_rewind">不可回退</string>
 	<string name="notice_paid_tools">web_search 和 web_fetch 会调用设置中配置的搜索/抓取服务。该服务按调用计费；其他工具不会调用付费服务。</string>
-	<string name="notice_remote_tools">ssh_exec 会在另一台机器上运行命令。应用不配置主机，也不保存凭据；助手使用你提供给它的信息。远端的损坏可能无法撤销。它还需要在设置中打开 SSH 工具开关，并且对话中的第一次调用会请求授权。</string>
+	<string name="notice_remote_tools">SSH 工具会在另一台机器上运行命令并传输文件。应用不配置主机，也不保存凭据；助手使用你提供给它的信息。远端的损坏可能无法撤销。它们还需要在设置中打开 SSH 工具开关，并且每个对话会授权一次。</string>
 
 	<!-- 文件：对话工作区浏览器。 -->
 	<string name="files_title">文件</string>
@@ -379,7 +379,7 @@
 	<string name="agents_all">全部</string>
 	<string name="agents_none">无</string>
 	<string name="agents_includes_future">包含以后版本新增的工具。</string>
-	<string name="agents_ssh_excluded">“全部”永远不会包含 ssh_exec；请显式选择它。</string>
+	<string name="agents_ssh_excluded">“全部”永远不会包含 SSH 工具；请显式选择它们。</string>
 	<string name="agents_writes">写入</string>
 	<string name="agents_help_body">标记为“写入”的工具会修改对话文件夹中的文件。使用过这类工具的回复无法重新生成，因为重放该回合会再写一次。</string>
 	<string name="agents_preview_title">模型收到的内容</string>
@@ -468,13 +468,15 @@
 	<string name="chat_try_demo">试试演示模式</string>
 	<string name="chat_open_files">打开文件</string>
 	<string name="chat_ssh_title">允许此对话使用 SSH？</string>
-	<string name="chat_ssh_body">助手将能够连接到 %1$s@%2$s 并在那里运行任意命令。它也可以连接到任何获得凭据的其他主机，而在此对话中不再询问。</string>
-	<string name="chat_ssh_first_command">第一条命令：\n%1$s</string>
+	<string name="chat_ssh_body">助手将能够连接到 %1$s@%2$s，在那里运行任意命令，并在此对话的工作区与该机器之间传输文件。它也可以连接到任何获得凭据的其他主机，而在此对话中不再询问。</string>
+	<string name="chat_ssh_first_operation">第一个操作：\n%1$s</string>
 	<string name="chat_ssh_host_key">已固定主机密钥：\n%1$s</string>
 	<string name="chat_ssh_understand">我明白助手可能造成不可逆的损坏</string>
 	<string name="chat_ssh_warning">它可以删除数据、停止服务、更改权限、安装软件或泄露文件。有些损坏无法撤销。来自网页或文件的提示注入可以操纵它。</string>
-	<string name="chat_ssh_password_note">如果你粘贴密码或密钥，它会成为此对话的一部分并发送给配置的模型服务商。工作区中的密钥文件留在设备上并在本地读取。工作区中的文件可以被发送到远程机器。</string>
+	<string name="chat_ssh_password_note">如果你粘贴密码或密钥，它会成为此对话的一部分并发送给配置的模型服务商。工作区中的密钥文件留在设备上并在本地读取。工作区中的文件可以被发送到远程机器，远程文件也可以保存到工作区。</string>
 	<string name="chat_allow_ssh">允许 SSH</string>
+	<string name="ssh_operation_upload">上传 %1$s → %2$s</string>
+	<string name="ssh_operation_download">下载 %1$s → %2$s</string>
 	<string name="chat_tool_state_ready">就绪</string>
 	<string name="chat_tool_state_running">运行中</string>
 	<string name="chat_tool_state_done">完成</string>
@@ -606,6 +608,7 @@
 	<string name="chat_error_not_ready">这个对话还没准备好。</string>
 	<string name="chat_error_no_workspace">这个对话没有工作区。</string>
 	<string name="chat_error_image_too_large">图片必须小于等于 %1$s；这张是 %2$s。</string>
+	<string name="chat_error_image_unreadable">无法读取或处理这张图片。</string>
 	<string name="chat_error_not_enough_turns">较早的完整回合不够，无法压缩。</string>
 	<string name="chat_error_changed_while_summarizing">生成摘要期间对话发生了变化，因此摘要被丢弃。</string>
 	<string name="chat_error_summary_not_stored">无法保存摘要；仍会使用完整记录。</string>
@@ -654,11 +657,16 @@
 	<string name="wire_show_less">收起</string>
 	<string name="wire_clip_label">线路 JSON</string>
 	<string name="wire_close_view">关闭线路面板</string>
+	<string name="wire_turn_title">本轮线路</string>
+	<plurals name="wire_turn_rounds">
+		<item quantity="other">%1$d 轮 · 内容 · 推理 · tool_calls</item>
+	</plurals>
 
 	<!-- 聊天：用量行。 -->
 	<string name="usage_out">输出</string>
 	<string name="usage_in">输入</string>
 	<string name="usage_cache">缓存</string>
+	<string name="usage_turn_total">本轮合计</string>
 	<string name="usage_first_token">首 token</string>
 	<string name="usage_generating">生成中</string>
 	<string name="usage_speed">速度</string>

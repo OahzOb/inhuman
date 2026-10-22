@@ -31,9 +31,10 @@ and a future session that trusts them will start from a false premise:
 | "the chat screen applies [the cap] to the transcript *and* to the composer strip" | `AGENTS.md` | True for the transcript and composer, which share the 900dp `ChatMeasure`. User messages are 560dp bubbles; assistant replies have no bubble and a 900dp measure. Forms/settings still use 640dp. See [06](06-agent-loop-ui.md). |
 | "`writeText` is wrapped in `NonCancellable`" | `AGENTS.md:151` (now corrected) | It is the row insert at `ChatViewModel.kt:1040`, not the tool-layer `writeText`. |
 
-The tool table at `README.md:50-58` is worth trusting: twelve tools, including
-`read_time`, `web_search`, `web_fetch` and `ssh_exec`. What has drifted is the
-*prose* around mechanisms rather than the lists.
+The tool table at `README.md:69-81` is worth trusting: fourteen tools, including
+`read_time`, `web_search`, `web_fetch`, `ssh_exec`, `ssh_upload` and
+`ssh_download`. What has drifted is the *prose* around mechanisms rather than the
+lists.
 
 The pattern is worth naming, because it is the one thing this docs set exists to
 prevent: **a description of a mechanism outlives the mechanism.** When a count, a
@@ -48,7 +49,7 @@ citation.
 | --- | --- |
 | [01-overview.md](01-overview.md) | What is this, which module holds what, what does the app actually do today, what is deliberately missing |
 | [02-architecture.md](02-architecture.md) | Module graph, dependency rule, how the app is wired at start-up, navigation, build toolchain, build/verify commands |
-| [03-ai-provider.md](03-ai-provider.md) | The provider interface and stream types, provider profiles, the OpenAI-compatible adapter, SSE decoding, demo mode, `web_search`/`web_fetch` and **the paid backends behind them** |
+| [03-ai-provider.md](03-ai-provider.md) | The provider interface and stream types, provider profiles, the OpenAI-compatible adapter, SSE decoding, demo mode, `web_search`/`web_fetch` and the paid backends behind them, and the SSH tools (`ssh_exec`, `ssh_upload`, `ssh_download`) |
 | [04-data-persistence.md](04-data-persistence.md) | Room schema v13 and its exported versions, repositories, ordering rules, key storage, `DocumentsProvider`, orphan sweeps |
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the 8 file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | The turn lifecycle, tool-call execution, the approval gate, cancellation, context gauge, Compose layout rules |
@@ -106,15 +107,15 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :app:testDebugUnitTest --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 372 tests in 45 suites, 0 failures, 1 skipped** — the skip is
+**BUILD SUCCESSFUL, 398 tests in 49 suites, 0 failures, 1 skipped** — the skip is
 `DeepSeekWebLiveTest`, which talks to the real paid Search and Fetch APIs and
 needs `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 
 | Module | Suites | Tests |
 | --- | --- | --- |
-| `:core:ai` | 22 | 199 (1 skipped) |
+| `:core:ai` | 24 | 211 (1 skipped) |
 | `:core:files` | 5 | 57 |
-| `:app` | 13 | 83 |
+| `:app` | 15 | 97 |
 | `:core:common` | 2 | 16 |
 | `:core:data` | 3 | 17 |
 
@@ -141,12 +142,12 @@ they only run against a device:
 | `core/data/src/androidTest/…/WorkspaceDocumentsProviderTest` | The provider's actual folder ids: a re-queried folder keeps its title, and delete/rename are refused |
 | `core/data/src/androidTest/…/ProviderProfileTest` | A conversation copies its assistant's provider; a referenced provider cannot be deleted; key slots are separate |
 | `app/src/androidTest/…/RealProviderProbeTest` | One real `GET /models` when the device already holds a DeepSeek key; a no-op without one rather than a fake pass |
-| `core/data/src/androidTest/…/ConversationSearchTest` | Message and title search, ordering, and literal `%` handling |
+| `app/src/androidTest/…/ImagePreprocessorTest` | A 4000×3000 JPEG is bounded to 1568×1176 and 1 MiB; an 800×600 image is not enlarged; a transparent PNG becomes WebP. This is the device half of the image pipeline, since `Bitmap` does not exist on the JVM || `core/data/src/androidTest/…/ConversationSearchTest` | Message and title search, ordering, and literal `%` handling |
 
 Run them with `:app:connectedDebugAndroidTest` / `:core:data:connectedDebugAndroidTest`,
 or `adb shell am instrument`. The `:core:data` run is **27 tests**, and the app
-suite is **8 tests** (including the two deterministic notification-service
-tests), at the time of
+suite is **11 tests** (including the two deterministic notification-service
+tests and the three image-preprocessor tests), at the time of
 writing. The first two have their measured
 results in [port-assessment.md](port-assessment.md); the rest are the evidence
 behind [07-gotchas.md](07-gotchas.md) B8 and B6.

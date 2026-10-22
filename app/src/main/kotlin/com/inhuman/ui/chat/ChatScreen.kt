@@ -299,7 +299,7 @@ fun ChatScreen(
 	LaunchedEffect(wire) {
 		if (wire?.preview == true) showWireDialog = true
 	}
-	var wireResponseMessage by remember { mutableStateOf<ChatMessageUi?>(null) }
+	var turnWireMessages by remember { mutableStateOf<List<ChatMessageUi>?>(null) }
 	var showToolLimitDialog by remember { mutableStateOf(false) }
 	var showRenameDialog by remember { mutableStateOf(false) }
 	var renameInput by remember { mutableStateOf("") }
@@ -313,7 +313,7 @@ fun ChatScreen(
 		pendingSshConsent != null || rollbackTarget != null || showRewindDialog ||
 		showCompactPreview || showCompactionSummary ||
 		showSnapshotDialog || showToolLimitDialog || showRenameDialog || showWireDialog ||
-		wireResponseMessage != null
+		turnWireMessages != null
 			|| showSaveWorkspaceDialog
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
@@ -683,6 +683,10 @@ fun ChatScreen(
 			// invalidates the list rather than the whole screen. See the note
 			// above the state reads.
 			val messages by viewModel.state.map { it.messages }.collectAsStateWithLifecycle(emptyList())
+			// Turn boundaries and their summed usage. Computed from the same
+			// list the transcript renders, so a footer cannot describe a turn
+			// that is no longer on the active path.
+			val turns = remember(messages) { turnSummariesOf(messages) }
 			// Reveal a message opened from search. Wait for the list to measure
 			// before asking for an index; on a cold open `totalItemsCount` is 0
 			// for a frame, and `scrollToItem` would silently do nothing.
@@ -790,6 +794,11 @@ fun ChatScreen(
 						val isLastAssistant = !message.fromUser && !message.isToolResult &&
 							message.id == lastAssistantId
 						val isLastUser = message.fromUser && message.id == lastUserId
+						// The footer belongs to the turn, not to the reply that
+						// happens to be last: `turns` is keyed by the final
+						// assistant row only, so intermediate tool rounds get
+						// null and show no usage or wire button.
+						val turn = turns[message.id]
 						// Rewind is one control for every restart point in the
 						// turn. It sits on the newest answer because that is where
 						// the deepest cached prefix ends; a user row is only the
@@ -804,7 +813,11 @@ fun ChatScreen(
 							isLatestAssistant = isLastAssistant,
 							isStreaming = isStreaming,
 							showRewind = showRewind,
-							onShowWire = { wireResponseMessage = message },
+							turnUsage = turn?.usage,
+							isTurnEnd = turn?.complete == true,
+							onShowTurnWire = {
+								turn?.let { turnWireMessages = it.messages }
+							},
 							onShowRewind = {
 								val target = messages.lastOrNull {
 									it.fromUser && it.id == lastUserId
@@ -1357,11 +1370,10 @@ fun ChatScreen(
 		}
 	}
 
-	wireResponseMessage?.let { message ->
-		WireResponseDialog(
-			message = message,
-			allMessages = viewModel.state.value.messages,
-			onDismiss = { wireResponseMessage = null },
+	turnWireMessages?.let { messages ->
+		WireTurnDialog(
+			messages = messages,
+			onDismiss = { turnWireMessages = null },
 		)
 	}
 
@@ -1748,7 +1760,7 @@ private fun SshConsentDialog(
 					style = MaterialTheme.typography.bodyLarge,
 				)
 				Text(
-					text = stringResource(R.string.chat_ssh_first_command, consent.command),
+					text = stringResource(R.string.chat_ssh_first_operation, consent.operation),
 					style = MaterialTheme.typography.bodyMedium,
 					fontFamily = FontFamily.Monospace,
 					modifier = Modifier
@@ -2044,17 +2056,19 @@ private fun MessageBubble(
 	isLatestAssistant: Boolean,
 	isStreaming: Boolean,
 	showRewind: Boolean,
-	onShowWire: () -> Unit,
+	turnUsage: UsageUi?,
+	isTurnEnd: Boolean,
+	onShowTurnWire: () -> Unit,
 	onShowRewind: () -> Unit,
 	onSelectBranch: (String?, String) -> Unit,
 ) {
 	val alignment = if (message.fromUser) Alignment.End else Alignment.Start
 	val context = LocalContext.current
-	// Every completed assistant message has a wire form: a final answer has
-	// content, a reasoning-only message has reasoning_content, and a tool round
-	// has tool_calls. Gating this on toolCalls made thinking and final replies
-	// invisible in the inspector.
-	val hasWire = !message.fromUser && !isStreaming
+	// The wire view is a turn-level inspector: one button on the last assistant
+	// row of a completed turn, not one after every tool round. Intermediate
+	// rounds are still included in the dialog's JSON; they just do not each get
+	// an icon.
+	val hasWire = isTurnEnd && !message.fromUser && !isStreaming
 	val hasTextActions = !message.fromUser &&
 		!message.isStreaming &&
 		message.plainText.isNotBlank()
@@ -2152,7 +2166,7 @@ private fun MessageBubble(
 			if (hasWire && !showBottomWire) {
 				Spacer(Modifier.weight(1f))
 				IconButton(
-					onClick = onShowWire,
+					onClick = onShowTurnWire,
 					modifier = Modifier.size(32.dp),
 				) {
 					Icon(
@@ -2360,14 +2374,17 @@ private fun MessageBubble(
 			)
 		}
 
-		// Token accounting, shown only when the provider reported it. Cache hits
-		// are called out because providers commonly bill them much cheaper, so
-		// seeing them is how a user knows prefix caching is working.
-		// What the turn cost. Collapsed to a single line until tapped: speed and
-		// the cache share answer the questions people actually ask, and the
-		// full breakdown is there for when something looks wrong.
-		message.usage?.let { u ->
-			UsageLine(usage = u, modifier = Modifier.padding(top = 4.dp))
+		// Token accounting for the whole turn, once, at its end. The per-message
+		// line was repeated after every tool round; a five-round turn showed
+		// five lines and buried the answer in its own telemetry.
+		if (isTurnEnd) {
+			turnUsage?.let { u ->
+				UsageLine(
+					usage = u,
+					prefix = stringResource(R.string.usage_turn_total),
+					modifier = Modifier.padding(top = 4.dp),
+				)
+			}
 		}
 
 		if (!message.fromUser && message.changedFiles.isNotEmpty()) {
@@ -2435,7 +2452,7 @@ private fun MessageBubble(
 
 				if (showBottomWire) {
 					IconButton(
-						onClick = onShowWire,
+						onClick = onShowTurnWire,
 						modifier = Modifier.size(32.dp),
 					) {
 						Icon(

@@ -13,11 +13,12 @@ a path itself, so it has no vocabulary for a location outside the conversation
 `README.md:207-234`). Prompt-level confinement is not the mechanism here and
 should never be presented as one.
 
-One capability can leave the device: `ssh_exec`, which is **off by default** and
-requires both the global Settings switch and a per-conversation acknowledgement.
-The app still has no host configuration and no credential store; the agent can
-only reach a machine whose address and credentials the user supplies. With SSH
-off — the default — the paragraph above is true as written. See
+One capability can leave the device: the SSH tools (`ssh_exec`, `ssh_upload`,
+`ssh_download`), which are **off by default** and require both the global
+Settings switch and a per-conversation acknowledgement. The app still has no host
+configuration and no credential store; the agent can only reach a machine whose
+address and credentials the user supplies. With SSH off — the default — the
+paragraph above is true as written. See
 [03-ai-provider.md](03-ai-provider.md) and [08-port-philosophy.md](08-port-philosophy.md) §1.2.1.
 
 Single user, single device. DeepSeek is the seeded provider; additional
@@ -71,10 +72,10 @@ Confirmed by `README.md:17-29` and by the code:
   The same assistant can be switched later, but existing conversations keep the
   provider they started with.
 - Per-conversation model and reasoning effort, read from the provider.
-- The model can run a command on a remote machine over SSH, but only after the
-  user turns the global switch on, gives the assistant `ssh_exec`, and allows it
-  once per conversation; there is no host list or credential store, and SSH
-  tool-call arguments are redacted before storage
+- The model can run commands and move files on a remote machine over SSH, but only
+  after the user turns the global switch on, gives the assistant the SSH tools,
+  and allows it once per conversation; there is no host list or credential store,
+  and SSH tool-call arguments are redacted before storage
   ([03-ai-provider.md](03-ai-provider.md)).
 - Approval rules can tighten what the assistant may do, per tool, per assistant
   or per path; the default asks nothing, including for deletion
@@ -169,7 +170,7 @@ Worth settling before reading the rest, because the words are overloaded:
 | **workspace** | A folder and the sandbox boundary. A **temporary** workspace is created with its one conversation and deleted with it; a **permanent** workspace survives its conversations and can be shared by several. The absolute directory is visible to the user in Files and workspace detail, but never to the agent. |
 | **turn** | One user message and everything the model and its tools did in response. |
 | **mutates** | "Replaying this turn with tools would change something." A record, not a blanket regeneration gate. |
-| **reversible** | "The app can put this effect back." Local file tools are reversible; `ssh_exec` is not. Rollback requires it. |
+| **reversible** | "The app can put this effect back." Local file tools are reversible; `ssh_exec` and `ssh_upload` are not, while `ssh_download` writes a workspace copy and is. Rollback requires it. |
 | **needsApproval** | "This particular call needs the user's consent first." Gates execution. |
 
 `mutates` and `needsApproval` are different questions and neither implies the
@@ -185,8 +186,8 @@ selected backend performs the request, so the sandbox still has no network path
 of its own. Prices and rate limits belong to the provider and can change; the
 mechanism is in [03-ai-provider.md](03-ai-provider.md).
 
-The second non-obvious thing: **`ssh_exec` is not a local file tool.** It runs on
-another machine, so its effects are not a workspace copy and cannot be undone by
-deleting the conversation. That is why it is the one capability that does not
-follow the "default asks nothing" argument, and why it has a separate
-once-per-conversation consent instead of only a `ToolPolicy`.
+The second non-obvious thing: **the SSH tools are not local file tools.** They run
+on another machine, so their effects are not a workspace copy and cannot be undone
+by deleting the conversation. That is why the capability does not follow the
+"default asks nothing" argument, and why it has a separate once-per-conversation
+consent instead of only a `ToolPolicy`.

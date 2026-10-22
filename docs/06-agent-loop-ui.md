@@ -84,12 +84,13 @@ since this file was written — search the marker text if they are off):
 
 1. Unknown tool → an error result and `continue`.
 2. Arguments are re-parsed (they were parsed once at `ToolCallEnd`); a parse
-   failure appends a result and `continue`s. For `ssh_exec` the same
+   failure appends a result and `continue`s. For every remote tool the same
    normalization the tool uses is applied first (some models wrap the arguments
-   in an `arguments` string); a call still missing host/user/command gets an
-   error **without** a consent dialog.
-3. The global SSH switch is re-checked for `ssh_exec`, because it can be turned
-   off while a turn is already running. Then **the configured rules are
+   in an `arguments` string); a call still missing host/user, or the tool's own
+   required fields (`command`, `localPath`/`remotePath`), gets an error
+   **without** a consent dialog.
+3. The global SSH switch is re-checked for every remote tool, because it can be
+   turned off while a turn is already running. Then **the configured rules are
    consulted**, and `Deny`/`Blind` are answered here as refusals rather than
    questions — `needsApproval` can only say "ask", and asking about something
    the user forbade would be the wrong question with a confusing answer. The
@@ -202,10 +203,11 @@ Points whose discarded suffix contains an irreversible tool are disabled with th
 reason shown. The same picker is the only place regenerate and rewind now live;
 there is no separate refresh or history icon.
 
-`Tool.reversible` / `ToolCatalog.Entry.reversible` is the gate. `ssh_exec` is the
-only irreversible tool: a turn containing it shows the reason and **no Rewind**.
-A checkpoint after an SSH call can still be selected if only reversible work is
-discarded; the SSH call stays in the prefix.
+`Tool.reversible` / `ToolCatalog.Entry.reversible` is the gate. `ssh_exec` and
+`ssh_upload` are the irreversible tools: a turn containing either shows the reason
+and **no Rewind**. `ssh_download` is remote but writes a workspace copy, so it is
+reversible. A checkpoint after an SSH call can still be selected if only
+reversible work is discarded; the SSH call stays in the prefix.
 
 The chat menu lists every retained turn with its checkpoint count, size and
 timestamp, plus the total, and lets the user keep 1/3/5/10 turns. Rewinding one
@@ -213,14 +215,15 @@ turn replaces only that turn; older turns are not truncated. A mid-turn
 regeneration trims manifests the rewritten transcript no longer references, so
 that turn's checkpoints are replaced.
 
-The two regeneration paths have different cache behaviour, and the usage line
-says so. The final-answer refresh keeps the tool definitions and appends a
+The two regeneration paths have different cache behaviour, and the turn's usage
+line says so. The final-answer refresh keeps the tool definitions and appends a
 transient no-tool instruction after the prefix, so the prefix can hit (measured
 `prompt=2148 cache=1920`, 89%). A checkpoint regeneration keeps the tools and
 prefix without the instruction; it measured `cache 93%`. A retry that removed
 the definitions used to produce `prompt=191 cache=0`, which was a different
 request rather than a cache reset. Zero is displayed rather than hidden; the
-expanded line shows `from cache N of M`.
+expanded line shows `from cache N of M`. A multi-round turn sums its rounds, so
+its percentage is the turn's cache share rather than any one request's.
 
 The final assistant row carries the turn's changed paths (`changedFilesJson`,
 schema v10), computed by hashing the workspace against `start`. They are shown
@@ -436,11 +439,12 @@ title hit has no message id and opens the conversation normally.
 ### Wire inspector
 
 `WireSheet.kt`. The chat menu offers **Preview next request** and **Inspect last
-request**; **every completed assistant message** has a `{}` action, including a
-final text reply and a reasoning-only message, not only a message that requested
-tools. The sheet is a readable projection of the real body, not a second
-serializer: `ChatProvider.previewRequest` must call the same builder as `stream`,
-and the last body is kept in `ChatViewModel.wire` in memory. It shows:
+request**. The transcript has **one `{}` action per completed turn**, on its
+final assistant row; the sheet lists every assistant round of that turn, so a
+five-round tool turn no longer shows five wire buttons. The sheet is a readable
+projection of the real body, not a second serializer:
+`ChatProvider.previewRequest` must call the same builder as `stream`, and the
+last body is kept in `ChatViewModel.wire` in memory. It shows:
 
 - request parameters (`model`, `stream`, `thinking`, `reasoning_effort`,
   `stream_options`, `user_id`);
@@ -461,11 +465,11 @@ prompt no longer requires scrolling to its end. Images are shown as
 a fake request.
 
 The `{}` action shares the existing bottom action row (source, copy, rewind)
-when that row exists, so final replies and thinking blocks gain no extra line.
-A reasoning-only message with no text and no rewind uses the assistant header
-instead. The old separate **View wire format** text link inside the tool list
-was removed as a duplicate, and the action is no longer gated on `toolCalls`:
-`content`, `reasoning_content` and `tool_calls` all need the same inspector.
+when that row exists, so the turn footer adds no extra line; a tool-only final
+round with no text and no rewind uses the assistant header instead. The old
+separate **View wire format** text link inside the tool list was removed as a
+duplicate, and the action is no longer gated on `toolCalls`: `content`,
+`reasoning_content` and `tool_calls` all need the same inspector.
 
 On compact widths the sheet switches from parameter tables to stacked
 key/value blocks, so a search query is not squeezed into a ribbon beside a fixed
@@ -487,15 +491,17 @@ Modal. `onDismissRequest = declinePendingCall`, so Back and an outside tap both
 `describeCall` plus Allow / Decline. It also prints the arguments in monospace
 — directly under a comment saying raw JSON is "practically useless", which is a
 doc-vs-code contradiction rather than a bug: the arguments are the one place a
-user can see what a call will actually do. For `ssh_exec` the view model supplies
-`PendingApproval.details` instead: host, port, user, auth **type** and command,
-never the password or private key.
+user can see what a call will actually do. For the SSH tools the view model
+supplies `PendingApproval.details` instead: host, port, user, auth **type** and
+the operation (command or the two transfer paths), never the password or private
+key.
 
 `describeCall` special-cases `delete_file`, `write_file`, `web_search`,
-`web_fetch` and `ssh_exec`; the web tools also say "(paid search/fetch API)",
-because an approval prompt is exactly the moment the cost is worth repeating, and
-SSH names the host and first 160 characters of the command. Everything else falls
-back to "Run <name>?".
+`web_fetch`, `ssh_exec`, `ssh_upload` and `ssh_download`; the web tools also say
+"(paid search/fetch API)", because an approval prompt is exactly the moment the
+cost is worth repeating, and SSH names the host and first 160 characters of the
+command or the source/destination paths. Everything else falls back to "Run
+<name>?".
 
 ### The SSH consent dialog
 
@@ -586,10 +592,15 @@ with the measured figures and the caveat "Measured from the last reply sent."
 `promptTokens` (`:323-330`) — which is why the figure is one turn behind, and the
 panel says so.
 
-`UsageLine.kt`: one line (tok/s · out · in · cache%) with the full breakdown
-behind a tap. "speed: too short to measure" is **shown rather than omitted**
-(`:111-139`), with the floor at `MIN_SPEED_WINDOW_MS = 100`
-(`ChatUiState.kt:226-243`).
+`UsageLine.kt`: **one line per completed turn**, at its end, prefixed "Turn
+total": tok/s · out · in · cache%, with the full breakdown behind a tap. It sums
+the turn's rounds; the first-token figure comes from the first round, while
+generation time and token counts are added. "speed: too short to measure" is
+**shown rather than omitted** (`:111-139`), with the floor at
+`MIN_SPEED_WINDOW_MS = 100` (`ChatUiState.kt:226-243`). The grouping and the sums
+are `turnSummariesOf` / `aggregateUsage` in `TurnSummary.kt`, tested without
+Compose because the per-message repetition was a layout decision, not a
+rendering fact.
 
 ## The other screens
 
@@ -648,11 +659,11 @@ usable when the MIME type is `application/octet-stream`.
 | a list | "Tools — N of M" | exactly those |
 
 `M` is the **visible** catalogue: `ToolCatalog.visible(sshEnabled)`. While the
-global SSH switch is off, `ssh_exec` is absent from the assistant picker, the
+global SSH switch is off, every SSH tool is absent from the assistant picker, the
 per-assistant rules, the global approval table, the "Preview request" footer and
 the home rail's tool summary. It is not shown as a disabled row: a greyed entry
-still tells the user, and any prompt built from the label, that a remote shell
-exists. When enabled it reappears and remains opt-in; "All" still excludes it
+still tells the user, and any prompt built from the label, that remote execution
+exists. When enabled they reappear and remain opt-in; "All" still excludes them
 (`ToolCatalog.visible`).
 
 Toggling any row while in the `null` state first converts the selection to the
@@ -839,9 +850,11 @@ it; the sandbox's no-network rule applies to code the model writes), and
 | `DeltaCursorTest` | The property "the pieces joined are the whole reply, however it is cut", over every chunk size; no emission when nothing is new; no duplicate on a replayed prefix; a restart on shrink; the `initialText` start; silence for an empty reply. |
 | `ContextUsageTest` | Window-without-measurement is known but not computable; no window ⇒ no fraction and `summary` is a bare count; neither ⇒ nothing drawn; 25% of 1M ⇒ `25% · 262K / 1M`; a non-zero amount never shows 0%; over-window clamps to 100% / 0 left; `contextWindow = 0` treated as absent; `TokenFormat` grouping, including "10K" for 9,960 and never a comma. |
 | `WireHistoryTest` | A dangling assistant `tool_calls` gets its missing tool result inserted **before** the next user message, not at the end; a complete block and a call-free assistant message are untouched. Also that SSH tool arguments lose `password`/`privateKey`/`passphrase` before storage, including the wrapped form. This is the HTTP-400-on-every-later-turn repair and the credential-persistence guard. |
+| `TurnSummaryTest` | Rounds of one turn sum (prompt, completion, cache, generation); a missing field stays missing; a turn still holding a tool result, a running tool call, or a streaming answer is not complete; two turns get independent footers. This keeps telemetry at the turn end rather than after every round. |
+| `ImageSizingTest` / `ImagePreprocessorTest` | Fitting a 4032×3024 photo into 1568×1176, never upscaling a small image, and choosing a power-of-two sample size, on the JVM; then the same decode/scale/encode on a device, including the 1 MiB ceiling and transparent-PNG-to-WebP. This is the phone-side image pipeline that replaced accepting a 4 MiB file and silently dropping it at send. |
 | `SnapshotStoreTest` | `start` and a later tool checkpoint restore their own file versions; added/deleted/modified paths are diffed by content; stats count turns and pruning keeps the newest; `turns` lists each retained turn with its checkpoint count, newest first. This is the file half of checkpointed rollback. |
 | `WindowFrameTest` | A 640×360 landscape phone and a 900×400 wide-short window stay single-pane; a 700×700 foldable is Medium/single-pane; 1024×768 and 1280×900 use two panes; a 360dp phone uses a FAB and the 1.5× font case uses the header overflow. This is the axis-classification half; the screenshot matrix is still required for composition mistakes. |
-| `ToolCatalogVisibilityTest` | `ssh_exec` is absent from `ToolCatalog.visible(false)` and present only in `visible(true)`; ordinary tools remain in both. This is the one list every user-facing picker and approval table reads. |
+| `ToolCatalogVisibilityTest` | every `remote = true` tool is absent from `ToolCatalog.visible(false)` and present only in `visible(true)`; ordinary tools remain in both. This is the one list every user-facing picker and approval table reads. |
 | `TurnNotificationsTest` (instrumentation) | Drives two real `TurnStatus` records through the service: summary plus two children, finishing one demotes to the surviving child, finishing both clears them. Also asserts an awaiting-approval turn has **Review** and **Stop**, and no one-tap Approve/Deny. |
 
 These are pure JVM logic for the reason `AGENTS.md` gives: the device cannot

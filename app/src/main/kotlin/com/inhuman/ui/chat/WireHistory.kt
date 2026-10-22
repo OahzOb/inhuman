@@ -2,7 +2,7 @@ package com.inhuman.ui.chat
 
 import com.inhuman.core.ai.ChatMessage
 import com.inhuman.core.ai.Role
-import com.inhuman.core.ai.tools.SshExecTool
+import com.inhuman.core.ai.tools.SshArguments
 import com.inhuman.core.common.diag.Diag
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -74,7 +74,7 @@ internal fun closeDanglingCalls(
 internal fun redactSshArguments(raw: String): String {
 	if (raw.isBlank()) return raw
 	return runCatching {
-		val normalized = SshExecTool.normalizeArguments(Json.parseToJsonElement(raw).jsonObject)
+		val normalized = SshArguments.normalize(Json.parseToJsonElement(raw).jsonObject)
 		val safe = normalized.toMutableMap()
 		safe.remove("password")
 		safe.remove("privateKey")

@@ -116,7 +116,7 @@ The lifetime rule is in the row, not the directory:
 | `toolCallId` | Which call a tool result answers. Answering the wrong one is worse than answering none. |
 | `toolName` | For display. |
 | `changedFilesJson` | The turn's changed paths, `{"path","kind"}`; written on the final assistant row after tools run. |
-| `attachmentsJson` | JSON array of `{"path","mime","size"}` pointing **into the workspace** — never bytes. Bytes are read only when a request is built. |
+| `attachmentsJson` | JSON array of `{"path","mime","size"}` pointing **into the workspace** — never bytes. The path is the prepared image (resized and re-encoded), not the original; bytes are read only when a request is built. |
 | `mutated` | Written when a turn actually changed the workspace. |
 
 Two of those columns exist for reasons that are easy to undo by accident:

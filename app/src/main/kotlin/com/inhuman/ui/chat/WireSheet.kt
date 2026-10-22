@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -343,28 +344,47 @@ fun WireRequestDialog(snapshot: WireSnapshot, onDismiss: () -> Unit) {
 		title = if (snapshot.preview) "Next request preview" else "Provider request",
 		subtitle = "${snapshot.model} · ${if (snapshot.preview) "not sent" else formatTime(snapshot.capturedAt)}",
 		request = view.getOrNull(),
-		assistant = null,
+		assistants = emptyList(),
 		rawJson = redactImageData(view.getOrNull()?.rawJson ?: snapshot.requestJson),
 		error = view.exceptionOrNull()?.message,
 		onDismiss = onDismiss,
 	)
 }
 
+/**
+ * Every assistant round of one turn, in one inspector.
+ *
+ * The transcript used to put a wire button on each assistant message, so a
+ * five-round turn had five. The rounds are still here -- that is the useful
+ * part of the detail -- but there is one entrance, at the turn's end.
+ */
 @Composable
-fun WireResponseDialog(
-	message: ChatMessageUi,
-	allMessages: List<ChatMessageUi>,
+fun WireTurnDialog(
+	messages: List<ChatMessageUi>,
 	onDismiss: () -> Unit,
 ) {
-	val assistant = remember(message.id, allMessages) {
-		parseAssistant(message, allMessages)
+	val assistants = remember(messages) {
+		messages
+			.filter { !it.fromUser && !it.isToolResult }
+			.map { parseAssistant(it, messages) }
+	}
+	val rawJson = remember(assistants) {
+		if (assistants.size == 1) {
+			assistants.first().rawJson
+		} else {
+			assistants.joinToString(",\n", prefix = "[\n", postfix = "\n]") { it.rawJson }
+		}
 	}
 	WireDialog(
-		title = "Assistant wire",
-		subtitle = "content · reasoning · tool_calls",
+		title = stringResource(R.string.wire_turn_title),
+		subtitle = pluralStringResource(
+			R.plurals.wire_turn_rounds,
+			assistants.size,
+			assistants.size,
+		),
 		request = null,
-		assistant = assistant,
-		rawJson = assistant.rawJson,
+		assistants = assistants,
+		rawJson = rawJson,
 		error = null,
 		onDismiss = onDismiss,
 	)
@@ -375,7 +395,7 @@ private fun WireDialog(
 	title: String,
 	subtitle: String,
 	request: WireRequest?,
-	assistant: WireMessage?,
+	assistants: List<WireMessage>,
 	rawJson: String,
 	error: String?,
 	onDismiss: () -> Unit,
@@ -485,7 +505,7 @@ private fun WireDialog(
 							WireSection("MESSAGES · ${request.messages.size}")
 							request.messages.forEach { message -> WireMessageCard(message) }
 						}
-						assistant?.let { message -> WireMessageCard(message) }
+						assistants.forEach { message -> WireMessageCard(message) }
 					}
 				}
 				Spacer(Modifier.height(8.dp))

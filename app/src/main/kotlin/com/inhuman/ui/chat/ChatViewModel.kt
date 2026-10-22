@@ -46,7 +46,11 @@ import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.ai.tools.TimeTool
 import com.inhuman.core.ai.tools.WebFetchTool
 import com.inhuman.core.ai.tools.WebSearchTool
+import com.inhuman.core.ai.ssh.SshFileTransport
 import com.inhuman.core.ai.ssh.SshTransport
+import com.inhuman.core.ai.tools.SshArguments
+import com.inhuman.core.ai.tools.SshDownloadTool
+import com.inhuman.core.ai.tools.SshUploadTool
 import com.inhuman.core.files.tools.FileTools
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -66,6 +70,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
+import java.io.ByteArrayInputStream
 import java.util.Locale
 import java.util.UUID
 
@@ -124,6 +129,8 @@ class ChatViewModel(
 	private val fetchProvider: () -> FetchProvider? = { null },
 	/** The SSH transport, or null when the feature is not wired. */
 	private val sshTransport: SshTransport? = null,
+	/** SFTP for the same hosts; null when the build has no file transport. */
+	private val sshFileTransport: SshFileTransport? = null,
 	/**
 	 * Whether the global SSH switch is on.
 	 *
@@ -563,12 +570,36 @@ class ChatViewModel(
 				return@launch
 			}
 
+			// The image is re-encoded before it is staged: decode, fix EXIF
+			// orientation, fit the long edge, and compress under the same
+			// maxReadBytes the send path enforces. This keeps a 12 MP phone
+			// photo from becoming a 48 MB bitmap plus a base64 copy in the
+			// request, and makes the stored copy the one that will be sent.
+			val prepared = withContext(Dispatchers.IO) {
+				runCatching {
+					ImagePreprocessor.prepare(
+						open = open,
+						sourceMime = mimeType,
+						maxBytes = workspace.limits.maxReadBytes,
+					)
+				}
+			}.getOrElse { failure ->
+				Diag.w("attach", "prepare failed mime=$mimeType: ${failure.message}")
+				_state.update {
+					it.copy(error = context.getString(R.string.chat_error_image_unreadable))
+				}
+				return@launch
+			}
+
 			// Into an attachments folder, so a picture the user chose is not
 			// confused with a file the assistant wrote. They appear in the same
 			// browser, and the distinction matters when deciding what to delete.
 			val transfer = WorkspaceTransfer(workspace)
+			val importName = prepared.fileName(displayName)
 			val outcome = withContext(Dispatchers.IO) {
-				transfer.import("attachments/" + transfer.uniqueName(displayName)) { open() }
+				transfer.import("attachments/" + transfer.uniqueName(importName)) {
+					ByteArrayInputStream(prepared.bytes)
+				}
 			}
 
 			when (outcome) {
@@ -608,14 +639,20 @@ class ChatViewModel(
 					}
 					Diag.d(
 						"attach",
+						"prepared sourceMime=$mimeType outMime=${prepared.mimeType} " +
+							"${prepared.width}x${prepared.height} bytes=${prepared.bytes.size} " +
+							"quality=${prepared.quality}",
+					)
+					Diag.d(
+						"attach",
 						"imported path=${outcome.relativePath} bytes=${outcome.bytes} " +
-							"mime=$mimeType",
+							"mime=${prepared.mimeType}",
 					)
 					_state.update {
 						it.copy(
 							pendingAttachments = it.pendingAttachments + PendingAttachment(
 								relativePath = outcome.relativePath,
-								mimeType = mimeType,
+								mimeType = prepared.mimeType,
 								sizeBytes = outcome.bytes,
 							),
 							error = null,
@@ -2587,25 +2624,35 @@ class ChatViewModel(
 					continue
 				}
 
+				val remote = ToolCatalog.all.firstOrNull { it.name == tool.name }?.remote == true
 				val parsed = (parseArguments(call, outcome.messageId) ?: continue).let { raw ->
-					if (tool.name == "ssh_exec") SshExecTool.normalizeArguments(raw) else raw
+					if (remote) SshArguments.normalize(raw) else raw
 				}
 
 				// Never show a consent dialogue for a call the tool would reject
 				// as malformed. The dialogue is the strongest warning in the
 				// app; it must describe a call that can actually happen.
-				if (tool.name == "ssh_exec") {
+				if (remote) {
 					val missing = when {
 						stringArg(parsed, "host").isNullOrBlank() -> "host"
 						stringArg(parsed, "username").isNullOrBlank() -> "username"
-						stringArg(parsed, "command").isNullOrBlank() -> "command"
+						tool.name == "ssh_exec" &&
+							stringArg(parsed, "command").isNullOrBlank() -> "command"
+						tool.name == "ssh_upload" && (
+							stringArg(parsed, "localPath").isNullOrBlank() ||
+								stringArg(parsed, "remotePath").isNullOrBlank()
+							) -> "localPath and remotePath"
+						tool.name == "ssh_download" && (
+							stringArg(parsed, "remotePath").isNullOrBlank() ||
+								stringArg(parsed, "localPath").isNullOrBlank()
+							) -> "remotePath and localPath"
 						else -> null
 					}
 					if (missing != null) {
 						markCall(outcome.messageId, call.index, ToolCallUi.State.Failed)
 						appendToolResult(
 							call,
-							"ssh_exec: $missing is required",
+							"${tool.name}: $missing is required",
 							isError = true,
 							messageId = outcome.messageId,
 						)
@@ -2616,7 +2663,7 @@ class ChatViewModel(
 				// A tool can be switched off in Settings while a turn is already
 				// running; the registry was built before that change. Re-check
 				// the global gate here so "off" means off for this call too.
-				if (tool.name == "ssh_exec" && !sshToolEnabled()) {
+				if (remote && !sshToolEnabled()) {
 					Diag.i("ssh", "refused: global switch off")
 					markCall(outcome.messageId, call.index, ToolCallUi.State.Failed)
 					appendToolResult(
@@ -2633,7 +2680,7 @@ class ChatViewModel(
 				// stale after such a round trip: off, then on again. Read the
 				// persisted answer before trusting it, or the second enabling
 				// inherits a consent the user revoked.
-				if (tool.name == "ssh_exec" && sshAllowed) {
+				if (remote && sshAllowed) {
 					val persisted = runCatching { repository.sshAllowed(conversationId) }
 						.getOrNull()
 					if (persisted == false) {
@@ -2679,13 +2726,14 @@ class ChatViewModel(
 				// explicit acknowledgement that later calls inherit. The gate is
 				// deliberately *not* `needsApproval`: that is a per-call question,
 				// this is a grant of a capability.
-				if (tool.name == "ssh_exec" && !sshAllowed) {
+				if (remote && !sshAllowed) {
 					val host = stringArg(parsed, "host").orEmpty()
 					val username = stringArg(parsed, "username").orEmpty()
-					val sshCommand = stringArg(parsed, "command").orEmpty()
+					val operation = remoteOperation(tool.name, parsed)
 					Diag.i(
 						"ssh",
-						"consent ask host=$host user=$username commandChars=${sshCommand.length}",
+						"consent ask host=$host user=$username tool=${tool.name} " +
+							"operationChars=${operation.length}",
 					)
 					_state.update {
 						it.copy(
@@ -2694,7 +2742,7 @@ class ChatViewModel(
 								call = call,
 								host = host,
 								username = username,
-								command = sshCommand,
+								operation = operation,
 								hostKeyFingerprint = stringArg(parsed, "hostKeyFingerprint")
 									?.trim()
 									?.takeIf { it.isNotEmpty() },
@@ -2747,8 +2795,8 @@ class ChatViewModel(
 								messageId = outcome.messageId,
 								call = call,
 								summary = summary,
-								details = if (tool.name == "ssh_exec") {
-									sshApprovalDetails(parsed)
+								details = if (remote) {
+									sshApprovalDetails(tool.name, parsed)
 								} else {
 									null
 								},
@@ -3068,21 +3116,89 @@ class ChatViewModel(
 			// SSH is opt-in twice: the global setting and the assistant's
 			// explicit tool selection. `selected == null` means "all tools" for
 			// historical assistants, so it must NOT be read as consent to SSH.
-			if (sshTransport != null && sshToolEnabled() && selected?.contains("ssh_exec") == true) {
-				add(
-					SshExecTool(sshTransport) { path ->
-						workspace?.let { ws ->
-							when (val resolved = ws.resolve(path)) {
-								is SessionWorkspace.Resolution.Ok -> resolved.file
-									.takeIf { it.isFile && it.length() <= MAX_SSH_IDENTITY_BYTES }
-									?.readBytes()
-								is SessionWorkspace.Resolution.Rejected -> null
-							}
-						}
-					},
-				)
+			val ws = workspace
+			if (ws != null && sshToolEnabled()) {
+				val readIdentity: (String) -> ByteArray? = { path ->
+					when (val resolved = ws.resolve(path)) {
+						is SessionWorkspace.Resolution.Ok -> resolved.file
+							.takeIf { it.isFile && it.length() <= MAX_SSH_IDENTITY_BYTES }
+							?.readBytes()
+						is SessionWorkspace.Resolution.Rejected -> null
+					}
+				}
+				// Uploads may be larger than a key file: read up to a bounded
+				// multiple of the tool's own 1 MiB limit so the tool can return
+				// "over the limit" instead of a misleading "not found".
+				val readUpload: (String) -> ByteArray? = { path ->
+					when (val resolved = ws.resolve(path)) {
+						is SessionWorkspace.Resolution.Ok -> resolved.file
+							.takeIf { it.isFile && it.length() <= MAX_SSH_UPLOAD_READ_BYTES }
+							?.readBytes()
+						is SessionWorkspace.Resolution.Rejected -> null
+					}
+				}
+				if (sshTransport != null && selected?.contains("ssh_exec") == true) {
+					add(SshExecTool(sshTransport, readIdentity))
+				}
+				if (sshFileTransport != null && selected?.contains("ssh_upload") == true) {
+					add(
+						SshUploadTool(
+							transport = sshFileTransport,
+							readWorkspaceFile = readUpload,
+							maxBytes = ws.limits.maxReadBytes,
+						),
+					)
+				}
+				if (sshFileTransport != null && selected?.contains("ssh_download") == true) {
+					add(
+						SshDownloadTool(
+							transport = sshFileTransport,
+							readWorkspaceFile = readIdentity,
+							saveWorkspaceFile = { path, bytes, overwrite ->
+								saveDownload(ws, path, bytes, overwrite)
+							},
+							maxBytes = ws.limits.maxWriteBytes,
+						),
+					)
+				}
 			}
 		}.filter { ToolCatalog.permits(selected, it.name) }
+	}
+
+	/**
+	 * Put a downloaded file into the workspace.
+	 *
+	 * The overwrite check lives here rather than in the transport: the remote
+	 * side cannot see the workspace, and an existing local file is the user's,
+	 * not something the model may replace by accident. `resolve` confines both
+	 * the file and the parent folder that is created for it.
+	 */
+	private fun saveDownload(
+		workspace: SessionWorkspace,
+		path: String,
+		bytes: ByteArray,
+		overwrite: Boolean,
+	): String {
+		val target = when (val resolved = workspace.resolve(path)) {
+			is SessionWorkspace.Resolution.Ok -> resolved.file
+			is SessionWorkspace.Resolution.Rejected ->
+				throw IllegalArgumentException(resolved.reason)
+		}
+		if (target.isDirectory) throw IllegalArgumentException("$path is a directory")
+		if (target.exists() && !overwrite) {
+			throw IllegalArgumentException("$path already exists; pass overwrite=true")
+		}
+		target.parentFile?.mkdirs()
+		return when (
+			val outcome = WorkspaceTransfer(workspace).import(
+				destinationPath = path,
+				maxBytes = workspace.limits.maxWriteBytes,
+				open = { ByteArrayInputStream(bytes) },
+			)
+		) {
+			is WorkspaceTransfer.Outcome.Ok -> outcome.relativePath
+			is WorkspaceTransfer.Outcome.Failed -> throw IllegalArgumentException(outcome.reason)
+		}
 	}
 
 	private fun spec(tool: Tool) = ToolSpec(
@@ -3090,6 +3206,27 @@ class ChatViewModel(
 		description = tool.description,
 		parameters = tool.parameters,
 	)
+
+	/**
+	 * What the first-call consent dialogue shows.
+	 *
+	 * `ssh_exec` shows the command; the transfers show the two paths with the
+	 * direction spelled out, because "which end is being overwritten" is the
+	 * question that matters there.
+	 */
+	private fun remoteOperation(toolName: String, args: JsonObject): String = when (toolName) {
+		"ssh_upload" -> context.getString(
+			R.string.ssh_operation_upload,
+			stringArg(args, "localPath").orEmpty(),
+			stringArg(args, "remotePath").orEmpty(),
+		)
+		"ssh_download" -> context.getString(
+			R.string.ssh_operation_download,
+			stringArg(args, "remotePath").orEmpty(),
+			stringArg(args, "localPath").orEmpty(),
+		)
+		else -> stringArg(args, "command").orEmpty()
+	}
 
 	/** A sentence the user can act on, rather than the raw JSON. */
 	private fun describeCall(call: ToolCallUi, args: JsonObject): String = when (call.displayName) {
@@ -3110,11 +3247,21 @@ class ChatViewModel(
 			stringArg(args, "command")?.take(160) ?: "a command"
 		}?"
 
+		"ssh_upload" -> "Upload ${stringArg(args, "localPath") ?: "a file"} to " +
+			"${stringArg(args, "host") ?: "a remote host"}:${
+				stringArg(args, "remotePath") ?: "a path"
+			}?"
+
+		"ssh_download" -> "Download ${
+			stringArg(args, "host") ?: "a remote host"
+		}:${stringArg(args, "remotePath") ?: "a file"} to " +
+			"${stringArg(args, "localPath") ?: "the workspace"}?"
+
 		else -> "Run ${call.displayName}?"
 	}
 
 	/** Approval details for SSH, with credentials left out deliberately. */
-	private fun sshApprovalDetails(args: JsonObject): String = buildString {
+	private fun sshApprovalDetails(toolName: String, args: JsonObject): String = buildString {
 		append("host: ").append(stringArg(args, "host") ?: "?")
 		append("\nport: ").append(
 			(args["port"] as? kotlinx.serialization.json.JsonPrimitive)?.intOrNull ?: 22,
@@ -3127,7 +3274,7 @@ class ChatViewModel(
 				else -> "password"
 			},
 		)
-		append("\ncommand:\n").append(stringArg(args, "command") ?: "?")
+		append("\noperation:\n").append(remoteOperation(toolName, args))
 		stringArg(args, "hostKeyFingerprint")?.takeIf { it.isNotBlank() }?.let {
 			append("\npinned host key: ").append(it)
 		}
@@ -3437,7 +3584,11 @@ class ChatViewModel(
 				c.name?.let { put("name", it) }
 				put(
 					"arguments",
-					if (c.name == "ssh_exec") redactSshArguments(c.argumentsJson) else c.argumentsJson,
+					if (ToolCatalog.all.firstOrNull { it.name == c.name }?.remote == true) {
+						redactSshArguments(c.argumentsJson)
+					} else {
+						c.argumentsJson
+					},
 				)
 			}.toString()
 		}
@@ -3537,6 +3688,7 @@ class ChatViewModel(
 
 		/** A key file larger than this is not a key; do not read it into memory. */
 		private const val MAX_SSH_IDENTITY_BYTES = 512 * 1024
+	private const val MAX_SSH_UPLOAD_READ_BYTES = 16L * 1024 * 1024
 
 		/**
 		 * Instructions for the derived-summary call.
