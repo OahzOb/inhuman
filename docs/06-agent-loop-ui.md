@@ -517,6 +517,27 @@ The checkbox sits **above** the long warning, not after it. On a phone the body
 scrolls; with the checkbox last it fell below the fold, so "Allow SSH" was
 disabled with no visible reason. Verified at phone width and on the pad.
 
+### Conversation tools
+
+Chat overflow -> **Conversation tools**. The sheet lists
+`conversationToolPlan(sshEnabled, agentTools, conversationTools)`: the assistant's
+tools plus the conversation's existing ones, filtered through
+`ToolCatalog.visible(sshEnabled)`. It shows the same badges as the assistant
+picker, and the footer warns when a selected tool is remote or irreversible.
+Apply writes `conversations.toolsJson`; Cancel changes nothing. The row is
+disabled while a turn streams, and `ChatViewModel.setConversationTools` refuses
+the call as a second guard. Changes apply to the next turn, not the request
+already built.
+
+There is **no second confirmation dialog**. The sheet plus Apply is the
+deliberate action; adding a modal on top would be the per-change approval this
+project avoids. The rule that matters is that the model cannot call anything to
+change the set. The ceiling is why a conversation cannot invent a tool its
+assistant never had; restoring an old tool the conversation already held is
+allowed. A stored remote name survives an edit made while SSH is off, so
+switching SSH off does not silently forget the selection. See
+[11-conversation-tools.md](11-conversation-tools.md).
+
 ### Tool rows
 
 One section per message ("Used N tools", with "N failed" trailing,
@@ -851,6 +872,7 @@ it; the sandbox's no-network rule applies to code the model writes), and
 | `ContextUsageTest` | Window-without-measurement is known but not computable; no window ⇒ no fraction and `summary` is a bare count; neither ⇒ nothing drawn; 25% of 1M ⇒ `25% · 262K / 1M`; a non-zero amount never shows 0%; over-window clamps to 100% / 0 left; `contextWindow = 0` treated as absent; `TokenFormat` grouping, including "10K" for 9,960 and never a comma. |
 | `WireHistoryTest` | A dangling assistant `tool_calls` gets its missing tool result inserted **before** the next user message, not at the end; a complete block and a call-free assistant message are untouched. Also that SSH tool arguments lose `password`/`privateKey`/`passphrase` before storage, including the wrapped form. This is the HTTP-400-on-every-later-turn repair and the credential-persistence guard. |
 | `TurnSummaryTest` | Rounds of one turn sum (prompt, completion, cache, generation); a missing field stays missing; a turn still holding a tool result, a running tool call, or a streaming answer is not complete; two turns get independent footers. This keeps telemetry at the turn end rather than after every round. |
+| `ConversationToolsTest` | The assistant ceiling with `null` and explicit selections; a conversation keeps a tool the assistant no longer has; SSH off hides the row but preserves the stored name; applying stores catalogue order. This is the "new tool reaches an old conversation without inventing a capability" rule. |
 | `ImageSizingTest` / `ImagePreprocessorTest` | Fitting a 4032×3024 photo into 1568×1176, never upscaling a small image, and choosing a power-of-two sample size, on the JVM; then the same decode/scale/encode on a device, including the 1 MiB ceiling and transparent-PNG-to-WebP. This is the phone-side image pipeline that replaced accepting a 4 MiB file and silently dropping it at send. |
 | `SnapshotStoreTest` | `start` and a later tool checkpoint restore their own file versions; added/deleted/modified paths are diffed by content; stats count turns and pruning keeps the newest; `turns` lists each retained turn with its checkpoint count, newest first. This is the file half of checkpointed rollback. |
 | `WindowFrameTest` | A 640×360 landscape phone and a 900×400 wide-short window stay single-pane; a 700×700 foldable is Medium/single-pane; 1024×768 and 1280×900 use two panes; a 360dp phone uses a FAB and the 1.5× font case uses the header overflow. This is the axis-classification half; the screenshot matrix is still required for composition mistakes. |

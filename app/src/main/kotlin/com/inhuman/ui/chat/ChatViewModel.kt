@@ -30,6 +30,7 @@ import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.MessageEntity
+import com.inhuman.core.data.db.ToolsColumn
 import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.core.files.SessionWorkspace
 import com.inhuman.core.files.WorkspaceTransfer
@@ -511,6 +512,35 @@ class ChatViewModel(
 		}
 	}
 
+	/**
+	 * Replace the conversation's tool selection.
+	 *
+	 * The UI is the only caller, and it only offers tools the assistant already
+	 * has or the conversation already had (`conversationToolPlan`). There is no
+	 * tool-driven path to this method: a prompt injection cannot ask for it.
+	 *
+	 * The state is updated before the write so the menu count and the next turn
+	 * see the new set immediately. A failed write reloads the row rather than
+	 * leaving the screen claiming a selection that is not on disk.
+	 */
+	fun setConversationTools(tools: List<String>) {
+		if (_state.value.isStreaming) return
+		val entity = conversation ?: return
+		val clean = tools.filter { it in ToolCatalog.names }.distinct()
+		conversation = entity.copy(toolsJson = ToolsColumn.encode(clean))
+		_state.update {
+			it.copy(conversationTools = clean, toolsKnown = true)
+		}
+		Diag.i("tools", "conversation selection count=${clean.size}")
+		viewModelScope.launch {
+			runCatching { repository.setTools(conversationId, clean) }
+				.onFailure { failure ->
+					Diag.w("tools", "could not persist conversation tools", failure)
+					reload()
+				}
+		}
+	}
+
 	// --- attachments ---------------------------------------------------------
 
 	/**
@@ -815,6 +845,9 @@ class ChatViewModel(
 				messages = rebuilt,
 				sshAllowed = sshAllowed,
 				sshToolEnabled = sshToolEnabled(),
+				conversationTools = loaded?.entity?.tools,
+				agentTools = agent?.tools,
+				toolsKnown = loaded?.entity != null,
 				pendingSshConsent = null,
 				rollbackAvailable = rollbackAvailable,
 				rollbackBlockedReason = rollbackBlockedReason,

@@ -5,7 +5,7 @@ project **without reading the source first**. Each one states what the code does
 and cites the file and line that says so, so a claim can be checked cheaply and
 a stale claim can be spotted quickly.
 
-Thirteen files in total: ten numbered, two about the port, and this index. The
+Fourteen files in total: eleven numbered, two about the port, and this index. The
 numbered series describes **what the code does today**, with two exceptions that
 say so in their own first lines — `08-port-philosophy.md` and `port-design.md`
 describe what the project *intends*, because the runtime part is not written yet.
@@ -57,6 +57,7 @@ citation.
 | [08-port-philosophy.md](08-port-philosophy.md) | **Why** a port is wanted at all, the three constraints that rule out a "full access" option, the seven design questions with the answers that were settled, and the paid-disclosure rule |
 | [09-approvals.md](09-approvals.md) | The approval model: no prompt by default, how per-tool, per-assistant and per-path rules compose, and what of it is built and verified |
 | [10-diagnostics.md](10-diagnostics.md) | The flight recorder: what is logged, what is deliberately left out, where it lives and how to get it off the device |
+| [11-conversation-tools.md](11-conversation-tools.md) | The conversation-level tool sheet: the assistant ceiling, next-turn timing, and why it is not a new SSH exception |
 | [port-assessment.md](port-assessment.md) | Feasibility of porting the DeepSeek Harness runtime, with device measurements |
 | [port-design.md](port-design.md) | How it would be built: layering, the 43-kind event vocabulary, phases |
 
@@ -107,7 +108,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :app:testDebugUnitTest --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 399 tests in 49 suites, 0 failures, 1 skipped** — the skip is
+**BUILD SUCCESSFUL, 407 tests in 50 suites, 0 failures, 1 skipped** — the skip is
 `DeepSeekWebLiveTest`, which talks to the real paid Search and Fetch APIs and
 needs `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 
@@ -115,7 +116,7 @@ needs `DEEPSEEK_LIVE_KEY`. Warn output was empty. Suite by suite:
 | --- | --- | --- |
 | `:core:ai` | 24 | 211 (1 skipped) |
 | `:core:files` | 5 | 57 |
-| `:app` | 15 | 98 |
+| `:app` | 16 | 106 |
 | `:core:common` | 2 | 16 |
 | `:core:data` | 3 | 17 |
 

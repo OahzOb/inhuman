@@ -150,6 +150,17 @@ data class ChatUiState(
 	val sshAllowed: Boolean = false,
 	/** Whether the global SSH capability is on; off hides every SSH affordance. */
 	val sshToolEnabled: Boolean = false,
+	/**
+	 * The conversation's stored tool selection.
+	 *
+	 * `null` is the historical "all", which excludes remote tools; the sheet
+	 * expands it to the non-remote names for display.
+	 */
+	val conversationTools: List<String>? = null,
+	/** The assistant's selection, the ceiling the conversation sheet may offer. */
+	val agentTools: List<String>? = null,
+	/** The conversation row has loaded; the tool sheet is disabled before that. */
+	val toolsKnown: Boolean = false,
 	/** Whether the last user turn can be rewound safely. */
 	val rollbackAvailable: Boolean = false,
 	/** Why [rollbackAvailable] is false, when it is. */

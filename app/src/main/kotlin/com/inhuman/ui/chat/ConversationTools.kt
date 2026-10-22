@@ -1,0 +1,65 @@
+package com.inhuman.ui.chat
+
+import com.inhuman.core.ai.tools.ToolCatalog
+
+/**
+ * What the conversation-tool sheet may offer, and what is currently on.
+ *
+ * The rules are deliberately asymmetric: the assistant is the ceiling, but the
+ * conversation keeps what it already had. An assistant edited to add
+ * `ssh_upload` therefore reaches an existing conversation, while a conversation
+ * cannot invent a capability its assistant never offered.
+ */
+internal data class ConversationToolPlan(
+	val available: List<ToolCatalog.Entry>,
+	val selected: Set<String>,
+)
+
+internal fun conversationToolPlan(
+	sshEnabled: Boolean,
+	agentTools: List<String>?,
+	conversationTools: List<String>?,
+): ConversationToolPlan {
+	val allNonRemote = ToolCatalog.all
+		.filterNot { it.remote }
+		.mapTo(mutableSetOf()) { it.name }
+	// `null` is the historical "all" selection. It has never included remote
+	// tools, so expanding it to all non-remote names is the same answer the
+	// permission check gives.
+	val ceiling = if (agentTools == null) allNonRemote else agentTools.toSet()
+	val current = if (conversationTools == null) allNonRemote else conversationTools.toSet()
+
+	// `visible` already removes every remote entry while SSH is off. Applying
+	// it last is what keeps a stored `ssh_exec` out of the sheet without
+	// dropping it from storage.
+	val available = ToolCatalog.visible(sshEnabled)
+		.filter { it.name in ceiling || it.name in current }
+
+	val selected = available
+		.filter { ToolCatalog.permits(conversationTools, it.name) }
+		.mapTo(linkedSetOf()) { it.name }
+
+	return ConversationToolPlan(available = available, selected = selected)
+}
+
+/**
+ * Turn the sheet's checkboxes into the stored list.
+ *
+ * Names the sheet cannot show -- a remote tool while SSH is off -- are carried
+ * through untouched. Switching SSH off is not a request to forget the
+ * conversation's selection.
+ */
+internal fun mergeConversationTools(
+	current: List<String>?,
+	available: List<ToolCatalog.Entry>,
+	checked: Set<String>,
+): List<String> {
+	val visibleNames = available.mapTo(mutableSetOf()) { it.name }
+	val hidden = current.orEmpty().filter { it !in visibleNames }
+	val merged = (hidden + checked.filter { it in visibleNames })
+		.filter { it in ToolCatalog.names }
+		.toSet()
+	// Catalogue order, not checkbox order: the stored list should not depend on
+	// the order someone happened to tap rows.
+	return ToolCatalog.names.filter { it in merged }
+}

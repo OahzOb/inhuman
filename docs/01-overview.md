@@ -77,6 +77,10 @@ Confirmed by `README.md:17-29` and by the code:
   and allows it once per conversation; there is no host list or credential store,
   and SSH tool-call arguments are redacted before storage
   ([03-ai-provider.md](03-ai-provider.md)).
+- A conversation can change which of the assistant's tools it uses, from the chat
+  menu, at a turn boundary. The assistant is the ceiling; the model cannot change
+  the set; the next turn picks it up
+  ([11-conversation-tools.md](11-conversation-tools.md)).
 - Approval rules can tighten what the assistant may do, per tool, per assistant
   or per path; the default asks nothing, including for deletion
   ([09-approvals.md](09-approvals.md)).

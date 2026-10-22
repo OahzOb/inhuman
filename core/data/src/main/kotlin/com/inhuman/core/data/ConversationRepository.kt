@@ -342,6 +342,16 @@ class ConversationRepository(
 	suspend fun setReasoning(id: String, effort: String?, thinking: Boolean) =
 		db.conversations().setReasoning(id, effort, thinking)
 
+	/**
+	 * Replace the conversation's tool selection.
+	 *
+	 * The list is the whole selection, not a delta: `null` means "all" at the
+	 * column level, but an edited conversation stores an explicit list so a
+	 * later release adding a tool does not silently hand it to this one.
+	 */
+	suspend fun setTools(id: String, tools: List<String>) =
+		db.conversations().setTools(id, ToolsColumn.encode(tools))
+
 	suspend fun setSshAllowed(id: String, allowed: Boolean) =
 		db.conversations().setSshAllowed(id, allowed)
 

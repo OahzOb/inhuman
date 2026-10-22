@@ -78,6 +78,7 @@ import com.inhuman.ui.chat.SettingsViewModel
 import java.text.DateFormat
 import java.util.Date
 import com.inhuman.ui.common.FlowRowCompat
+import com.inhuman.ui.common.toolBlurb
 import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.PaidToolsNotice
 
@@ -1298,7 +1299,7 @@ private fun ApprovalRulesSection(
 			val current = rules[entry.name] ?: ToolPolicy.Free
 			ApprovalRuleRow(
 				name = entry.name,
-				blurb = entry.blurb,
+				blurb = toolBlurb(entry),
 				changesFiles = entry.mutates,
 				paid = entry.paid,
 				policy = current,

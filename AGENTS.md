@@ -4,9 +4,9 @@ Notes for whoever picks this up next, human or agent. The README explains what
 the app is; this file explains how to change it without breaking what it
 already gets right.
 
-**Before reading the source, read `docs/`.** The ten numbered files below — plus
-two port documents and an index, thirteen in all — describe what the code actually
-does, or for `08` and `port-design` what it is intended to become, with a
+**Before reading the source, read `docs/`.** The eleven numbered files below —
+plus two port documents and an index, fourteen in all — describe what the code
+actually does, or for `08` and `port-design` what it is intended to become, with a
 `file:line` for every claim, so a session can start work without re-deriving the
 architecture from scratch:
 
@@ -22,6 +22,7 @@ architecture from scratch:
 | `docs/08-port-philosophy.md` | **Why** the runtime is being ported, which options the project refuses to have, how the seven design questions were answered, the paid-disclosure rule (§1.4), and the SSH exception (§1.2.1/§1.5) |
 | `docs/09-approvals.md` | The approval model: why the default is no prompts at all, how per-tool, per-assistant and per-path rules compose, and what of it is built |
 | `docs/10-diagnostics.md` | The flight recorder: what is logged, what is deliberately not, where the file lives and how to share it |
+| `docs/11-conversation-tools.md` | The conversation-level tool sheet: who may change it, the assistant ceiling, when it applies, and why it is not a new SSH exception |
 | `docs/port-assessment.md`, `docs/port-design.md` | The measured feasibility and the plan |
 
 `docs/07-gotchas.md` is the one to read before changing anything in a hurry.
@@ -47,17 +48,19 @@ Two consequences bind every future change, and neither is negotiable:
   default", not "behind an advanced toggle". A privilege level that can be
   escalated is itself an attack surface, and a prompt injection does not need
   the user to click wrong — it needs to talk the model into *asking* for more.
-  Capability is fixed when a conversation is created.
+  Capability is fixed **per turn**, and only the user can change a conversation's
+  tool set. No tool may add tools, and a message or tool result cannot widen the
+  set; a change takes effect on the next turn.
 - **The capability boundary must be statable in one sentence a person can
   read.** The default sentence is: *code runs on your device, sees only what you
   hand it, cannot reach the network, and cannot reach your files.* One exception
   exists, and only one: **the SSH tools (`ssh_exec`, `ssh_upload`,
   `ssh_download`), off by default, enabled globally, selected explicitly on the
-  assistant, and granted once per conversation.** When SSH is on, the agent can
-  run commands and move files on a remote machine whose address and credentials
-  the user supplies; the app has no host/credential configuration and redacts SSH
-  tool arguments before storage. Do not add another exception without answering
-  `docs/08-port-philosophy.md` §1.2.1 and §1.5.
+  assistant or the conversation, and granted once per conversation.** When SSH is
+  on, the agent can run commands and move files on a remote machine whose address
+  and credentials the user supplies; the app has no host/credential configuration
+  and redacts SSH tool arguments before storage. Do not add another exception
+  without answering `docs/08-port-philosophy.md` §1.2.1 and §1.5.
 
 **Safety here comes from structure, not from prompts.** The agent can only see
 and change the workspace the conversation is attached to, and what the user
@@ -306,6 +309,14 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   table, home tool summary and request schema — not a disabled row. Use
   `ToolCatalog.visible(sshEnabled)` for user-facing lists; a greyed row still
   advertises the capability.
+- **Conversation tools are changed only by the user, only from the sheet, and
+  only for the next turn.** No tool changes tools, and no message or tool result
+  can widen the set. The sheet offers the assistant's tools plus the
+  conversation's existing ones (`conversationToolPlan`); it is disabled while a
+  reply streams; `setConversationTools` is the only writer of
+  `conversations.toolsJson` apart from creation. An edited conversation stores
+  an explicit list, so a later release adding a tool does not silently grant it.
+  Hidden remote names survive an edit made while SSH is off.
 - **Every assistant `tool_calls` block needs tool results on the wire.** A
   process death while approval/consent is open leaves the assistant row without
   results; `closeDanglingCalls` inserts `[interrupted]` results in the request

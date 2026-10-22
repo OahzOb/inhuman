@@ -112,6 +112,7 @@ import com.inhuman.core.design.comfortableGutter
 import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.RemoteBadge
 import com.inhuman.ui.common.RewindBadge
+import com.inhuman.ui.common.toolBlurb
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -248,6 +249,12 @@ fun ChatScreen(
 	}
 	val sshAllowed by viewModel.state.map { it.sshAllowed }.collectAsStateWithLifecycle(false)
 	val sshToolEnabled by viewModel.state.map { it.sshToolEnabled }.collectAsStateWithLifecycle(false)
+	val agentTools by viewModel.state.map { it.agentTools }.collectAsStateWithLifecycle(null)
+	val conversationTools by viewModel.state.map { it.conversationTools }.collectAsStateWithLifecycle(null)
+	val toolsKnown by viewModel.state.map { it.toolsKnown }.collectAsStateWithLifecycle(false)
+	val toolPlan = remember(agentTools, conversationTools, sshToolEnabled) {
+		conversationToolPlan(sshToolEnabled, agentTools, conversationTools)
+	}
 	val rollbackAvailable by viewModel.state
 		.map { it.rollbackAvailable }
 		.collectAsStateWithLifecycle(false)
@@ -301,6 +308,7 @@ fun ChatScreen(
 	}
 	var turnWireMessages by remember { mutableStateOf<List<ChatMessageUi>?>(null) }
 	var showToolLimitDialog by remember { mutableStateOf(false) }
+	var showToolsDialog by remember { mutableStateOf(false) }
 	var showRenameDialog by remember { mutableStateOf(false) }
 	var renameInput by remember { mutableStateOf("") }
 	var showSaveWorkspaceDialog by remember { mutableStateOf(false) }
@@ -313,7 +321,7 @@ fun ChatScreen(
 		pendingSshConsent != null || rollbackTarget != null || showRewindDialog ||
 		showCompactPreview || showCompactionSummary ||
 		showSnapshotDialog || showToolLimitDialog || showRenameDialog || showWireDialog ||
-		turnWireMessages != null
+		turnWireMessages != null || showToolsDialog
 			|| showSaveWorkspaceDialog
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
@@ -601,6 +609,27 @@ fun ChatScreen(
 									onClick = {
 										showChatMenu = false
 										showToolLimitDialog = true
+									},
+								)
+								DropdownMenuItem(
+									text = {
+										Column {
+											Text(stringResource(R.string.chat_tools_title))
+											Text(
+												text = stringResource(
+													R.string.chat_tools_summary,
+													toolPlan.selected.size,
+													toolPlan.available.size,
+												),
+												style = MaterialTheme.typography.bodySmall,
+												color = MaterialTheme.colorScheme.onSurfaceVariant,
+											)
+										}
+									},
+									enabled = toolsKnown && !isStreaming,
+									onClick = {
+										showChatMenu = false
+										showToolsDialog = true
 									},
 								)
 								DropdownMenuItem(
@@ -1422,6 +1451,24 @@ fun ChatScreen(
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
 			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+
+	if (showToolsDialog) {
+		ConversationToolsDialog(
+			available = toolPlan.available,
+			selected = toolPlan.selected,
+			streaming = isStreaming,
+			onApply = { checked ->
+				val merged = mergeConversationTools(
+					current = conversationTools,
+					available = toolPlan.available,
+					checked = checked,
+				)
+				viewModel.setConversationTools(merged)
+				showToolsDialog = false
+			},
+			onDismiss = { showToolsDialog = false },
 		)
 	}
 
@@ -2698,6 +2745,136 @@ private fun copyReply(context: android.content.Context, text: String) {
 	val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
 	clipboard.setPrimaryClip(
 		ClipData.newPlainText(context.getString(R.string.chat_clip_reply), text),
+	)
+}
+
+/**
+ * The per-conversation tool sheet.
+ *
+ * A sheet rather than a dialog per change: this is the one place a user edits
+ * the capability set, and the Apply button is the whole confirmation. The
+ * checkboxes are limited to `available` (assistant ceiling or the conversation's
+ * existing tools), so there is no path here to a capability neither has.
+ */
+@Composable
+private fun ConversationToolsDialog(
+	available: List<ToolCatalog.Entry>,
+	selected: Set<String>,
+	streaming: Boolean,
+	onApply: (Set<String>) -> Unit,
+	onDismiss: () -> Unit,
+) {
+	var checked by remember(selected) { mutableStateOf(selected) }
+	val remoteSelected = available.any { it.name in checked && it.remote }
+	val irreversibleSelected = available.any { it.name in checked && it.mutates && !it.reversible }
+
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text(stringResource(R.string.chat_tools_title)) },
+		text = {
+			Column(
+				modifier = Modifier
+					.fillMaxWidth()
+					.heightIn(max = 460.dp)
+					.verticalScroll(rememberScrollState()),
+			) {
+				Text(
+					text = stringResource(R.string.chat_tools_body),
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Spacer(Modifier.height(8.dp))
+				if (available.isEmpty()) {
+					Text(
+						text = stringResource(R.string.chat_tools_empty),
+						style = MaterialTheme.typography.bodyMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
+				available.forEach { entry ->
+					val isChecked = entry.name in checked
+					Row(
+						modifier = Modifier
+							.fillMaxWidth()
+							.clickable {
+								checked = if (isChecked) checked - entry.name else checked + entry.name
+							}
+							.padding(vertical = 5.dp),
+						verticalAlignment = Alignment.Top,
+					) {
+						Checkbox(
+							checked = isChecked,
+							onCheckedChange = { on ->
+								checked = if (on) checked + entry.name else checked - entry.name
+							},
+						)
+						Column(
+							modifier = Modifier
+								.weight(1f)
+								.padding(start = 2.dp, top = 1.dp),
+						) {
+							Row(
+								horizontalArrangement = Arrangement.spacedBy(6.dp),
+								verticalAlignment = Alignment.CenterVertically,
+							) {
+								Text(
+									text = entry.name,
+									style = MaterialTheme.typography.labelLarge,
+									fontFamily = FontFamily.Monospace,
+									color = MaterialTheme.colorScheme.tertiary,
+								)
+								if (entry.paid) PaidBadge()
+								if (entry.remote) RemoteBadge()
+								if (entry.mutates) RewindBadge(canRewind = entry.reversible)
+							}
+							Text(
+								text = toolBlurb(entry),
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+							)
+						}
+					}
+				}
+				if (remoteSelected) {
+					Spacer(Modifier.height(6.dp))
+					Text(
+						text = stringResource(R.string.chat_tools_remote_note),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.error,
+					)
+				}
+				if (irreversibleSelected) {
+					Spacer(Modifier.height(4.dp))
+					Text(
+						text = stringResource(R.string.chat_tools_irreversible_note),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.error,
+					)
+				}
+				if (streaming) {
+					Spacer(Modifier.height(4.dp))
+					Text(
+						text = stringResource(R.string.chat_tools_streaming),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.error,
+					)
+				}
+			}
+		},
+		confirmButton = {
+			TextButton(
+				onClick = { onApply(checked) },
+				enabled = !streaming,
+			) {
+				Text(stringResource(R.string.chat_tools_apply))
+			}
+		},
+		dismissButton = {
+			TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
+		},
+		containerColor = MaterialTheme.colorScheme.surface,
+		titleContentColor = MaterialTheme.colorScheme.onSurface,
+		textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 	)
 }
 

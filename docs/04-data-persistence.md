@@ -94,7 +94,7 @@ The lifetime rule is in the row, not the directory:
 | `agentId` | Nullable, indexed. Which assistant this conversation was started from. |
 | `providerId` | The `provider_profiles.id` copied at creation; default `deepseek` in 11→12. |
 | `model`, `reasoningEffort`, `thinking` | **Copied from the assistant at creation**, so editing an assistant cannot rewrite what an existing conversation does. |
-| `toolsJson` | The tool selection, also copied at creation — and for a second reason: a transcript holds calls that were legal when they ran, so the permission set that produced it has to be recoverable. |
+| `toolsJson` | The tool selection. Copied from the assistant at creation, then editable **by the user only** from the conversation's tool sheet; an edited conversation stores an explicit list and the change applies on the next turn. It is also what makes a transcript's tool calls recoverable: they were legal under this set when they ran. |
 | `createdAt`, `updatedAt`, `pinned` | Ordering and list state. |
 | `sshAllowed` | The conversation-level SSH acknowledgement, default `0`. Added in 8→9. Per conversation, not per assistant: consenting in one thread must not grant another thread the same capability. The app has no host list or credential store; SSH tool-call arguments are redacted before storage, so this boolean is the only persistent state the SSH feature adds. |
 

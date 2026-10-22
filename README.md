@@ -84,6 +84,13 @@ in the same row as PAID and REMOTE. The name says what the tool does; the badge
 says whether the turn can be undone. `ssh_exec` and `ssh_upload` are the
 `NO REWIND` entries.
 
+**A conversation can edit its own tool selection.** Chat overflow → **Conversation
+tools** lists the assistant's tools plus the ones this conversation already has;
+checking and applying takes effect on the next turn. The assistant is the ceiling,
+so a tool the assistant never had cannot be invented there, and SSH tools remain
+opt-in and still use the per-conversation consent. This is not a new approval
+layer: it changes *which* tools exist, not whether a call asks.
+
 **Rewind** is the single restart control on the newest answer. It opens a picker
 of restart points:
 

@@ -152,6 +152,15 @@ interface ConversationDao {
 	@Query("UPDATE conversations SET sshAllowed = :allowed WHERE id = :id")
 	suspend fun setSshAllowed(id: String, allowed: Boolean)
 
+	/**
+	 * Replace a conversation's tool selection.
+	 *
+	 * No `updatedAt` bump: changing which tools exist is not new conversation
+	 * activity, and moving the row to the top of the list would be a surprise.
+	 */
+	@Query("UPDATE conversations SET toolsJson = :toolsJson WHERE id = :id")
+	suspend fun setTools(id: String, toolsJson: String)
+
 	@Query("SELECT sshAllowed FROM conversations WHERE id = :id")
 	suspend fun sshAllowed(id: String): Boolean?
 

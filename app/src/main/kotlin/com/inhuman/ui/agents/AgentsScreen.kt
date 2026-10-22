@@ -82,6 +82,7 @@ import com.inhuman.ui.common.PaidToolsNotice
 import com.inhuman.ui.common.RemoteBadge
 import com.inhuman.ui.common.RemoteToolsNotice
 import com.inhuman.ui.common.RewindBadge
+import com.inhuman.ui.common.toolBlurb
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -736,7 +737,7 @@ private fun AgentEditor(
 					// they did not have.
 					if (showToolHelp) {
 						Text(
-							text = tool.blurb,
+							text = toolBlurb(tool),
 							style = MaterialTheme.typography.labelLarge,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
