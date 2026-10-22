@@ -259,12 +259,22 @@ Two rules:
   `:core:files`, the localized sentence carries the original text as a `%1$s`
   argument rather than pretending to translate it. The same applies to product
   names and wire field names (`DeepSeek`, `Exa`, `reasoning_effort`).
+- **Chinese is written, not translated word for word.** A literal sentence from
+  the English reads like a manual: `该`, `其`, `进行`, `被……` and `线路` are the
+  usual symptoms. Prefer short active sentences, Chinese punctuation, and the
+  vocabulary already used on screen: 对话 (conversation), 回合 (turn), 工作区
+  (workspace), 快照 (snapshot), 原始 JSON (wire JSON), 压缩上下文 (compaction).
+  `token`, `SSH`, `JSON`, `Markdown` and model/provider names stay as they are.
+  The placeholder test below exists because rewording a sentence is exactly
+  where a `%1$s` gets lost.
 
-`StringResourceParityTest` fails when a key exists in one file and not the other.
-Android falls back to the default resource silently, so a missing key is
-invisible in English and mixed-language in Chinese. Lint's `MissingTranslation`
-would catch the same thing, but lint is not part of the offline verification
-loop, and this check is a two-file comparison that runs on the JVM.
+`StringResourceParityTest` fails when a key exists in one file and not the other,
+and when a string's placeholders (`%1$s`, `%2$d`) differ between the two. Android
+falls back to the default resource silently, so a missing key is invisible in
+English and mixed-language in Chinese; a missing placeholder renders as literal
+text or the wrong argument. Lint's `MissingTranslation` would catch the key, but
+lint is not part of the offline verification loop, and this check is a two-file
+comparison that runs on the JVM.
 
 ## Running it on a device
 

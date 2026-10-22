@@ -32,6 +32,64 @@ class StringResourceParityTest {
 		)
 	}
 
+	@Test
+	fun `a translation keeps the placeholders of its source`() {
+		// `String.format` silently renders a missing placeholder as literal
+		// text, and a changed index either crashes or shows the wrong value.
+		// The copy pass touched every long warning in the Chinese file, so this
+		// is the check that a reworded sentence still has the same arguments.
+		val english = placeholders("src/main/res/values/strings.xml")
+		val chinese = placeholders("src/main/res/values-zh-rCN/strings.xml")
+		val mismatches = english.keys.intersect(chinese.keys).filter { name ->
+			english[name] != chinese[name]
+		}.sorted()
+		val details = mismatches.joinToString("\n") { name ->
+			"$name: en=${english[name]} zh=${chinese[name]}"
+		}
+		assertEquals("placeholder mismatch:\n$details", emptyList<String>(), mismatches)
+	}
+
+	/**
+	 * Placeholder descriptors, with padding and width ignored.
+	 *
+	 * `%1$02d` and `%1$d` format the same argument; the Chinese count does not
+	 * use zero padding because "已保存 00 个对话" is wrong in Chinese. The
+	 * argument index and type are what must survive.
+	 */
+	private fun placeholderDescriptors(text: String): List<String> {
+		val regex = Regex("""%(?:(\d+)\$)?0?\d*([sd])""")
+		return regex.findAll(text).map { match ->
+			val index = match.groupValues[1]
+			val type = match.groupValues[2]
+			if (index.isEmpty()) type else "$index:$type"
+		}.sorted().toList()
+	}
+
+	private fun placeholders(path: String): Map<String, List<String>> {
+		val document = DocumentBuilderFactory.newInstance()
+			.newDocumentBuilder()
+			.parse(File(path))
+		val out = mutableMapOf<String, List<String>>()
+		val nodes = document.getElementsByTagName("*")
+		for (index in 0 until nodes.length) {
+			val element = nodes.item(index) as? org.w3c.dom.Element ?: continue
+			when (element.tagName) {
+				"string" -> out[element.getAttribute("name")] =
+					placeholderDescriptors(element.textContent)
+				"plurals" -> {
+					val items = element.getElementsByTagName("item")
+					val descriptors = sortedSetOf<String>()
+					for (item in 0 until items.length) {
+						val itemElement = items.item(item) as? org.w3c.dom.Element ?: continue
+						descriptors += placeholderDescriptors(itemElement.textContent)
+					}
+					out[element.getAttribute("name")] = descriptors.toList()
+				}
+			}
+		}
+		return out
+	}
+
 	private fun keys(path: String): Set<String> {
 		val document = DocumentBuilderFactory.newInstance()
 			.newDocumentBuilder()
