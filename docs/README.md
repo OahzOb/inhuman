@@ -58,7 +58,7 @@ citation.
 | [09-approvals.md](09-approvals.md) | The approval model: no prompt by default, how per-tool, per-assistant and per-path rules compose, and what of it is built and verified |
 | [10-diagnostics.md](10-diagnostics.md) | The flight recorder: what is logged, what is deliberately left out, where it lives and how to get it off the device |
 | [11-conversation-tools.md](11-conversation-tools.md) | The conversation-level tool sheet: the assistant ceiling, next-turn timing, and why it is not a new SSH exception |
-| [12-desktop-port.md](12-desktop-port.md) | The measured Windows/Linux desktop port assessment: reuse map, KMP/CMP/Room/DPAPI risks, spike and phased estimate |
+| [12-desktop-port.md](12-desktop-port.md) | The measured Windows/Linux desktop port assessment: reuse map, shared-JVM/CMP/Room/DPAPI risks, spike and phased estimate |
 | [port-assessment.md](port-assessment.md) | Feasibility of porting the DeepSeek Harness runtime, with device measurements |
 | [port-design.md](port-design.md) | How it would be built: layering, the 43-kind event vocabulary, phases |
 
@@ -104,12 +104,12 @@ Measured by running it, not by counting files:
 
 ```powershell
 $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
-.\gradlew.bat :core:common:testDebugUnitTest :core:ai:testDebugUnitTest `
-  :core:files:testDebugUnitTest :core:data:testDebugUnitTest `
-  :app:testDebugUnitTest --console=plain --rerun-tasks
+.\gradlew.bat :core:common:test :core:ai:test :core:files:test `
+  :core:data:testDebugUnitTest :app:testDebugUnitTest `
+  :desktopApp:test --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 449 tests in 55 suites, 0 failures, 2 skipped** — the skips
+**BUILD SUCCESSFUL, 454 tests in 57 suites, 0 failures, 2 skipped** — the skips
 are `DeepSeekWebLiveTest`, which talks to the real paid Search and Fetch APIs and
 needs `DEEPSEEK_LIVE_KEY`, and `SshLiveProbeTest`, which needs
 `INHUMAN_SSH_HOST`/`USER`/`PASSWORD` for its read-only live check. Warn output
@@ -118,10 +118,11 @@ was empty. Suite by suite:
 | Module | Suites | Tests |
 | --- | --- | --- |
 | `:core:ai` | 29 | 249 (2 skipped) |
-| `:core:files` | 5 | 57 |
+| `:core:files` | 5 | 58 |
 | `:app` | 16 | 110 |
 | `:core:common` | 2 | 16 |
 | `:core:data` | 3 | 17 |
+| `:desktopApp` | 2 | 4 |
 
 The count grows with every fix that lands with a test, so treat the total as a
 baseline to re-measure rather than a fact to quote: the command above is the

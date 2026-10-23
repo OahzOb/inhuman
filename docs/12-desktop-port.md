@@ -6,7 +6,7 @@
 
 **可以移植，但不是把 APK 包一层。**
 
-- 技术路线建议：**一个 KMP 仓库，共享 `core`/`data`/`engine`，两个 UI**——Android 保留现有 Compose UI，Windows/Linux 共用一套 Compose Desktop UI；
+- 技术路线建议：**一个仓库，共享 JVM core，两个 UI**——Android 保留现有 Compose UI，Windows/Linux 共用一套 Compose Desktop UI。当前三个目标都是 JVM/Android，不需要引入 KMP 的 expect/actual；如果以后要 iOS/macOS 原生，再把 core 升级成 KMP；
 - **不把 Android UI 立即迁到 Compose Multiplatform**。CMP 的桌面框架是 Stable，但当前 CMP 1.11.1 的 Material3 仍是 `1.11.0-alpha07`、Lifecycle 仍是 `2.11.0-beta01`；让一个稳定的 Android app 跟着 alpha/beta 组件走，风险大于收益；
 - 现有分层帮了很大的忙：`:core:ai`、`:core:common`、`:core:design` **没有任何 `android.*` import**，`:core:files` 只有 2 处 `StatFs`；
 - 真正要重做的是 **`:core:data` 的 Android 适配**（Room/Keystore/DocumentsProvider）和 **`:app` 的 Android glue**（Activity、SAF、通知、前台服务、图片解码）；
@@ -22,6 +22,25 @@
 | 总计 | **约 3–4 个月**（不含签名/长期维护） |
 
 这不是“小功能”，但也不是“重写一个 app”。
+
+### Spike 进度（当前工作树）
+
+已经落地并验证：
+
+- `:core:common`、`:core:ai`、`:core:files` 已从 Android library 改成 **plain JVM**；Android app 继续依赖同一批 jar，全量 Android 测试仍通过；
+- `:desktopApp` 已是可运行的 Compose Desktop 窗口，使用 `core:ai` 的 `DemoProvider` 流式生成回复，并依赖共享的 `SessionWorkspace`；
+- Room/JVM 的 KSP + `BundledSQLiteDriver` 已用一个最小数据库验证（不是当前 schema v13 的迁移，那一步仍未做）；
+- Windows **junction 逃逸**被 spike 的测试抓到并修复：`File.canonicalFile` 不解析 junction，`Files.isSymbolicLink` 也不识别它，现在对已存在组件使用 `toPath().toRealPath()`；
+- `:desktopApp:createDistributable` 已产出 Windows app 目录，打包后的 exe 能启动。
+
+仍未完成（下一步，不要误认为 spike 已完成）：
+
+- 把 `InhumanDatabase`/entities 从 Android-only `:core:data` 提取成可共享的 Room schema，并跑当前 v13 的真实查询/migration；
+- DPAPI/libsecret 的 secret store，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
+- 从 `ChatViewModel` 抽出共享 `ChatEngine`，让两个 UI 用同一套工具循环/授权/快照；
+- 桌面端的完整安全/通知/文件对话框/图片适配。
+
+当前全量测试为 **454 tests / 57 suites / 0 failures / 2 skipped**。
 
 ### 为什么不是“所有 UI 也共用一套”
 
@@ -52,7 +71,7 @@
 | `:core:common` | 3 | 267 | **0** | 直接复用 |
 | **合计** | **106** | **31,100** | 120 个 | |
 
-测试侧还有 67 个文件、约 8,243 行；全量 449 tests / 55 suites。
+测试侧还有 67 个文件、约 8,243 行；当前全量 454 tests / 57 suites。
 
 这个分布说明：**领域层和 UI 层是分开的，Android 绑定集中在 data 和 app 的薄层**。这是移植能成立的前提。
 
@@ -66,7 +85,7 @@
 | --- | --- | --- | --- | --- |
 | Android 模拟器 / WSA | 原 APK | 0 | 仍是 Android app | **不推荐**；WSA 已结束支持，文件、通知、性能都不对 |
 | 浏览器 UI + 本地服务 | 后端高，UI 低 | 3–5 月 | 跨平台 Web app | 丢掉 20k 行 Compose UI，安全面变成“本机 HTTP 服务” |
-| **KMP 共享 core + 两个 UI**（Android Compose / 桌面 CMP） | 后端高，UI 中 | 3–4 月 | 原生窗口，Android UI 不动 | **推荐**；Windows/Linux 共用桌面 UI |
+| **共享 JVM core + 两个 UI**（Android Compose / 桌面 CMP） | 后端高，UI 中 | 3–4 月 | 原生窗口，Android UI 不动 | **推荐**；Windows/Linux 共用桌面 UI |
 | CMP 共享 core + 共享 UI | 高 | 4–6 月 | 一套屏幕代码 | 长期目标；当前 Material3 alpha/Lifecycle beta，Android 回归风险 |
 | WinUI/WPF 原生重写 | 低 | 6+ 月 | 最“Windows” | 不值，双 UI 双维护 |
 
@@ -203,10 +222,12 @@ Android 有 app sandbox + scoped storage；Windows 进程以当前用户权限�
 
 1. **一个仓库**，不要拆两个 repo；保留 Android app 的 Compose UI；
 2. 新建 `:desktopApp`，Windows/Linux 共用一套 **Compose Desktop UI**；
-3. 先把 `:core:common`、`:core:ai`、`:core:files` 变成 JVM/KMP 共享模块，Android 继续依赖它们；
+3. 先把 `:core:common`、`:core:ai`、`:core:files` 变成 plain JVM 共享模块，Android 继续依赖它们；如果以后要 iOS/macOS 原生，再升级 KMP；
 4. 再处理 `:core:data` 的 Room/SecureStore/备份平台实现，以及 `:core:app` 的对话/工具/授权引擎；
 5. **不要现在把 Android UI 迁到 CMP**；等 CMP Material3/Lifecycle 稳定、桌面 MVP 证明值得，再按屏幕迁移；
 6. 不添加本地 shell/终端工具；那会把“工作区隔离”变成“用户账户权限”；
 7. 不在桌面版默认引入 host 列表/凭据仓库；SSH 的行为保持不变。
 
 如果目标只是“我在 Windows 上偶尔用一下”，**Android 模拟器**更便宜；如果目标是“Windows 和 Linux 成为正式客户端”，先做 spike，再按上面的顺序推进，不要先承诺一套共享 UI。
+
+**为什么这次不直接上 KMP**：Android、Windows、Linux 三个目标都是 JVM/Android，共享模块里的 `java.*`、OkHttp、sshj 都能直接用；KMP 会引入 `expect/actual` 和 source-set 成本，收益要到 iOS/macOS 原生目标才出现。这不是放弃一套代码——仍然是同一个仓库、同一份 core；只是共享机制用 JVM 而不是 KMP。`docs/12` 的测试数/进度见下。

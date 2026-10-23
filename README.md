@@ -353,12 +353,13 @@ its instructions still cannot produce unbounded damage.
 Run the tests:
 
 ```powershell
-.\gradlew.bat :core:files:testDebugUnitTest
+.\gradlew.bat :core:files:test
 ```
 
-16 tests cover traversal (including backslash traversal), null bytes,
+17 tests cover traversal (including backslash traversal), null bytes,
 absolute-looking paths, Windows drive paths, symlinks pointing both outside
-*and* inside the root, and the accounting used for quotas.
+*and* inside the root, a Windows junction escape, and the accounting used for
+quotas.
 
 ---
 
@@ -367,7 +368,8 @@ absolute-looking paths, Windows drive paths, symlinks pointing both outside
 ```powershell
 $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 .\gradlew.bat :app:assembleDebug
-.\gradlew.bat :core:files:testDebugUnitTest
+.\gradlew.bat :core:files:test
+.\gradlew.bat :desktopApp:run
 ```
 
 Or the whole loop — build, install to the emulator, launch, screenshot:

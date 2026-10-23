@@ -591,7 +591,7 @@ spends money on one search and one fetch. Run deliberately:
 
 ```powershell
 $env:DEEPSEEK_LIVE_KEY = 'sk-...'
-.\gradlew.bat :core:ai:testDebugUnitTest --tests '*DeepSeekWebLiveTest'
+.\gradlew.bat :core:ai:test --tests '*DeepSeekWebLiveTest'
 ```
 
 It checks the request shape that fixtures cannot, and it is what caught the

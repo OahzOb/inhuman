@@ -1,6 +1,5 @@
 package com.inhuman.core.files
 
-import android.os.StatFs
 import com.inhuman.core.files.SessionWorkspace.Resolution
 import java.io.File
 
@@ -15,12 +14,9 @@ import java.io.File
  * @param freeSpaceBytes the space available on the volume holding the
  *   workspace, or null to skip the check.
  *
- *   Injected rather than called directly because `StatFs` is a stub in JVM unit
- *   tests -- it returns zero for every method -- so a hardcoded call makes
- *   every write fail with "not enough free space" in exactly the environment
- *   where the tools need testing. Production passes the real `StatFs`; a test
- *   passes a fixed number, or null to test the things that are not about disk
- *   space.
+ *   Injected rather than called directly so a unit test can pass a fixed
+ *   number, or null to test the things that are not about disk space. Production
+ *   reads `File.usableSpace` on the workspace's volume.
  */
 abstract class WorkspaceTool(
 	protected val workspace: SessionWorkspace,

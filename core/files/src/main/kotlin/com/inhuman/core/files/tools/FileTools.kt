@@ -47,14 +47,13 @@ object FileTools {
 	 * The default set, with a real free-space check.
 	 *
 	 * @param freeSpaceBytes overrides the space query. Production passes
-	 *   nothing and gets `StatFs`; a unit test passes a fixed number or null,
-	 *   because `StatFs` is a stub on the JVM and would report zero room for
-	 *   every write.
+	 *   nothing and reads `File.usableSpace`; a unit test passes a fixed number
+	 *   or null, so it does not depend on the test machine's disk.
 	 */
 	fun all(
 		workspace: SessionWorkspace,
 		freeSpaceBytes: (() -> Long)? = {
-			android.os.StatFs(workspace.rootPath().absolutePath).availableBytes
+			runCatching { workspace.rootPath().usableSpace }.getOrNull() ?: 0L
 		},
 		/**
 		 * Whether a workspace-relative path is hidden from the agent.

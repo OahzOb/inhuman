@@ -23,7 +23,7 @@ architecture from scratch:
 | `docs/09-approvals.md` | The approval model: why the default is no prompts at all, how per-tool, per-assistant and per-path rules compose, and what of it is built |
 | `docs/10-diagnostics.md` | The flight recorder: what is logged, what is deliberately not, where the file lives and how to share it |
 | `docs/11-conversation-tools.md` | The conversation-level tool sheet: who may change it, the assistant ceiling, when it applies, and why it is not a new SSH exception |
-| `docs/12-desktop-port.md` | The measured Windows/Linux desktop port assessment: what can be reused, what must be rebuilt, the KMP/CMP/Room/DPAPI risks, and the 2-week spike |
+| `docs/12-desktop-port.md` | The measured Windows/Linux desktop port assessment: what can be reused, what must be rebuilt, the shared-JVM/CMP/Room/DPAPI risks, and the 2-week spike |
 | `docs/port-assessment.md`, `docs/port-design.md` | The measured feasibility and the plan |
 
 `docs/07-gotchas.md` is the one to read before changing anything in a hurry.
@@ -275,8 +275,11 @@ physical phone may be deployable and inspectable but not drivable.
 Not style. Each of these was a bug, and undoing it silently restores the bug.
 
 - **`SessionWorkspace.resolve()` is the only place a path becomes a `File`.**
-  No symlinks, ever, plus a canonical-prefix check. Nothing else may construct
-  a path from model input.
+  No symlinks, ever, plus a real-path prefix check. On Windows that check must
+  use `Path.toRealPath()` for existing components: `File.canonicalFile` does
+  **not** resolve a junction, and `Files.isSymbolicLink` does not report one.
+  A junction escape was found by the desktop spike and is pinned by
+  `SessionWorkspaceTest`.
 - **A failure chunk must be `trySend`-ed *before* `close()`.** A chunk sent
   after the channel closes is dropped and the collector sees a clean end, so
   the failure becomes indistinguishable from "the model said nothing".
@@ -367,16 +370,19 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
 .\gradlew.bat :app:assembleDebug `
   :app:testDebugUnitTest `
   :core:data:testDebugUnitTest `
-  :core:ai:testDebugUnitTest `
-  :core:files:testDebugUnitTest `
-  :core:common:testDebugUnitTest `
+  :core:ai:test `
+  :core:files:test `
+  :core:common:test `
+  :desktopApp:test `
   --console=plain --rerun-tasks
 ```
 
 `--rerun-tasks` matters: with the build cache warm, a plain run can report
 `BUILD SUCCESSFUL` without compiling the file you just changed. Check that the
 warning output is empty as well as the error output — this tree currently
-compiles clean, and that is worth keeping.
+compiles clean, and that is worth keeping. `:core:ai`, `:core:files` and
+`:core:common` are plain JVM modules now; `:desktopApp` is the Compose Desktop
+spike and consumes the same jars.
 
 Two tests are skipped by default. `DeepSeekWebLiveTest` talks to the real Search
 and Fetch APIs and needs a key (and spends money). `SshLiveProbeTest` lists `/tmp`,

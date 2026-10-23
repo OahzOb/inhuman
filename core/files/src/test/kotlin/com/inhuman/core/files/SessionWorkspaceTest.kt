@@ -172,6 +172,33 @@ class SessionWorkspaceTest {
 		assertTrue(ws.resolve("alias/x.txt") is SessionWorkspace.Resolution.Rejected)
 	}
 
+	@Test
+	fun `windows junction outside the workspace is rejected`() {
+		if (!System.getProperty("os.name").lowercase().contains("windows")) return
+		val outside = tmp.newFolder("junction-outside")
+		File(outside, "secret.txt").writeText("top secret")
+		val junction = File(root, "junction")
+		val process = ProcessBuilder(
+			"cmd",
+			"/c",
+			"mklink",
+			"/J",
+			junction.absolutePath,
+			outside.absolutePath,
+		).redirectErrorStream(true).start()
+		process.inputStream.readBytes()
+		if (process.waitFor() != 0) return
+
+		try {
+			assertTrue(
+				"junction escaped the workspace: ${junction.canonicalPath}",
+				ws.resolve("junction/secret.txt") is SessionWorkspace.Resolution.Rejected,
+			)
+		} finally {
+			runCatching { Files.deleteIfExists(junction.toPath()) }
+		}
+	}
+
 	// --- relativize ---------------------------------------------------------
 
 	@Test

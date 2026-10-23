@@ -2,6 +2,7 @@ package com.inhuman.core.files
 
 import java.io.File
 import java.nio.file.Files
+import java.nio.file.LinkOption
 
 /**
  * The one and only way a path becomes a [File] inside a conversation's
@@ -79,6 +80,7 @@ class SessionWorkspace private constructor(
 		// exception that tears down the agent loop. Getting this wrong is how a
 		// sandbox turns into a crash.
 		return try {
+			val rootReal = root.toPath().toRealPath().toFile()
 			var cursor = root
 			for (part in parts) {
 				if (part == "..") {
@@ -92,15 +94,32 @@ class SessionWorkspace private constructor(
 				if (Files.isSymbolicLink(cursor.toPath())) {
 					return Resolution.Rejected("symbolic links are not allowed in the workspace")
 				}
+
+				// Windows junctions are reparse points that `File.canonicalFile`
+				// does **not** resolve, and `Files.isSymbolicLink` does not report
+				// them as symlinks. `toRealPath()` does follow the reparse point,
+				// so an existing junction is tested against the real root here.
+				// This was found by the desktop spike: a junction under the
+				// workspace pointed at a temp folder outside it, and the old
+				// canonical-prefix check returned Ok.
+				if (Files.exists(cursor.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+					val real = cursor.toPath().toRealPath().toFile()
+					if (!isInside(real, rootReal)) {
+						return Resolution.Rejected("path escapes the conversation workspace")
+					}
+				}
 			}
 
 			// Canonical prefix check. canonicalFile() also resolves any symlink
 			// in the *parent* chain, so this catches escapes the per-segment
 			// walk could not see.
 			val canonicalRoot = root.canonicalFile
-			val target = cursor.canonicalFile
-			val rootPath = canonicalRoot.path.trimEnd(File.separatorChar)
-			if (target.path != rootPath && !target.path.startsWith(rootPath + File.separator)) {
+			val target = if (Files.exists(cursor.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+				cursor.toPath().toRealPath().toFile()
+			} else {
+				cursor.canonicalFile
+			}
+			if (!isInside(target, canonicalRoot)) {
 				Resolution.Rejected("path escapes the conversation workspace")
 			} else {
 				Resolution.Ok(target)
@@ -110,6 +129,11 @@ class SessionWorkspace private constructor(
 		} catch (e: java.io.IOException) {
 			Resolution.Rejected("path could not be resolved: ${e.message}")
 		}
+	}
+
+	private fun isInside(target: File, root: File): Boolean {
+		val rootPath = root.path.trimEnd(File.separatorChar)
+		return target.path == rootPath || target.path.startsWith(rootPath + File.separator)
 	}
 
 	/**

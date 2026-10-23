@@ -90,6 +90,10 @@ dependencies {
 	implementation project(':core:ai')
 	implementation project(':core:files')
 
+	// Core modules are plain JVM now; the Android app still needs the Android
+	// Main dispatcher for its ViewModels.
+	implementation libs.kotlinx.coroutines.android
+
 	// The one place the app itself makes an HTTP request that is not a DeepSeek
 	// API call: a user-initiated download. The agent still has no network path.
 	implementation libs.okhttp

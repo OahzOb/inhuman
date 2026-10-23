@@ -80,14 +80,17 @@ The pipeline, in order (`:62-113`):
    — it is refused inside the loop** with "'..' is not allowed in a workspace
    path" (`:84-86`). So the normalisation is asymmetric: `"."` disappears and
    `"a/../b"` fails even though it stays inside.
-5. **Per-component symlink walk** (`:87-94`). Any symlinked component is refused,
-   *including one pointing back inside the root* — allowing some symlinks and not
-   others is the kind of rule that eventually has a hole.
-6. **Canonical-prefix check** (`:100-107`), using `canonicalFile()` (which
-   resolves symlinks in the *parent* chain) rather than `normalize()`. Allowed
-   iff the target path equals the root path or starts with `rootPath + separator`
-   — the `+ separator` closes the sibling-prefix hole. The returned `File` is the
-   canonical target, not the joined path.
+5. **Per-component symlink and reparse walk** (`:87-94`). Any symlinked
+   component is refused, *including one pointing back inside the root* —
+   allowing some symlinks and not others is the kind of rule that eventually has
+   a hole. On Windows a junction is not a symlink: `Files.isSymbolicLink` says
+   false, and the component is checked with `toRealPath()` against the real root.
+6. **Real-path prefix check** (`:100-107`). `canonicalFile()` does not resolve a
+   Windows junction, so existing components use `toRealPath()`; the final target
+   is compared against the real root. Allowed iff the target path equals the root
+   path or starts with `rootPath + separator` — the `+ separator` closes the
+   sibling-prefix hole. The returned `File` is the resolved target, not the
+   joined path.
 7. Only `InvalidPathException` and `IOException` become rejections (`:108-112`).
    `resolve` **never throws**: a malformed path is a normal thing for a model to
    produce and has to come back as something it can read and correct.
@@ -107,7 +110,9 @@ The pipeline, in order (`:62-113`):
 3. **The symlink tests are vacuous where symlinks cannot be created.** Both
    return silently when `createSymbolicLink` throws
    (`SessionWorkspaceTest.kt:151-154`, `:165-167`), which is the normal case on
-   Windows without privilege. They assert nothing there.
+   Windows without privilege. They assert nothing there. The Windows junction
+   test is separate: `mklink /J` does not need developer mode, and that test
+   found a real escape before the `toRealPath()` check was added.
 4. **`relativize` throws** (`error(...)`, `:125`) for anything outside the root,
    and `guard` does **not** catch `IllegalStateException`. A file that somehow
    came from elsewhere turns a tool result into an ended turn.

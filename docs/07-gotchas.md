@@ -869,6 +869,21 @@ missing control was a composition decision no pure classifier could catch.
 
 ---
 
+### B29. A Windows junction escaped the workspace — **FIXED**
+
+`SessionWorkspace.resolve()` rejected symlinks and compared `canonicalFile()`
+prefixes. A Windows directory junction is neither: `Files.isSymbolicLink()` says
+false, and `File.canonicalFile` does not resolve a reparse point, so a junction
+inside the workspace pointing at `C:\...\outside` resolved as an ordinary
+directory. The desktop spike's `mklink /J` test failed with `Ok` for
+`junction/secret.txt`.
+
+The walk now calls `toRealPath()` on every existing component and compares it
+with the real root; the final target is also realpath'd when it exists. The test
+pins the junction case and skips on non-Windows filesystems. This is the reason
+the `SessionWorkspace` invariant is no longer phrased as "canonical prefix": on
+Windows, canonical is not enough.
+
 ## C. Comments that contradict the code
 
 By this repository's standard, the comment is the bug. These were all verified.
@@ -899,7 +914,7 @@ staying as history.
    needs `tar -a -c -f` — `Compress-Archive` omits directory entries and the
    wrapper's unzip dies on the first file.
 4. **`--rerun-tasks` matters.** With the build cache warm, a plain
-   `testDebugUnitTest` can report `BUILD SUCCESSFUL` without compiling the file
+   `test` / `testDebugUnitTest` can report `BUILD SUCCESSFUL` without compiling the file
    you changed. Check that the warning output is empty too.
 5. **`xml` comments in `AndroidManifest.xml` cannot contain `--`.**
 6. **Build scripts are Groovy, not Kotlin DSL.**

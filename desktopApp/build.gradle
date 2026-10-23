@@ -1,0 +1,48 @@
+import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+
+plugins {
+	alias(libs.plugins.kotlin.jvm)
+	alias(libs.plugins.compose.compiler)
+	alias(libs.plugins.compose.multiplatform)
+	alias(libs.plugins.ksp)
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_17
+	targetCompatibility = JavaVersion.VERSION_17
+}
+
+kotlin {
+	jvmToolchain(17)
+}
+
+dependencies {
+	implementation project(':core:common')
+	implementation project(':core:ai')
+	implementation project(':core:files')
+
+	implementation(compose.desktop.currentOs)
+	implementation(compose.material3)
+	implementation(libs.kotlinx.coroutines.core)
+
+	implementation libs.androidx.room.runtime
+	implementation 'androidx.sqlite:sqlite-bundled:2.5.2'
+	ksp libs.androidx.room.compiler
+
+	testImplementation libs.junit
+	testImplementation libs.kotlinx.coroutines.test
+}
+
+compose.desktop {
+	application {
+		mainClass = 'com.inhuman.desktop.MainKt'
+
+		nativeDistributions {
+			targetFormats(TargetFormat.Msi, TargetFormat.Deb)
+			packageName = 'inhuman'
+			packageVersion = '0.2.0'
+			description = 'inhuman desktop spike'
+			vendor = 'inhuman'
+		}
+	}
+}

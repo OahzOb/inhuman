@@ -5,8 +5,12 @@
 Verified against each module's `build.gradle`:
 
 ```
-app ──────────┬──> core:common
-              ├──> core:design          (Compose only; depends on no core module)
+desktopApp ──┬──> core:common
+             ├──> core:ai      (plain JVM)
+             └──> core:files   (plain JVM)
+
+app ──────────┬──> core:common  (plain JVM)
+              ├──> core:design  (Compose Android; depends on no core module)
               ├──> core:data ──api──> core:files ──impl──> core:ai ──impl──> core:common
               │                    └──api──> core:ai
               ├──> core:ai
@@ -16,7 +20,10 @@ app ──────────┬──> core:common
 Read the arrows as "must be able to compile against". `core:data`, `core:ai` and
 `core:files` each also depend on `core:common` directly, with `implementation`;
 the diagram leaves that leaf edge out rather than drawing three lines to the same
-node. Three things about this graph are deliberate and are commented where they
+node. `:core:common`, `:core:ai` and `:core:files` are **plain Kotlin/JVM
+modules** now, not Android libraries: the desktop spike depends on the same jars
+the Android app consumes. `:core:data` and `:core:design` remain Android-only.
+Three things about this graph are deliberate and are commented where they
 are declared:
 
 - **`core:files` depends on `core:ai`, not the reverse.** The file tools
@@ -217,9 +224,10 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 .\gradlew.bat :app:assembleDebug `
   :app:testDebugUnitTest `
   :core:data:testDebugUnitTest `
-  :core:ai:testDebugUnitTest `
-  :core:files:testDebugUnitTest `
-  :core:common:testDebugUnitTest `
+  :core:ai:test `
+  :core:files:test `
+  :core:common:test `
+  :desktopApp:test `
   --console=plain --rerun-tasks
 ```
 
@@ -228,10 +236,11 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 warning output is empty as well as the error output: this tree compiles clean
 and that is worth keeping (`AGENTS.md`).
 
-One test is skipped by design: `DeepSeekWebLiveTest` talks to the real Search and
-Fetch APIs and needs a key. Everything else runs on the JVM — including the file
-tests, which use a temp directory because unit tests in `:core:files` need real
-filesystem semantics (`core/files/build.gradle`, `testOptions`).
+Two tests are skipped by design: `DeepSeekWebLiveTest` talks to the real Search
+and Fetch APIs and needs a key, and `SshLiveProbeTest` needs real SSH credentials.
+Everything else runs on the JVM — including the file tests, which use a temp
+directory because `:core:files` needs real filesystem semantics, and the desktop
+smoke tests, which run `core:ai`/`core:files` on a plain JVM.
 
 ## Localization
 

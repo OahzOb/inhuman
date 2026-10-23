@@ -1,6 +1,5 @@
 package com.inhuman.core.files
 
-import android.os.StatFs
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
@@ -26,16 +25,14 @@ import java.io.OutputStream
  * @param freeSpaceBytes space available on the volume holding the workspace, or
  *   a provider that answers null to skip the check.
  *
- *   Injected for the same reason [WorkspaceTool] injects it: `StatFs` is a stub
- *   under JVM unit tests and reports zero for everything, so calling it directly
- *   would make every import fail with "not enough free space" in the one
- *   environment where this class is testable. The default reads the real
- *   filesystem, so production needs no wiring.
+ *   Injected because the free-space query is a platform/filesystem detail:
+ *   production reads `File.usableSpace`, and a unit test passes a fixed number
+ *   so the test does not depend on the machine's disk.
  */
 class WorkspaceTransfer(
 	private val workspace: SessionWorkspace,
 	private val freeSpaceBytes: () -> Long? = {
-		runCatching { StatFs(workspace.rootPath().absolutePath).availableBytes }.getOrNull()
+		runCatching { workspace.rootPath().usableSpace }.getOrNull()
 	},
 ) {
 
