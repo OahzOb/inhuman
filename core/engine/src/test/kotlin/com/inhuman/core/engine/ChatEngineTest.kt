@@ -1,10 +1,16 @@
 package com.inhuman.core.engine
 
 import com.inhuman.core.ai.ChatMessage
+import com.inhuman.core.ai.ChatProvider
+import com.inhuman.core.ai.ChatRequest
+import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.ai.Role
+import com.inhuman.core.ai.StreamChunk
 import com.inhuman.core.ai.provider.demo.DemoProvider
 import com.inhuman.core.files.SessionWorkspace
 import com.inhuman.core.files.tools.FileTools
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -82,5 +88,25 @@ class ChatEngineTest {
 		assertTrue(events.any { it is EngineEvent.AssistantMessage })
 		assertTrue(events.any { it is EngineEvent.Finished })
 		assertTrue(events.none { it is EngineEvent.ToolCallResult })
+	}
+
+	@Test
+	fun `a provider that throws becomes a Failed event`() = runBlocking {
+		val throwing = object : ChatProvider {
+			override val id = "throwing"
+			override suspend fun listModels(): List<RemoteModel> = emptyList()
+			override fun stream(request: ChatRequest): Flow<StreamChunk> = flow {
+				throw IllegalStateException("transport exploded")
+			}
+		}
+		val events = ChatEngine(throwing).run(
+			EngineTurn(
+				model = "none",
+				messages = listOf(ChatMessage(Role.User, "hello")),
+			),
+		).toList()
+
+		val failure = events.filterIsInstance<EngineEvent.Failed>().single()
+		assertTrue(failure.message.contains("transport exploded"))
 	}
 }

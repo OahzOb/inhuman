@@ -10,6 +10,7 @@ import com.inhuman.core.ai.Tool
 import com.inhuman.core.ai.ToolCall
 import com.inhuman.core.ai.ToolSpec
 import com.inhuman.core.ai.ToolResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
@@ -56,57 +57,66 @@ class ChatEngine(
 				userId = turn.userId,
 			)
 
-			provider.stream(request).collect { chunk ->
-				when (chunk) {
-					is StreamChunk.ReasoningDelta -> {
-						reasoning.append(chunk.text)
-						emit(EngineEvent.ReasoningDelta(chunk.text))
-					}
-
-					is StreamChunk.TextDelta -> {
-						text.append(chunk.text)
-						emit(EngineEvent.TextDelta(chunk.text))
-					}
-
-					is StreamChunk.ToolCallStart -> {
-						builders.getOrPut(chunk.index) { CallBuilder(chunk.index) }.apply {
-							id = chunk.id ?: id
-							if (chunk.name != null) name.append(chunk.name)
+			try {
+				provider.stream(request).collect { chunk ->
+					when (chunk) {
+						is StreamChunk.ReasoningDelta -> {
+							reasoning.append(chunk.text)
+							emit(EngineEvent.ReasoningDelta(chunk.text))
 						}
-					}
 
-					is StreamChunk.ToolCallDelta -> {
-						builders.getOrPut(chunk.index) { CallBuilder(chunk.index) }.apply {
-							chunk.nameDelta?.let(name::append)
-							chunk.inputDelta?.let(arguments::append)
+						is StreamChunk.TextDelta -> {
+							text.append(chunk.text)
+							emit(EngineEvent.TextDelta(chunk.text))
 						}
+
+						is StreamChunk.ToolCallStart -> {
+							builders.getOrPut(chunk.index) { CallBuilder(chunk.index) }.apply {
+								id = chunk.id ?: id
+								if (chunk.name != null) name.append(chunk.name)
+							}
+						}
+
+						is StreamChunk.ToolCallDelta -> {
+							builders.getOrPut(chunk.index) { CallBuilder(chunk.index) }.apply {
+								chunk.nameDelta?.let(name::append)
+								chunk.inputDelta?.let(arguments::append)
+							}
+						}
+
+						is StreamChunk.ToolCallEnd -> Unit
+
+						is StreamChunk.Usage -> {
+							usage = EngineUsage(
+								promptTokens = chunk.promptTokens,
+								completionTokens = chunk.completionTokens,
+								totalTokens = chunk.totalTokens,
+								cachedPromptTokens = chunk.cachedPromptTokens,
+								reasoningTokens = chunk.reasoningTokens,
+							)
+						}
+
+						is StreamChunk.Finish -> finish = chunk.reason
+
+						is StreamChunk.Failure -> {
+							failure = chunk.message
+						}
+
+						is StreamChunk.TextStart,
+						is StreamChunk.TextEnd,
+						is StreamChunk.ReasoningStart,
+						is StreamChunk.ReasoningEnd,
+						is StreamChunk.Raw,
+						-> Unit
 					}
-
-					is StreamChunk.ToolCallEnd -> Unit
-
-					is StreamChunk.Usage -> {
-						usage = EngineUsage(
-							promptTokens = chunk.promptTokens,
-							completionTokens = chunk.completionTokens,
-							totalTokens = chunk.totalTokens,
-							cachedPromptTokens = chunk.cachedPromptTokens,
-							reasoningTokens = chunk.reasoningTokens,
-						)
-					}
-
-					is StreamChunk.Finish -> finish = chunk.reason
-
-					is StreamChunk.Failure -> {
-						failure = chunk.message
-					}
-
-					is StreamChunk.TextStart,
-					is StreamChunk.TextEnd,
-					is StreamChunk.ReasoningStart,
-					is StreamChunk.ReasoningEnd,
-					is StreamChunk.Raw,
-					-> Unit
 				}
+			} catch (e: CancellationException) {
+				throw e
+			} catch (e: Exception) {
+				// The contract says failures arrive as a chunk, but a transport
+				// can still throw before the first chunk. Do not turn that into a
+				// torn coroutine with no event for the caller.
+				failure = e.message ?: e::class.simpleName ?: "provider stream failed"
 			}
 
 			failure?.let {
@@ -172,7 +182,13 @@ class ChatEngine(
 	private suspend fun execute(tool: Tool?, call: EngineToolCall): ToolResult {
 		if (tool == null) return ToolResult("unknown tool: ${call.name}", isError = true)
 
-		val approved = approval.approve(tool, call)
+		val approved = try {
+			approval.approve(tool, call)
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			return ToolResult("approval failed: ${e.message}", isError = true)
+		}
 		if (!approved) return ToolResult("declined by user", isError = true)
 
 		val arguments = try {
@@ -180,8 +196,13 @@ class ChatEngine(
 		} catch (e: Exception) {
 			return ToolResult("invalid tool arguments: ${e.message}", isError = true)
 		}
-		return runCatching { tool.execute(arguments) }
-			.getOrElse { ToolResult("tool failed: ${it.message}", isError = true) }
+		return try {
+			tool.execute(arguments)
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			ToolResult("tool failed: ${e.message}", isError = true)
+		}
 	}
 
 	private fun spec(tool: Tool) = ToolSpec(
