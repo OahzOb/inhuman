@@ -27,6 +27,7 @@ dependencies {
 
 	implementation libs.androidx.room.runtime
 	implementation 'androidx.sqlite:sqlite-bundled:2.5.2'
+	implementation libs.jna.platform
 	ksp libs.androidx.room.compiler
 
 	testImplementation libs.junit
@@ -38,7 +39,12 @@ compose.desktop {
 		mainClass = 'com.inhuman.desktop.MainKt'
 
 		nativeDistributions {
-			targetFormats(TargetFormat.Msi, TargetFormat.Deb)
+			targetFormats(
+				TargetFormat.Msi,
+				TargetFormat.Deb,
+				TargetFormat.Rpm,
+				TargetFormat.AppImage,
+			)
 			packageName = 'inhuman'
 			packageVersion = '0.2.0'
 			description = 'inhuman desktop spike'

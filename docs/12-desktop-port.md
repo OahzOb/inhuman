@@ -30,17 +30,18 @@
 - `:core:common`、`:core:ai`、`:core:files` 已从 Android library 改成 **plain JVM**；Android app 继续依赖同一批 jar，全量 Android 测试仍通过；
 - `:desktopApp` 已是可运行的 Compose Desktop 窗口，使用 `core:ai` 的 `DemoProvider` 流式生成回复，并依赖共享的 `SessionWorkspace`；
 - Room/JVM 的 KSP + `BundledSQLiteDriver` 已用一个最小数据库验证（不是当前 schema v13 的迁移，那一步仍未做）；
+- Windows DPAPI 已经通过 JNA 的 `Crypt32Util` 验证加解密往返；Linux 明确不做“假加密”回退，Secret Service 绑定仍是待办；
 - Windows **junction 逃逸**被 spike 的测试抓到并修复：`File.canonicalFile` 不解析 junction，`Files.isSymbolicLink` 也不识别它，现在对已存在组件使用 `toPath().toRealPath()`；
-- `:desktopApp:createDistributable` 已产出 Windows app 目录，打包后的 exe 能启动。
+- `:desktopApp:createDistributable` 已产出 Windows app 目录，打包后的 exe 能启动；Msi/Deb/Rpm/AppImage 目标已声明，Linux 包尚未在 Linux 上构建。
 
 仍未完成（下一步，不要误认为 spike 已完成）：
 
 - 把 `InhumanDatabase`/entities 从 Android-only `:core:data` 提取成可共享的 Room schema，并跑当前 v13 的真实查询/migration；
-- DPAPI/libsecret 的 secret store，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
+- Linux Secret Service（libsecret）绑定，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
 - 从 `ChatViewModel` 抽出共享 `ChatEngine`，让两个 UI 用同一套工具循环/授权/快照；
 - 桌面端的完整安全/通知/文件对话框/图片适配。
 
-当前全量测试为 **454 tests / 57 suites / 0 failures / 2 skipped**。
+当前全量测试为 **456 tests / 58 suites / 0 failures / 2 skipped**。
 
 ### 为什么不是“所有 UI 也共用一套”
 
@@ -71,7 +72,7 @@
 | `:core:common` | 3 | 267 | **0** | 直接复用 |
 | **合计** | **106** | **31,100** | 120 个 | |
 
-测试侧还有 67 个文件、约 8,243 行；当前全量 454 tests / 57 suites。
+测试侧还有 67 个文件、约 8,243 行；当前全量 456 tests / 58 suites。
 
 这个分布说明：**领域层和 UI 层是分开的，Android 绑定集中在 data 和 app 的薄层**。这是移植能成立的前提。
 
