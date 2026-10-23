@@ -16,6 +16,25 @@ kotlin {
 	jvmToolchain(17)
 }
 
+// Spike only: compile the exact Android Room schema files from :core:data,
+// without moving them yet. Database.kt is excluded because it is the Android
+// builder. This proves the current schema on the JVM; the production step is to
+// extract these files into a shared module and have :core:data depend on it.
+sourceSets {
+	main {
+		kotlin {
+			srcDir '../core/data/src/main/kotlin/com/inhuman/core/data/db'
+			exclude '**/Database.kt'
+		}
+	}
+}
+
+ksp {
+	// Generated schema JSON is disposable for the spike; the authoritative
+	// v13 export remains core/data/schemas.
+	arg('room.schemaLocation', "$buildDir/room-schemas")
+}
+
 dependencies {
 	implementation project(':core:common')
 	implementation project(':core:ai')
