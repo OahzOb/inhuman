@@ -29,13 +29,15 @@ on the same jars the Android app consumes. `:core:data` and `:core:design` remai
 Android-only; `:core:db` owns the Room entities, DAOs, database and migrations so
 both `:core:data` and `:desktopApp` use one schema.
 
-`:core:engine` is the first extraction of the turn loop: it streams a provider,
-assembles tool calls, asks an `EngineApproval` hook, executes tools and repeats
-until the model answers without a call or a budget is hit. It does **not** own
-full persistence/snapshot/compaction parity yet. The desktop window, the Android
-demo path and Android non-SSH provider turns use it; SSH turns and the
-no-provider/no-model fallback still use `ChatViewModel.runTurnLegacy`, which owns
-the SSH consent and legacy recovery plumbing.
+`:core:engine` is the turn loop: it streams a provider, assembles tool calls,
+asks an `EngineApproval` hook, executes tools and repeats until the model
+answers without a call or a budget is hit. It does not own persistence,
+snapshots, compaction or consent; the host injects those through the hook. The
+desktop window and every Android provider turn use it, SSH included.
+`ChatViewModel.gateEngineCall` is where the Android host applies the SSH
+capability grant, the approval rules, the start checkpoint and argument
+normalisation; a missing provider or model is refused before the engine starts.
+There is no second turn loop.
 Three things about this graph are deliberate and are commented where they
 are declared:
 

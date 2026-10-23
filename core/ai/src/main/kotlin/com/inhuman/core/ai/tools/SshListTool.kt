@@ -1,6 +1,5 @@
 package com.inhuman.core.ai.tools
 
-import com.inhuman.core.ai.Tool
 import com.inhuman.core.ai.ToolResult
 import com.inhuman.core.ai.ssh.SshEntryType
 import com.inhuman.core.ai.ssh.SshException
@@ -31,7 +30,7 @@ class SshListTool(
 	private val transport: SshFileTransport,
 	private val readWorkspaceFile: (String) -> ByteArray? = { null },
 	private val maxEntries: Int = 500,
-) : Tool {
+) : SshTool {
 
 	override val name: String = "ssh_list"
 

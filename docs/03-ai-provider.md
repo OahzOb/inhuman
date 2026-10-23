@@ -632,8 +632,8 @@ the stored transcript keeps host, user, command and `identityFile`, not the
 secret. Text the user typed into a message is still stored verbatim — that is
 the conversation, and the consent dialog says so. The tool is `mutates = true` (a
 replay would run the remote command again) and `needsApproval = false`; the
-separate per-conversation consent gate is in `ChatViewModel`, and the ordinary
-`ToolPolicy` applies after it.
+separate per-conversation consent gate is `ChatViewModel.gateEngineCall`, behind
+the shared engine's approval hook, and the ordinary `ToolPolicy` applies after it.
 
 `SshProbeTool` (`tools/SshProbeTool.kt`) is the read-only snapshot: one fixed
 script, no model-supplied command, no sudo. It reports OS, kernel, uptime, load,

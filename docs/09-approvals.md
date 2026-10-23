@@ -166,7 +166,7 @@ effective = strictest( 用户规则, agent 规则 )
 工具在 `execute` 里返回 `ToolResult.error(...)`。
 
 **选了前者，而且已经实现**：拒绝发生在调用**之前**，由 `PolicySet` 统一裁决；
-`Deny` 与 `Blind` 排在 `needsApproval` 之前处理（`ChatViewModel.executeCalls`，
+`Deny` 与 `Blind` 排在 `needsApproval` 之前处理（`ChatViewModel.gateEngineCall`，
 拒绝文案带 `REFUSED_MARKER`）。这样就不需要每个工具各自记得查一次策略。
 
 ### 5.3 审批决定应当进会话日志
@@ -179,9 +179,9 @@ effective = strictest( 用户规则, agent 规则 )
 `approval/decided`，所以会话重新加载之后，"为什么问过、答了什么"只剩下工具结果
 那一句。
 
-B4 已经用另一条路修掉了：拒绝第一个调用后，`answerSkippedCalls` 会给同一轮里每个
-未执行的调用各写一条 `[skipped]` 结果（Stop 路径同样如此），不再是"有调用、没结果"。
-事件化仍然值得做，但它不再是修 B4 的前提。
+B4 已经用另一条路修掉了：拒绝第一个调用后，engine 会给同一轮里每个未执行的调用
+各写一条 `[skipped]` 结果（`EngineEvent.ToolCallSkipped`；Stop 路径同样如此），
+不再是"有调用、没结果"。事件化仍然值得做，但它不再是修 B4 的前提。
 
 ---
 
@@ -217,7 +217,7 @@ path_policy(conversationId TEXT, relPath TEXT, policy TEXT NOT NULL,
   **未改动任何既有表**
 - `PolicyRepository` —— 装载与写入
 - `DeleteFileTool.needsApproval` 默认 `false`（§5.1）
-- **执行循环里的裁决**（`ChatViewModel.executeCalls`）：`Deny` / `Blind` 是**拒绝**，
+- **执行循环里的裁决**（`ChatViewModel.gateEngineCall`）：`Deny` / `Blind` 是**拒绝**，
   因此排在 `needsApproval` **之前**——那个钩子只会说"问"，而对一件用户已经禁止的事
   发问，是答非所问。`Ask` 与钩子合入同一分支。
 - **三处编辑器**：全局规则在设置页，按助手的规则在 Agents 的编辑对话框，按路径的
@@ -226,7 +226,7 @@ path_policy(conversationId TEXT, relPath TEXT, policy TEXT NOT NULL,
 - **`Blind` 真的隐藏**：`FileTools.all` 接受 `hidden` 判定，`ChatViewModel.buildTools`
   从已解析的 `PolicySet` 供给它；`ListFilesBlindTest` 把"名字也不出现"写成断言。
 - **SSH 的第一道门是能力授权**（schema 8→9 的 `conversations.sshAllowed`），
-  不是 `needsApproval`。`ChatViewModel.executeCalls` 在普通策略分支之前处理它；
+  不是 `needsApproval`。`ChatViewModel.gateEngineCall` 在普通策略分支之前处理它；
   `SshExecTool.needsApproval` 返回 `false`。授权后按普通策略执行，撤销/全局关闭
   会清掉持久授权；全局关闭后再打开，下一次 SSH 调用必须重新授权。
 
@@ -280,11 +280,12 @@ Delete demo/notes.txt from this conversation's folder?
 {"path":"demo/notes.txt"}
 ```
 
-**另外查了一件因为代码形状而值得怀疑的事。** `answerSkippedCalls` 在循环没有跑完时
-从 `finally` 里以 `NonCancellable` 执行，而一个挂起中的 `awaitApproval` 正是"恢复时
+**另外查了一件因为代码形状而值得怀疑的事。** 旧循环在没跑完时从 `finally` 里以
+`NonCancellable` 补写未执行调用的结果，而一个挂起中的 `awaitApproval` 正是"恢复时
 可能重复回答同一个调用"的形状。实测没有：`demo-call-0` 一条结果、`demo-call-1`
-一条结果，没有多余的 `[skipped]` 行。**这是查出来的而不是推出来的**——重复的工具结果
-只会以"下一条消息 400"的形式暴露。
+一条结果，没有多余的 `[skipped]` 行。现在这一步由 engine 的
+`EngineEvent.ToolCallSkipped` 显式发出，顺序由事件流保证，不再依赖 `finally` 的补写。
+**这是查出来的而不是推出来的**——重复的工具结果只会以"下一条消息 400"的形式暴露。
 
 至此审批层没有未验证的行为了。
 

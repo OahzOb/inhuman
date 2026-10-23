@@ -1,17 +1,14 @@
 package com.inhuman.core.ai.tools
 
-import com.inhuman.core.ai.Tool
 import com.inhuman.core.ai.ToolResult
 import com.inhuman.core.ai.ssh.SshAuth
 import com.inhuman.core.ai.ssh.SshException
 import com.inhuman.core.ai.ssh.SshLimits
 import com.inhuman.core.ai.ssh.SshTransport
 import kotlinx.coroutines.CancellationException
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonObject
 
 /**
  * Run one command on a remote machine over SSH.
@@ -37,7 +34,7 @@ class SshExecTool(
 	private val limits: SshLimits = SshLimits(),
 	/** Reads a workspace-relative private-key file. */
 	private val readWorkspaceFile: (String) -> ByteArray? = { null },
-) : Tool {
+) : SshTool {
 
 	override val name: String = "ssh_exec"
 
@@ -94,7 +91,7 @@ class SshExecTool(
 		// `arguments` (the shape of the API's own tool-call envelope) and use
 		// `hostname` for `host`. Unwrap one level rather than refusing a call
 		// whose payload is otherwise complete.
-		val args = normalizeArguments(arguments)
+		val args = SshArguments.normalize(arguments)
 		val host = args.string("host")?.trim().orEmpty()
 		val username = args.string("username")?.trim().orEmpty()
 		val command = args.string("command")?.trim().orEmpty()
@@ -201,39 +198,5 @@ class SshExecTool(
 	private fun JsonObject.string(name: String): String? {
 		val primitive = this[name] as? JsonPrimitive ?: return null
 		return if (primitive.isString) primitive.content else null
-	}
-
-	companion object {
-		/**
-		 * The arguments as the tool reads them, before the consent dialogue or
-		 * the approval dialogue looks at them.
-		 *
-		 * DeepSeek sometimes emits the function-call envelope itself as the
-		 * arguments object: `{"arguments":"{\"host\":...}"}`. The tool already
-		 * accepts that shape, but the UI was reading the raw object and showed
-		 * a consent dialogue for an empty host. One normalisation used by both
-		 * paths keeps what the user is shown and what runs the same.
-		 */
-		fun normalizeArguments(arguments: JsonObject): JsonObject {
-			val unwrapped = (arguments["arguments"] as? JsonPrimitive)
-				?.takeIf { it.isString }
-				?.content
-				?.let { nested ->
-					runCatching { Json.parseToJsonElement(nested).jsonObject }.getOrNull()
-				}
-				?: arguments
-			if (unwrapped["host"] == null) {
-				val hostname = unwrapped.stringOrNull("hostname")
-				if (hostname != null) {
-					return JsonObject(unwrapped + ("host" to JsonPrimitive(hostname)))
-				}
-			}
-			return unwrapped
-		}
-
-		private fun JsonObject.stringOrNull(name: String): String? {
-			val primitive = this[name] as? JsonPrimitive ?: return null
-			return if (primitive.isString) primitive.content else null
-		}
 	}
 }

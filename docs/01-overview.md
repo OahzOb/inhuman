@@ -28,15 +28,18 @@ an unauditable one would be worth very little (`README.md:359-363`).
 
 ## Shape of the repository
 
-Six Gradle modules, one of which is a placeholder:
+Nine Gradle modules; `_research/` and `tools/` are not modules:
 
 ```
 app                      UI, theme, entry point, all ViewModels
 core/common              platform-free shared code (the diagnostics facade)
 core/design              colour, type, theme, layout constants
-core/data                Room, repositories, Keystore-backed secrets, DocumentsProvider
-core/ai                  provider + streaming + tools      (no Compose, no Activity)
-core/files               the workspace sandbox and the 8 file tools
+core/data                repositories, Keystore-backed secrets, DocumentsProvider
+core/db                  Room entities, DAOs, database, migrations  (plain JVM)
+core/engine              the turn loop, shared with the desktop host (plain JVM)
+core/ai                  provider + streaming + tools                (plain JVM)
+core/files               the workspace sandbox and the 8 file tools  (plain JVM)
+desktopApp               the Compose Desktop spike
 _research/               background investigations, kept as evidence — not compiled
 tools/                   PowerShell device-driving and verification scripts
 docs/                    this set
@@ -45,9 +48,9 @@ docs/                    this set
 The rule the split exists to enforce, stated in `settings.gradle`: **a module
 with no Android UI must not depend on one.** `:core:ai` is a plain HTTP +
 streaming library, which is what keeps provider code testable on the JVM
-without a device. Dependencies run one way only — `app` depends on all five
-`core` modules (`app/build.gradle:55-59`), and no `core` module depends on
-`app` or on another `core` module's UI.
+without a device. Dependencies run one way only — `app` depends on six of the
+seven `core` modules (`core:db` arrives through `core:data`'s API), and no
+`core` module depends on `app` or on another `core` module's UI.
 
 ## What works today
 

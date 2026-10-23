@@ -22,14 +22,16 @@ import kotlinx.serialization.json.jsonObject
 /**
  * One turn, independent of Android and of any UI.
  *
- * This is the first extraction of the loop that lives inside `ChatViewModel`:
- * it streams a completion, assembles tool calls, asks an approval hook before
- * executing one, appends the assistant/tool messages, and repeats until the
- * model answers without a call or a budget is hit.
+ * The loop that used to live inside `ChatViewModel`: it streams a completion,
+ * assembles tool calls, asks an approval hook before executing one, appends the
+ * assistant/tool messages, and repeats until the model answers without a call or
+ * a budget is hit. Both hosts -- the Android app and the desktop window -- run
+ * this one, so "what happened when the user declined" has one answer rather than
+ * one per platform.
  *
- * What it deliberately does **not** own yet: persistence, snapshots, context
+ * What it deliberately does **not** own: persistence, snapshots, context
  * compaction, SSH consent policy, and the UI's per-token throttling. Those are
- * the next slices; keeping them out is what lets this module be tested on a
+ * host concerns, and keeping them out is what lets this module be tested on a
  * plain JVM. In particular, the approval hook is a callback rather than a
  * `needsApproval` check here, because the policy layer is not part of the
  * protocol.
@@ -157,7 +159,12 @@ class ChatEngine(
 			}
 
 			if (turn.suppressToolCalls) {
-				emit(EngineEvent.Failed("provider called a tool despite the text-only retry instruction"))
+				emit(
+					EngineEvent.Failed(
+						"provider called a tool despite the text-only retry instruction",
+						EngineFailure.ToolCallsSuppressed,
+					),
+				)
 				return@flow
 			}
 
@@ -168,7 +175,12 @@ class ChatEngine(
 						history += ChatMessage(Role.Tool, result.content, toolCallId = skip.id)
 						emit(EngineEvent.ToolCallSkipped(skip, result.content))
 					}
-					emit(EngineEvent.Failed("tool call limit reached (${turn.maxCalls})"))
+					emit(
+						EngineEvent.Failed(
+							"tool call limit reached (${turn.maxCalls})",
+							EngineFailure.CallLimit,
+						),
+					)
 					return@flow
 				}
 				callsUsed++
@@ -181,7 +193,15 @@ class ChatEngine(
 					content = executed.result.content,
 					toolCallId = call.id,
 				)
-				emit(EngineEvent.ToolCallResult(call, executed.result))
+				if (executed.declined) {
+					// A refusal by the user is not a tool failure. The chip and
+					// the transcript already say "declined", and collapsing the
+					// two made a call the user stopped look like one that ran and
+					// broke -- the state a person is most likely to misread.
+					emit(EngineEvent.ToolCallDeclined(call, executed.result.content))
+				} else {
+					emit(EngineEvent.ToolCallResult(call, executed.result))
+				}
 
 				if (executed.stopTurn) {
 					// Every assistant tool_call needs a result on the wire. If the
@@ -198,7 +218,7 @@ class ChatEngine(
 			}
 		}
 
-		emit(EngineEvent.Failed("tool round limit reached (${turn.maxRounds})"))
+		emit(EngineEvent.Failed("tool round limit reached (${turn.maxRounds})", EngineFailure.RoundLimit))
 	}
 
 	private suspend fun execute(tool: Tool?, call: EngineToolCall): Execution {
@@ -220,6 +240,7 @@ class ChatEngine(
 			return Execution(
 				ToolResult(decision.message, isError = true),
 				stopTurn = decision.stopTurn,
+				declined = decision.declined,
 			)
 		}
 
@@ -232,7 +253,14 @@ class ChatEngine(
 			)
 		}
 		return try {
-			Execution(withContext(toolDispatcher) { tool.execute(arguments) }, stopTurn = false)
+			// Normalised by the tool, before it runs. Some providers wrap the
+			// whole argument object in a string field; a tool that accepts that
+			// shape declares it in `normalize`, and the same value is what the
+			// approval gate saw.
+			Execution(
+				withContext(toolDispatcher) { tool.execute(tool.normalize(arguments)) },
+				stopTurn = false,
+			)
 		} catch (e: CancellationException) {
 			throw e
 		} catch (e: Exception) {
@@ -290,7 +318,43 @@ sealed interface EngineEvent {
 		val usage: EngineUsage?,
 	) : EngineEvent
 	data class Finished(val reason: FinishReason) : EngineEvent
-	data class Failed(val message: String) : EngineEvent
+	/**
+	 * The turn ended for a reason the host has to name.
+	 *
+	 * The message stays for logs and for a host that has no translation, but
+	 * the cause is what lets an Android UI show its own sentence. Before this,
+	 * routing a real provider through the engine replaced the localised
+	 * "tool call limit reached" with the English string the loop happened to
+	 * hold -- a regression that only shows on the user's screen.
+	 */
+	data class Failed(
+		val message: String,
+		val cause: EngineFailure = EngineFailure.Provider,
+	) : EngineEvent
+
+	/**
+	 * The user refused this call.
+	 *
+	 * Separate from [ToolCallResult] because it is not a failure: the call did
+	 * not run, and the transcript, the chip and the model all need to say that
+	 * rather than "the tool broke".
+	 */
+	data class ToolCallDeclined(val call: EngineToolCall, val message: String) : EngineEvent
+}
+
+/** Why a turn ended early, in terms its host can translate. */
+enum class EngineFailure {
+	/** The provider or the transport failed. [EngineEvent.Failed.message] says how. */
+	Provider,
+
+	/** A text-only retry produced a tool call despite the instruction not to. */
+	ToolCallsSuppressed,
+
+	/** The per-turn tool round budget ran out. */
+	RoundLimit,
+
+	/** The per-turn tool call budget ran out. */
+	CallLimit,
 }
 
 sealed interface EngineDecision {
@@ -299,6 +363,15 @@ sealed interface EngineDecision {
 		val message: String,
 		/** Whether this refusal ends the turn or only this call. */
 		val stopTurn: Boolean = true,
+		/**
+		 * Whether the user said no, rather than policy refusing.
+		 *
+		 * A user's refusal ends the turn and must read as "declined"; a policy
+		 * refusal is a failed call the model may work around. The engine only
+		 * reports the difference -- naming it here keeps the host from having to
+		 * match on the refusal's text.
+		 */
+		val declined: Boolean = false,
 	) : EngineDecision
 }
 
@@ -309,6 +382,8 @@ fun interface EngineApproval {
 private data class Execution(
 	val result: ToolResult,
 	val stopTurn: Boolean,
+	/** The user declined, as opposed to the call failing. */
+	val declined: Boolean = false,
 )
 
 private class CallBuilder(val index: Int) {

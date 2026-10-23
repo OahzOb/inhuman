@@ -109,7 +109,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :desktopApp:test --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 464 tests in 63 suites, 0 failures, 3 skipped** — the skips
+**BUILD SUCCESSFUL, 476 tests in 64 suites, 0 failures, 3 skipped** — the skips
 are `DeepSeekWebLiveTest`, which talks to the real paid Search and Fetch APIs and
 needs `DEEPSEEK_LIVE_KEY`; `EngineLiveTest`, which makes one real chat completion
 when the same key is set; and `SshLiveProbeTest`, which needs
@@ -118,12 +118,12 @@ was empty. Suite by suite:
 
 | Module | Suites | Tests |
 | --- | --- | --- |
-| `:core:ai` | 29 | 249 (2 skipped) |
+| `:core:ai` | 30 | 256 (2 skipped) |
 | `:core:files` | 5 | 58 |
 | `:app` | 16 | 110 |
 | `:core:common` | 2 | 16 |
 | `:core:db` | 2 | 2 |
-| `:core:engine` | 2 | 5 (1 skipped) |
+| `:core:engine` | 2 | 10 (1 skipped) |
 | `:core:data` | 3 | 17 |
 | `:desktopApp` | 4 | 7 |
 

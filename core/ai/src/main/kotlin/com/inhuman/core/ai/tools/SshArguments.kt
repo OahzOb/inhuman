@@ -51,6 +51,50 @@ object SshArguments {
 		return unwrapped
 	}
 
+	/**
+	 * The first required field this call is missing, or null.
+	 *
+	 * The consent dialogue is the strongest warning the app shows, so it must
+	 * not appear for a call the tool would reject as malformed before it ever
+	 * touches the network. The legacy loop checked three tools and missed
+	 * `ssh_write_file`; this checks every tool's documented required fields, in
+	 * one place, against the same normalised object the tool will run with.
+	 *
+	 * Authentication is deliberately not checked here: `identityFile`,
+	 * `privateKey` and `password` are alternatives, and the tool has to read
+	 * the workspace key file to decide whether one of them works.
+	 */
+	fun missingRequired(toolName: String, arguments: JsonObject): String? {
+		val args = normalize(arguments)
+		if (args.stringOrNull("host").isNullOrBlank()) return "host"
+		if (args.stringOrNull("username").isNullOrBlank()) return "username"
+		return when (toolName) {
+			"ssh_exec" -> "command".takeIf { args.stringOrNull(it).isNullOrBlank() }
+			"ssh_probe" -> null
+			"ssh_list", "ssh_read_file" ->
+				"remotePath".takeIf { args.stringOrNull(it).isNullOrBlank() }
+			"ssh_upload" -> missingPair(args, "localPath", "remotePath")
+			"ssh_download" -> missingPair(args, "remotePath", "localPath")
+			"ssh_write_file" -> when {
+				args.stringOrNull("remotePath").isNullOrBlank() -> "remotePath"
+				args.stringOrNull("content") == null -> "content"
+				else -> null
+			}
+			else -> null
+		}
+	}
+
+	private fun missingPair(args: JsonObject, first: String, second: String): String? {
+		val missingFirst = args.stringOrNull(first).isNullOrBlank()
+		val missingSecond = args.stringOrNull(second).isNullOrBlank()
+		return when {
+			missingFirst && missingSecond -> "$first and $second"
+			missingFirst -> first
+			missingSecond -> second
+			else -> null
+		}
+	}
+
 	fun parse(
 		toolName: String,
 		arguments: JsonObject,

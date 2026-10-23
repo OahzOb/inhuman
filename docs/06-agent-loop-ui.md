@@ -22,120 +22,104 @@ growing, and because `isStreaming` was cleared the composer unlocked, so a secon
 turn could start while the first was still writing into the same message tree
 (`:721-728`).
 
-### `runTurn` (`:1444-1524`)
+### `runTurn`, and the shared engine
 
-Builds the provider (`DemoProvider()` or `DeepSeekProvider(apiKey!!)`),
-`buildTools()`, and loops up to the user's **tool-round limit** — Settings →
-04 / Turn limits **or** the chat menu's Tool rounds per turn; both write the same
-`SecureStore` key, so they cannot disagree. Default `DEFAULT_TOOL_ROUNDS = 8`,
-bounded 4–64. A round is one model response plus its tool calls, so this is not a
-count of individual calls. A second global budget,
-`DEFAULT_TOOL_CALLS = 32` (1–256), counts every call across all rounds; a round
-that asks for more calls than remain executes only the remaining ones and answers
-the rest as skipped, then the turn stops with an explicit error. Empty
-`toolCalls` ends the turn; falling out of either loop sets an explicit error
-("Stopped after N tool rounds/calls…") rather than ending silently.
+`runTurn` resolves the provider (`DemoProvider()` or the assistant's profile) and
+the model, refuses a missing key or model **before** a turn starts, then hands
+the turn to `runTurnWithEngine`. There is no second loop: every provider turn,
+SSH included, runs through `:core:engine`'s `ChatEngine`.
 
-### `streamOneTurn` (`:802-1081`)
+The two budgets are read once at the start of the turn from `toolRoundLimit()` /
+`toolCallLimit()` — the Settings screen and the chat menu write the same
+`SecureStore` keys, so they cannot disagree. Round limit default
+`DEFAULT_TOOL_ROUNDS = 8` (4–64); call limit `DEFAULT_TOOL_CALLS = 32` (1–256).
+A round is one model response plus its calls; a round that asks for more calls
+than remain executes the rest and answers the remainder as skipped before
+stopping with the call-limit cause.
 
-The ordering inside this function is load-bearing in four places:
+`runTurnWithEngine` is the Android host. It builds the request history with
+`buildWireHistory(includeCurrent = true)`: this path creates no assistant
+placeholder before the request, so the default `dropLast(1)` would drop the
+user's just-sent message — the "answered the previous turn" bug, B30. On a
+text-only retry a real provider keeps the tool definitions so the prefix still
+matches the cache, and a transient system instruction plus the engine's guard
+stop execution; demo turns get no tools, because the script reacts to
+`request.tools` rather than to instructions.
 
-1. **The delta `Channel` is registered before the placeholder message exists**
-   (`:814-827`). The row's first render already needs the channel.
-2. **`buildWireHistory()` is called after the placeholder exists**, and
-   compensates with `messages.dropLast(1)` (`:1351`).
-3. **Tool calls are keyed by the provider's `index`**, in a
-   `linkedMapOf<Int, ToolCallUi>()` (`:832`).
-4. **`ToolCallDelta` concatenates both `nameDelta` and `inputDelta`** (`:945-949`)
-   rather than using `?:`. The comment records the bug: a decoder that sent the
-   name once and this line that kept only the first fragment disagreed, and the
-   result was a tool named `read_` instead of `read_file`.
+The engine's events are rendered and persisted here:
 
-State publication is **throttled to `STREAM_PUBLISH_INTERVAL_MS = 40`**
-(`publishIfDue`, `:876-889`) because every publish copies the whole accumulated
-answer — over one reply, publishing per chunk is quadratic (`:855-868`).
-`ToolCallStart` and `ToolCallEnd` force a publish; token deltas do not.
+- **`RoundStarted`** closes the previous round's delta channel, appends the
+  streaming placeholder and resets the accumulators. From round 2 on it first
+  saves the checkpoint for the group that just completed, which is what makes an
+  "after tool group N" Rewind point possible.
+- **`ReasoningDelta` / `TextDelta`** append and publish through the same
+  `DeltaCursor` and 40 ms throttle as before.
+- **`AssistantMessage`** carries the assembled calls; **`RoundFinished`**
+  persists the assistant row once, closes the channel, attaches usage and moves
+  the context gauge. A round that produced no text, reasoning or calls persists
+  nothing, so a failed provider request does not leave a blank row.
+- **`ToolCallResult`** appends the result row, marks the chip `Done`/`Failed`,
+  and records `mutated` for a mutating tool: the engine executed it, the host
+  records it.
+- **`ToolCallDeclined`** is the user's refusal: chip `Declined`, result carries
+  `DECLINED_MARKER`, turn ends. It is deliberately not `Failed`; see the gate.
+- **`ToolCallSkipped`** answers calls that will not run with `SKIPPED_MARKER`,
+  because every recorded call needs a result on the wire.
+- **`Failed`** carries an `EngineFailure` cause. The host translates
+  `RoundLimit`, `CallLimit` and `ToolCallsSuppressed` into string resources;
+  `Provider` keeps the provider's message. Routing real turns through the engine
+  had briefly replaced those localised errors with the loop's English text.
+- The **`finally`** is the Stop path: it publishes the last window, then, inside
+  `NonCancellable`, persists whatever arrived when the flow was cancelled before
+  `RoundFinished` (with `STOPPED_MESSAGE`), writes an empty error row if the
+  first request failed before a token, or removes the placeholder when nothing
+  arrived at all.
 
-Usage fields are kept separate during the stream and assembled once at the end
-(`:962-972`, `:1003-1019`), so intermediate numbers never flicker.
+### `gateEngineCall` — the one gate
 
-**`Failure` sets the message error and the screen error but does not break the
-loop** (`:979-983`).
+Before every call the engine asks the host. `gateEngineCall` runs, in order:
 
-The `finally` (`:993-1070`) does, in order: snapshot the finished calls; remove
-and close the delta channel; capture `wasStopped = !isActive` while cancellation
-is still observable; assemble `UsageUi`; clear `isStreaming` and attach
-`finishReason`/`usage`; `refreshContext()` so the gauge moves per round trip; and
-then, inside **`withContext(NonCancellable)`**, insert the assistant row with the
-full answer, reasoning, model, usage and `toolCallsJson` (`:1041-1065`) — or, if
-nothing at all arrived, remove the placeholder and persist nothing (`:1067`).
+1. Parse the arguments; a parse failure is a refused result, not an exception.
+   `tool.normalize` unwraps provider envelopes — SSH's `{"arguments":"..."}`
+   string and the `hostname` alias — so the gate, the consent dialogue and the
+   tool all read the same object. That hook replaced `SshExecTool`'s duplicate
+   normaliser and the legacy loop's separate call.
+2. For a remote tool: the tool's required fields are checked **before** the
+   dialogue (`SshArguments.missingRequired`). The consent dialogue is the
+   strongest warning in the app and must not describe a call that cannot happen;
+   a call missing host/username/`command`/paths gets an error result instead.
+3. The global SSH switch is re-read, because Settings can change while a turn is
+   running.
+4. A persisted `conversations.sshAllowed` is re-read when the in-memory flag is
+   true, so an off→on round trip cannot inherit a revoked consent.
+5. Policy: `Deny`/`Blind` refuse with `REFUSED_MARKER`; the chip is `Failed`, and
+   the turn continues so the model can adapt.
+6. **SSH capability grant**: `pendingSshConsent` is set and `awaitSshConsent()`
+   suspends. Allow persists `conversations.sshAllowed` and continues; Cancel
+   returns `Deny(declined = true)` and ends the turn.
+7. Ordinary approval (`policy == Ask` or `tool.needsApproval(parsed)`):
+   `pendingApproval` and `awaitApproval()`. For SSH the dialog carries a
+   `details` string built without credentials.
+8. `mutates`: an irreversible tool flags the turn; a reversible one captures the
+   `start` checkpoint, and a capture failure refuses the call.
+9. `Running`, then `Allow`; the engine executes on `Dispatchers.IO`.
 
-The `NonCancellable` block is the one that matters most and its comment says why:
-a cancelled coroutine refuses to suspend, so without it `appendMessage` would
-throw and the part of the answer already received would never reach the database.
-The user would watch a paragraph appear, press Stop, and find it gone the next
-time the conversation was opened — while still having been billed for it
-(`:1028-1039`).
-
-### `executeCalls` (`:1094-1189`)
-
-Per call, in order (line numbers from `ChatViewModel.kt`, which has moved twice
-since this file was written — search the marker text if they are off):
-
-1. Unknown tool → an error result and `continue`.
-2. Arguments are re-parsed (they were parsed once at `ToolCallEnd`); a parse
-   failure appends a result and `continue`s. For every remote tool the same
-   normalization the tool uses is applied first (some models wrap the arguments
-   in an `arguments` string); a call still missing host/user, or the tool's own
-   required fields (`command`, `localPath`/`remotePath`), gets an error
-   **without** a consent dialog.
-3. The global SSH switch is re-checked for every remote tool, because it can be
-   turned off while a turn is already running. Then **the configured rules are
-   consulted**, and `Deny`/`Blind` are answered here as refusals rather than
-   questions — `needsApproval` can only say "ask", and asking about something
-   the user forbade would be the wrong question with a confusing answer. The
-   result body is `REFUSED_MARKER + …` and the chip goes `Failed`, not
-   `Declined`.
-4. **SSH capability grant**, before the ordinary approval branch: if this
-   conversation has not acknowledged SSH, `pendingSshConsent` is set and
-   `awaitSshConsent()` suspends. Allow persists `conversations.sshAllowed` and
-   continues; Cancel appends a declined result and ends the turn. A revoked
-   grant (or a global off/on round trip) is re-read from the database before
-   this check, not trusted from the in-memory flag.
-5. `policy == Ask`, **or** the tool's own `needsApproval(parsed)` →
-   `pendingApproval` in state, then **`awaitApproval()` suspends the turn**.
-   `SshExecTool` returns false from `needsApproval`; after the capability grant
-   its calls follow the ordinary policy (Free by default).
-6. Declined → the `Declined` chip is set **before** the result is appended, the
-   result body is `DECLINED_MARKER + …`, and the function returns `false`. The
-   ordering is deliberate: without it the call stayed `Ready` forever, and a
-   refused call rendered as one that was merely waiting — the one state a user is
-   most likely to misread as "it is about to happen".
-7. Approved → `Running` → `tool.execute` on `Dispatchers.IO` → `Done`/`Failed` →
-   result appended.
-
-**Only the execution moves off the main thread.** Approval stays on it, because
-it suspends on the user and the continuation is resumed from the UI (`:1133-1146`).
-The measured reason for the move: one `write_file` costs about 106 ms in a
-2,000-file workspace, and a turn that writes several files pays it several times.
-
-**Any `tool.mutates` call sets `mutated`, whether it succeeded or not**
-(`:1155-1168`). A failed write still means the turn *tried* to change the
-workspace. It is a record about replay-with-tools; the final-answer retry keeps
-the definitions for cache matching but suppresses calls, so this flag is not
-used to refuse a pure-text retry.
+**Declined vs refused.** A policy refusal is a tool result (`ToolCallResult`,
+chip `Failed`, `stopTurn = false`). A user refusal is a capability answer
+(`Deny(declined = true)` → `ToolCallDeclined`, chip `Declined`, turn ends). The
+two used to be one event with different text, which made a call the user stopped
+look like one that ran and broke.
 
 ### The approval plumbing
 
-One `CancellableContinuation<Boolean>` field, set by `awaitApproval()`
-(`ChatViewModel.kt:1329`). `approvePendingCall` / `declinePendingCall` clear
-`pendingApproval` and resume the continuation only if it is still active.
+One `CancellableContinuation<Boolean>` field, set by `awaitApproval()`.
+`approvePendingCall` / `declinePendingCall` clear `pendingApproval` and resume
+the continuation only if it is still active.
 
 Two things to know: **the `pending: PendingApproval` parameter of
-`continueAfterApproval` is never read** (`:1334`), so approval is not matched
-against the call it names — and because `pendingApproval` is a single field,
-several approval-needing calls produce **sequential dialogs**, not a collected
-batch.
+`continueAfterApproval` is never read**, so approval is not matched against the
+call it names — and because `pendingApproval` is a single field, several
+approval-needing calls produce **sequential dialogs**, not a collected batch.
 
 ### The SSH consent plumbing
 
@@ -149,8 +133,12 @@ dialog that does nothing.
 The grant is persisted (`ConversationRepository.setSshAllowed`) and shown in
 `ChatUiState.sshAllowed`; the top-bar overflow menu exposes **Revoke SSH
 access** while it is true. Turning the global switch off clears every
-conversation's grant, and the next SSH call re-reads the column so an
-off→on round trip cannot inherit the old consent.
+conversation's grant, and the next SSH call re-reads the column so an off→on
+round trip cannot inherit the old consent.
+
+The gate lives in `ChatViewModel.gateEngineCall`; the engine only knows the
+`EngineApproval` callback and `EngineDecision`, which is what keeps the shared
+loop free of Android policy.
 
 ## Regeneration, without re-running tools
 

@@ -92,6 +92,24 @@ interface Tool {
 	fun needsApproval(arguments: JsonObject): Boolean = false
 
 	/**
+	 * Normalise the arguments before anything judges or runs them.
+	 *
+	 * Models do not always send the object the schema describes. The SSH tools
+	 * accept either the connection fields at the top level or the whole object
+	 * wrapped in a string field named `arguments`; the tool can unwrap that,
+	 * but only if it is asked to before the call is read.
+	 *
+	 * This used to be done by the legacy turn loop, so the approval gate, the
+	 * tool and the consent dialogue could each see a different shape of the
+	 * same call depending on which host ran it. Putting it on the tool makes
+	 * "what the model asked for" one value again: the engine normalises once,
+	 * the gate normalises once, and both pass the result on.
+	 *
+	 * Default: unchanged. Only a tool that has a wrapped shape overrides it.
+	 */
+	fun normalize(arguments: JsonObject): JsonObject = arguments
+
+	/**
 	 * Run the call.
 	 *
 	 * Must not throw for an ordinary failure -- a missing file, a quota

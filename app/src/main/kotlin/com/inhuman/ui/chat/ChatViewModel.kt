@@ -22,6 +22,7 @@ import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.engine.ChatEngine
 import com.inhuman.core.engine.EngineDecision
 import com.inhuman.core.engine.EngineEvent
+import com.inhuman.core.engine.EngineFailure
 import com.inhuman.core.engine.EngineToolCall
 import com.inhuman.core.engine.EngineTurn
 import com.inhuman.core.engine.EngineUsage
@@ -87,7 +88,7 @@ import java.util.Locale
 import java.util.UUID
 
 /**
- * Drives one conversation, including the tool loop.
+ * Drives one conversation, and hosts the shared turn loop.
  *
  * ## How streaming meets persistence
  *
@@ -99,11 +100,14 @@ import java.util.UUID
  *
  * ## The tool loop
  *
- * A turn can require several model round trips. The model asks for a tool, the
- * app runs it, the result goes back, and the model continues -- repeatedly,
- * until it answers without asking for another tool. That loop lives here rather
- * than in the provider because *which* tools exist and *whether a call is
- * allowed* are app policy, not transport.
+ * The loop itself is `:core:engine`'s `ChatEngine`: stream, assemble calls, ask
+ * before each one, execute, repeat. It lives in a platform-free module because
+ * the desktop host runs the same loop and a second copy would answer "what
+ * happened when the user declined" differently. What stays here is the Android
+ * half: a row per round, the consent and approval dialogues, the workspace
+ * checkpoints and the delta channel. *Which* tools exist and *whether* a call is
+ * allowed are still app policy, injected through the engine's approval hook
+ * rather than baked into the loop.
  *
  * The loop is bounded by the user's tool-round setting (default
  * [DEFAULT_TOOL_ROUNDS]). A model that keeps calling tools would otherwise
@@ -250,7 +254,7 @@ class ChatViewModel(
 	 * The context window, cached from the last model fetch.
 	 *
 	 * Held rather than looked up on demand because the publish points are not
-	 * all suspend: [streamOneTurn] finishes a reply inside a `finally` and has
+	 * all suspend: the engine bridge finishes a reply inside a `finally` and has
 	 * no business awaiting a network call to draw a gauge.
 	 *
 	 * Null means "the provider does not say", which the gauge reports as
@@ -2067,15 +2071,15 @@ class ChatViewModel(
 		}
 
 	/**
-	 * Run the model until it answers without asking for a tool.
+	 * Resolve the provider and model, then hand the whole turn to the shared
+	 * engine.
 	 *
-	 * Each iteration appends the model's turn (with any tool calls), executes
-	 * what was asked, appends the results, and goes round again.
-	 */
-	/**
-	 * Real providers without SSH use the shared engine; SSH keeps the legacy
-	 * path until the consent/policy plumbing is moved. Demo always uses the
-	 * engine, which is how the bridge was validated first.
+	 * Every provider turn goes through `ChatEngine` now, SSH included. The
+	 * legacy loop that owned the consent plumbing is gone rather than kept
+	 * beside it: two loops meant two answers to "what happened when the user
+	 * declined" -- one marking the call failed, one marking it declined -- and
+	 * the desktop host would have had to reproduce whichever it happened to
+	 * reach.
 	 */
 	private suspend fun runTurn(
 		demo: Boolean,
@@ -2088,38 +2092,59 @@ class ChatViewModel(
 			} else {
 				agents.provider(providerId)?.let { agents.providerFromRow(it) }
 			}
-		val turnModel = model ?: agent?.model ?: if (demo) {
-			demoModelsIfEnabled(true)?.firstOrNull()?.id
-		} else {
-			agents.models(providerId).getOrNull()?.firstOrNull()?.id
+		if (provider == null) {
+			_state.update {
+				it.copy(
+					isStreaming = false,
+					error = context.getString(R.string.chat_error_no_key, providerName),
+				)
+			}
+			return
 		}
-		val selected = conversation?.tools ?: agent?.tools
-		val usesSsh = selected?.any { it.startsWith("ssh_") } == true
-
-		if (provider != null && turnModel != null && !usesSsh) {
-			runTurnWithEngine(provider, turnModel, includeTools, suppressToolCalls)
-		} else {
-			runTurnLegacy(demo, includeTools, suppressToolCalls)
+		val turnModel = model ?: agent?.model
+			?: if (demo) {
+				demoModelsIfEnabled(true)?.firstOrNull()?.id
+			} else {
+				agents.models(providerId).getOrNull()?.firstOrNull()?.id
+			}
+		if (turnModel == null) {
+			_state.update {
+				it.copy(
+					isStreaming = false,
+					error = context.getString(R.string.chat_error_choose_model, providerName),
+				)
+			}
+			return
 		}
+		runTurnWithEngine(provider, turnModel, demo, includeTools, suppressToolCalls)
 	}
 
 	/**
 	 * Bridge `ChatEngine` into the existing transcript/UI state.
 	 *
-	 * This deliberately does not try to reproduce every legacy feature yet: it
-	 * rejects SSH tools (the legacy path owns the consent/policy plumbing), and
-	 * it persists one assistant row per engine round, which is the shape the
-	 * engine emits. The point is to prove the Android host side of the engine
-	 * before moving the billed path over.
+	 * The engine owns the loop; this function owns everything that is Android
+	 * state: persisting each round, the consent and approval dialogues, the
+	 * workspace checkpoints, and the delta channel the transcript renders from.
 	 */
 	private suspend fun runTurnWithEngine(
 		provider: ChatProvider,
 		turnModel: String,
+		demo: Boolean,
 		includeTools: Boolean,
 		suppressToolCalls: Boolean,
 	) {
 		val policies = loadPolicies()
-		val tools = if (includeTools && !suppressToolCalls) buildTools(policies) else emptyList()
+		// A text-only retry keeps the tool definitions on a real provider so
+		// the request prefix still matches the context cache; a transient
+		// instruction and the engine's guard stop the call from running. Demo
+		// is the exception: its script answers `request.tools`, not
+		// instructions, so offering tools there would manufacture the exact call
+		// the retry forbids.
+		val tools = if (includeTools && !(suppressToolCalls && demo)) {
+			buildTools(policies)
+		} else {
+			emptyList()
+		}
 		val maxRounds = toolRoundLimit()
 		val maxCalls = toolCallLimit()
 		// No assistant placeholder exists yet on this path: the latest state
@@ -2150,7 +2175,23 @@ class ChatViewModel(
 		var startedAt = System.currentTimeMillis()
 		var failure: String? = null
 		var lastFinish: FinishReason? = null
-		val answered = mutableSetOf<String>()
+
+		// A tool group is complete when the engine asks for another round: every
+		// call in the previous round ran, and the next request is about to be
+		// sent. That is the point to snapshot the workspace, so a Rewind point
+		// can resume from the group rather than only from the end of the turn.
+		// The end-of-turn call covers a group that was followed by a budget
+		// stop instead of another round; the captured id makes it a no-op when
+		// the group was already captured at a round boundary.
+		var stoppedMidGroup = false
+		var lastCapturedGroup: String? = null
+
+		suspend fun captureGroupCheckpoint() {
+			if (!turnSnapshotReady) return
+			val lastResult = _state.value.messages.lastOrNull { it.isToolResult }?.id ?: return
+			if (lastResult == lastCapturedGroup) return
+			if (captureCheckpointAfterGroup()) lastCapturedGroup = lastResult
+		}
 
 		fun publish(force: Boolean = false) {
 			val id = currentId ?: return
@@ -2185,6 +2226,10 @@ class ChatViewModel(
 			).collect { event ->
 				when (event) {
 					is EngineEvent.RoundStarted -> {
+						// Round 2 means round 1's calls all ran: snapshot the
+						// workspace now, while the transcript still ends at the
+						// tool group the next request is building on.
+						if (event.round > 1) captureGroupCheckpoint()
 						currentId?.let { previous ->
 							replyDeltas.remove(previous)?.close()
 						}
@@ -2205,7 +2250,6 @@ class ChatViewModel(
 						publishedAt = 0L
 						startedAt = System.currentTimeMillis()
 						firstTokenAt = null
-						answered.clear()
 						_state.update {
 							it.copy(
 								messages = it.messages + ChatMessageUi(
@@ -2275,30 +2319,39 @@ class ChatViewModel(
 						val message = currentAssistant
 						val calls = currentCalls.values.toList()
 						val usage = event.usage?.toUi(firstTokenAt, startedAt)
-						withContext(NonCancellable) {
-							repository.appendMessage(
-								MessageEntity(
-									id = id,
-									conversationId = conversationId,
-									parentId = currentParent,
-									role = "assistant",
-									content = message?.content.orEmpty(),
-									reasoning = message?.reasoning?.takeIf { it.isNotBlank() },
-									model = model,
-									finishReason = event.reason.describe(),
-									createdAt = System.currentTimeMillis(),
-									promptTokens = usage?.promptTokens,
-									completionTokens = usage?.completionTokens,
-									cachedPromptTokens = usage?.cachedPromptTokens,
-									reasoningTokens = usage?.reasoningTokens,
-									timeToFirstTokenMs = usage?.timeToFirstTokenMs,
-									generationMs = usage?.generationMs,
-									toolCallsJson = calls.takeIf { it.isNotEmpty() }?.let(::encodeCalls),
-								),
-								currentParent,
-							)
+						// A round that produced nothing is not a row. The legacy
+						// loop removed the empty placeholder, and persisting it
+						// here would put a blank assistant message on the wire
+						// for every failed provider request.
+						val hasPayload = message?.content?.isNotEmpty() == true ||
+							message?.reasoning?.isNotBlank() == true ||
+							calls.isNotEmpty()
+						if (hasPayload) {
+							withContext(NonCancellable) {
+								repository.appendMessage(
+									MessageEntity(
+										id = id,
+										conversationId = conversationId,
+										parentId = currentParent,
+										role = "assistant",
+										content = message?.content.orEmpty(),
+										reasoning = message?.reasoning?.takeIf { it.isNotBlank() },
+										model = model,
+										finishReason = event.reason.describe(),
+										createdAt = System.currentTimeMillis(),
+										promptTokens = usage?.promptTokens,
+										completionTokens = usage?.completionTokens,
+										cachedPromptTokens = usage?.cachedPromptTokens,
+										reasoningTokens = usage?.reasoningTokens,
+										timeToFirstTokenMs = usage?.timeToFirstTokenMs,
+										generationMs = usage?.generationMs,
+										toolCallsJson = calls.takeIf { it.isNotEmpty() }?.let(::encodeCalls),
+									),
+									currentParent,
+								)
+							}
+							currentPersisted = true
 						}
-						currentPersisted = true
 						replyDeltas.remove(id)?.close()
 						updateMessage(id) {
 							it.copy(
@@ -2313,7 +2366,6 @@ class ChatViewModel(
 					is EngineEvent.ToolCallResult -> {
 						val id = currentId ?: return@collect
 						val call = event.call.toUi()
-						answered += event.call.id
 						appendToolResult(call, event.result.content, event.result.isError, id)
 						markCall(
 							id,
@@ -2326,10 +2378,27 @@ class ChatViewModel(
 						}
 					}
 
+					is EngineEvent.ToolCallDeclined -> {
+						val id = currentId ?: return@collect
+						val call = event.call.toUi()
+						stoppedMidGroup = true
+						markCall(id, call.index, ToolCallUi.State.Declined)
+						appendToolResult(call, event.message, isError = true, id)
+					}
+
 					is EngineEvent.ToolCallSkipped -> {
 						val id = currentId ?: return@collect
 						val call = event.call.toUi()
-						appendToolResult(call, event.reason, isError = true, id)
+						stoppedMidGroup = true
+						// The marker is what distinguishes "did not run" from
+						// "ran and broke"; the engine's reason is prose the model
+						// also reads.
+						appendToolResult(
+							call,
+							"$SKIPPED_MARKER ${event.reason}",
+							isError = true,
+							id,
+						)
 						markCall(id, call.index, ToolCallUi.State.Failed)
 					}
 
@@ -2339,50 +2408,129 @@ class ChatViewModel(
 					}
 
 					is EngineEvent.Failed -> {
-						failure = event.message
+						// The cause is translated here rather than shown raw: the
+						// engine is platform-free and cannot resolve a string
+						// resource, and routing a provider turn through it used
+						// to replace the localised limit messages with English.
+						val text = when (event.cause) {
+							EngineFailure.RoundLimit ->
+								context.getString(R.string.chat_error_round_limit, maxRounds)
+
+							EngineFailure.CallLimit ->
+								context.getString(R.string.chat_error_call_limit, maxCalls)
+
+							EngineFailure.ToolCallsSuppressed ->
+								context.getString(R.string.chat_error_text_only_tool_call)
+
+							EngineFailure.Provider -> event.message
+						}
+						failure = text
+						currentId?.let { id -> updateMessage(id) { it.copy(error = text) } }
 						_state.update {
 							it.copy(
 								isStreaming = false,
-								error = event.message,
+								error = text,
 							)
 						}
 					}
 				}
 			}
-			captureCheckpointAfterGroup()
+			// A turn that stopped mid-group has no complete group to save; the
+			// start checkpoint is what a rewind uses there.
+			if (!stoppedMidGroup) captureGroupCheckpoint()
 		} catch (e: kotlinx.coroutines.CancellationException) {
 			throw e
 		} finally {
 			val id = currentId
 			if (id != null) {
 				publish(force = true)
-				if (!currentPersisted && (currentText.isNotEmpty() || currentReasoning.isNotEmpty())) {
+				var wroteRow = false
+				if (!currentPersisted) {
+					val text = currentText.toString()
+					val reasoning = currentReasoning.toString()
+					val calls = currentCalls.values.toList()
+					val usage = currentUsage?.toUi(firstTokenAt, startedAt)
+					val hasPayload = text.isNotEmpty() || reasoning.isNotEmpty() || calls.isNotEmpty()
 					withContext(NonCancellable) {
-						repository.appendMessage(
-							MessageEntity(
-								id = id,
-								conversationId = conversationId,
-								parentId = currentParent,
-								role = "assistant",
-								content = currentText.toString(),
-								reasoning = currentReasoning.toString().takeIf { it.isNotBlank() },
-								model = model,
-								finishReason = lastFinish?.describe(),
-								error = failure ?: STOPPED_MESSAGE,
-								createdAt = System.currentTimeMillis(),
-							),
-							currentParent,
-						)
+						when {
+							hasPayload -> {
+								repository.appendMessage(
+									MessageEntity(
+										id = id,
+										conversationId = conversationId,
+										parentId = currentParent,
+										role = "assistant",
+										content = text,
+										reasoning = reasoning.takeIf { it.isNotBlank() },
+										model = model,
+										finishReason = lastFinish?.describe(),
+										// A stopped turn says so rather than
+										// looking like an answer that just ended.
+										error = failure ?: STOPPED_MESSAGE,
+										createdAt = System.currentTimeMillis(),
+										promptTokens = usage?.promptTokens,
+										completionTokens = usage?.completionTokens,
+										cachedPromptTokens = usage?.cachedPromptTokens,
+										reasoningTokens = usage?.reasoningTokens,
+										timeToFirstTokenMs = usage?.timeToFirstTokenMs,
+										generationMs = usage?.generationMs,
+										toolCallsJson = calls.takeIf { it.isNotEmpty() }
+											?.let(::encodeCalls),
+									),
+									currentParent,
+								)
+								wroteRow = true
+							}
+
+							failure != null -> {
+								// A first request that failed before producing a
+								// token still gets a row. Otherwise the question
+								// stays with no answer and no record that one was
+								// attempted.
+								repository.appendMessage(
+									MessageEntity(
+										id = id,
+										conversationId = conversationId,
+										parentId = currentParent,
+										role = "assistant",
+										content = "",
+										model = model,
+										error = failure,
+										createdAt = System.currentTimeMillis(),
+									),
+									currentParent,
+								)
+								wroteRow = true
+							}
+
+							else -> {
+								// Nothing arrived and nothing failed: there is no
+								// row to keep, only the placeholder to remove.
+								_state.update { s ->
+									s.copy(messages = s.messages.filterNot { it.id == id })
+								}
+							}
+						}
 					}
 					currentPersisted = true
 				}
 				replyDeltas.remove(id)?.close()
-				updateMessage(id) { it.copy(isStreaming = false) }
+				updateMessage(id) { it.copy(isStreaming = false, error = it.error ?: failure) }
+				if (wroteRow) refreshContext()
 			}
 			_state.update { it.copy(isStreaming = false) }
 		}
 	}
 
+	/**
+	 * The one gate every tool call passes before the engine runs it.
+	 *
+	 * Order is behaviour, not style. A malformed remote call must be refused
+	 * before the strongest warning in the app is shown; the global switch must
+	 * be read after the dialogue because it can be turned off while the user is
+	 * deciding; and the capability grant is checked before ordinary policy
+	 * because it is a grant of a capability, not a per-call question.
+	 */
 	private suspend fun gateEngineCall(
 		tool: Tool,
 		call: EngineToolCall,
@@ -2390,31 +2538,161 @@ class ChatViewModel(
 		messageId: String?,
 	): EngineDecision {
 		val id = messageId ?: return EngineDecision.Deny("engine turn has no message", stopTurn = true)
-		val parsed = try {
+		val raw = try {
 			Json.parseToJsonElement(call.argumentsJson.ifBlank { "{}" }).jsonObject
 		} catch (e: Exception) {
 			return EngineDecision.Deny("invalid tool arguments: ${e.message}", stopTurn = false)
 		}
-
-		// Unlike the legacy path, this bridge has no SSH consent state yet.
-		// Refusing the remote tools is the safe default; they keep using the
-		// legacy path until that plumbing is moved.
-		if (ToolCatalog.all.firstOrNull { it.name == tool.name }?.remote == true) {
+		val parsed = runCatching { tool.normalize(raw) }.getOrElse { failure ->
+			Diag.w("tool", "argument normalisation failed name=${tool.name}", failure)
 			return EngineDecision.Deny(
-				"${REFUSED_MARKER} SSH is not available through the engine path yet.",
+				"invalid tool arguments: ${failure.message}",
 				stopTurn = false,
 			)
+		}
+
+		val remote = ToolCatalog.all.firstOrNull { it.name == tool.name }?.remote == true
+		if (remote) {
+			// Never show a consent dialogue for a call the tool would reject as
+			// malformed: the dialogue describes a call that can actually happen.
+			SshArguments.missingRequired(tool.name, parsed)?.let { missing ->
+				Diag.w("ssh", "malformed name=${tool.name} missing=$missing")
+				return EngineDecision.Deny(
+					"${tool.name}: $missing is required",
+					stopTurn = false,
+				)
+			}
+			// The registry was built before the turn started, and Settings can
+			// change while it runs. Re-read "off" here so it means off.
+			if (!sshToolEnabled()) {
+				Diag.i("ssh", "refused: global switch off")
+				return EngineDecision.Deny(
+					"${REFUSED_MARKER} SSH is disabled in Settings.",
+					stopTurn = false,
+				)
+			}
+			// Turning the global switch off revokes every conversation's
+			// acknowledgement. The in-memory flag is stale after off-then-on, so
+			// the persisted answer decides whether the user has to be asked
+			// again.
+			if (sshAllowed) {
+				val persisted = runCatching { repository.sshAllowed(conversationId) }
+					.getOrNull()
+				if (persisted == false) {
+					sshAllowed = false
+					_state.update { it.copy(sshAllowed = false) }
+					Diag.i("ssh", "persisted consent gone; asking again")
+				}
+			}
 		}
 
 		val policyPath = resolvedPolicyPath(parsed)
 		val policy = policies.effective(tool.name, policyPath)
 		if (policy == ToolPolicy.Deny || policy == ToolPolicy.Blind) {
+			Diag.i("policy", "refused tool=${tool.name} path=${policyPath ?: "-"} policy=$policy")
 			return EngineDecision.Deny(
+				// Deliberately the same sentence for both. `Blind` is a stronger
+				// implementation of the same decision; telling the model "you
+				// cannot even see this" invites it to probe for the difference.
 				"${REFUSED_MARKER} This path or tool is not available in this conversation.",
 				stopTurn = false,
 			)
 		}
 
+		// A capability grant, not a per-call approval: the first SSH call needs
+		// an explicit acknowledgement that later calls inherit.
+		if (remote && !sshAllowed) {
+			val host = stringArg(parsed, "host").orEmpty()
+			val username = stringArg(parsed, "username").orEmpty()
+			val operation = remoteOperation(tool.name, parsed)
+			val selection = conversation?.tools ?: agent?.tools
+			val canExec = selection?.contains("ssh_exec") == true
+			val canUpload = selection?.contains("ssh_upload") == true
+			val canWriteFile = selection?.contains("ssh_write_file") == true
+			Diag.i(
+				"ssh",
+				"consent ask host=$host user=$username tool=${tool.name} " +
+					"exec=$canExec upload=$canUpload write=$canWriteFile " +
+					"operationChars=${operation.length}",
+			)
+			_state.update {
+				it.copy(
+					pendingSshConsent = SshConsent(
+						messageId = id,
+						call = call.toUi(),
+						host = host,
+						username = username,
+						operation = operation,
+						canExec = canExec,
+						canUpload = canUpload,
+						canWriteFile = canWriteFile,
+						hostKeyFingerprint = stringArg(parsed, "hostKeyFingerprint")
+							?.trim()
+							?.takeIf { it.isNotEmpty() },
+					),
+				)
+			}
+			val allowed = awaitSshConsent()
+			if (!allowed) {
+				Diag.i("ssh", "consent denied host=$host")
+				markCall(id, call.index, ToolCallUi.State.Declined)
+				return EngineDecision.Deny(
+					DECLINED_MARKER + " The user declined SSH access for this conversation.",
+					stopTurn = true,
+					declined = true,
+				)
+			}
+			sshAllowed = true
+			runCatching { repository.setSshAllowed(conversationId, true) }
+				.onFailure { Diag.w("ssh", "could not persist consent", it) }
+			_state.update { it.copy(sshAllowed = true) }
+			Diag.i("ssh", "consent allow host=$host")
+			if (!sshToolEnabled()) {
+				Diag.i("ssh", "global switch turned off during consent")
+				return EngineDecision.Deny(
+					"${REFUSED_MARKER} SSH was disabled in Settings before the call ran.",
+					stopTurn = false,
+				)
+			}
+		}
+
+		if (policy == ToolPolicy.Ask || tool.needsApproval(parsed)) {
+			val ui = call.toUi()
+			val summary = describeCall(ui, parsed)
+			Diag.i(
+				"approval",
+				"ask tool=${tool.name} path=${policyPath ?: "-"} " +
+					"rule=${if (policy == ToolPolicy.Ask) "policy" else "tool"} " +
+					"args=${parsed.toString().length}B",
+			)
+			_state.update {
+				it.copy(
+					pendingApproval = PendingApproval(
+						messageId = id,
+						call = ui,
+						summary = summary,
+						// The ordinary dialogue must never show a credential,
+						// even when a rule makes an SSH call ask.
+						details = if (remote) sshApprovalDetails(tool.name, parsed) else null,
+					),
+				)
+			}
+			val approved = awaitApproval()
+			if (!approved) {
+				markCall(id, call.index, ToolCallUi.State.Declined)
+				return EngineDecision.Deny(
+					DECLINED_MARKER + " The user declined this call.",
+					stopTurn = true,
+					declined = true,
+				)
+			}
+		}
+
+		// Secure the pre-turn workspace before the first local mutation. A
+		// rollback that cannot restore the files must not be offered; refusing
+		// the mutation is safer than deleting the turn later and leaving the
+		// changes behind. This runs after the user decides, so a declined call
+		// neither captures a checkpoint nor marks the turn irreversible.
 		if (tool.mutates) {
 			if (!tool.reversible) {
 				turnIrreversible = true
@@ -2428,30 +2706,14 @@ class ChatViewModel(
 							false
 						}
 				if (!captured) {
+					Diag.w("rollback", "refused mutation: no snapshot")
 					return EngineDecision.Deny(
 						"Could not create a rollback snapshot, so this workspace change was refused.",
 						stopTurn = false,
 					)
 				}
 				turnSnapshotReady = true
-			}
-		}
-
-		if (policy == ToolPolicy.Ask || tool.needsApproval(parsed)) {
-			val summary = describeCall(call.toUi(), parsed)
-			_state.update {
-				it.copy(
-					pendingApproval = PendingApproval(
-						messageId = id,
-						call = call.toUi(),
-						summary = summary,
-					),
-				)
-			}
-			val approved = awaitApproval()
-			if (!approved) {
-				markCall(id, call.index, ToolCallUi.State.Declined)
-				return EngineDecision.Deny("declined by user", stopTurn = true)
+				Diag.i("rollback", "snapshot captured for turn")
 			}
 		}
 
@@ -2476,970 +2738,6 @@ class ChatViewModel(
 		generationMs = firstTokenAt?.let { System.currentTimeMillis() - it },
 	)
 
-	private suspend fun runTurnLegacy(
-		demo: Boolean,
-		includeTools: Boolean = true,
-		suppressToolCalls: Boolean = false,
-	) {
-		val provider: ChatProvider? =
-			if (demo) {
-				DemoProvider()
-			} else {
-				agents.provider(providerId)?.let { agents.providerFromRow(it) }
-			}
-		if (provider == null) {
-			_state.update {
-				it.copy(
-					isStreaming = false,
-					error = context.getString(R.string.chat_error_no_key, providerName),
-				)
-			}
-			return
-		}
-
-		val turnModel = model ?: agent?.model
-			?: if (demo) {
-				demoModelsIfEnabled(true)?.firstOrNull()?.id
-			} else {
-				agents.models(providerId).getOrNull()?.firstOrNull()?.id
-			}
-		if (turnModel == null) {
-			_state.update {
-				it.copy(
-					isStreaming = false,
-					error = context.getString(R.string.chat_error_choose_model, providerName),
-				)
-			}
-			return
-		}
-
-		// Read once, before the tools are built, because the rule set decides
-		// what `list_files` is even allowed to show. A path the user marked
-		// `Blind` has to be absent from the listing, not merely refused when
-		// named -- a filename leaks on its own.
-		val policies = loadPolicies()
-		// A regenerate request keeps the transcript and the tool definitions so
-		// the request prefix remains the same and can hit the context cache; a
-		// transient system instruction tells the model not to call one. The
-		// app still refuses to execute any call it receives in this mode. The
-		// demo provider scripts calls from request.tools and ignores
-		// instructions, so demo mode gets no tools here.
-		val tools = if (includeTools && (!suppressToolCalls || !demo)) {
-			buildTools(policies)
-		} else {
-			emptyList()
-		}
-		val toolSpecs = tools.map { spec(it) }
-		// Read once for the whole turn: changing the setting mid-stream must not
-		// move the ceiling under a loop that is already running.
-		val maxRounds = toolRoundLimit()
-		val maxCalls = toolCallLimit()
-		Diag.i(
-			"turn",
-			"run start provider=${provider.id} " +
-				"model=$turnModel thinking=$thinking " +
-				"effort=${reasoningEffort ?: "-"} tools=${tools.size} " +
-				"suppressTools=$suppressToolCalls " +
-				"maxRounds=$maxRounds maxCalls=$maxCalls demo=$demo",
-		)
-
-		var rounds = 0
-		var callsUsed = 0
-		while (rounds < maxRounds) {
-			rounds++
-			val outcome = streamOneTurn(provider, turnModel, tools, toolSpecs, suppressToolCalls)
-
-			// The model was told not to call tools. If one arrives anyway,
-			// executing it would defeat the retry's safety, so stop with the
-			// reason rather than replaying a write.
-			if (suppressToolCalls && outcome.toolCalls.isNotEmpty()) {
-				Diag.w("turn", "provider called a tool despite the retry instruction")
-				_state.update {
-					it.copy(
-						isStreaming = false,
-						error = context.getString(R.string.chat_error_text_only_tool_call),
-					)
-				}
-				return
-			}
-
-			if (outcome.toolCalls.isEmpty()) {
-				Diag.i(
-					"turn",
-					"run end rounds=$rounds reply=${Diag.shortId(outcome.messageId)} " +
-						"failure=${outcome.failure != null}",
-				)
-				_state.update { it.copy(isStreaming = false) }
-				return
-			}
-
-			// Execute them, in order. Approvals are collected first so a model
-			// asking for three writes does not stack three dialogs. The total
-			// call budget is separate from the round budget: one round can carry
-			// many calls.
-			val remainingCalls = maxCalls - callsUsed
-			if (remainingCalls <= 0) {
-				withContext(NonCancellable) { answerSkippedCalls(outcome, after = -1) }
-				stopForCallLimit(maxCalls)
-				return
-			}
-			val toRun = minOf(remainingCalls, outcome.toolCalls.size)
-			val executed = executeCalls(outcome, tools, allowedCalls = toRun)
-			callsUsed += toRun
-			if (!executed) {
-				Diag.i("turn", "run end declined rounds=$rounds")
-				// The user declined something, or the turn was cancelled. The
-				// transcript already holds the refusal, so the model can respond
-				// to it on the next user message rather than being re-run now.
-				_state.update { it.copy(isStreaming = false) }
-				return
-			}
-			if (callsUsed >= maxCalls) {
-				stopForCallLimit(maxCalls)
-				return
-			}
-		}
-
-		// Hit the ceiling. Said plainly, because a silent stop looks like the
-		// model simply had nothing more to say.
-		Diag.w("turn", "round limit reached rounds=$rounds")
-		_state.update {
-			it.copy(
-				isStreaming = false,
-				error = context.getString(R.string.chat_error_round_limit, maxRounds),
-			)
-		}
-	}
-
-	private fun stopForCallLimit(maxCalls: Int) {
-		Diag.w("turn", "tool call limit reached calls=$maxCalls")
-		_state.update {
-			it.copy(
-				isStreaming = false,
-				error = context.getString(R.string.chat_error_call_limit, maxCalls),
-			)
-		}
-	}
-
-	private class TurnOutcome(
-		val messageId: String,
-		val text: String,
-		val reasoning: String,
-		val toolCalls: List<ToolCallUi>,
-		val usage: UsageUi?,
-		val finish: String?,
-		val failure: String?,
-	)
-
-	/** One model round trip: stream a reply and persist it. */
-	private suspend fun streamOneTurn(
-		provider: ChatProvider,
-		modelId: String,
-		tools: List<Tool>,
-		toolSpecs: List<ToolSpec>,
-		suppressToolCalls: Boolean = false,
-	): TurnOutcome {
-		val parent = _state.value.messages.lastOrNull()?.id
-		val replyId = UUID.randomUUID().toString()
-
-		// The delta stream this reply will be parsed from as it arrives.
-		// Registered before the row exists, because the row's first render
-		// already needs it: a reply that appeared with no deltas and gained
-		// them a moment later would parse its first slice twice.
-		val deltas = Channel<String>(Channel.CONFLATED)
-		replyDeltas[replyId] = deltas
-
-		_state.update {
-			it.copy(
-				messages = it.messages + ChatMessageUi(
-					id = replyId,
-					parentId = parent,
-					fromUser = false,
-					isStreaming = true,
-					deltas = deltas,
-				),
-			)
-		}
-
-		val history = buildWireHistory().let { base ->
-			if (suppressToolCalls) {
-				base + ChatMessage(Role.System, NO_TOOL_RETRY_INSTRUCTION)
-			} else {
-				base
-			}
-		}
-		Diag.i(
-			"stream",
-			"request history=${history.size} tools=${toolSpecs.size} " +
-				"reply=${Diag.shortId(replyId)}",
-		)
-		val reasoning = StringBuilder()
-		val answer = StringBuilder()
-		val calls = linkedMapOf<Int, ToolCallUi>()
-		var promptTokens: Int? = null
-		var completionTokens: Int? = null
-		var cachedTokens: Int? = null
-		var reasoningTokens: Int? = null
-		var finish: String? = null
-		var failure: String? = null
-		var chunks = 0
-
-		// Timed here rather than in the provider: what a user perceives as
-		// latency is measured from the moment they see the spinner, which is
-		// before any transport work has happened.
-		val startedAt = System.currentTimeMillis()
-		var firstTokenAt: Long? = null
-		var finishedAt: Long? = null
-
-		// Captured before the finally block so the closing work can see them.
-		var finishedCalls: List<ToolCallUi> = emptyList()
-		var wasStopped = false
-
-		// Tracks what the incremental parser already has. A cursor rather than
-		// an integer because "send the part that is new" has two ways to be
-		// wrong -- re-sending a prefix duplicates the reply, skipping a slice
-		// loses text -- and neither is visible after the stream has finished.
-		// The invariant is tested in DeltaCursorTest.
-		//
-		// Declared here, outside the `try`, because the `finally` flushes the
-		// last publish window through it. Inside the `try` it would be out of
-		// scope in the `finally`, which is exactly how the final partial window
-		// came to be dropped.
-		val cursor = DeltaCursor()
-
-		// Whether text has arrived after a tool call started. A model's "I'll
-		// search for that" is a preamble, not the answer; without this flag the
-		// tool section closed the moment the preamble streamed, which is the
-		// opposite of keeping the current work visible.
-		var answerAfterCalls = false
-
-		try {
-			// When the screen was last given a snapshot of the streaming reply.
-			//
-			// ## Why the updates are throttled rather than per chunk
-			//
-			// Every chunk used to publish immediately, and each publish calls
-			// `reasoning.toString()` and `answer.toString()` -- a full copy of
-			// everything accumulated so far -- then rebuilds the whole message
-			// list. Over one reply that is quadratic: a two-thousand-token
-			// answer re-copies its own prefix hundreds of times, and the copies
-			// are garbage as soon as they are made. The text is *shown* at a
-			// frame rate regardless, so most of that work was thrown away
-			// before anyone could read it.
-			//
-			// 40 ms is fast enough that the text still appears as it is
-			// produced -- 25 updates a second against a display that draws 60 --
-			// and it removes most of the copying. The last partial window is
-			// flushed by `publishIfDue(force = true)` in the `finally` block
-			// below, which is the only reason this throttle is not lossy.
-			var publishedAt = 0L
-			fun publishIfDue(force: Boolean = false) {
-				val now = System.currentTimeMillis()
-				if (!force && now - publishedAt < STREAM_PUBLISH_INTERVAL_MS) return
-				publishedAt = now
-				publishParts(replyId, reasoning, answer, calls, cursor, answerAfterCalls)
-			}
-
-			val request = ChatRequest(
-				model = modelId,
-				messages = history,
-				tools = toolSpecs,
-				// Taken from the assistant, and off by default: "hi" should
-				// not cost a paragraph of thinking.
-				thinking = thinking,
-				reasoningEffort = reasoningEffort,
-				userId = conversationId,
-			)
-			provider.previewRequest(request)?.let { body ->
-				_wire.value = WireSnapshot(
-					requestJson = Json { prettyPrint = true }
-						.encodeToString(JsonObject.serializer(), body),
-					model = modelId,
-					capturedAt = System.currentTimeMillis(),
-				)
-			}
-			provider.stream(request).collect { chunk ->
-				chunks++
-				if (firstTokenAt == null && chunk is StreamChunk.TextDelta) {
-					firstTokenAt = System.currentTimeMillis()
-					Diag.d("stream", "first text after ${firstTokenAt - startedAt}ms")
-				}
-				when (chunk) {
-					is StreamChunk.ReasoningDelta -> {
-						reasoning.append(chunk.text)
-						publishIfDue()
-					}
-
-					is StreamChunk.TextDelta -> {
-						if (calls.isNotEmpty()) answerAfterCalls = true
-						answer.append(chunk.text)
-						publishIfDue()
-					}
-
-					is StreamChunk.ToolCallStart -> {
-						calls[chunk.index] = ToolCallUi(
-							index = chunk.index,
-							id = chunk.id,
-							name = chunk.name,
-							state = ToolCallUi.State.Streaming,
-						)
-						// A structural change, not a token: shown immediately,
-						// because the alternative is a tool card appearing late.
-						publishIfDue(force = true)
-					}
-
-					is StreamChunk.ToolCallDelta -> {
-						val existing = calls[chunk.index] ?: ToolCallUi(chunk.index, null, null)
-						calls[chunk.index] = existing.copy(
-							// Concatenated, not `?:`.
-							//
-							// The two halves of this used to disagree: the
-							// decoder sent the name only on the opening frame,
-							// while this line kept the *first* fragment and
-							// discarded the rest. Whichever of them was right,
-							// the other was silently wrong -- and the way it
-							// failed was a call named `read_` instead of
-							// `read_file`, which then matched no tool at all.
-							//
-							// Accumulating is the only reading that works for
-							// both shapes: a name delivered once concatenates to
-							// itself, and a name delivered in pieces assembles.
-							name = chunk.nameDelta?.let { delta -> (existing.name ?: "") + delta }
-								?: existing.name,
-							// Concatenated, never parsed here: a fragment is not
-							// valid JSON and parsing early is the classic bug.
-							argumentsJson = existing.argumentsJson + (chunk.inputDelta ?: ""),
-						)
-						publishIfDue()
-					}
-
-					is StreamChunk.ToolCallEnd -> {
-						calls[chunk.index]?.let { c ->
-							calls[chunk.index] = c.copy(state = ToolCallUi.State.Ready)
-						}
-						// A call becoming ready is a state a person waits for.
-						publishIfDue(force = true)
-					}
-
-					is StreamChunk.Usage -> {
-						// Held as separate nullable fields rather than assembled
-						// into a UsageUi here, because the timing fields are not
-						// known until the stream ends and rebuilding the object
-						// per chunk would publish a series of intermediate
-						// numbers that flicker.
-						promptTokens = chunk.promptTokens
-						completionTokens = chunk.completionTokens
-						cachedTokens = chunk.cachedPromptTokens
-						reasoningTokens = chunk.reasoningTokens
-					}
-
-					is StreamChunk.Finish -> {
-						finish = chunk.reason.describe()
-						finishedAt = System.currentTimeMillis()
-					}
-
-					is StreamChunk.Failure -> {
-						failure = chunk.message
-						Diag.e("stream", "failure chunk: ${chunk.message}")
-						updateMessage(replyId) { it.copy(error = chunk.message) }
-						_state.update { it.copy(error = chunk.message) }
-					}
-
-					is StreamChunk.TextStart,
-					is StreamChunk.TextEnd,
-					is StreamChunk.ReasoningStart,
-					is StreamChunk.ReasoningEnd,
-					is StreamChunk.Raw,
-					-> Unit
-				}
-			}
-		} finally {
-			// Flush the last, partial publish window.
-			//
-			// `publishIfDue` below throttles to one update per 40 ms and is a
-			// *local* function, which is precisely why this was missing: the
-			// comment at the throttle claimed "the `finally` block publishes
-			// regardless", but a local function declared inside the `try` is not
-			// in scope in the `finally`, so the finally only ever called
-			// `updateMessage`. Up to 40 ms of tokens were therefore absent from
-			// `plainText` and from `parts` while the database row -- written
-			// from these StringBuilders -- was complete. The symptom was a
-			// bubble that stayed a few words short until something reloaded the
-			// transcript, which reads as a rendering delay rather than as lost
-			// state.
-			//
-			// Hoisting the publish into a real method is the fix; calling it
-			// here is what makes the throttle non-lossy.
-			publishParts(replyId, reasoning, answer, calls, cursor, answerAfterCalls)
-			finishedCalls = calls.values.toList()
-			// The channel is removed from the live map and closed. The message
-			// keeps its reference so the streaming renderer can settle on the
-			// final text without the blank frame a switch to the asynchronous
-			// plain parser caused; a later reload rebuilds the row without it.
-			replyDeltas.remove(replyId)?.close()
-			// Captured here, while the coroutine can still say whether it was
-			// cancelled: by the time the writes below have run, being inside
-			// NonCancellable means `isActive` no longer answers the question.
-			wasStopped = !currentCoroutineContext().isActive
-			// Assembled once, at the end, when every field is known.
-			val endedAt = finishedAt ?: System.currentTimeMillis()
-			val usage = if (
-				promptTokens != null || completionTokens != null ||
-				cachedTokens != null || reasoningTokens != null
-			) {
-				UsageUi(
-					promptTokens = promptTokens,
-					completionTokens = completionTokens,
-					cachedPromptTokens = cachedTokens,
-					reasoningTokens = reasoningTokens,
-					timeToFirstTokenMs = firstTokenAt?.let { it - startedAt },
-					generationMs = firstTokenAt?.let { endedAt - it },
-				)
-			} else {
-				null
-			}
-			// `deltas = null` is the switch the renderer's documentation
-			// describes, but performing it here produced a blank frame: the
-			// plain renderer parses asynchronously, so for one composition the
-			// new state had nothing to draw and the finished reply blinked.
-			// Keep the streaming state -- its content is already the final
-			// document and the channel is closed -- until the row is rebuilt
-			// from the database (reopen, branch switch, reload).
-			updateMessage(replyId) {
-				it.copy(isStreaming = false, finishReason = finish, usage = usage)
-			}
-			// The gauge moves here rather than at the end of the turn, because
-			// this is the moment the provider's count for this prompt exists --
-			// and because a turn can take several round trips, each of which
-			// resends a larger transcript than the last.
-			refreshContext()
-
-			val finalUsage = usage
-			Diag.i(
-				"stream",
-				"end finish=${finish ?: "-"} failure=${failure != null} stopped=$wasStopped " +
-					"chunks=$chunks textChars=${answer.length} " +
-					"reasoningChars=${reasoning.length} calls=${finishedCalls.size} " +
-					"prompt=${finalUsage?.promptTokens ?: "-"} " +
-					"completion=${finalUsage?.completionTokens ?: "-"} " +
-					"cache=${finalUsage?.cachedPromptTokens ?: "-"} " +
-					"ttft=${finalUsage?.timeToFirstTokenMs ?: "-"} " +
-					"gen=${finalUsage?.generationMs ?: "-"} " +
-					"ms=${System.currentTimeMillis() - startedAt}",
-			)
-			// ## Why the closing writes are NonCancellable
-			//
-			// This block runs when the turn ends *or* when it is stopped, and
-			// Stop is the case that matters: a cancelled coroutine refuses to
-			// suspend, so `appendMessage` would throw `CancellationException`
-			// and the part of the answer already received would never reach the
-			// database. The user would watch a paragraph appear, press Stop, and
-			// find it gone the next time the conversation was opened -- while
-			// still having been billed for it.
-			//
-			// Nothing here can hang: it is one insert, one state update and a
-			// list membership test.
-			withContext(NonCancellable) {
-				if (answer.isNotEmpty() || reasoning.isNotEmpty() || finishedCalls.isNotEmpty()) {
-					repository.appendMessage(
-						MessageEntity(
-							id = replyId,
-							conversationId = conversationId,
-							parentId = parent,
-							role = "assistant",
-							content = answer.toString(),
-							reasoning = reasoning.toString().takeIf { it.isNotBlank() },
-							model = model,
-							finishReason = finish,
-							// A turn that was stopped says so, rather than
-							// looking like a reply that ended by itself.
-							error = failure ?: if (wasStopped) STOPPED_MESSAGE else null,
-							createdAt = System.currentTimeMillis(),
-							promptTokens = finalUsage?.promptTokens,
-							completionTokens = finalUsage?.completionTokens,
-							cachedPromptTokens = finalUsage?.cachedPromptTokens,
-							reasoningTokens = finalUsage?.reasoningTokens,
-							timeToFirstTokenMs = finalUsage?.timeToFirstTokenMs,
-							generationMs = finalUsage?.generationMs,
-							toolCallsJson = finishedCalls.takeIf { it.isNotEmpty() }?.let { encodeCalls(it) },
-						),
-						parent,
-					)
-				} else if (failure != null) {
-					// A turn that failed before producing anything still gets a
-					// row, with the reason and no content.
-					//
-					// It used to be dropped: the condition above asks for text,
-					// reasoning or tool calls, and a first-request network
-					// failure has none of the three -- so the placeholder was
-					// removed and nothing was written. The only trace was the
-					// dismissible error row, which is gone by the next launch,
-					// leaving a question with no answer and no sign that one had
-					// been attempted.
-					repository.appendMessage(
-						MessageEntity(
-							id = replyId,
-							conversationId = conversationId,
-							parentId = parent,
-							role = "assistant",
-							content = "",
-							model = model,
-							error = failure,
-							createdAt = System.currentTimeMillis(),
-						),
-						parent,
-					)
-				} else {
-					_state.update { s -> s.copy(messages = s.messages.filterNot { it.id == replyId }) }
-				}
-			}
-		}
-
-		return TurnOutcome(
-			messageId = replyId,
-			text = answer.toString(),
-			reasoning = reasoning.toString(),
-			toolCalls = finishedCalls,
-			usage = null,
-			finish = finish,
-			failure = failure,
-		)
-	}
-
-	/**
-	 * Give every call of this round that was not run an answer of its own.
-	 *
-	 * ## Why a skipped call needs a result rather than nothing
-	 *
-	 * The round's calls were all recorded in `toolCallsJson` when the model
-	 * asked for them. A tool result is what answers one, and the API requires
-	 * every recorded call to be answered before the transcript can be sent
-	 * again -- this file says so itself further down, where a result landing
-	 * after a cancellation is described as producing "a request the API
-	 * rejects". So leaving calls unanswered does not merely lose a chip's
-	 * state: it makes the **next user message** a likely 400.
-	 *
-	 * The two ways to leave them unanswered were both real. Declining the
-	 * *first* of several calls returned immediately, so the calls after it were
-	 * never run and never answered. Pressing Stop during a tool had the same
-	 * shape, because cancellation unwound the loop from inside the body.
-	 *
-	 * Deliberately not `NonCancellable` in its own right: it is called from
-	 * [declinePendingCall]'s path while the turn is still live, and the stop
-	 * path wraps it, so one insert per skipped call is not interruptible
-	 * mid-round in the case that matters.
-	 *
-	 * @param after results at or below this index already exist; only the calls
-	 *   after it need answering.
-	 */
-	private suspend fun answerSkippedCalls(outcome: TurnOutcome, after: Int) {
-		for (skipped in outcome.toolCalls.filter { it.index > after }) {
-			Diag.d("tool", "skip name=${skipped.displayName} index=${skipped.index}")
-			// `Failed` rather than `Declined`: the user refused one specific
-			// call, and saying the others were refused too would be untrue.
-			// The marker on the result is what distinguishes "did not run"
-			// from "ran and broke".
-			markCall(outcome.messageId, skipped.index, ToolCallUi.State.Failed)
-			appendToolResult(
-				skipped,
-				"$SKIPPED_MARKER This call was not run, so it has no result.",
-				isError = true,
-				messageId = outcome.messageId,
-			)
-		}
-	}
-
-	/**
-	 * Run the calls a turn asked for.
-	 *
-	 * @param tools the registry the turn was already built with, passed in
-	 *   rather than rebuilt. `buildTools` constructs eight file tools, each
-	 *   carrying a `StatFs` over the workspace root, and rebuilding the same
-	 *   list to look up names the caller already holds is work with no
-	 *   purpose -- on every round of the loop.
-	 * @return false if the turn should stop -- the user declined, or the run was
-	 *   cancelled mid-way.
-	 */
-	private suspend fun executeCalls(
-		outcome: TurnOutcome,
-		tools: List<Tool>,
-		allowedCalls: Int = outcome.toolCalls.size,
-	): Boolean {
-		val byName = tools.associateBy { it.name }
-
-		// Read once per round rather than per call: the rules do not change
-		// while a turn is running, and reading them per call would be three
-		// queries times however many tools the model asked for.
-		val policies = loadPolicies()
-
-		// Guards the loop's `finally` so the normal path -- every call run and
-		// answered -- does not pay a second pass over the list. Only an early
-		// exit and a cancellation need the cleanup, and both of those set
-		// `settled` or throw.
-		var settled = false
-		var reached = -1
-
-		try {
-		for (call in outcome.toolCalls.take(allowedCalls)) {
-				reached = call.index
-				val tool = byName[call.displayName]
-				if (tool == null) {
-					Diag.w("tool", "unknown name=${call.displayName} index=${call.index}")
-					appendToolResult(call, "no such tool: ${call.displayName}", isError = true, outcome.messageId)
-					continue
-				}
-
-				val remote = ToolCatalog.all.firstOrNull { it.name == tool.name }?.remote == true
-				val parsed = (parseArguments(call, outcome.messageId) ?: continue).let { raw ->
-					if (remote) SshArguments.normalize(raw) else raw
-				}
-
-				// Never show a consent dialogue for a call the tool would reject
-				// as malformed. The dialogue is the strongest warning in the
-				// app; it must describe a call that can actually happen.
-				if (remote) {
-					val missing = when {
-						stringArg(parsed, "host").isNullOrBlank() -> "host"
-						stringArg(parsed, "username").isNullOrBlank() -> "username"
-						tool.name == "ssh_exec" &&
-							stringArg(parsed, "command").isNullOrBlank() -> "command"
-						tool.name == "ssh_upload" && (
-							stringArg(parsed, "localPath").isNullOrBlank() ||
-								stringArg(parsed, "remotePath").isNullOrBlank()
-							) -> "localPath and remotePath"
-						tool.name == "ssh_download" && (
-							stringArg(parsed, "remotePath").isNullOrBlank() ||
-								stringArg(parsed, "localPath").isNullOrBlank()
-							) -> "remotePath and localPath"
-						else -> null
-					}
-					if (missing != null) {
-						markCall(outcome.messageId, call.index, ToolCallUi.State.Failed)
-						appendToolResult(
-							call,
-							"${tool.name}: $missing is required",
-							isError = true,
-							messageId = outcome.messageId,
-						)
-						continue
-					}
-				}
-
-				// A tool can be switched off in Settings while a turn is already
-				// running; the registry was built before that change. Re-check
-				// the global gate here so "off" means off for this call too.
-				if (remote && !sshToolEnabled()) {
-					Diag.i("ssh", "refused: global switch off")
-					markCall(outcome.messageId, call.index, ToolCallUi.State.Failed)
-					appendToolResult(
-						call,
-						"${REFUSED_MARKER} SSH is disabled in Settings.",
-						isError = true,
-						messageId = outcome.messageId,
-					)
-					continue
-				}
-
-				// Settings can revoke every conversation's consent (turning the
-				// global switch off does exactly that). The in-memory flag is
-				// stale after such a round trip: off, then on again. Read the
-				// persisted answer before trusting it, or the second enabling
-				// inherits a consent the user revoked.
-				if (remote && sshAllowed) {
-					val persisted = runCatching { repository.sshAllowed(conversationId) }
-						.getOrNull()
-					if (persisted == false) {
-						sshAllowed = false
-						_state.update { it.copy(sshAllowed = false) }
-						Diag.i("ssh", "persisted consent gone; asking again")
-					}
-				}
-
-				// The configured rules, before the tool's own opinion.
-				//
-				// `Deny` and `Blind` are refusals rather than questions, so they
-				// have to be answered here -- `needsApproval` can only say "ask",
-				// and asking about something the user has forbidden would be the
-				// wrong question with a confusing answer.
-				val policyPath = resolvedPolicyPath(parsed)
-				val policy = policies.effective(
-					tool = tool.name,
-					relativePath = policyPath,
-				)
-				if (policy == ToolPolicy.Deny || policy == ToolPolicy.Blind) {
-					Diag.i(
-						"policy",
-						"refused tool=${tool.name} path=${policyPath ?: "-"} policy=$policy",
-					)
-					markCall(outcome.messageId, call.index, ToolCallUi.State.Failed)
-					appendToolResult(
-						call,
-						// Deliberately the same sentence for both. `Blind` is a
-						// stronger *implementation* of the same decision -- the
-						// file is also hidden from `list_files` -- but telling
-						// the model "you cannot even see this" invites it to
-						// probe for the difference.
-						"${REFUSED_MARKER} This path or tool is not available in this conversation.",
-						isError = true,
-						messageId = outcome.messageId,
-					)
-					continue
-				}
-
-				// The capability gate, before the per-call policy. SSH is not a
-				// workspace copy; the first call in a conversation needs an
-				// explicit acknowledgement that later calls inherit. The gate is
-				// deliberately *not* `needsApproval`: that is a per-call question,
-				// this is a grant of a capability.
-				if (remote && !sshAllowed) {
-					val host = stringArg(parsed, "host").orEmpty()
-					val username = stringArg(parsed, "username").orEmpty()
-					val operation = remoteOperation(tool.name, parsed)
-					val selection = conversation?.tools ?: agent?.tools
-					val canExec = selection?.contains("ssh_exec") == true
-					val canUpload = selection?.contains("ssh_upload") == true
-					val canWriteFile = selection?.contains("ssh_write_file") == true
-					Diag.i(
-						"ssh",
-						"consent ask host=$host user=$username tool=${tool.name} " +
-							"exec=$canExec upload=$canUpload write=$canWriteFile " +
-							"operationChars=${operation.length}",
-					)
-					_state.update {
-						it.copy(
-							pendingSshConsent = SshConsent(
-								messageId = outcome.messageId,
-								call = call,
-								host = host,
-								username = username,
-								operation = operation,
-								canExec = canExec,
-								canUpload = canUpload,
-								canWriteFile = canWriteFile,
-								hostKeyFingerprint = stringArg(parsed, "hostKeyFingerprint")
-									?.trim()
-									?.takeIf { it.isNotEmpty() },
-							),
-						)
-					}
-					val allowed = awaitSshConsent()
-					if (!allowed) {
-						markCall(outcome.messageId, call.index, ToolCallUi.State.Declined)
-						appendToolResult(
-							call,
-							DECLINED_MARKER +
-								" The user declined SSH access for this conversation.",
-							isError = true,
-							messageId = outcome.messageId,
-						)
-						answerSkippedCalls(outcome, after = call.index)
-						settled = true
-						return false
-					}
-					sshAllowed = true
-					runCatching { repository.setSshAllowed(conversationId, true) }
-						.onFailure { Diag.w("ssh", "could not persist consent", it) }
-					_state.update { it.copy(sshAllowed = true) }
-					Diag.i("ssh", "consent allow host=$host")
-					if (!sshToolEnabled()) {
-						Diag.i("ssh", "global switch turned off during consent")
-						markCall(outcome.messageId, call.index, ToolCallUi.State.Failed)
-						appendToolResult(
-							call,
-							"${REFUSED_MARKER} SSH was disabled in Settings before the call ran.",
-							isError = true,
-							messageId = outcome.messageId,
-						)
-						continue
-					}
-				}
-
-				if (policy == ToolPolicy.Ask || tool.needsApproval(parsed)) {
-					val summary = describeCall(call, parsed)
-					Diag.i(
-						"approval",
-						"ask tool=${tool.name} path=${policyPath ?: "-"} " +
-							"rule=${if (policy == ToolPolicy.Ask) "policy" else "tool"} " +
-							"args=${parsed.toString().length}B",
-					)
-					_state.update {
-						it.copy(
-							pendingApproval = PendingApproval(
-								messageId = outcome.messageId,
-								call = call,
-								summary = summary,
-								details = if (remote) {
-									sshApprovalDetails(tool.name, parsed)
-								} else {
-									null
-								},
-							),
-						)
-					}
-					// Suspend here until the user decides. The continuation is
-					// resumed by approvePendingCall/declinePendingCall, which is
-					// why the pending state is stored rather than a dialog shown.
-					val approved = awaitApproval()
-					if (!approved) {
-						// The chip is set before the result is appended, and it has
-						// to be: without this the call stayed `Ready` forever, so a
-						// refused delete rendered as a call that was merely waiting
-						// -- the one state a user is most likely to misread as "it
-						// is about to happen".
-						markCall(outcome.messageId, call.index, ToolCallUi.State.Declined)
-						appendToolResult(
-							call,
-							DECLINED_MARKER + " The user declined this call.",
-							isError = true,
-							messageId = outcome.messageId,
-						)
-						answerSkippedCalls(outcome, after = call.index)
-						settled = true
-						return false
-					}
-				}
-
-				// Secure the pre-turn workspace before the first local mutation.
-				// A rollback that cannot restore the files must not be offered;
-				// refusing the mutation is safer than deleting the turn later
-				// and leaving the changes behind.
-				if (tool.mutates) {
-					if (!tool.reversible) {
-						turnIrreversible = true
-					} else if (!turnSnapshotReady) {
-						val anchor = turnAnchorId
-							?: _state.value.messages.lastOrNull { it.fromUser }?.id
-						val entity = conversation
-						val captured = anchor != null && entity != null &&
-							runCatching {
-								repository.captureStartCheckpoint(entity, anchor)
-							}.getOrElse { failure ->
-								Diag.w("rollback", "snapshot capture threw", failure)
-								false
-							}
-						if (!captured) {
-							Diag.w("rollback", "refused mutation: no snapshot")
-							markCall(outcome.messageId, call.index, ToolCallUi.State.Failed)
-							appendToolResult(
-								call,
-								"Could not create a rollback snapshot, so this " +
-									"workspace change was refused.",
-								isError = true,
-								messageId = outcome.messageId,
-							)
-							continue
-						}
-						turnSnapshotReady = true
-						Diag.i("rollback", "snapshot captured for turn")
-					}
-				}
-
-				markCall(outcome.messageId, call.index, ToolCallUi.State.Running)
-				// Off the main thread, which is where this used to run.
-				//
-				// (A timeout policy layered on top of this would have to reckon
-				// with the fact that `withTimeout` only interrupts at suspension
-				// points -- see `ToolTimeoutSemanticsTest`.)
-				//
-				// `runTurn` is launched into `viewModelScope`, whose dispatcher is
-				// `Dispatchers.Main.immediate`, and nothing between here and the
-				// filesystem switched threads -- so `read_file` read, `write_file`
-				// wrote, and every quota check walked the whole workspace tree on
-				// the thread that draws the UI. The walks are the sharp edge: a
-				// measured `write_file` costs about 106 ms in a 2,000-file
-				// workspace, and a turn that writes several files pays it several
-				// times over.
-				//
-				// Only the execution moves. Approval stays above, on the main
-				// thread, because it suspends on the user and the continuation is
-				// resumed from the UI.
-				Diag.i(
-					"tool",
-					"run name=${tool.name} path=${policyPath ?: "-"} " +
-						"args=${parsed.toString().length}B",
-				)
-				val startedToolAt = System.currentTimeMillis()
-				val result = withContext(Dispatchers.IO) { tool.execute(parsed) }
-				val elapsed = System.currentTimeMillis() - startedToolAt
-				Diag.i(
-					"tool",
-					"done name=${tool.name} ok=${!result.isError} " +
-						"bytes=${result.content.length} ms=$elapsed",
-				)
-				if (result.isError) {
-					// The message is the tool's own explanation ("not found",
-					// "quota exceeded"), not file content; 240 chars keeps the
-					// line readable without dropping the useful half.
-					Diag.w("tool", "error name=${tool.name} ${result.content.take(240)}")
-				}
-				markCall(
-					outcome.messageId,
-					call.index,
-					if (result.isError) ToolCallUi.State.Failed else ToolCallUi.State.Done,
-				)
-				appendToolResult(call, result.content, result.isError, outcome.messageId)
-
-				// Recorded whether it succeeded or not.
-				//
-				// A failed write still means the turn *tried* to change the
-				// workspace. Marking only the successes would leave a reply that
-				// attempted a delete and was refused looking like plain text.
-				// This is a durable record about replay-with-tools; the final
-				// retry keeps the definitions but suppresses execution.
-				if (tool.mutates) {
-					// Marking the message is the whole of the bookkeeping. There
-					// is no second `currentTurnMutated` flag to keep in step:
-					// that gate was removed.
-					_state.update { s ->
-						s.copy(
-							messages = s.messages.map {
-								if (it.id == outcome.messageId) it.copy(mutated = true) else it
-							},
-						)
-					}
-					// Written separately, and this is not optional: the reply was
-					// persisted when the model stopped streaming, and its tools run
-					// afterwards. Updating only the in-memory copy loses the record
-					// on the next launch, and a future replay-with-tools feature
-					// would then treat a real write as replayable.
-					repository.markMutated(outcome.messageId)
-				}
-			}
-			if (allowedCalls < outcome.toolCalls.size) {
-				withContext(NonCancellable) {
-					answerSkippedCalls(
-						outcome,
-						after = outcome.toolCalls.getOrNull(allowedCalls - 1)?.index ?: -1,
-					)
-				}
-				settled = true
-			}
-		} finally {
-			// The stop path, and the reason this is a `finally` rather than a
-			// statement after the loop.
-			//
-			// Pressing Stop cancels the turn, which unwinds this loop from
-			// inside the body -- so the calls after the one that was running
-			// were recorded in `toolCallsJson` and never answered. That is the
-			// same invalid transcript as declining the first call, reached a
-			// different way.
-			//
-			// `settled` keeps the normal path from paying a second pass: when
-			// every call ran, there is nothing to answer. `NonCancellable`
-			// because the cancellation has already happened by the time this
-			// runs and each appended result is an insert.
-			//
-			// Deliberately not around the whole `try`: that would make Stop
-			// unable to interrupt a tool, which is the one thing it exists to
-			// do. Only the bookkeeping is protected.
-			if (!settled) {
-				withContext(NonCancellable) { answerSkippedCalls(outcome, after = reached) }
-			}
-		}
-		captureCheckpointAfterGroup()
-		return true
-	}
-
 	/**
 	 * Save the workspace after a complete tool group, so regeneration can
 	 * resume from this point rather than only from the end of the turn.
@@ -3447,11 +2745,11 @@ class ChatViewModel(
 	 * A turn that never touched the workspace has no start checkpoint and needs
 	 * no checkpoint here: its workspace is unchanged.
 	 */
-	private suspend fun captureCheckpointAfterGroup() {
-		if (!turnSnapshotReady) return
-		val entity = conversation ?: return
-		val anchor = turnAnchorId ?: return
-		val lastResult = _state.value.messages.lastOrNull { it.isToolResult } ?: return
+	private suspend fun captureCheckpointAfterGroup(): Boolean {
+		if (!turnSnapshotReady) return false
+		val entity = conversation ?: return false
+		val anchor = turnAnchorId ?: return false
+		val lastResult = _state.value.messages.lastOrNull { it.isToolResult } ?: return false
 		val saved = runCatching {
 			repository.captureCheckpoint(entity, anchor, lastResult.id)
 		}.getOrElse { failure ->
@@ -3459,6 +2757,7 @@ class ChatViewModel(
 			false
 		}
 		if (saved) Diag.i("rollback", "checkpoint after tool group")
+		return saved
 	}
 
 	// --- approval plumbing ---------------------------------------------------
@@ -3728,6 +3027,20 @@ class ChatViewModel(
 			stringArg(args, "remotePath").orEmpty(),
 			stringArg(args, "localPath").orEmpty(),
 		)
+		// The read-only profile used to fall through to `command`, which it
+		// does not have: the first-call dialogue showed the host and then an
+		// empty "First operation" line. The tools' own blurbs are reused rather
+		// than adding a second set of strings that could drift from them.
+		"ssh_probe" -> context.getString(R.string.tool_blurb_ssh_probe)
+		"ssh_list" -> "${context.getString(R.string.tool_blurb_ssh_list)}: ${
+			stringArg(args, "remotePath").orEmpty()
+		}"
+		"ssh_read_file" -> "${context.getString(R.string.tool_blurb_ssh_read_file)}: ${
+			stringArg(args, "remotePath").orEmpty()
+		}"
+		"ssh_write_file" -> "${context.getString(R.string.tool_blurb_ssh_write_file)}: ${
+			stringArg(args, "remotePath").orEmpty()
+		}"
 		else -> stringArg(args, "command").orEmpty()
 	}
 
@@ -3827,39 +3140,6 @@ class ChatViewModel(
 			is SessionWorkspace.Resolution.Rejected -> null
 		}
 	}
-
-	/**
-	 * The call's arguments, or null after recording why they were unusable.
-	 *
-	 * ## Why this suspends instead of launching
-	 *
-	 * The failure was reported from a **detached** coroutine, so the caller
-	 * moved on before the tool result existed. The next thing the caller does
-	 * is loop back into `streamOneTurn`, which rebuilds the wire history from
-	 * the transcript -- and the transcript has to answer every `tool_call` the
-	 * assistant message declared. Sending a turn with a call and no result is a
-	 * request the API rejects, and the result then landed afterwards, out of
-	 * order, as a permanent unmatched tool message.
-	 *
-	 * Awaiting it costs one write and removes the race entirely.
-	 */
-	private suspend fun parseArguments(call: ToolCallUi, messageId: String): JsonObject? =
-		try {
-			Json.parseToJsonElement(call.argumentsJson.ifBlank { "{}" }) as? JsonObject
-				?: buildJsonObject { }
-		} catch (e: Exception) {
-			// Arguments that never became valid JSON. Reported rather than
-			// retried: the model produced them, and it is the one that can fix
-			// them on the next turn.
-			Diag.w("tool", "unparsable arguments name=${call.displayName}: ${e.message}")
-			appendToolResult(
-				call,
-				"could not parse arguments: ${e.message}",
-				isError = true,
-				messageId = messageId,
-			)
-			null
-		}
 
 	/**
 	 * Close an assistant tool-call tail that has no matching tool rows.

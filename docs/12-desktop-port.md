@@ -29,7 +29,7 @@
 
 - `:core:common`、`:core:ai`、`:core:files` 已从 Android library 改成 **plain JVM**，并新增共享的 `:core:db`；Android app 继续依赖同一批 jar，全量 Android 测试仍通过，模拟器上也能启动；
 - `:desktopApp` 已是可运行的 Compose Desktop 窗口，使用 `core:engine` 的共享回合循环和 `core:ai` 的 `DemoProvider` 流式生成回复，并依赖共享的 `SessionWorkspace`；
-- `:core:engine` 已抽出共享 `ChatEngine`：流式收集、tool call 组装、approval hook、工具执行、assistant/tool 消息和 round/call 预算；桌面端使用它，Android 的 **demo 路径**已通过桥接接入真实 transcript/UI，真机和模拟器验证通过；真实 provider 的非 SSH 路径也已切到 engine（`runTurnLegacy` 保留给 SSH 和兜底）；DeepSeek live test 通过；
+- `:core:engine` 已抽出共享 `ChatEngine`：流式收集、tool call 组装、approval hook、工具执行、assistant/tool 消息和 round/call 预算；桌面端使用它，Android 的 **demo 路径**已通过桥接接入真实 transcript/UI，真机和模拟器验证通过；真实 provider 的**所有回合（含 SSH）**也已切到 engine，SSH consent、审批、start checkpoint 和参数归一化由 `ChatViewModel.gateEngineCall` 通过 hook 注入，旧的 `runTurnLegacy` 已删除；DeepSeek live test 通过；
 - Room 的 `Entities.kt`/`InhumanDatabase.kt` 已移到 `:core:db`；`core:db` 在 JVM 上打开 v13，并用导出的 `12.json` 构建 v12 数据库、跑完 `MIGRATION_12_13`。Android app 使用同一份生成的数据库实现，模拟器启动无 Room 错误；
 - 真实的 `write_file`/`read_file` 工具已在桌面 JVM 上执行并通过测试；这证明共享 sandbox，但还不是完整的 `ChatEngine` 工具循环；
 - Windows DPAPI 已经通过 JNA 的 `Crypt32Util` 验证加解密往返；Linux 明确不做“假加密”回退，Secret Service 绑定仍是待办；
@@ -38,11 +38,11 @@
 
 仍未完成（下一步，不要误认为 spike 已完成）：
 
-- 把 Android 的 **SSH 路径**接到 `:core:engine`，再补上持久化、snapshot、compaction 和 SSH consent 策略的完整 parity；
+- 桌面端补上持久化、snapshot、compaction 和 SSH consent 策略的完整 parity（Android 侧已全部走 engine，桌面宿主还需要把同样的 hook 实现出来）；
 - Linux Secret Service（libsecret）绑定，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
 - 桌面端的完整安全/通知/文件对话框/图片适配。
 
-当前全量测试为 **464 tests / 63 suites / 0 failures / 3 skipped**。
+当前全量测试为 **476 tests / 64 suites / 0 failures / 3 skipped**。
 
 ### 为什么不是“所有 UI 也共用一套”
 
@@ -75,7 +75,7 @@
 | `:core:common` | 3 | 267 | **0** | 已是普通 JVM，直接复用 |
 | **合计** | **107** | **31,316** | 120 个 | |
 
-测试侧还有 67 个文件、约 8,243 行；当前全量 464 tests / 63 suites。
+测试侧还有 67 个文件、约 8,243 行；当前全量 476 tests / 64 suites。
 
 这个分布说明：**领域层和 UI 层是分开的，Android 绑定集中在 data 和 app 的薄层**。这是移植能成立的前提。
 

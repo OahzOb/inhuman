@@ -193,7 +193,7 @@ observation, or neither.
 
 Three expressions of one fact: a stored field on `ChatUiState`, a private method
 on `ChatViewModel` with the same arithmetic, and the assignment in `reload()`.
-The field was raised in `executeCalls` and never cleared, so after one mutating
+The field was raised in the old tool loop and never cleared, so after one mutating
 turn every later reply claimed it could not be regenerated -- and reopening the
 conversation did not help, because the chat view model is keyed and
 activity-scoped, so the same instance came back without `reload()` running.
@@ -276,22 +276,22 @@ sampling rate.
 
 ### B4. Declining the first of several tool calls persisted an unanswered call — **FIXED**
 
-One helper, `answerSkippedCalls`, now gives every unrun call an answer of its
-own, and it serves both paths: the early return on a decline, and `Stop`
-unwinding the loop from inside the body. The result is marked `[skipped]` and the
-chip goes to `Failed` rather than `Declined` -- the user refused one call, and
-reporting the others as refused too would be untrue.
+The engine now answers every unrun call itself: `EngineEvent.ToolCallSkipped` is
+emitted for the calls after a decline, and for the calls a budget will not
+allow, so the host appends a `[skipped]` result for each. The chip goes to
+`Failed` rather than `Declined` -- the user refused one call, and reporting the
+others as refused too would be untrue.
 
-The stop path runs it from a `finally` under `NonCancellable`, because by then
-the coroutine is already cancelled and each answer is an insert. Deliberately not
-around the whole loop: that would make Stop unable to interrupt a tool.
+The older loop did the same from a `finally` under `NonCancellable`, because by
+then the coroutine was already cancelled and each answer was an insert; the
+engine emits the results as ordinary events before it ends the turn, so that
+workaround is gone with it.
 
 The old shape was this: `executeCalls` returned immediately on the first decline
-(`:1128`) while all calls of the round were already in `toolCallsJson`, so calls
-after the declined one got no result; `Stop` during `tool.execute` left the same
-gap. That transcript is a request the API rejects (`:1282-1292`), so the next user
-message after either was likely a 400. `answerSkippedCalls` is what closes that
-gap on both paths.
+while all calls of the round were already in `toolCallsJson`, so calls after the
+declined one got no result; `Stop` during `tool.execute` left the same gap. That
+transcript is a request the API rejects, so the next user message after either
+was likely a 400.
 
 ### B5. The 640dp measure cap was inert at seven call sites — **FIXED**
 
@@ -583,11 +583,13 @@ the consent dialogue read the raw parsed object and rendered "connect to @",
 with a blank first command. It could therefore ask the user to authorize a call
 that the tool would then reject.
 
-`SshExecTool.normalizeArguments` is now the single normalisation, used by both
-the tool and `ChatViewModel` before the consent gate, the policy check and
-`describeCall`. A call still missing host/user/command gets an error result and
-**no** consent dialog. Verified on the pad by re-sending after the fix: the
-dialog showed `tester@127.0.0.1` and `uname -a`, then the command ran.
+`SshArguments.normalize` is now the single normalisation. It is exposed through
+`Tool.normalize`, so the engine, the consent gate, the policy check,
+`describeCall` and the tool itself all read the same object. `SshExecTool`'s
+duplicate `normalizeArguments` was removed when SSH turns moved onto the engine.
+A call still missing host/user/command gets an error result and **no** consent
+dialog. Verified on the pad by re-sending after the fix: the dialog showed
+`tester@127.0.0.1` and `uname -a`, then the command ran.
 
 ### B15. Global SSH off→on inherited a revoked consent — **FIXED**
 `sshAllowed` was mirrored in `ChatViewModel` and only reloaded with the

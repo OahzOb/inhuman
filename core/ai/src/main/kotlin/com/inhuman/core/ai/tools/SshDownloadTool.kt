@@ -1,6 +1,5 @@
 package com.inhuman.core.ai.tools
 
-import com.inhuman.core.ai.Tool
 import com.inhuman.core.ai.ToolResult
 import com.inhuman.core.ai.ssh.SshException
 import com.inhuman.core.ai.ssh.SshFileTransport
@@ -29,7 +28,7 @@ class SshDownloadTool(
 	private val readWorkspaceFile: (String) -> ByteArray? = { null },
 	private val saveWorkspaceFile: (remotePath: String, bytes: ByteArray, overwrite: Boolean) -> String,
 	private val maxBytes: Long = 4L shl 20,
-) : Tool {
+) : SshTool {
 
 	override val name: String = "ssh_download"
 
