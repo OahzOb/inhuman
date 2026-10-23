@@ -29,7 +29,7 @@
 
 - `:core:common`、`:core:ai`、`:core:files` 已从 Android library 改成 **plain JVM**，并新增共享的 `:core:db`；Android app 继续依赖同一批 jar，全量 Android 测试仍通过，模拟器上也能启动；
 - `:desktopApp` 已是可运行的 Compose Desktop 窗口，使用 `core:engine` 的共享回合循环和 `core:ai` 的 `DemoProvider` 流式生成回复，并依赖共享的 `SessionWorkspace`；
-- `:core:engine` 已抽出第一版共享 `ChatEngine`：流式收集、tool call 组装、approval hook、工具执行、assistant/tool 消息和 round/call 预算；桌面端已接入，Android 仍走 `ChatViewModel` 的旧循环，接过去是下一步；
+- `:core:engine` 已抽出共享 `ChatEngine`：流式收集、tool call 组装、approval hook、工具执行、assistant/tool 消息和 round/call 预算；桌面端使用它，Android 的 **demo 路径**也已通过桥接接入真实 transcript/UI，真机和模拟器验证通过；真实 provider 仍走 `ChatViewModel` 的旧循环；
 - Room 的 `Entities.kt`/`InhumanDatabase.kt` 已移到 `:core:db`；`core:db` 在 JVM 上打开 v13，并用导出的 `12.json` 构建 v12 数据库、跑完 `MIGRATION_12_13`。Android app 使用同一份生成的数据库实现，模拟器启动无 Room 错误；
 - 真实的 `write_file`/`read_file` 工具已在桌面 JVM 上执行并通过测试；这证明共享 sandbox，但还不是完整的 `ChatEngine` 工具循环；
 - Windows DPAPI 已经通过 JNA 的 `Crypt32Util` 验证加解密往返；Linux 明确不做“假加密”回退，Secret Service 绑定仍是待办；
@@ -38,7 +38,7 @@
 
 仍未完成（下一步，不要误认为 spike 已完成）：
 
-- 把 Android 的 `ChatViewModel` 接到 `:core:engine`，再补上持久化、snapshot、compaction 和 SSH consent 策略；
+- 把 Android 的**真实 provider** 路径接到 `:core:engine`，再补上持久化、snapshot、compaction 和 SSH consent 策略；
 - Linux Secret Service（libsecret）绑定，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
 - 桌面端的完整安全/通知/文件对话框/图片适配。
 

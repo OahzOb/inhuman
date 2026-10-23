@@ -19,6 +19,12 @@ import com.inhuman.core.ai.policy.PolicySet
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.provider.demo.DemoProvider
 import com.inhuman.core.common.diag.Diag
+import com.inhuman.core.engine.ChatEngine
+import com.inhuman.core.engine.EngineDecision
+import com.inhuman.core.engine.EngineEvent
+import com.inhuman.core.engine.EngineToolCall
+import com.inhuman.core.engine.EngineTurn
+import com.inhuman.core.engine.EngineUsage
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.Branches
 import com.inhuman.core.data.ConversationRepository
@@ -2066,7 +2072,388 @@ class ChatViewModel(
 	 * Each iteration appends the model's turn (with any tool calls), executes
 	 * what was asked, appends the results, and goes round again.
 	 */
+	/**
+	 * Normal turns still go through the legacy loop for real providers. Demo
+	 * mode is the first Android consumer of :core:engine: it exercises the same
+	 * tool loop with no key and no network, which is what makes the bridge
+	 * testable before it is trusted with a billed request.
+	 */
 	private suspend fun runTurn(
+		demo: Boolean,
+		includeTools: Boolean = true,
+		suppressToolCalls: Boolean = false,
+	) {
+		if (demo) {
+			runTurnWithEngine(includeTools, suppressToolCalls)
+		} else {
+			runTurnLegacy(demo = false, includeTools, suppressToolCalls)
+		}
+	}
+
+	/**
+	 * Bridge `ChatEngine` into the existing transcript/UI state.
+	 *
+	 * This deliberately does not try to reproduce every legacy feature yet: it
+	 * rejects SSH tools (the legacy path owns the consent/policy plumbing), and
+	 * it persists one assistant row per engine round, which is the shape the
+	 * engine emits. The point is to prove the Android host side of the engine
+	 * before moving the billed path over.
+	 */
+	private suspend fun runTurnWithEngine(
+		includeTools: Boolean,
+		suppressToolCalls: Boolean,
+	) {
+		val provider: ChatProvider = DemoProvider()
+		val turnModel = model ?: agent?.model ?: "demo-model"
+		val policies = loadPolicies()
+		val tools = if (includeTools && !suppressToolCalls) buildTools(policies) else emptyList()
+		val maxRounds = toolRoundLimit()
+		val maxCalls = toolCallLimit()
+		val history = buildWireHistory().let { base ->
+			if (suppressToolCalls) {
+				base + ChatMessage(Role.System, NO_TOOL_RETRY_INSTRUCTION)
+			} else {
+				base
+			}
+		}
+
+		var currentId: String? = null
+		var currentParent: String? = null
+		var currentText = StringBuilder()
+		var currentReasoning = StringBuilder()
+		var currentCalls = linkedMapOf<Int, ToolCallUi>()
+		var currentUsage: EngineUsage? = null
+		var currentAssistant: ChatMessage? = null
+		var currentPersisted = false
+		var cursor = DeltaCursor()
+		var answerAfterCalls = false
+		var publishedAt = 0L
+		var firstTokenAt: Long? = null
+		var startedAt = System.currentTimeMillis()
+		var failure: String? = null
+		var lastFinish: FinishReason? = null
+		val answered = mutableSetOf<String>()
+
+		fun publish(force: Boolean = false) {
+			val id = currentId ?: return
+			val now = System.currentTimeMillis()
+			if (!force && now - publishedAt < STREAM_PUBLISH_INTERVAL_MS) return
+			publishedAt = now
+			if (firstTokenAt == null && currentText.isNotEmpty()) firstTokenAt = now
+			publishParts(id, currentReasoning, currentText, currentCalls, cursor, answerAfterCalls)
+		}
+
+		val engine = ChatEngine(
+			provider = provider,
+			approval = { tool, call ->
+				gateEngineCall(tool, call, policies, currentId)
+			},
+			toolDispatcher = Dispatchers.IO,
+		)
+
+		try {
+			engine.run(
+				EngineTurn(
+					model = turnModel,
+					messages = history,
+					tools = tools,
+					maxRounds = maxRounds,
+					maxCalls = maxCalls,
+					thinking = thinking,
+					reasoningEffort = reasoningEffort,
+					userId = conversationId,
+					suppressToolCalls = suppressToolCalls,
+				),
+			).collect { event ->
+				when (event) {
+					is EngineEvent.RoundStarted -> {
+						currentId?.let { previous ->
+							replyDeltas.remove(previous)?.close()
+						}
+						val parent = _state.value.messages.lastOrNull()?.id
+						val replyId = UUID.randomUUID().toString()
+						val channel = Channel<String>(Channel.CONFLATED)
+						replyDeltas[replyId] = channel
+						currentId = replyId
+						currentParent = parent
+						currentText = StringBuilder()
+						currentReasoning = StringBuilder()
+						currentCalls = linkedMapOf()
+						currentUsage = null
+						currentAssistant = null
+						currentPersisted = false
+						cursor = DeltaCursor()
+						answerAfterCalls = false
+						publishedAt = 0L
+						startedAt = System.currentTimeMillis()
+						firstTokenAt = null
+						answered.clear()
+						_state.update {
+							it.copy(
+								messages = it.messages + ChatMessageUi(
+									id = replyId,
+									parentId = parent,
+									fromUser = false,
+									isStreaming = true,
+									deltas = channel,
+								),
+							)
+						}
+						provider.previewRequest(event.request)?.let { body ->
+							_wire.value = WireSnapshot(
+								requestJson = Json { prettyPrint = true }
+									.encodeToString(JsonObject.serializer(), body),
+								model = turnModel,
+								capturedAt = System.currentTimeMillis(),
+							)
+						}
+						Diag.i(
+							"engine",
+							"round=${event.round} provider=${provider.id} " +
+								"history=${event.request.messages.size} tools=${tools.size}",
+						)
+					}
+
+					is EngineEvent.ReasoningDelta -> {
+						currentReasoning.append(event.text)
+						publish()
+					}
+
+					is EngineEvent.TextDelta -> {
+						if (currentCalls.isNotEmpty()) answerAfterCalls = true
+						currentText.append(event.text)
+						publish()
+					}
+
+					is EngineEvent.ToolCallReady -> {
+						val id = currentId ?: return@collect
+						val call = event.call.toUi()
+						currentCalls[call.index] = call
+						updateMessage(id) { it.copy(toolCalls = currentCalls.values.toList()) }
+					}
+
+					is EngineEvent.AssistantMessage -> {
+						currentAssistant = event.message
+						// The engine has already assembled the calls; render them
+						// as Ready now rather than as empty cards until the first
+						// ToolCallReady arrives.
+						event.message.toolCalls.forEachIndexed { index, call ->
+							currentCalls[index] = ToolCallUi(
+								index = index,
+								id = call.id,
+								name = call.name,
+								argumentsJson = call.argumentsJson,
+								state = ToolCallUi.State.Ready,
+							)
+						}
+						publish(force = true)
+					}
+
+					is EngineEvent.Usage -> currentUsage = event.usage
+
+					is EngineEvent.RoundFinished -> {
+						val id = currentId ?: return@collect
+						lastFinish = event.reason
+						val message = currentAssistant
+						val calls = currentCalls.values.toList()
+						val usage = event.usage?.toUi(firstTokenAt, startedAt)
+						withContext(NonCancellable) {
+							repository.appendMessage(
+								MessageEntity(
+									id = id,
+									conversationId = conversationId,
+									parentId = currentParent,
+									role = "assistant",
+									content = message?.content.orEmpty(),
+									reasoning = message?.reasoning?.takeIf { it.isNotBlank() },
+									model = model,
+									finishReason = event.reason.describe(),
+									createdAt = System.currentTimeMillis(),
+									promptTokens = usage?.promptTokens,
+									completionTokens = usage?.completionTokens,
+									cachedPromptTokens = usage?.cachedPromptTokens,
+									reasoningTokens = usage?.reasoningTokens,
+									timeToFirstTokenMs = usage?.timeToFirstTokenMs,
+									generationMs = usage?.generationMs,
+									toolCallsJson = calls.takeIf { it.isNotEmpty() }?.let(::encodeCalls),
+								),
+								currentParent,
+							)
+						}
+						currentPersisted = true
+						replyDeltas.remove(id)?.close()
+						updateMessage(id) {
+							it.copy(
+								isStreaming = false,
+								finishReason = event.reason.describe(),
+								usage = usage,
+							)
+						}
+						refreshContext()
+					}
+
+					is EngineEvent.ToolCallResult -> {
+						val id = currentId ?: return@collect
+						val call = event.call.toUi()
+						answered += event.call.id
+						appendToolResult(call, event.result.content, event.result.isError, id)
+						markCall(
+							id,
+							call.index,
+							if (event.result.isError) ToolCallUi.State.Failed else ToolCallUi.State.Done,
+						)
+					}
+
+					is EngineEvent.ToolCallSkipped -> {
+						val id = currentId ?: return@collect
+						val call = event.call.toUi()
+						appendToolResult(call, event.reason, isError = true, id)
+						markCall(id, call.index, ToolCallUi.State.Failed)
+					}
+
+					is EngineEvent.Finished -> {
+						lastFinish = event.reason
+						_state.update { it.copy(isStreaming = false) }
+					}
+
+					is EngineEvent.Failed -> {
+						failure = event.message
+						_state.update {
+							it.copy(
+								isStreaming = false,
+								error = event.message,
+							)
+						}
+					}
+				}
+			}
+		} catch (e: kotlinx.coroutines.CancellationException) {
+			throw e
+		} finally {
+			val id = currentId
+			if (id != null) {
+				publish(force = true)
+				if (!currentPersisted && (currentText.isNotEmpty() || currentReasoning.isNotEmpty())) {
+					withContext(NonCancellable) {
+						repository.appendMessage(
+							MessageEntity(
+								id = id,
+								conversationId = conversationId,
+								parentId = currentParent,
+								role = "assistant",
+								content = currentText.toString(),
+								reasoning = currentReasoning.toString().takeIf { it.isNotBlank() },
+								model = model,
+								finishReason = lastFinish?.describe(),
+								error = failure ?: STOPPED_MESSAGE,
+								createdAt = System.currentTimeMillis(),
+							),
+							currentParent,
+						)
+					}
+					currentPersisted = true
+				}
+				replyDeltas.remove(id)?.close()
+				updateMessage(id) { it.copy(isStreaming = false) }
+			}
+			_state.update { it.copy(isStreaming = false) }
+		}
+	}
+
+	private suspend fun gateEngineCall(
+		tool: Tool,
+		call: EngineToolCall,
+		policies: PolicySet,
+		messageId: String?,
+	): EngineDecision {
+		val id = messageId ?: return EngineDecision.Deny("engine turn has no message", stopTurn = true)
+		val parsed = try {
+			Json.parseToJsonElement(call.argumentsJson.ifBlank { "{}" }).jsonObject
+		} catch (e: Exception) {
+			return EngineDecision.Deny("invalid tool arguments: ${e.message}", stopTurn = false)
+		}
+
+		// Unlike the legacy path, this bridge has no SSH consent state yet.
+		// Refusing the remote tools is the safe default; they keep using the
+		// legacy path until that plumbing is moved.
+		if (ToolCatalog.all.firstOrNull { it.name == tool.name }?.remote == true) {
+			return EngineDecision.Deny(
+				"${REFUSED_MARKER} SSH is not available through the engine path yet.",
+				stopTurn = false,
+			)
+		}
+
+		val policyPath = resolvedPolicyPath(parsed)
+		val policy = policies.effective(tool.name, policyPath)
+		if (policy == ToolPolicy.Deny || policy == ToolPolicy.Blind) {
+			return EngineDecision.Deny(
+				"${REFUSED_MARKER} This path or tool is not available in this conversation.",
+				stopTurn = false,
+			)
+		}
+
+		if (tool.mutates) {
+			if (!tool.reversible) {
+				turnIrreversible = true
+			} else if (!turnSnapshotReady) {
+				val anchor = turnAnchorId ?: _state.value.messages.lastOrNull { it.fromUser }?.id
+				val entity = conversation
+				val captured = anchor != null && entity != null &&
+					runCatching { repository.captureStartCheckpoint(entity, anchor) }
+						.getOrElse { failure ->
+							Diag.w("rollback", "snapshot capture threw", failure)
+							false
+						}
+				if (!captured) {
+					return EngineDecision.Deny(
+						"Could not create a rollback snapshot, so this workspace change was refused.",
+						stopTurn = false,
+					)
+				}
+				turnSnapshotReady = true
+			}
+		}
+
+		if (policy == ToolPolicy.Ask || tool.needsApproval(parsed)) {
+			val summary = describeCall(call.toUi(), parsed)
+			_state.update {
+				it.copy(
+					pendingApproval = PendingApproval(
+						messageId = id,
+						call = call.toUi(),
+						summary = summary,
+					),
+				)
+			}
+			val approved = awaitApproval()
+			if (!approved) {
+				markCall(id, call.index, ToolCallUi.State.Declined)
+				return EngineDecision.Deny("declined by user", stopTurn = true)
+			}
+		}
+
+		markCall(id, call.index, ToolCallUi.State.Running)
+		return EngineDecision.Allow
+	}
+
+	private fun EngineToolCall.toUi() = ToolCallUi(
+		index = index,
+		id = id,
+		name = name,
+		argumentsJson = argumentsJson,
+		state = ToolCallUi.State.Ready,
+	)
+
+	private fun EngineUsage.toUi(firstTokenAt: Long?, startedAt: Long) = UsageUi(
+		promptTokens = promptTokens,
+		completionTokens = completionTokens,
+		cachedPromptTokens = cachedPromptTokens,
+		reasoningTokens = reasoningTokens,
+		timeToFirstTokenMs = firstTokenAt?.let { it - startedAt },
+		generationMs = firstTokenAt?.let { System.currentTimeMillis() - it },
+	)
+
+	private suspend fun runTurnLegacy(
 		demo: Boolean,
 		includeTools: Boolean = true,
 		suppressToolCalls: Boolean = false,

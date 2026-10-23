@@ -11,6 +11,9 @@ import com.inhuman.core.ai.ToolCall
 import com.inhuman.core.ai.ToolSpec
 import com.inhuman.core.ai.ToolResult
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
@@ -33,7 +36,8 @@ import kotlinx.serialization.json.jsonObject
  */
 class ChatEngine(
 	private val provider: ChatProvider,
-	private val approval: EngineApproval = EngineApproval { _, _ -> true },
+	private val approval: EngineApproval = EngineApproval { _, _ -> EngineDecision.Allow },
+	private val toolDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
 	fun run(turn: EngineTurn): Flow<EngineEvent> = flow {
@@ -56,6 +60,7 @@ class ChatEngine(
 				reasoningEffort = turn.reasoningEffort,
 				userId = turn.userId,
 			)
+			emit(EngineEvent.RoundStarted(round, request))
 
 			try {
 				provider.stream(request).collect { chunk ->
@@ -138,6 +143,13 @@ class ChatEngine(
 			history += assistant
 			emit(EngineEvent.AssistantMessage(assistant))
 			usage?.let { emit(EngineEvent.Usage(it)) }
+			emit(
+				EngineEvent.RoundFinished(
+					round = round,
+					reason = finish ?: FinishReason.Stop,
+					usage = usage,
+				),
+			)
 
 			if (calls.isEmpty()) {
 				emit(EngineEvent.Finished(finish ?: FinishReason.Stop))
@@ -149,8 +161,13 @@ class ChatEngine(
 				return@flow
 			}
 
-			for (call in calls) {
+			for ((index, call) in calls.withIndex()) {
 				if (callsUsed >= turn.maxCalls) {
+					for (skip in calls.drop(index)) {
+						val result = ToolResult("not executed: tool call limit reached", isError = true)
+						history += ChatMessage(Role.Tool, result.content, toolCallId = skip.id)
+						emit(EngineEvent.ToolCallSkipped(skip, result.content))
+					}
 					emit(EngineEvent.Failed("tool call limit reached (${turn.maxCalls})"))
 					return@flow
 				}
@@ -158,18 +175,23 @@ class ChatEngine(
 				emit(EngineEvent.ToolCallReady(call))
 
 				val tool = turn.tools.firstOrNull { it.name == call.name }
-				val result = execute(tool, call)
+				val executed = execute(tool, call)
 				history += ChatMessage(
 					role = Role.Tool,
-					content = result.content,
+					content = executed.result.content,
 					toolCallId = call.id,
 				)
-				emit(EngineEvent.ToolCallResult(call, result))
+				emit(EngineEvent.ToolCallResult(call, executed.result))
 
-				if (!result.isError) continue
-				// An unknown tool or a refused approval ends the turn: replaying
-				// the same request would just ask the model to call it again.
-				if (tool == null || isRefusal(result.content)) {
+				if (executed.stopTurn) {
+					// Every assistant tool_call needs a result on the wire. If the
+					// turn stops after the first refusal, answer the rest here
+					// rather than leaving the next request with unanswered calls.
+					for (skip in calls.drop(index + 1)) {
+						val result = ToolResult("not executed: turn stopped", isError = true)
+						history += ChatMessage(Role.Tool, result.content, toolCallId = skip.id)
+						emit(EngineEvent.ToolCallSkipped(skip, result.content))
+					}
 					emit(EngineEvent.Finished(FinishReason.Stop))
 					return@flow
 				}
@@ -179,29 +201,42 @@ class ChatEngine(
 		emit(EngineEvent.Failed("tool round limit reached (${turn.maxRounds})"))
 	}
 
-	private suspend fun execute(tool: Tool?, call: EngineToolCall): ToolResult {
-		if (tool == null) return ToolResult("unknown tool: ${call.name}", isError = true)
+	private suspend fun execute(tool: Tool?, call: EngineToolCall): Execution {
+		if (tool == null) {
+			return Execution(ToolResult("unknown tool: ${call.name}", isError = true), stopTurn = true)
+		}
 
-		val approved = try {
+		val decision = try {
 			approval.approve(tool, call)
 		} catch (e: CancellationException) {
 			throw e
 		} catch (e: Exception) {
-			return ToolResult("approval failed: ${e.message}", isError = true)
+			return Execution(
+				ToolResult("approval failed: ${e.message}", isError = true),
+				stopTurn = true,
+			)
 		}
-		if (!approved) return ToolResult("declined by user", isError = true)
+		if (decision is EngineDecision.Deny) {
+			return Execution(
+				ToolResult(decision.message, isError = true),
+				stopTurn = decision.stopTurn,
+			)
+		}
 
 		val arguments = try {
 			Json.parseToJsonElement(call.argumentsJson.ifBlank { "{}" }).jsonObject
 		} catch (e: Exception) {
-			return ToolResult("invalid tool arguments: ${e.message}", isError = true)
+			return Execution(
+				ToolResult("invalid tool arguments: ${e.message}", isError = true),
+				stopTurn = false,
+			)
 		}
 		return try {
-			tool.execute(arguments)
+			Execution(withContext(toolDispatcher) { tool.execute(arguments) }, stopTurn = false)
 		} catch (e: CancellationException) {
 			throw e
 		} catch (e: Exception) {
-			ToolResult("tool failed: ${e.message}", isError = true)
+			Execution(ToolResult("tool failed: ${e.message}", isError = true), stopTurn = false)
 		}
 	}
 
@@ -210,9 +245,6 @@ class ChatEngine(
 		description = tool.description,
 		parameters = tool.parameters,
 	)
-
-	private fun isRefusal(content: String): Boolean =
-		content == "declined by user" || content.startsWith("declined by user")
 }
 
 /** A turn request, with every value needed by the loop. */
@@ -244,19 +276,40 @@ data class EngineUsage(
 )
 
 sealed interface EngineEvent {
+	data class RoundStarted(val round: Int, val request: ChatRequest) : EngineEvent
 	data class ReasoningDelta(val text: String) : EngineEvent
 	data class TextDelta(val text: String) : EngineEvent
 	data class ToolCallReady(val call: EngineToolCall) : EngineEvent
 	data class ToolCallResult(val call: EngineToolCall, val result: ToolResult) : EngineEvent
+	data class ToolCallSkipped(val call: EngineToolCall, val reason: String) : EngineEvent
 	data class AssistantMessage(val message: ChatMessage) : EngineEvent
 	data class Usage(val usage: EngineUsage) : EngineEvent
+	data class RoundFinished(
+		val round: Int,
+		val reason: FinishReason,
+		val usage: EngineUsage?,
+	) : EngineEvent
 	data class Finished(val reason: FinishReason) : EngineEvent
 	data class Failed(val message: String) : EngineEvent
 }
 
-fun interface EngineApproval {
-	suspend fun approve(tool: Tool, call: EngineToolCall): Boolean
+sealed interface EngineDecision {
+	data object Allow : EngineDecision
+	data class Deny(
+		val message: String,
+		/** Whether this refusal ends the turn or only this call. */
+		val stopTurn: Boolean = true,
+	) : EngineDecision
 }
+
+fun interface EngineApproval {
+	suspend fun approve(tool: Tool, call: EngineToolCall): EngineDecision
+}
+
+private data class Execution(
+	val result: ToolResult,
+	val stopTurn: Boolean,
+)
 
 private class CallBuilder(val index: Int) {
 	var id: String? = null

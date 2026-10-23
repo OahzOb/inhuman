@@ -54,7 +54,7 @@ class ChatEngineTest {
 		val workspace = SessionWorkspace.open(tmp.newFolder("declined"))
 		val engine = ChatEngine(
 			DemoProvider(chunkDelayMillis = 0),
-			approval = EngineApproval { _, _ -> false },
+			approval = EngineApproval { _, _ -> EngineDecision.Deny("declined by user") },
 		)
 		val events = engine.run(
 			EngineTurn(

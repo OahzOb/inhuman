@@ -386,8 +386,8 @@ compiles clean, and that is worth keeping. `:core:common`, `:core:ai`, `:core:fi
 now; `:desktopApp` is the Compose Desktop spike and consumes the same jars.
 `:core:db` owns the Room schema, and both the Android app and desktop use the
 same generated database implementation. `:core:engine` is the extracted turn
-loop; the desktop window uses it, while Android still uses `ChatViewModel`'s loop
-until that integration lands.
+loop; the desktop window and the Android demo path use it, while real providers
+still use `ChatViewModel.runTurnLegacy` until that integration lands.
 
 Two tests are skipped by default. `DeepSeekWebLiveTest` talks to the real Search
 and Fetch APIs and needs a key (and spends money). `SshLiveProbeTest` lists `/tmp`,
