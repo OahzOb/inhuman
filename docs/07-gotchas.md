@@ -687,8 +687,10 @@ Three related UI failures, reported together:
   collapsed by default. The name of an SSH tool says what it runs, not that its
   effects are permanent. Every mutating tool now carries **REWIND** or **NO
   REWIND** in the same badge row as PAID and REMOTE, in the assistant editor,
-  the approval-rule row, and the approval dialog. `ssh_exec` and `ssh_upload`
-  show both REMOTE and NO REWIND; `ssh_download` shows REMOTE + REWIND.
+  the approval-rule row, and the approval dialog. `ssh_exec`, `ssh_upload` and
+  `ssh_write_file` show both REMOTE and NO REWIND; `ssh_download`, `ssh_probe`,
+  `ssh_list` and `ssh_read_file` show REMOTE (the reads are reversible, and the
+  badge row does not add a REWIND badge to a non-mutating tool).
 - Edit restored a snapshot without naming what it would revert. The turn's
   changed paths are now compared against the snapshot by content hash, stored
   on the final assistant row (`messages.changedFilesJson`, schema v10), shown
@@ -704,9 +706,9 @@ Verified on the pad: the file turn showed `Changed files / + notes.txt`, the
 dialog repeated the same path under "Files that will be restored", and the
 assistant text ran to the transcript edge. On the phone AVD the assistant
 answer did the same while the user bubble stayed capped; the tool editor showed
-`REWIND` on file tools, `REMOTE` + `NO REWIND` on `ssh_exec`/`ssh_upload`, and
-`REMOTE` + `REWIND` on `ssh_download`. The persisted list survived a force-stop
-and relaunch.
+`REWIND` on file tools, `REMOTE` + `NO REWIND` on `ssh_exec`/`ssh_upload`/
+`ssh_write_file`, and `REMOTE` + `REWIND` on `ssh_download`. The persisted list
+survived a force-stop and relaunch.
 
 ### B20. Regeneration could only retry the last text, and one snapshot overwrote all history
 

@@ -14,7 +14,7 @@ architecture from scratch:
 | --- | --- |
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
-| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)** |
+| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)**, and the user-set `SshLimits` ceilings |
 | `docs/04-data-persistence.md` | Room schema v13, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
@@ -57,11 +57,15 @@ Two consequences bind every future change, and neither is negotiable:
   exists, and only one: **the SSH tools (`ssh_probe`, `ssh_list`,
   `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`),
   off by default, enabled globally, selected explicitly on the assistant or the
-  conversation, and granted once per conversation.** When SSH is on, the agent
+  conversation, and granted for that conversation's current SSH capability set.
+  Adding `ssh_exec`, `ssh_upload` or `ssh_write_file` asks again rather than
+  inheriting a narrower read-only grant.** When SSH is on, the agent
   can inspect a host, read files, write small text files, transfer files, and —
   only if `ssh_exec` is selected — run commands on a remote machine whose address
   and credentials the user supplies; the app has no host/credential configuration
-  and redacts SSH tool arguments before storage. Do not add another exception
+  and redacts SSH **credential** arguments (`password`, `privateKey`,
+  `passphrase`) before storage. Command text, paths and `ssh_write_file` content
+  are part of the call and remain in the transcript. Do not add another exception
   without answering `docs/08-port-philosophy.md` §1.2.1 and §1.5.
 
 **Safety here comes from structure, not from prompts.** The agent can only see
@@ -90,8 +94,9 @@ just the two web tools.
 **Remote capability is disclosed separately.** Every SSH tool carries `remote =
 true`, a filled `REMOTE` badge, a notice above the tool list, and a dedicated
 first-call consent dialog. The app never configures a host or a credential store;
-the user gives them to the agent. SSH tool arguments are redacted before the
-transcript is stored. The ordinary approval dialog must never show a password or
+the user gives them to the agent. SSH **credential** arguments are redacted
+before the transcript is stored; command text, paths and `ssh_write_file`
+content are not. The ordinary approval dialog must never show a password or
 private key — the SSH tools supply a redacted `details` string; `ssh_upload` and
 `ssh_write_file` are also `NO REWIND` because they replace remote files.
 The rules are `docs/08-port-philosophy.md` §1.2.1 and §1.5.
@@ -310,7 +315,12 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   global switch is off, every SSH tool is **absent** from every picker, approval
   table, home tool summary and request schema — not a disabled row. Use
   `ToolCatalog.visible(sshEnabled)` for user-facing lists; a greyed row still
-  advertises the capability.
+  advertises the capability. Adding `ssh_exec`, `ssh_upload` or `ssh_write_file`
+  to an existing grant resets `sshAllowed`; adding `ssh_probe`, `ssh_list` or
+  `ssh_read_file`, and removing any tool, does not.
+- **`ssh_probe` is a fixed script, not a second exec.** It accepts connection
+  details only; do not add a command, path or argument that the model can vary.
+  The moment it can run model-supplied input it is `ssh_exec` with a better name.
 - **Conversation tools are changed only by the user, only from the sheet, and
   only for the next turn.** No tool changes tools, and no message or tool result
   can widen the set. The sheet offers the assistant's tools plus the

@@ -660,7 +660,8 @@ so an assistant can be configured with probe/list/read/download and no
 directly, without a local copy or a heredoc: 64 KiB, optional `createParents`,
 `overwrite` default false. It uses the same SFTP upload path and is `mutates =
 true`, `reversible = false`; a remote file replacement cannot be undone by
-deleting the conversation.
+deleting the conversation. The content is a tool argument and remains in the
+transcript, unlike a password; do not use this tool for secrets.
 
 ### SSH limits: the user sets ceilings, the model may only tighten
 

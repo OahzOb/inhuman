@@ -144,8 +144,9 @@ files. After that they follow the normal approval policy, which defaults to
 running without asking. Remote commands and replaced remote files are not a
 workspace copy: some damage cannot be undone. The app has no host list and no
 credential store; it provides the transport, and the user gives the agent the
-host, user and password/key file. SSH tool arguments are redacted before the
-tool-call row is stored, but text typed into the conversation is still stored
+host, user and password/key file. SSH credential arguments are redacted before
+the tool-call row is stored, but command text, paths and `ssh_write_file` content
+remain in the transcript; text typed into the conversation is still stored
 verbatim. Standard host-key checking is TOFU with `SHA256:` fingerprints,
 fail-closed on a changed key. `ssh_probe` runs one fixed read-only snapshot;
 `ssh_list` lists one directory over SFTP (no recursion, 500 entries);
