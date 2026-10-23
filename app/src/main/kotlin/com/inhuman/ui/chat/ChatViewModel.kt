@@ -2122,7 +2122,12 @@ class ChatViewModel(
 		val tools = if (includeTools && !suppressToolCalls) buildTools(policies) else emptyList()
 		val maxRounds = toolRoundLimit()
 		val maxCalls = toolCallLimit()
-		val history = buildWireHistory().let { base ->
+		// No assistant placeholder exists yet on this path: the latest state
+		// message is the user's just-committed turn. Dropping it -- which the
+		// legacy path does because it creates the placeholder first -- made the
+		// model answer the previous turn. The phone transcript showed exactly
+		// that: "帮我搜搜今天的新闻" received the answer to "你好".
+		val history = buildWireHistory(includeCurrent = true).let { base ->
 			if (suppressToolCalls) {
 				base + ChatMessage(Role.System, NO_TOOL_RETRY_INSTRUCTION)
 			} else {

@@ -884,6 +884,30 @@ pins the junction case and skips on non-Windows filesystems. This is the reason
 the `SessionWorkspace` invariant is no longer phrased as "canonical prefix": on
 Windows, canonical is not enough.
 
+### B30. The engine path answered the previous user message — **FIXED**
+
+The first Android real-provider transcript on the phone showed this:
+
+```text
+user:      你好
+assistant: I'll start by looking at what's in the workspace.
+tool:      . is empty
+assistant: Your workspace is empty, and your message didn't include a request...
+user:      帮我搜搜今天的新闻
+assistant: 你好！工作区目前是空的，你的消息里没有具体要求...
+```
+
+The new question got the previous turn's answer. The cause was history
+construction, not the model: the engine path calls `buildWireHistory()` before
+it creates the assistant placeholder, while the legacy path creates the
+placeholder first. `buildWireHistory()` defaults to `dropLast(1)` because it
+assumes that placeholder is present; on the engine path it dropped the **user's
+just-committed message** instead.
+
+The engine path now calls `buildWireHistory(includeCurrent = true)`. The phone
+transcript is the reason the parameter is visible at that call site rather than
+hidden behind a default.
+
 ## C. Comments that contradict the code
 
 By this repository's standard, the comment is the bug. These were all verified.
