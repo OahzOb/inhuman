@@ -370,6 +370,7 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
 .\gradlew.bat :app:assembleDebug `
   :app:testDebugUnitTest `
   :core:data:testDebugUnitTest `
+  :core:db:test `
   :core:ai:test `
   :core:files:test `
   :core:common:test `
@@ -380,9 +381,10 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
 `--rerun-tasks` matters: with the build cache warm, a plain run can report
 `BUILD SUCCESSFUL` without compiling the file you just changed. Check that the
 warning output is empty as well as the error output — this tree currently
-compiles clean, and that is worth keeping. `:core:ai`, `:core:files` and
-`:core:common` are plain JVM modules now; `:desktopApp` is the Compose Desktop
-spike and consumes the same jars.
+compiles clean, and that is worth keeping. `:core:common`, `:core:ai`, `:core:files` and `:core:db` are plain JVM modules
+now; `:desktopApp` is the Compose Desktop spike and consumes the same jars.
+`:core:db` owns the Room schema, and both the Android app and desktop use the
+same generated database implementation.
 
 Two tests are skipped by default. `DeepSeekWebLiveTest` talks to the real Search
 and Fetch APIs and needs a key (and spends money). `SshLiveProbeTest` lists `/tmp`,

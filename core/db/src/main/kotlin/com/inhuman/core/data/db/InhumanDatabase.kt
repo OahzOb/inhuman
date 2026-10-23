@@ -783,7 +783,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 		 * database comes into being, and a helper that only one of them could
 		 * reach is how the upgrade path came to be missing it.
 		 */
-		internal fun seedDefaultProvider(connection: SQLiteConnection) {
+		fun seedDefaultProvider(connection: SQLiteConnection) {
 			val now = System.currentTimeMillis()
 			val statement = connection.prepare(
 				"""
@@ -807,7 +807,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 			}
 		}
 
-		internal fun seedDefaultAgent(connection: SQLiteConnection) {
+		fun seedDefaultAgent(connection: SQLiteConnection) {
 			val now = System.currentTimeMillis()
 			// Prepared and bound rather than interpolated: the instructions
 			// contain apostrophes, and a string-built statement would either

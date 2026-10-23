@@ -381,7 +381,7 @@ same way. The caller now declares what it staged and what it replaces.
 
 ### B8. `1.json` was not a v1, and the fix was smaller than I claimed — **FIXED**
 
-`core/data/schemas/…/1.json` and `2.json` differed only in the `version` field,
+`core/db/schemas/…/1.json` and `2.json` differed only in the `version` field,
 and `1.json` already declared `toolCallsJson`, `toolCallId` and `toolName` — the
 three columns `MIGRATION_1_2` adds. The exported v1 was v1's schema re-taken after
 the entities gained those fields.

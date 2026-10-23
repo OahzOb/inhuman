@@ -104,7 +104,7 @@ Measured by running it, not by counting files:
 
 ```powershell
 $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
-.\gradlew.bat :core:common:test :core:ai:test :core:files:test `
+.\gradlew.bat :core:common:test :core:ai:test :core:files:test :core:db:test `
   :core:data:testDebugUnitTest :app:testDebugUnitTest `
   :desktopApp:test --console=plain --rerun-tasks
 ```
@@ -121,8 +121,9 @@ was empty. Suite by suite:
 | `:core:files` | 5 | 58 |
 | `:app` | 16 | 110 |
 | `:core:common` | 2 | 16 |
+| `:core:db` | 2 | 2 |
 | `:core:data` | 3 | 17 |
-| `:desktopApp` | 6 | 9 |
+| `:desktopApp` | 4 | 7 |
 
 The count grows with every fix that lands with a test, so treat the total as a
 baseline to re-measure rather than a fact to quote: the command above is the
@@ -188,7 +189,7 @@ throughout.
 | Provider profiles, provider-specific model cache, key slots | `core/data/…/AgentRepository.kt`, `ui/chat/SettingsViewModel.kt` |
 | Demo mode's script and its magic words | `provider/demo/DemoProvider.kt` |
 | What was recorded before a bug, and how to get the log | `core/common/src/main/kotlin/com/inhuman/core/common/diag/`, `app/src/main/kotlin/com/inhuman/diagnostics/AppDiagnostics.kt` |
-| Tables, queries, ordering, migrations | `core/data/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`, `db/Entities.kt` |
+| Tables, queries, ordering, migrations | `core/db/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`, `db/Entities.kt` |
 | Creating/deleting conversations, the orphan sweep | `core/data/…/ConversationRepository.kt` |
 | Assistants' persistence and the model cache | `core/data/…/AgentRepository.kt` |
 | The API key at rest | `core/data/…/secret/SecureStore.kt` |

@@ -27,9 +27,9 @@
 
 已经落地并验证：
 
-- `:core:common`、`:core:ai`、`:core:files` 已从 Android library 改成 **plain JVM**；Android app 继续依赖同一批 jar，全量 Android 测试仍通过；
+- `:core:common`、`:core:ai`、`:core:files` 已从 Android library 改成 **plain JVM**，并新增共享的 `:core:db`；Android app 继续依赖同一批 jar，全量 Android 测试仍通过，模拟器上也能启动；
 - `:desktopApp` 已是可运行的 Compose Desktop 窗口，使用 `core:ai` 的 `DemoProvider` 流式生成回复，并依赖共享的 `SessionWorkspace`；
-- Room/JVM 的 KSP + `BundledSQLiteDriver` 已用当前 schema 验证：通过 source-set 桥接直接编译 `core:data` 的 `Entities.kt`/`InhumanDatabase.kt`，在 JVM 上打开 v13，并用导出的 `12.json` 构建 v12 数据库、跑完 `MIGRATION_12_13`；这还不是生产模块布局，schema 仍要提取到共享模块；
+- Room 的 `Entities.kt`/`InhumanDatabase.kt` 已移到 `:core:db`；`core:db` 在 JVM 上打开 v13，并用导出的 `12.json` 构建 v12 数据库、跑完 `MIGRATION_12_13`。Android app 使用同一份生成的数据库实现，模拟器启动无 Room 错误；
 - 真实的 `write_file`/`read_file` 工具已在桌面 JVM 上执行并通过测试；这证明共享 sandbox，但还不是完整的 `ChatEngine` 工具循环；
 - Windows DPAPI 已经通过 JNA 的 `Crypt32Util` 验证加解密往返；Linux 明确不做“假加密”回退，Secret Service 绑定仍是待办；
 - Windows **junction 逃逸**被 spike 的测试抓到并修复：`File.canonicalFile` 不解析 junction，`Files.isSymbolicLink` 也不识别它，现在对已存在组件使用 `toPath().toRealPath()`；
@@ -37,7 +37,6 @@
 
 仍未完成（下一步，不要误认为 spike 已完成）：
 
-- 把 `InhumanDatabase`/entities 从 Android-only `:core:data` 提取成可共享的 Room schema（spike 的 source-set 桥接只是证明，不是生产布局）；
 - Linux Secret Service（libsecret）绑定，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
 - 从 `ChatViewModel` 抽出共享 `ChatEngine`，让两个 UI 用同一套工具循环/授权/快照；
 - 桌面端的完整安全/通知/文件对话框/图片适配。
@@ -66,11 +65,12 @@
 | 模块 | 文件 | 行数 | Android 直接依赖 | 判断 |
 | --- | ---: | ---: | ---: | --- |
 | `:app` | 45 | 19,522 | 70 个 `android.*` import | UI/平台 glue，需适配 |
-| `:core:ai` | 35 | 5,402 | **0** | 高复用 |
-| `:core:data` | 11 | 3,865 | 23 个 | 平台层重写/拆分 |
-| `:core:files` | 5 | 1,043 | 2 个（`StatFs`） | 高复用，小改 |
+| `:core:ai` | 35 | 5,402 | **0** | 已是普通 JVM，高复用 |
+| `:core:data` | 8 | 2,522 | 23 个 | Android 平台层；schema 已移出 |
+| `:core:db` | 3 | 1,343 | **0** | Room schema/DAO/迁移，普通 JVM，共享 |
+| `:core:files` | 5 | 1,043 | **0** | 已是普通 JVM，高复用 |
 | `:core:design` | 7 | 1,001 | **0** | Compose 组件，需 CMP |
-| `:core:common` | 3 | 267 | **0** | 直接复用 |
+| `:core:common` | 3 | 267 | **0** | 已是普通 JVM，直接复用 |
 | **合计** | **106** | **31,100** | 120 个 | |
 
 测试侧还有 67 个文件、约 8,243 行；当前全量 459 tests / 61 suites。

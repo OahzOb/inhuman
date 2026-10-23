@@ -1,4 +1,4 @@
-package com.inhuman.desktop.db
+package com.inhuman.core.db
 
 import androidx.room.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
@@ -19,7 +19,7 @@ import java.io.File
  * A real v12 -> v13 migration on the JVM.
  *
  * `MigrationTestHelper` is Android-test oriented, so this builds the v12 schema
- * from Room's own exported JSON (`core/data/schemas/.../12.json`), opens it with
+ * from Room's own exported JSON (`core/db/schemas/.../12.json`), opens it with
  * the current `InhumanDatabase` and the production migration list, and queries a
  * v13-only table. If the migration is missing or wrong, Room throws before the
  * query.
@@ -29,7 +29,7 @@ class CurrentSchemaMigrationTest {
 	@get:Rule
 	val tmp = TemporaryFolder()
 
-	private val schemaFile = File("../core/data/schemas/com.inhuman.core.data.db.InhumanDatabase/12.json")
+	private val schemaFile = File("schemas/com.inhuman.core.data.db.InhumanDatabase/12.json")
 
 	@Test
 	fun `v12 database migrates to v13 and exposes context summaries`() = runBlocking {

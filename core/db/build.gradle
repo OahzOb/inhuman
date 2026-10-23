@@ -1,0 +1,33 @@
+plugins {
+	alias(libs.plugins.kotlin.jvm)
+	alias(libs.plugins.ksp)
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_17
+	targetCompatibility = JavaVersion.VERSION_17
+}
+
+kotlin {
+	jvmToolchain(17)
+}
+
+ksp {
+	// Room writes the schema JSON here. It is committed because the migration
+	// tests build the old version from it; losing it makes a missed migration
+	// impossible to spot.
+	arg('room.schemaLocation', "$projectDir/schemas")
+}
+
+dependencies {
+	// The database, entities and DAOs are the public surface of this module.
+	api libs.androidx.room.runtime
+	api libs.kotlinx.coroutines.core
+	implementation libs.kotlinx.serialization.json
+	ksp libs.androidx.room.compiler
+
+	testImplementation libs.junit
+	testImplementation libs.kotlinx.coroutines.test
+	testImplementation libs.kotlinx.serialization.json
+	testImplementation 'androidx.sqlite:sqlite-bundled:2.5.2'
+}

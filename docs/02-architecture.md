@@ -7,12 +7,14 @@ Verified against each module's `build.gradle`:
 ```
 desktopApp ──┬──> core:common
              ├──> core:ai      (plain JVM)
-             └──> core:files   (plain JVM)
+             ├──> core:files   (plain JVM)
+             └──> core:db      (plain JVM, Room schema)
 
 app ──────────┬──> core:common  (plain JVM)
               ├──> core:design  (Compose Android; depends on no core module)
               ├──> core:data ──api──> core:files ──impl──> core:ai ──impl──> core:common
-              │                    └──api──> core:ai
+              │                    ├──api──> core:ai
+              │                    └──api──> core:db
               ├──> core:ai
               └──> core:files
 ```
@@ -20,11 +22,12 @@ app ──────────┬──> core:common  (plain JVM)
 Read the arrows as "must be able to compile against". `core:data`, `core:ai` and
 `core:files` each also depend on `core:common` directly, with `implementation`;
 the diagram leaves that leaf edge out rather than drawing three lines to the same
-node. `:core:common`, `:core:ai` and `:core:files` are **plain Kotlin/JVM
-modules** now, not Android libraries: the desktop spike depends on the same jars
-the Android app consumes. `:core:data` and `:core:design` remain Android-only.
-Three things about this graph are deliberate and are commented where they
-are declared:
+node. `:core:common`, `:core:ai`, `:core:files` and `:core:db` are **plain
+Kotlin/JVM modules** now, not Android libraries: the desktop spike depends on the
+same jars the Android app consumes. `:core:data` and `:core:design` remain
+Android-only; `:core:db` owns the Room entities, DAOs, database and migrations so
+both `:core:data` and `:desktopApp` use one schema. Three things about this graph
+are deliberate and are commented where they are declared:
 
 - **`core:files` depends on `core:ai`, not the reverse.** The file tools
   implement the `Tool` contract defined in `core:ai`, so the dependency runs one
@@ -224,6 +227,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 .\gradlew.bat :app:assembleDebug `
   :app:testDebugUnitTest `
   :core:data:testDebugUnitTest `
+  :core:db:test `
   :core:ai:test `
   :core:files:test `
   :core:common:test `

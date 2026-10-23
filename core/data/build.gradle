@@ -1,6 +1,5 @@
 plugins {
 	alias(libs.plugins.android.library)
-	alias(libs.plugins.ksp)
 	alias(libs.plugins.kotlin.serialization)
 }
 
@@ -22,20 +21,10 @@ android {
 	}
 
 	// `MigrationTestHelper` reads the exported schema JSONs as *assets* of the
-	// test APK, so the directory KSP writes has to be declared as one. Without
-	// this the files exist on disk, the helper cannot find them, and every
-	// migration test fails with "Cannot find the schema file" -- which reads
-	// like a missing migration rather than a missing asset.
+	// test APK. The schemas now live in :core:db, where Room generates them.
 	sourceSets {
-		getByName('androidTest').assets.srcDir("$projectDir/schemas")
+		getByName('androidTest').assets.srcDir("$rootDir/core/db/schemas")
 	}
-}
-
-ksp {
-	// Room writes its schema JSON here so migrations can be diffed and tested.
-	// Without this the schemas exist only inside the build directory and are
-	// lost on clean, which makes a missed migration impossible to spot.
-	arg('room.schemaLocation', "$projectDir/schemas")
 }
 
 dependencies {
@@ -46,10 +35,11 @@ dependencies {
 	// use are the same lifecycle.
 	api project(':core:files')
 	api project(':core:ai')
+	// The database/entities/DAOs are shared with the desktop JVM module.
+	api project(':core:db')
 
 	implementation libs.androidx.room.runtime
 	implementation libs.androidx.room.ktx
-	ksp libs.androidx.room.compiler
 
 	// Migrations are the one thing here that can destroy a user's conversations,
 	// and they are the thing least likely to be exercised by hand: reaching the

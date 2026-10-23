@@ -1,14 +1,19 @@
 # 04 — Data: Room, repositories, secrets, and the files outside Room
 
-Module: `:core:data`. It re-exports `:core:files` and `:core:ai` with `api`,
-because a conversation's lifecycle spans the sandbox that guards it and the
-provider that answers it.
+Module: `:core:data`. It re-exports `:core:files`, `:core:ai` and `:core:db` with
+`api`, because a conversation's lifecycle spans the sandbox that guards it, the
+provider that answers it and the schema that stores it.
+
+`:core:db` is a plain JVM module: it owns the Room entities, DAOs, database and
+migrations, and both `:core:data` (Android) and `:desktopApp` depend on it. The
+Android builder stays in `:core:data`; only the Android-specific `Context` and
+driver setup live there.
 
 ## The schema, version 13
 
-`InhumanDatabase` (`core/data/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
+`InhumanDatabase` (`core/db/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
 `version = 13`, `exportSchema = true`, database file `inhuman.db`. Schemas are
-exported to `core/data/schemas/` by KSP — configured in `core/data/build.gradle`
+exported to `core/db/schemas/` by KSP — configured in `core/db/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
 spot.
