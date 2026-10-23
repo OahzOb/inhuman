@@ -150,13 +150,14 @@ they only run against a device:
 | `core/data/src/androidTest/…/WorkspaceDocumentsProviderTest` | The provider's actual folder ids: a re-queried folder keeps its title, and delete/rename are refused |
 | `core/data/src/androidTest/…/ProviderProfileTest` | A conversation copies its assistant's provider; a referenced provider cannot be deleted; key slots are separate |
 | `app/src/androidTest/…/RealProviderProbeTest` | One real `GET /models` when the device already holds a DeepSeek key; a no-op without one rather than a fake pass |
+| `app/src/androidTest/…/EngineAndroidLiveTest` | One real engine completion on Android; skips without a stored key or the `DEEPSEEK_LIVE_KEY` instrumentation argument |
 | `app/src/androidTest/…/ImagePreprocessorTest` | A 4000×3000 JPEG is bounded to 1568×1176 and 1 MiB; an 800×600 image is not enlarged; a transparent PNG becomes WebP. This is the device half of the image pipeline, since `Bitmap` does not exist on the JVM || `core/data/src/androidTest/…/ConversationSearchTest` | Message and title search, ordering, and literal `%` handling |
 
 Run them with `:app:connectedDebugAndroidTest` / `:core:data:connectedDebugAndroidTest`,
 or `adb shell am instrument`. The `:core:data` run is **27 tests**, and the app
-suite is **11 tests** (including the two deterministic notification-service
-tests and the three image-preprocessor tests), at the time of
-writing. The first two have their measured
+suite is **12 tests** (including the two deterministic notification-service
+tests, the three image-preprocessor tests and the opt-in engine live test), at
+the time of writing. The first two have their measured
 results in [port-assessment.md](port-assessment.md); the rest are the evidence
 behind [07-gotchas.md](07-gotchas.md) B8 and B6.
 
