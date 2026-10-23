@@ -5,7 +5,7 @@ project **without reading the source first**. Each one states what the code does
 and cites the file and line that says so, so a claim can be checked cheaply and
 a stale claim can be spotted quickly.
 
-Fourteen files in total: eleven numbered, two about the port, and this index. The
+Fifteen files in total: twelve numbered, two about the port, and this index. The
 numbered series describes **what the code does today**, with two exceptions that
 say so in their own first lines — `08-port-philosophy.md` and `port-design.md`
 describe what the project *intends*, because the runtime part is not written yet.
@@ -58,6 +58,7 @@ citation.
 | [09-approvals.md](09-approvals.md) | The approval model: no prompt by default, how per-tool, per-assistant and per-path rules compose, and what of it is built and verified |
 | [10-diagnostics.md](10-diagnostics.md) | The flight recorder: what is logged, what is deliberately left out, where it lives and how to get it off the device |
 | [11-conversation-tools.md](11-conversation-tools.md) | The conversation-level tool sheet: the assistant ceiling, next-turn timing, and why it is not a new SSH exception |
+| [12-desktop-port.md](12-desktop-port.md) | The measured Windows/desktop port assessment: reuse map, CMP/Room/DPAPI risks, spike and phased estimate |
 | [port-assessment.md](port-assessment.md) | Feasibility of porting the DeepSeek Harness runtime, with device measurements |
 | [port-design.md](port-design.md) | How it would be built: layering, the 43-kind event vocabulary, phases |
 

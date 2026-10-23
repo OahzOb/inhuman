@@ -4,8 +4,8 @@ Notes for whoever picks this up next, human or agent. The README explains what
 the app is; this file explains how to change it without breaking what it
 already gets right.
 
-**Before reading the source, read `docs/`.** The eleven numbered files below —
-plus two port documents and an index, fourteen in all — describe what the code
+**Before reading the source, read `docs/`.** The twelve numbered files below —
+plus two port documents and an index, fifteen in all — describe what the code
 actually does, or for `08` and `port-design` what it is intended to become, with a
 `file:line` for every claim, so a session can start work without re-deriving the
 architecture from scratch:
@@ -23,6 +23,7 @@ architecture from scratch:
 | `docs/09-approvals.md` | The approval model: why the default is no prompts at all, how per-tool, per-assistant and per-path rules compose, and what of it is built |
 | `docs/10-diagnostics.md` | The flight recorder: what is logged, what is deliberately not, where the file lives and how to share it |
 | `docs/11-conversation-tools.md` | The conversation-level tool sheet: who may change it, the assistant ceiling, when it applies, and why it is not a new SSH exception |
+| `docs/12-desktop-port.md` | The measured Windows/desktop port assessment: what can be reused, what must be rebuilt, the CMP/Room/DPAPI risks, and the 2-week spike |
 | `docs/port-assessment.md`, `docs/port-design.md` | The measured feasibility and the plan |
 
 `docs/07-gotchas.md` is the one to read before changing anything in a hurry.
