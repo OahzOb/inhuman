@@ -42,6 +42,7 @@ class SshProbeToolTest {
 			hostKeyFingerprint: String?,
 			connectTimeoutMs: Int,
 			commandTimeoutMs: Int,
+			maxOutputBytes: Int,
 		): SshResult {
 			captured = command
 			failure?.let { throw it }

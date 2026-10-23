@@ -82,6 +82,10 @@ Confirmed by `README.md:17-29` and by the code:
   tailing), and `ssh_download` copies one file into the workspace. An assistant
   can use those without `ssh_exec`; `ssh_write_file` adds small text edits, and
   adding command or write access later resets the conversation's consent.
+- SSH resource use has user-set ceilings: timeout, output, directory rows and
+  text read. The model may request less, never more; omitting the argument uses
+  the app default rather than the ceiling
+  ([03-ai-provider.md](03-ai-provider.md)).
 - A conversation can change which of the assistant's tools it uses, from the chat
   menu, at a turn boundary. The assistant is the ceiling; the model cannot change
   the set; the next turn picks it up

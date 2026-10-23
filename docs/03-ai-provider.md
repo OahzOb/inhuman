@@ -608,7 +608,8 @@ BouncyCastle transitively; that is the dependency-size cost of modern keys.
 The client is deliberately narrow:
 
 - one **exec** channel and one **SFTP** channel, no PTY, no port forwarding;
-- 15 s connect timeout, 120 s command timeout, 20,000-character cap per stream;
+- 15 s connect timeout, a 120 s default command timeout and a 20,000-byte default
+  output cap per stream; the user ceilings and model tightening are below;
 - password auth, OpenSSH v1 private-key auth, optional passphrase;
 - TOFU known hosts in `filesDir/ssh/known_hosts`, written as standard
   `host:port SHA256:…`; a changed key fails closed; an optional
@@ -647,8 +648,9 @@ so an assistant can be configured with probe/list/read/download and no
 
 - `ssh_list` calls `SFTPClient.ls` once, non-recursively; directories sort first,
   then names; at most 500 rows; each row is type, size, mtime and name.
-- `ssh_read_file` reads the head with a 64 KiB ceiling, or the last `tailLines`
-  from a 256 KiB SFTP tail window. It refuses a NUL-containing file as binary and
+- `ssh_read_file` reads the head with a 64 KiB default ceiling, or the last
+  `tailLines` from an SFTP tail window capped by the user's read ceiling (at most
+  256 KiB). It refuses a NUL-containing file as binary and
   points at `ssh_download`; it does not truncate a larger head, because a
   silently partial config is worse than an error that says so.
 - Both are `mutates = false`, `reversible = true`, and `remote = true`; they still
@@ -659,6 +661,31 @@ directly, without a local copy or a heredoc: 64 KiB, optional `createParents`,
 `overwrite` default false. It uses the same SFTP upload path and is `mutates =
 true`, `reversible = false`; a remote file replacement cannot be undone by
 deleting the conversation.
+
+### SSH limits: the user sets ceilings, the model may only tighten
+
+`SshLimits` (`core/ai/.../ssh/SshLimits.kt`) is the single authority for the
+resource ceilings. The effective value is:
+
+```
+clamp(requested ?: default, floor, min(userCeiling, hardMax))
+```
+
+The four ceilings are stored globally in `SecureStore` and edited in Settings:
+
+| Setting | Default | Stored key | Model argument |
+| --- | --- | --- | --- |
+| command timeout | 120 s | `ssh.command_timeout_seconds` | `ssh_exec.timeoutSeconds` |
+| output per stream | 20,000 bytes | `ssh.output_max_bytes` | `ssh_exec.maxOutputBytes` |
+| directory rows | 500 | `ssh.list_max_entries` | `ssh_list.maxEntries` |
+| text read | 64 KiB | `ssh.read_max_bytes` | `ssh_read_file.maxBytes` |
+
+The model never sees or sets the ceiling. A missing request uses the app default,
+not the ceiling; a request above the ceiling is clamped and the tool result starts
+with `limits: ...`; a request below the floor is raised. The Settings UI offers
+discrete values, so the stored ceiling is always in range. `ssh_probe` uses the
+default command/output values with no model argument, and `ssh_read_file`'s tail
+window is itself capped by the user's read ceiling.
 
 ### File transfer
 
@@ -781,6 +808,7 @@ against a host whose credentials are in the environment).
 | `SshReadToolsTest` | List formatting and directory-first ordering, head/binary refusal, tail last-lines and partial-first-line handling, missing auth, read-only flags |
 | `SshProbeToolTest` | The fixed command, its read-only sections, missing auth, transport failure |
 | `SshWriteFileToolTest` | Exact bytes including the final newline, size/null-byte refusals, overwrite/createParents travel |
+| `SshLimitsTest` | Defaults below the ceiling, tighter requests, clamped widening, zero handling, stored-value clamping |
 | `SshExecToolTest` | Password/identityFile/raw-key arguments, missing auth, host validation, wrapped `arguments` strings, transport errors |
 | `SshFileToolsTest` | Upload/download argument travel, local and remote limits, overwrite, workspace-save refusal, irreversibility flags |
 | `SshLiveProbeTest` | Skipped unless env credentials are set; lists `/tmp`, downloads `/etc/hostname` and runs the fixed probe, read-only |

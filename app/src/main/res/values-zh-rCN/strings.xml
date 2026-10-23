@@ -167,6 +167,12 @@
 	<string name="settings_demo_body">回复由设备本地按脚本生成，文件工具会真实执行；不会向任何地方发送内容，也不需要密钥。开启工具后，它会先创建一个文件再删除，因此不用账号也能完整跑通工具循环。</string>
 	<string name="settings_ssh_title">SSH 工具</string>
 	<string name="settings_ssh_body">默认关闭。开启后，可以给助手授予 SSH 工具：ssh_probe 读取主机快照，ssh_list 和 ssh_read_file 通过 SFTP 读取远端文件（可只看末尾几行），ssh_write_file 写入小型文本文件，ssh_upload 和 ssh_download 传输文件，ssh_exec 执行命令。只选读取类工具就不经过 shell；之后再加 ssh_exec 或 ssh_upload 会重置这个对话的授权。应用不会配置任何远程机器，助手使用你提供的地址和凭据。每个对话首次调用 SSH 时会显示与所选工具匹配的授权提示，之后按普通工具策略执行。按选择不同，助手可以读取文件、替换文件或在远程机器上执行任意命令，这些操作可能无法撤销。SSH 工具参数在写入记录前会脱敏，但你输入的文本仍会被保存。</string>
+	<string name="settings_ssh_limits_title">SSH 上限</string>
+	<string name="settings_ssh_limits_body">agent 只能请求比这些更小的值，不能更大。不传值时使用应用默认值，而不是上限。</string>
+	<string name="settings_ssh_command_timeout">命令超时上限</string>
+	<string name="settings_ssh_output_cap">单路输出上限</string>
+	<string name="settings_ssh_list_cap">目录条数上限</string>
+	<string name="settings_ssh_read_cap">文本读取上限</string>
 	<string name="settings_host_keys_none">还没有固定的主机密钥</string>
 	<string name="settings_host_keys_count">已固定 %1$d 个主机密钥</string>
 	<string name="settings_section_limits">04 / 轮次上限</string>

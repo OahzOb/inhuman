@@ -8,6 +8,7 @@ import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
+import com.inhuman.core.ai.ssh.SshLimits
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.BackupPreview
 import com.inhuman.core.data.BackupRepository
@@ -95,6 +96,8 @@ data class SettingsUiState(
 	 * asks for the user's acknowledgement.
 	 */
 	val sshToolEnabled: Boolean = false,
+	/** App-wide SSH ceilings; the model may only ask for less. */
+	val sshLimits: SshLimits = SshLimits(),
 	/**
 	 * The global approval rules, by tool name.
 	 *
@@ -147,6 +150,12 @@ class SettingsViewModel(
 				secure.get(SecureStore.KEY_LAYOUT_PREFERENCE),
 			),
 			sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
+			sshLimits = SshLimits.fromStored(
+				commandTimeoutSeconds = secure.get(SecureStore.KEY_SSH_COMMAND_TIMEOUT_SECONDS),
+				outputBytes = secure.get(SecureStore.KEY_SSH_OUTPUT_BYTES),
+				listEntries = secure.get(SecureStore.KEY_SSH_LIST_ENTRIES),
+				readBytes = secure.get(SecureStore.KEY_SSH_READ_BYTES),
+			),
 			webSearchBackend = secure.get(SecureStore.KEY_WEB_SEARCH_BACKEND) ?: "deepseek",
 			webFetchBackend = secure.get(SecureStore.KEY_WEB_FETCH_BACKEND) ?: "deepseek",
 			webDeepSeekKeyInput = secure.get(SecureStore.KEY_WEB_DEEPSEEK_API_KEY).orEmpty(),
@@ -311,6 +320,69 @@ class SettingsViewModel(
 		if (!enabled) {
 			viewModelScope.launch { repository.clearAllSshAllowed() }
 		}
+	}
+
+	fun setSshCommandTimeoutSeconds(value: Int) {
+		updateSshLimits {
+			it.copy(
+				commandTimeoutCeilingMs = value
+					.coerceIn(
+						SshLimits.MIN_COMMAND_TIMEOUT_SECONDS,
+						SshLimits.MAX_COMMAND_TIMEOUT_SECONDS,
+					) * 1000,
+			)
+		}
+	}
+
+	fun setSshOutputBytes(value: Int) {
+		updateSshLimits {
+			it.copy(
+				outputCeilingBytes = value.coerceIn(
+					SshLimits.MIN_OUTPUT_BYTES,
+					SshLimits.MAX_OUTPUT_BYTES,
+				),
+			)
+		}
+	}
+
+	fun setSshListEntries(value: Int) {
+		updateSshLimits {
+			it.copy(
+				listCeilingEntries = value.coerceIn(
+					SshLimits.MIN_LIST_ENTRIES,
+					SshLimits.MAX_LIST_ENTRIES,
+				),
+			)
+		}
+	}
+
+	fun setSshReadBytes(value: Int) {
+		updateSshLimits {
+			it.copy(
+				readCeilingBytes = value.toLong().coerceIn(
+					SshLimits.MIN_READ_BYTES,
+					SshLimits.MAX_READ_BYTES,
+				),
+			)
+		}
+	}
+
+	private fun updateSshLimits(transform: (SshLimits) -> SshLimits) {
+		val limits = transform(_state.value.sshLimits)
+		secure.put(
+			SecureStore.KEY_SSH_COMMAND_TIMEOUT_SECONDS,
+			limits.commandTimeoutCeilingSeconds.toString(),
+		)
+		secure.put(SecureStore.KEY_SSH_OUTPUT_BYTES, limits.outputCeilingBytes.toString())
+		secure.put(SecureStore.KEY_SSH_LIST_ENTRIES, limits.listCeilingEntries.toString())
+		secure.put(SecureStore.KEY_SSH_READ_BYTES, limits.readCeilingBytes.toString())
+		_state.value = _state.value.copy(sshLimits = limits)
+		Diag.i(
+			"ssh",
+			"limits command=${limits.commandTimeoutCeilingSeconds}s " +
+				"output=${limits.outputCeilingBytes}B list=${limits.listCeilingEntries} " +
+				"read=${limits.readCeilingBytes}B",
+		)
 	}
 
 	fun hasProviderKey(providerId: String): Boolean = agents.hasKey(providerId)

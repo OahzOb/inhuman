@@ -66,6 +66,8 @@ interface SshTransport {
 		hostKeyFingerprint: String? = null,
 		connectTimeoutMs: Int = DEFAULT_CONNECT_TIMEOUT_MS,
 		commandTimeoutMs: Int = DEFAULT_COMMAND_TIMEOUT_MS,
+		/** Cap for stdout and for stderr, each. */
+		maxOutputBytes: Int = SshLimits.DEFAULT_OUTPUT_BYTES,
 	): SshResult
 }
 
@@ -91,8 +93,10 @@ class SshClient(private val knownHostsFile: File) : SshTransport, SshFileTranspo
 		hostKeyFingerprint: String?,
 		connectTimeoutMs: Int,
 		commandTimeoutMs: Int,
+		maxOutputBytes: Int,
 	): SshResult = withContext(Dispatchers.IO) {
 		require(command.isNotBlank()) { "command is required" }
+		require(maxOutputBytes > 0) { "maxOutputBytes must be positive" }
 		val (ssh, knownHosts) = openConnection(
 			host = host,
 			port = port,
@@ -109,8 +113,8 @@ class SshClient(private val knownHostsFile: File) : SshTransport, SshFileTranspo
 			session = ssh.startSession()
 			commandChannel = session.exec(command)
 
-			val stdout = CappedBuffer(MAX_OUTPUT_BYTES)
-			val stderr = CappedBuffer(MAX_OUTPUT_BYTES)
+			val stdout = CappedBuffer(maxOutputBytes)
+			val stderr = CappedBuffer(maxOutputBytes)
 			val outThread = pump(commandChannel.inputStream, stdout)
 			val errThread = pump(commandChannel.errorStream, stderr)
 
@@ -561,7 +565,6 @@ class SshClient(private val knownHostsFile: File) : SshTransport, SshFileTranspo
 	companion object {
 		const val DEFAULT_CONNECT_TIMEOUT_MS = 15_000
 		const val DEFAULT_COMMAND_TIMEOUT_MS = 120_000
-		private const val MAX_OUTPUT_BYTES = 20_000
 		private const val TRANSFER_TIMEOUT_MS = 120_000
 		private const val TRANSFER_CHUNK = 32 * 1024
 

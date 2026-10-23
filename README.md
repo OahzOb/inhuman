@@ -156,6 +156,12 @@ file into the workspace (4 MiB write limit). Upload, write and download refuse t
 overwrite unless asked. Details are in
 [docs/03-ai-provider.md](docs/03-ai-provider.md).
 
+**SSH limits are user ceilings.** Settings → SSH limits has four values:
+command timeout, output per stream, directory rows and text read. The model can
+pass a smaller value to `ssh_exec`/`ssh_list`/`ssh_read_file`, never a larger
+one; omitting the argument uses the app default, not the ceiling. A request above
+the ceiling is clamped and the result starts with `limits: ...`.
+
 Search results are excerpts, not pages. DeepSeek search cleans campaign
 parameters from links before the model sees them, because it cites them back;
 Exa results are used as returned. Fetch returns readable text/Markdown and

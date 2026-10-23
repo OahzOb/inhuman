@@ -3,6 +3,7 @@ package com.inhuman.core.ai.tools
 import com.inhuman.core.ai.Tool
 import com.inhuman.core.ai.ToolResult
 import com.inhuman.core.ai.ssh.SshException
+import com.inhuman.core.ai.ssh.SshLimits
 import com.inhuman.core.ai.ssh.SshTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
@@ -23,6 +24,7 @@ import kotlinx.serialization.json.JsonObject
  */
 class SshProbeTool(
 	private val transport: SshTransport,
+	private val limits: SshLimits = SshLimits(),
 	private val readWorkspaceFile: (String) -> ByteArray? = { null },
 ) : Tool {
 
@@ -59,6 +61,8 @@ class SshProbeTool(
 				command = PROBE_SCRIPT,
 				auth = connection.auth,
 				hostKeyFingerprint = connection.hostKeyFingerprint,
+				commandTimeoutMs = limits.commandTimeoutMs(null),
+				maxOutputBytes = limits.outputBytes(null),
 			)
 			val body = if (result.stdout.isNotBlank()) {
 				result.stdout

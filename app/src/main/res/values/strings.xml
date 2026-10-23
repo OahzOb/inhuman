@@ -181,6 +181,12 @@
 	<string name="settings_demo_body">Replies are scripted on the device, and the file tools run for real. Nothing is sent anywhere and no key is needed. With tools switched on it creates a file and then deletes it, so the tool loop runs end to end without an account.</string>
 	<string name="settings_ssh_title">SSH tool</string>
 	<string name="settings_ssh_body">Off by default. When on, an assistant can be given the SSH tools: ssh_probe takes a read-only host snapshot, ssh_list and ssh_read_file read remote files over SFTP (with optional tailing), ssh_write_file writes a small text file, ssh_upload and ssh_download move files, and ssh_exec runs commands. Selecting only the read tools uses no shell; adding ssh_exec or ssh_upload later resets the conversation\'s consent. The app does not configure any remote machine: the agent uses whatever host and credentials the user gives it. The first SSH call in each conversation shows a consent warning matched to the selected tools; after that, normal tool policy applies. Depending on the selection, the agent can read files, replace files or run any command on the remote machine, which may be irreversible. SSH tool arguments are redacted before the transcript is stored, but text you type is still stored.</string>
+	<string name="settings_ssh_limits_title">SSH limits</string>
+	<string name="settings_ssh_limits_body">The agent may request less than these, never more. A request with no value still uses the app default, not the ceiling.</string>
+	<string name="settings_ssh_command_timeout">Command timeout ceiling</string>
+	<string name="settings_ssh_output_cap">Output per stream</string>
+	<string name="settings_ssh_list_cap">Directory rows</string>
+	<string name="settings_ssh_read_cap">Text read</string>
 	<string name="settings_host_keys_none">No pinned host keys yet</string>
 	<string name="settings_host_keys_count">Pinned host keys (%1$d)</string>
 	<string name="settings_section_limits">04 / Turn limits</string>

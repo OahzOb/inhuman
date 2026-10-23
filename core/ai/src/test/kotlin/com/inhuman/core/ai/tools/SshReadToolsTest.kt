@@ -30,6 +30,9 @@ class SshReadToolsTest {
 		private val tailStart: Long = 0,
 		private val tailTotal: Long = file.size.toLong(),
 	) : SshFileTransport {
+		var listMaxEntries: Int? = null
+		var downloadMaxBytes: Long? = null
+
 		override suspend fun upload(
 			host: String,
 			port: Int,
@@ -54,6 +57,7 @@ class SshReadToolsTest {
 			connectTimeoutMs: Int,
 		): SshDownloadedFile {
 			failure?.let { throw it }
+			downloadMaxBytes = maxBytes
 			return SshDownloadedFile(file, "SHA256:abc")
 		}
 
@@ -82,6 +86,7 @@ class SshReadToolsTest {
 			connectTimeoutMs: Int,
 		): List<SshRemoteEntry> {
 			failure?.let { throw it }
+			listMaxEntries = maxEntries
 			return entries
 		}
 	}
@@ -120,6 +125,28 @@ class SshReadToolsTest {
 			args("remotePath" to "."),
 		)
 		assertTrue(result.content.contains("at most 1 entries"))
+	}
+
+	@Test
+	fun `list clamps a request above the user ceiling`() = runBlocking {
+		val transport = FakeTransport(
+			entries = listOf(SshRemoteEntry("a", SshEntryType.FILE, 1, null)),
+		)
+		val result = SshListTool(transport, maxEntries = 2).execute(
+			args("remotePath" to ".", "maxEntries" to "100"),
+		)
+		assertEquals(2, transport.listMaxEntries)
+		assertTrue(result.content.contains("maxEntries clamped to 2"))
+	}
+
+	@Test
+	fun `read clamps a request above the user ceiling`() = runBlocking {
+		val transport = FakeTransport(file = "hello\n".toByteArray())
+		val result = SshReadFileTool(transport, maxBytes = 1024).execute(
+			args("remotePath" to "/tmp/a", "maxBytes" to "999999"),
+		)
+		assertEquals(1024L, transport.downloadMaxBytes)
+		assertTrue(result.content.contains("maxBytes clamped to 1024"))
 	}
 
 	@Test

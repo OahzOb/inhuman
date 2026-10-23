@@ -5,6 +5,7 @@ import com.inhuman.core.ai.ToolResult
 import com.inhuman.core.ai.ssh.SshEntryType
 import com.inhuman.core.ai.ssh.SshException
 import com.inhuman.core.ai.ssh.SshFileTransport
+import com.inhuman.core.ai.ssh.SshLimits
 import com.inhuman.core.ai.ssh.SshRemoteEntry
 import com.inhuman.core.ai.ssh.SshTransport
 import kotlinx.coroutines.CancellationException
@@ -48,6 +49,10 @@ class SshListTool(
 				"type" to "string",
 				"description" to "Directory to list, for example /var/log or /home/td/project",
 			),
+			"maxEntries" to mapOf(
+				"type" to "integer",
+				"description" to "Optional row limit, at most $maxEntries; larger values are clamped",
+			),
 		),
 		"required" to listOf("host", "username", "remotePath"),
 	)
@@ -66,6 +71,15 @@ class SshListTool(
 		if (remotePath.indexOf('\u0000') >= 0) {
 			return ToolResult.error("ssh_list: paths cannot contain a null byte")
 		}
+		val requested = SshArguments.int(args, "maxEntries", 0).takeIf { it > 0 }
+		val ceiling = maxEntries.coerceAtLeast(1)
+		val effective = (requested ?: minOf(SshLimits.DEFAULT_LIST_ENTRIES, ceiling))
+			.coerceIn(1, ceiling)
+		val note = if (requested != null && requested != effective) {
+			"maxEntries clamped to $effective (user ceiling $ceiling)"
+		} else {
+			null
+		}
 
 		return try {
 			val entries = transport.list(
@@ -75,10 +89,10 @@ class SshListTool(
 				remotePath = remotePath,
 				auth = connection.auth,
 				hostKeyFingerprint = connection.hostKeyFingerprint,
-				maxEntries = maxEntries,
+				maxEntries = effective,
 				connectTimeoutMs = SshTransport.DEFAULT_CONNECT_TIMEOUT_MS,
 			)
-			ToolResult.ok(format(remotePath, entries))
+			ToolResult.ok(format(remotePath, entries, effective, note))
 		} catch (e: CancellationException) {
 			throw e
 		} catch (e: SshException) {
@@ -88,7 +102,12 @@ class SshListTool(
 		}
 	}
 
-	private fun format(remotePath: String, entries: List<SshRemoteEntry>): String {
+	private fun format(
+		remotePath: String,
+		entries: List<SshRemoteEntry>,
+		maxEntries: Int,
+		note: String?,
+	): String {
 		val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 			.withZone(ZoneId.systemDefault())
 		// Sort here rather than trusting the transport: SFTP servers do not
@@ -98,6 +117,7 @@ class SshListTool(
 			compareBy({ it.type != SshEntryType.DIRECTORY }, { it.name }),
 		)
 		return buildString {
+			if (note != null) append("limits: ").append(note).append('\n')
 			append(remotePath).append(":\n")
 			if (sorted.isEmpty()) {
 				append("(empty)\n")

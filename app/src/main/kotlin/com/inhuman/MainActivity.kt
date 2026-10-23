@@ -19,6 +19,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.inhuman.core.ai.ssh.SshClient
+import com.inhuman.core.ai.ssh.SshLimits
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.BackupRepository
@@ -390,6 +391,14 @@ private fun InhumanRoot(
 						sshFileTransport = ssh,
 						sshToolEnabled = {
 							secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1"
+						},
+						sshLimits = {
+							SshLimits.fromStored(
+								commandTimeoutSeconds = secure.get(SecureStore.KEY_SSH_COMMAND_TIMEOUT_SECONDS),
+								outputBytes = secure.get(SecureStore.KEY_SSH_OUTPUT_BYTES),
+								listEntries = secure.get(SecureStore.KEY_SSH_LIST_ENTRIES),
+								readBytes = secure.get(SecureStore.KEY_SSH_READ_BYTES),
+							)
 						},
 						onTurnStatus = { status ->
 							TurnNotifications.update(context.applicationContext, status)

@@ -526,6 +526,16 @@ The checkbox sits **above** the long warning, not after it. On a phone the body
 scrolls; with the checkbox last it fell below the fold, so "Allow SSH" was
 disabled with no visible reason. Verified at phone width and on the pad.
 
+### SSH limits
+
+Settings → **SSH limits** has four chip rows: command timeout, output per
+stream, directory rows and text read. They are user ceilings, not defaults; the
+agent can pass a smaller value to `ssh_exec`/`ssh_list`/`ssh_read_file`, and a
+missing value uses the app default. Values above a ceiling are clamped and the
+result starts with `limits: ...`. `ssh_probe` has no limit arguments and uses the
+defaults. The settings are global and are read again for every turn, so a change
+applies without reopening the conversation.
+
 ### Conversation tools
 
 Chat overflow -> **Conversation tools**. The sheet lists

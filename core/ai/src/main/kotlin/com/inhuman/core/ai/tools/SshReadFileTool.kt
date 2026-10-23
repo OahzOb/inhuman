@@ -4,6 +4,7 @@ import com.inhuman.core.ai.Tool
 import com.inhuman.core.ai.ToolResult
 import com.inhuman.core.ai.ssh.SshException
 import com.inhuman.core.ai.ssh.SshFileTransport
+import com.inhuman.core.ai.ssh.SshLimits
 import com.inhuman.core.ai.ssh.SshTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
@@ -46,6 +47,10 @@ class SshReadFileTool(
 				"type" to "integer",
 				"description" to "Return the last N lines instead of the file head; 0 or absent reads from the start",
 			),
+			"maxBytes" to mapOf(
+				"type" to "integer",
+				"description" to "Optional byte limit, at most $maxBytes; larger values are clamped",
+			),
 		),
 		"required" to listOf("host", "username", "remotePath"),
 	)
@@ -70,10 +75,20 @@ class SshReadFileTool(
 				"ssh_read_file: tailLines must be between 0 and $MAX_TAIL_LINES",
 			)
 		}
+		val requestedBytes = SshArguments.int(args, "maxBytes", 0).takeIf { it > 0 }
+		val effectiveBytes = (
+			requestedBytes?.toLong()
+				?: minOf(SshLimits.DEFAULT_READ_BYTES, maxBytes)
+			).coerceIn(1L, maxBytes)
+		val limitNote = if (requestedBytes != null && requestedBytes.toLong() != effectiveBytes) {
+			"maxBytes clamped to $effectiveBytes (user ceiling $maxBytes)"
+		} else {
+			null
+		}
 
 		return try {
 			if (tailLines > 0) {
-				readTail(connection, remotePath, tailLines)
+				readTail(connection, remotePath, tailLines, effectiveBytes, limitNote)
 			} else {
 				val result = transport.download(
 					host = connection.host,
@@ -82,7 +97,7 @@ class SshReadFileTool(
 					remotePath = remotePath,
 					auth = connection.auth,
 					hostKeyFingerprint = connection.hostKeyFingerprint,
-					maxBytes = maxBytes,
+					maxBytes = effectiveBytes,
 					connectTimeoutMs = SshTransport.DEFAULT_CONNECT_TIMEOUT_MS,
 				)
 				if (result.bytes.any { it == 0.toByte() }) {
@@ -93,6 +108,7 @@ class SshReadFileTool(
 				val text = String(result.bytes, Charsets.UTF_8)
 				ToolResult.ok(
 					buildString {
+						if (limitNote != null) append("limits: ").append(limitNote).append('\n')
 						append(remotePath).append(" (").append(result.bytes.size).append(" bytes)\n")
 						append("host key: ").append(result.hostFingerprint).append('\n')
 						append("content:\n")
@@ -113,6 +129,8 @@ class SshReadFileTool(
 		connection: SshConnectionArgs,
 		remotePath: String,
 		tailLines: Int,
+		maxBytes: Long,
+		limitNote: String?,
 	): ToolResult {
 		val result = transport.downloadTail(
 			host = connection.host,
@@ -121,7 +139,9 @@ class SshReadFileTool(
 			remotePath = remotePath,
 			auth = connection.auth,
 			hostKeyFingerprint = connection.hostKeyFingerprint,
-			maxBytes = TAIL_WINDOW_BYTES,
+			// The user's read ceiling is also a ceiling on how much of the file
+			// this call pulls over the network; 256 KiB is only the upper bound.
+			maxBytes = minOf(TAIL_WINDOW_BYTES, maxBytes),
 			connectTimeoutMs = SshTransport.DEFAULT_CONNECT_TIMEOUT_MS,
 		)
 		if (result.bytes.any { it == 0.toByte() }) {
@@ -152,6 +172,7 @@ class SshReadFileTool(
 		}
 		return ToolResult.ok(
 			buildString {
+				if (limitNote != null) append("limits: ").append(limitNote).append('\n')
 				append(remotePath)
 					.append(" (last ").append(selected.size).append(" lines of ")
 					.append(result.totalBytes).append(" bytes)\n")

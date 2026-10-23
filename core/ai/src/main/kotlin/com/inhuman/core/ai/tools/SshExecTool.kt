@@ -4,6 +4,7 @@ import com.inhuman.core.ai.Tool
 import com.inhuman.core.ai.ToolResult
 import com.inhuman.core.ai.ssh.SshAuth
 import com.inhuman.core.ai.ssh.SshException
+import com.inhuman.core.ai.ssh.SshLimits
 import com.inhuman.core.ai.ssh.SshTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
@@ -32,6 +33,8 @@ import kotlinx.serialization.json.jsonObject
  */
 class SshExecTool(
 	private val transport: SshTransport,
+	/** User ceilings; the model can only ask for smaller values. */
+	private val limits: SshLimits = SshLimits(),
 	/** Reads a workspace-relative private-key file. */
 	private val readWorkspaceFile: (String) -> ByteArray? = { null },
 ) : Tool {
@@ -43,6 +46,7 @@ class SshExecTool(
 		Use it only when the user has given you a host, a username and a way to authenticate. The app has no host inventory or credential store; SSH tool arguments are redacted before storage.
 		Prefer identityFile (a workspace-relative private-key path the user placed there) over pasting a private key; a password is accepted only if the user gave you one.
 		There is no PTY: commands that wait for input will time out. There is no port forwarding.
+		The command may run for at most ${limits.commandTimeoutCeilingSeconds}s; timeoutSeconds may lower that, never raise it. Output is capped at ${limits.outputCeilingBytes} bytes per stream; maxOutputBytes may lower it.
 		The user is asked once per conversation, before the first SSH call, that the agent may run any command on any host it is given. After that, normal tool policy applies.
 	""".trimIndent()
 
@@ -53,6 +57,14 @@ class SshExecTool(
 			"port" to mapOf("type" to "integer", "description" to "SSH port; default 22"),
 			"username" to mapOf("type" to "string", "description" to "Remote user"),
 			"command" to mapOf("type" to "string", "description" to "Command to run"),
+			"timeoutSeconds" to mapOf(
+				"type" to "integer",
+				"description" to "Optional command timeout, at most ${limits.commandTimeoutCeilingSeconds}s; larger values are clamped",
+			),
+			"maxOutputBytes" to mapOf(
+				"type" to "integer",
+				"description" to "Optional stdout/stderr cap, at most ${limits.outputCeilingBytes} bytes; larger values are clamped",
+			),
 			"password" to mapOf(
 				"type" to "string",
 				"description" to "Password, only if the user gave one. It becomes part of the conversation.",
@@ -106,6 +118,19 @@ class SshExecTool(
 		} ?: 22
 		if (port !in 1..65535) return ToolResult.error("ssh_exec: port must be between 1 and 65535")
 
+		val timeoutRequest = SshArguments.int(args, "timeoutSeconds", 0).takeIf { it > 0 }
+		val outputRequest = SshArguments.int(args, "maxOutputBytes", 0).takeIf { it > 0 }
+		val timeoutMs = limits.commandTimeoutMs(timeoutRequest)
+		val outputBytes = limits.outputBytes(outputRequest)
+		val limitNotes = buildList {
+			if (timeoutRequest != null && timeoutRequest * 1000 != timeoutMs) {
+				add("timeout clamped to ${timeoutMs / 1000}s")
+			}
+			if (outputRequest != null && outputRequest != outputBytes) {
+				add("output clamped to $outputBytes bytes")
+			}
+		}
+
 		val identityFile = args.string("identityFile")?.trim()?.takeIf { it.isNotEmpty() }
 		val rawPrivateKey = args.string("privateKey")?.takeIf { it.isNotEmpty() }
 		if (identityFile != null && rawPrivateKey != null) {
@@ -143,9 +168,10 @@ class SshExecTool(
 				),
 				hostKeyFingerprint = args.string("hostKeyFingerprint")?.trim()?.takeIf { it.isNotEmpty() },
 				connectTimeoutMs = SshTransport.DEFAULT_CONNECT_TIMEOUT_MS,
-				commandTimeoutMs = SshTransport.DEFAULT_COMMAND_TIMEOUT_MS,
+				commandTimeoutMs = timeoutMs,
+				maxOutputBytes = outputBytes,
 			)
-			ToolResult.ok(format(result))
+			ToolResult.ok(format(result, outputBytes, limitNotes))
 		} catch (e: CancellationException) {
 			throw e
 		} catch (e: SshException) {
@@ -155,13 +181,20 @@ class SshExecTool(
 		}
 	}
 
-	private fun format(result: com.inhuman.core.ai.ssh.SshResult): String = buildString {
+	private fun format(
+		result: com.inhuman.core.ai.ssh.SshResult,
+		outputBytes: Int,
+		limitNotes: List<String>,
+	): String = buildString {
+		if (limitNotes.isNotEmpty()) {
+			append("limits: ").append(limitNotes.joinToString("; ")).append('\n')
+		}
 		append("exit code: ").append(result.exitCode).append('\n')
 		append("host key: ").append(result.hostFingerprint).append('\n')
 		append("stdout:\n").append(result.stdout.ifEmpty { "(empty)" }).append('\n')
 		append("stderr:\n").append(result.stderr.ifEmpty { "(empty)" })
 		if (result.truncated) {
-			append("\n\n[output truncated at 20000 characters per stream]")
+			append("\n\n[output truncated at $outputBytes bytes per stream]")
 		}
 	}
 

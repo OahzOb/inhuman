@@ -416,6 +416,59 @@ fun SettingsScreen(
 						},
 					)
 				}
+
+				HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+				Text(
+					text = stringResource(R.string.settings_ssh_limits_title),
+					style = MaterialTheme.typography.titleSmall,
+					color = MaterialTheme.colorScheme.onBackground,
+				)
+				Text(
+					text = stringResource(R.string.settings_ssh_limits_body),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Eyebrow(stringResource(R.string.settings_ssh_command_timeout))
+				FlowRowCompat {
+					listOf(30, 60, 120, 300, 600).forEach { seconds ->
+						FilterChip(
+							selected = state.sshLimits.commandTimeoutCeilingSeconds == seconds,
+							onClick = { viewModel.setSshCommandTimeoutSeconds(seconds) },
+							label = { Text("${seconds}s") },
+						)
+					}
+				}
+				Eyebrow(stringResource(R.string.settings_ssh_output_cap))
+				FlowRowCompat {
+					listOf(5_000, 20_000, 50_000, 100_000).forEach { bytes ->
+						FilterChip(
+							selected = state.sshLimits.outputCeilingBytes == bytes,
+							onClick = { viewModel.setSshOutputBytes(bytes) },
+							label = { Text("${bytes / 1000}k") },
+						)
+					}
+				}
+				Eyebrow(stringResource(R.string.settings_ssh_list_cap))
+				FlowRowCompat {
+					listOf(100, 500, 1_000, 2_000).forEach { entries ->
+						FilterChip(
+							selected = state.sshLimits.listCeilingEntries == entries,
+							onClick = { viewModel.setSshListEntries(entries) },
+							label = { Text(entries.toString()) },
+						)
+					}
+				}
+				Eyebrow(stringResource(R.string.settings_ssh_read_cap))
+				FlowRowCompat {
+					listOf(16, 64, 128, 256).forEach { kib ->
+						val bytes = kib * 1024
+						FilterChip(
+							selected = state.sshLimits.readCeilingBytes == bytes.toLong(),
+							onClick = { viewModel.setSshReadBytes(bytes) },
+							label = { Text("${kib}K") },
+						)
+					}
+				}
 			}
 			}
 

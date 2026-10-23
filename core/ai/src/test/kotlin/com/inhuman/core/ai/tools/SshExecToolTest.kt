@@ -2,6 +2,7 @@ package com.inhuman.core.ai.tools
 
 import com.inhuman.core.ai.ssh.SshAuth
 import com.inhuman.core.ai.ssh.SshException
+import com.inhuman.core.ai.ssh.SshLimits
 import com.inhuman.core.ai.ssh.SshResult
 import com.inhuman.core.ai.ssh.SshTransport
 import kotlinx.coroutines.runBlocking
@@ -28,6 +29,8 @@ class SshExecToolTest {
 		var auth: SshAuth? = null
 		var command: String? = null
 		var host: String? = null
+		var timeoutMs: Int? = null
+		var outputBytes: Int? = null
 
 		override suspend fun execute(
 			host: String,
@@ -38,13 +41,69 @@ class SshExecToolTest {
 			hostKeyFingerprint: String?,
 			connectTimeoutMs: Int,
 			commandTimeoutMs: Int,
+			maxOutputBytes: Int,
 		): SshResult {
 			this.host = host
 			this.command = command
 			this.auth = auth
+			this.timeoutMs = commandTimeoutMs
+			this.outputBytes = maxOutputBytes
 			failure?.let { throw it }
 			return result
 		}
+	}
+
+	@Test
+	fun `a missing timeout uses the default rather than the user ceiling`() = runBlocking {
+		val transport = FakeTransport()
+		val limits = SshLimits(commandTimeoutCeilingMs = 300_000, outputCeilingBytes = 100_000)
+		SshExecTool(transport, limits).execute(
+			buildJsonObject {
+				put("host", "example.test")
+				put("username", "root")
+				put("password", "secret")
+				put("command", "sleep 1")
+			},
+		)
+		assertEquals("omitted timeout must not become the ceiling", 120_000, transport.timeoutMs)
+		assertEquals(20_000, transport.outputBytes)
+	}
+
+	@Test
+	fun `a model may lower timeout and output`() = runBlocking {
+		val transport = FakeTransport()
+		val limits = SshLimits(commandTimeoutCeilingMs = 300_000, outputCeilingBytes = 100_000)
+		SshExecTool(transport, limits).execute(
+			buildJsonObject {
+				put("host", "example.test")
+				put("username", "root")
+				put("password", "secret")
+				put("command", "sleep 1")
+				put("timeoutSeconds", 30)
+				put("maxOutputBytes", 8_000)
+			},
+		)
+		assertEquals(30_000, transport.timeoutMs)
+		assertEquals(8_000, transport.outputBytes)
+	}
+
+	@Test
+	fun `a model cannot raise the user ceiling`() = runBlocking {
+		val transport = FakeTransport()
+		val limits = SshLimits(commandTimeoutCeilingMs = 300_000, outputCeilingBytes = 50_000)
+		val result = SshExecTool(transport, limits).execute(
+			buildJsonObject {
+				put("host", "example.test")
+				put("username", "root")
+				put("password", "secret")
+				put("command", "sleep 1")
+				put("timeoutSeconds", 900)
+				put("maxOutputBytes", 500_000)
+			},
+		)
+		assertEquals(300_000, transport.timeoutMs)
+		assertEquals(50_000, transport.outputBytes)
+		assertTrue(result.content.contains("limits:"))
 	}
 
 	@Test

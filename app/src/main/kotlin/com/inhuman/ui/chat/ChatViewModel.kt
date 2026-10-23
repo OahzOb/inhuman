@@ -48,6 +48,7 @@ import com.inhuman.core.ai.tools.TimeTool
 import com.inhuman.core.ai.tools.WebFetchTool
 import com.inhuman.core.ai.tools.WebSearchTool
 import com.inhuman.core.ai.ssh.SshFileTransport
+import com.inhuman.core.ai.ssh.SshLimits
 import com.inhuman.core.ai.ssh.SshTransport
 import com.inhuman.core.ai.tools.SshArguments
 import com.inhuman.core.ai.tools.SshDownloadTool
@@ -144,6 +145,8 @@ class ChatViewModel(
 	 * after being switched off is a gate that opens the wrong way.
 	 */
 	private val sshToolEnabled: () -> Boolean = { false },
+	/** User ceilings; the model may only ask for smaller values. */
+	private val sshLimits: () -> SshLimits = { SshLimits() },
 	/**
 	 * Called whenever a stream starts or stops.
 	 *
@@ -3178,6 +3181,7 @@ class ChatViewModel(
 			// historical assistants, so it must NOT be read as consent to SSH.
 			val ws = workspace
 			if (ws != null && sshToolEnabled()) {
+				val limits = sshLimits()
 				val readIdentity: (String) -> ByteArray? = { path ->
 					when (val resolved = ws.resolve(path)) {
 						is SessionWorkspace.Resolution.Ok -> resolved.file
@@ -3198,16 +3202,28 @@ class ChatViewModel(
 					}
 				}
 				if (sshTransport != null && selected?.contains("ssh_exec") == true) {
-					add(SshExecTool(sshTransport, readIdentity))
+					add(SshExecTool(sshTransport, limits, readIdentity))
 				}
 				if (sshTransport != null && selected?.contains("ssh_probe") == true) {
-					add(SshProbeTool(sshTransport, readIdentity))
+					add(SshProbeTool(sshTransport, limits, readIdentity))
 				}
 				if (sshFileTransport != null && selected?.contains("ssh_list") == true) {
-					add(SshListTool(sshFileTransport, readIdentity))
+					add(
+						SshListTool(
+							transport = sshFileTransport,
+							readWorkspaceFile = readIdentity,
+							maxEntries = limits.listCeilingEntries,
+						),
+					)
 				}
 				if (sshFileTransport != null && selected?.contains("ssh_read_file") == true) {
-					add(SshReadFileTool(sshFileTransport, readIdentity))
+					add(
+						SshReadFileTool(
+							transport = sshFileTransport,
+							readWorkspaceFile = readIdentity,
+							maxBytes = limits.readCeilingBytes,
+						),
+					)
 				}
 				if (sshFileTransport != null && selected?.contains("ssh_upload") == true) {
 					add(

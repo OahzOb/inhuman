@@ -200,6 +200,18 @@ class SecureStore(
 		const val KEY_SSH_TOOL_ENABLED = "ssh.tool_enabled"
 
 		/**
+		 * User ceilings for SSH work. The model may only ask for less.
+		 *
+		 * Seconds for the command ceiling, bytes for output and reads, and a
+		 * row count for listings. Stored here for the same reason as the SSH
+		 * switch: they are app-wide settings with no room of their own.
+		 */
+		const val KEY_SSH_COMMAND_TIMEOUT_SECONDS = "ssh.command_timeout_seconds"
+		const val KEY_SSH_OUTPUT_BYTES = "ssh.output_max_bytes"
+		const val KEY_SSH_LIST_ENTRIES = "ssh.list_max_entries"
+		const val KEY_SSH_READ_BYTES = "ssh.read_max_bytes"
+
+		/**
 		 * How many past turns' checkpoints a conversation keeps.
 		 *
 		 * Minimum 1: the current turn needs its own start checkpoint before a

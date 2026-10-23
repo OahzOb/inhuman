@@ -79,6 +79,20 @@ class SshClientTest {
 	}
 
 	@Test(timeout = 30000)
+	fun `the output cap is applied per stream`() = runBlocking {
+		val result = SshClient(knownHosts.toFile()).execute(
+			host = "127.0.0.1",
+			port = server.port,
+			username = "tester",
+			command = "abcdefghijklmnopqrstuvwxyz",
+			auth = SshAuth(password = "secret"),
+			maxOutputBytes = 8,
+		)
+		assertTrue("stdout should be capped: ${result.stdout}", result.stdout.length <= 8)
+		assertTrue(result.truncated)
+	}
+
+	@Test(timeout = 30000)
 	fun `a second connection accepts the recorded host key`() = runBlocking {
 		val client = SshClient(knownHosts.toFile())
 		client.execute("127.0.0.1", server.port, "tester", "one", SshAuth(password = "secret"))

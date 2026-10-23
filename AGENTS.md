@@ -319,6 +319,11 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   `conversations.toolsJson` apart from creation. An edited conversation stores
   an explicit list, so a later release adding a tool does not silently grant it.
   Hidden remote names survive an edit made while SSH is off.
+- **SSH limits are user ceilings, not model settings.** `SshLimits` clamps every
+  model request to `[floor, min(userCeiling, hardMax)]`; a missing value uses the
+  app default, not the ceiling, so omitting a parameter cannot select the maximum.
+  The four keys under `ssh.*` are written only by Settings. Do not expose the
+  ceiling itself as a tool argument.
 - **Every assistant `tool_calls` block needs tool results on the wire.** A
   process death while approval/consent is open leaves the assistant row without
   results; `closeDanglingCalls` inserts `[interrupted]` results in the request
