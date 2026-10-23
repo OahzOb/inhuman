@@ -63,3 +63,22 @@ internal fun mergeConversationTools(
 	// the order someone happened to tap rows.
 	return ToolCatalog.names.filter { it in merged }
 }
+
+/** Remote tools the selection actually permits. `null` permits none of them. */
+internal fun permittedRemoteTools(selection: List<String>?): Set<String> =
+	ToolCatalog.all
+		.filter { it.remote && ToolCatalog.permits(selection, it.name) }
+		.mapTo(mutableSetOf()) { it.name }
+
+/**
+ * Whether a change needs the SSH acknowledgement again.
+ *
+ * Adding a read-only tool to a read-only grant does not widen the dangerous
+ * part of the capability. Adding `ssh_exec` or `ssh_upload` does: one can run
+ * anything, the other can replace a remote file. Removing tools never needs a
+ * new grant.
+ */
+internal fun widensDangerousSsh(before: List<String>?, after: List<String>): Boolean =
+	(permittedRemoteTools(after) - permittedRemoteTools(before)).any {
+		it == "ssh_exec" || it == "ssh_upload"
+	}

@@ -157,15 +157,20 @@ class ToolCatalogTest {
 	@Test
 	fun `only the SSH tools are marked remote`() {
 		val remote = ToolCatalog.all.filter { it.remote }.map { it.name }.toSet()
-		assertEquals(setOf("ssh_exec", "ssh_upload", "ssh_download"), remote)
+		assertEquals(
+			setOf("ssh_list", "ssh_read_file", "ssh_exec", "ssh_upload", "ssh_download"),
+			remote,
+		)
 	}
 
 	@Test
-	fun `remote writes are irreversible but a download is not`() {
+	fun `remote writes are irreversible but reads and a download are not`() {
 		val irreversible = ToolCatalog.all.filterNot { it.reversible }.map { it.name }.toSet()
 		assertEquals(setOf("ssh_exec", "ssh_upload"), irreversible)
 		assertTrue(ToolCatalog.all.first { it.name == "delete_file" }.reversible)
 		assertTrue(ToolCatalog.all.first { it.name == "ssh_download" }.reversible)
+		assertTrue(ToolCatalog.all.first { it.name == "ssh_list" }.reversible)
+		assertTrue(ToolCatalog.all.first { it.name == "ssh_read_file" }.reversible)
 	}
 
 	@Test

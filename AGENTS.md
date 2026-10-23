@@ -14,7 +14,7 @@ architecture from scratch:
 | --- | --- |
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
-| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the SSH tools (`ssh_exec`, `ssh_upload`, `ssh_download`)** |
+| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the SSH tools (`ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_download`)** |
 | `docs/04-data-persistence.md` | Room schema v13, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
@@ -54,10 +54,11 @@ Two consequences bind every future change, and neither is negotiable:
 - **The capability boundary must be statable in one sentence a person can
   read.** The default sentence is: *code runs on your device, sees only what you
   hand it, cannot reach the network, and cannot reach your files.* One exception
-  exists, and only one: **the SSH tools (`ssh_exec`, `ssh_upload`,
-  `ssh_download`), off by default, enabled globally, selected explicitly on the
-  assistant or the conversation, and granted once per conversation.** When SSH is
-  on, the agent can run commands and move files on a remote machine whose address
+  exists, and only one: **the SSH tools (`ssh_list`, `ssh_read_file`,
+  `ssh_exec`, `ssh_upload`, `ssh_download`), off by default, enabled globally,
+  selected explicitly on the assistant or the conversation, and granted once per
+  conversation.** When SSH is on, the agent can read files, transfer files, and —
+  only if `ssh_exec` is selected — run commands on a remote machine whose address
   and credentials the user supplies; the app has no host/credential configuration
   and redacts SSH tool arguments before storage. Do not add another exception
   without answering `docs/08-port-philosophy.md` §1.2.1 and §1.5.
@@ -360,8 +361,11 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
 warning output is empty as well as the error output — this tree currently
 compiles clean, and that is worth keeping.
 
-One test is skipped by design: `DeepSeekWebLiveTest` talks to the real Search and
-Fetch APIs and needs a key (and spends money). `RealProviderProbeTest` runs only
+Two tests are skipped by default. `DeepSeekWebLiveTest` talks to the real Search
+and Fetch APIs and needs a key (and spends money). `SshLiveProbeTest` lists `/tmp`
+and downloads `/etc/hostname` from a real host when
+`INHUMAN_SSH_HOST`/`INHUMAN_SSH_USER`/`INHUMAN_SSH_PASSWORD` are set; it never
+uploads, writes or runs a remote command. `RealProviderProbeTest` runs only
 when the device already has a DeepSeek key; it makes one `/models` call and is a
 no-op otherwise. The `:core:data` instrumentation suite (migrations, workspace
 lifetime, provider profiles, the documents provider) needs a device; its list and

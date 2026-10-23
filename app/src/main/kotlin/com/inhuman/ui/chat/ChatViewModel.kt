@@ -51,6 +51,8 @@ import com.inhuman.core.ai.ssh.SshFileTransport
 import com.inhuman.core.ai.ssh.SshTransport
 import com.inhuman.core.ai.tools.SshArguments
 import com.inhuman.core.ai.tools.SshDownloadTool
+import com.inhuman.core.ai.tools.SshListTool
+import com.inhuman.core.ai.tools.SshReadFileTool
 import com.inhuman.core.ai.tools.SshUploadTool
 import com.inhuman.core.files.tools.FileTools
 import kotlinx.coroutines.Job
@@ -527,13 +529,28 @@ class ChatViewModel(
 		if (_state.value.isStreaming) return
 		val entity = conversation ?: return
 		val clean = tools.filter { it in ToolCatalog.names }.distinct()
+		// Adding a command or upload capability to a conversation that was
+		// granted only for reading must not inherit that grant. Removing tools
+		// never resets it.
+		val resetConsent = sshAllowed && widensDangerousSsh(entity.tools, clean)
 		conversation = entity.copy(toolsJson = ToolsColumn.encode(clean))
 		_state.update {
-			it.copy(conversationTools = clean, toolsKnown = true)
+			it.copy(
+				conversationTools = clean,
+				toolsKnown = true,
+				sshAllowed = if (resetConsent) false else it.sshAllowed,
+			)
+		}
+		if (resetConsent) {
+			sshAllowed = false
+			Diag.i("ssh", "selection widened; consent reset")
 		}
 		Diag.i("tools", "conversation selection count=${clean.size}")
 		viewModelScope.launch {
-			runCatching { repository.setTools(conversationId, clean) }
+			runCatching {
+				repository.setTools(conversationId, clean)
+				if (resetConsent) repository.setSshAllowed(conversationId, false)
+			}
 				.onFailure { failure ->
 					Diag.w("tools", "could not persist conversation tools", failure)
 					reload()
@@ -2763,10 +2780,13 @@ class ChatViewModel(
 					val host = stringArg(parsed, "host").orEmpty()
 					val username = stringArg(parsed, "username").orEmpty()
 					val operation = remoteOperation(tool.name, parsed)
+					val selection = conversation?.tools ?: agent?.tools
+					val canExec = selection?.contains("ssh_exec") == true
+					val canUpload = selection?.contains("ssh_upload") == true
 					Diag.i(
 						"ssh",
 						"consent ask host=$host user=$username tool=${tool.name} " +
-							"operationChars=${operation.length}",
+							"exec=$canExec upload=$canUpload operationChars=${operation.length}",
 					)
 					_state.update {
 						it.copy(
@@ -2776,6 +2796,8 @@ class ChatViewModel(
 								host = host,
 								username = username,
 								operation = operation,
+								canExec = canExec,
+								canUpload = canUpload,
 								hostKeyFingerprint = stringArg(parsed, "hostKeyFingerprint")
 									?.trim()
 									?.takeIf { it.isNotEmpty() },
@@ -3172,6 +3194,12 @@ class ChatViewModel(
 				}
 				if (sshTransport != null && selected?.contains("ssh_exec") == true) {
 					add(SshExecTool(sshTransport, readIdentity))
+				}
+				if (sshFileTransport != null && selected?.contains("ssh_list") == true) {
+					add(SshListTool(sshFileTransport, readIdentity))
+				}
+				if (sshFileTransport != null && selected?.contains("ssh_read_file") == true) {
+					add(SshReadFileTool(sshFileTransport, readIdentity))
 				}
 				if (sshFileTransport != null && selected?.contains("ssh_upload") == true) {
 					add(

@@ -76,6 +76,10 @@ data class SshConsent(
 	val username: String,
 	/** The first command, or the two paths and direction of the first transfer. */
 	val operation: String,
+	/** Whether `ssh_exec` is part of this conversation's selection. */
+	val canExec: Boolean = false,
+	/** Whether `ssh_upload` is part of this conversation's selection. */
+	val canUpload: Boolean = false,
 	/** Present only when the model supplied an explicit host-key pin. */
 	val hostKeyFingerprint: String? = null,
 )

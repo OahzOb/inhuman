@@ -93,6 +93,20 @@ object ToolCatalog {
 			paid = true,
 		),
 		Entry(
+			"ssh_list",
+			"List one remote directory over SFTP",
+			mutates = false,
+			reversible = true,
+			remote = true,
+		),
+		Entry(
+			"ssh_read_file",
+			"Read a remote text file",
+			mutates = false,
+			reversible = true,
+			remote = true,
+		),
+		Entry(
 			"ssh_exec",
 			"Run a command on another machine over SSH",
 			mutates = true,

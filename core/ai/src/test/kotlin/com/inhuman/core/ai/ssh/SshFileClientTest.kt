@@ -89,6 +89,25 @@ class SshFileClientTest {
 	}
 
 	@Test(timeout = 30000)
+	fun `list reports names, types and sizes and honours the cap`() = runBlocking {
+		Files.createDirectories(root.resolve("sub"))
+		Files.writeString(root.resolve("a.txt"), "hello")
+		Files.writeString(root.resolve("b.txt"), "world")
+		val entries = SshClient(knownHosts.toFile()).list(
+			host = "127.0.0.1",
+			port = server.port,
+			username = "tester",
+			remotePath = ".",
+			auth = SshAuth(password = "secret"),
+			maxEntries = 2,
+		)
+		assertEquals(2, entries.size)
+		assertTrue("directories sort first", entries.first().type == com.inhuman.core.ai.ssh.SshEntryType.DIRECTORY)
+		assertTrue(entries.any { it.name == "sub" })
+		assertTrue(entries.all { it.name != "." && it.name != ".." })
+	}
+
+	@Test(timeout = 30000)
 	fun `an existing remote file is refused unless overwrite is true`() = runBlocking {
 		val client = SshClient(knownHosts.toFile())
 		Files.createDirectories(root.resolve("keep"))

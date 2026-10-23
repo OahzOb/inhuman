@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.Buffer
 import net.schmizz.sshj.common.KeyType
+import net.schmizz.sshj.sftp.FileMode
 import net.schmizz.sshj.sftp.OpenMode
 import net.schmizz.sshj.sftp.RemoteFile
 import net.schmizz.sshj.transport.verification.HostKeyVerifier
@@ -144,6 +145,66 @@ class SshClient(private val knownHostsFile: File) : SshTransport, SshFileTranspo
 		} finally {
 			runCatching { commandChannel?.close() }
 			runCatching { session?.close() }
+			runCatching { ssh.close() }
+		}
+	}
+
+	override suspend fun list(
+		host: String,
+		port: Int,
+		username: String,
+		remotePath: String,
+		auth: SshAuth,
+		hostKeyFingerprint: String?,
+		maxEntries: Int,
+		connectTimeoutMs: Int,
+	): List<SshRemoteEntry> = withContext(Dispatchers.IO) {
+		require(remotePath.isNotBlank()) { "remotePath is required" }
+		require(maxEntries > 0) { "maxEntries must be positive" }
+		val (ssh, _) = openConnection(
+			host = host,
+			port = port,
+			username = username,
+			auth = auth,
+			explicitFingerprint = hostKeyFingerprint,
+			connectTimeoutMs = connectTimeoutMs,
+			socketTimeoutMs = TRANSFER_TIMEOUT_MS,
+		)
+		try {
+			val sftp = ssh.newSFTPClient()
+			try {
+				val entries = sftp.ls(remotePath)
+					.asSequence()
+					.filter { it.name != "." && it.name != ".." }
+					.sortedWith(compareBy({ !it.isDirectory }, { it.name }))
+					.take(maxEntries)
+					.map { info ->
+						val attributes = info.attributes
+						val type = when (attributes.mode?.type) {
+							FileMode.Type.DIRECTORY -> SshEntryType.DIRECTORY
+							FileMode.Type.SYMLINK -> SshEntryType.SYMLINK
+							FileMode.Type.REGULAR -> SshEntryType.FILE
+							else -> SshEntryType.OTHER
+						}
+						SshRemoteEntry(
+							name = info.name,
+							type = type,
+							size = attributes.size,
+							modifiedAt = attributes.mtime.takeIf { it > 0 },
+						)
+					}
+					.toList()
+				Diag.i("ssh", "list done host=$host path=$remotePath entries=${entries.size}")
+				entries
+			} finally {
+				runCatching { sftp.close() }
+			}
+		} catch (e: SshException) {
+			throw e
+		} catch (e: Exception) {
+			Diag.w("ssh", "list failed host=$host: ${e.message}")
+			throw SshException(e.message ?: "SFTP listing failed", e)
+		} finally {
 			runCatching { ssh.close() }
 		}
 	}

@@ -508,10 +508,18 @@ command or the source/destination paths. Everything else falls back to "Run
 Separate from the ordinary approval dialog, deliberately. It is a capability
 grant, not a question about one call: the text says the agent can reach **any**
 host it is given credentials for and will not ask again in this conversation.
-It shows the first command, warns that remote damage can be irreversible, and
-warns that a pasted password/key goes into the conversation and to DeepSeek
-(while a workspace key file is read locally). The checkbox is required before
-"Allow SSH"; Cancel and Back both decline.
+It shows the first command or transfer, warns that remote damage can be
+irreversible, and warns that a pasted password/key goes into the conversation and
+to DeepSeek (while a workspace key file is read locally). The checkbox is required
+before "Allow SSH"; Cancel and Back both decline.
+
+The body follows the selected tools. `ssh_exec` present -> "run any command";
+`ssh_upload` without exec -> read/download/upload, explicitly "cannot run
+commands"; only list/read/download -> read-only text, no upload and no commands.
+The warning changes with it, so a read-only grant is not told that the agent can
+delete data or stop services. Adding `ssh_exec` or `ssh_upload` to a grant that
+did not have it clears `sshAllowed`, so the next call asks again; adding
+`ssh_list`/`ssh_read_file` does not.
 
 The checkbox sits **above** the long warning, not after it. On a phone the body
 scrolls; with the checkbox last it fell below the fold, so "Allow SSH" was
@@ -537,6 +545,11 @@ assistant never had; restoring an old tool the conversation already held is
 allowed. A stored remote name survives an edit made while SSH is off, so
 switching SSH off does not silently forget the selection. See
 [11-conversation-tools.md](11-conversation-tools.md).
+
+An inspection profile is just a selection: `ssh_list` + `ssh_read_file` +
+`ssh_download`, with `ssh_exec` and `ssh_upload` unchecked. No mode, no second
+settings screen. `ssh_download` still works without `ssh_exec`; the tools are
+registered independently.
 
 ### Tool rows
 

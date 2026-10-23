@@ -1787,6 +1787,19 @@ private fun SshConsentDialog(
 	onDeny: () -> Unit,
 ) {
 	var understood by remember { mutableStateOf(false) }
+	// The grant describes what this conversation's selected SSH tools can do.
+	// A read-only profile must not be told that the agent can run commands,
+	// even though the same SshClient could.
+	val body = when {
+		consent.canExec -> R.string.chat_ssh_body
+		consent.canUpload -> R.string.chat_ssh_body_upload
+		else -> R.string.chat_ssh_body_read_only
+	}
+	val warning = when {
+		consent.canExec -> R.string.chat_ssh_warning
+		consent.canUpload -> R.string.chat_ssh_warning_upload
+		else -> R.string.chat_ssh_warning_read_only
+	}
 	AlertDialog(
 		onDismissRequest = onDeny,
 		title = { Text(stringResource(R.string.chat_ssh_title)) },
@@ -1800,7 +1813,7 @@ private fun SshConsentDialog(
 			) {
 				Text(
 					text = stringResource(
-						R.string.chat_ssh_body,
+						body,
 						consent.username,
 						consent.host,
 					),
@@ -1841,7 +1854,7 @@ private fun SshConsentDialog(
 					)
 				}
 				Text(
-					text = stringResource(R.string.chat_ssh_warning),
+					text = stringResource(warning),
 					style = MaterialTheme.typography.bodyMedium,
 					color = MaterialTheme.colorScheme.error,
 				)

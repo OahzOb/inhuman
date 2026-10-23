@@ -597,7 +597,7 @@ $env:DEEPSEEK_LIVE_KEY = 'sk-...'
 It checks the request shape that fixtures cannot, and it is what caught the
 `&amp;` URL-encoding issue above.
 
-## The SSH tools: exec and SFTP, no host inventory
+## The SSH tools: read-only, transfer and exec, no host inventory
 
 `SshClient` (`core/ai/src/main/kotlin/com/inhuman/core/ai/ssh/SshClient.kt`) wraps
 **sshj 0.41.2**. JSch was tried first and rejected: its EdDSA implementation
@@ -634,6 +634,19 @@ replay would run the remote command again) and `needsApproval = false`; the
 separate per-conversation consent gate is in `ChatViewModel`, and the ordinary
 `ToolPolicy` applies after it.
 
+`SshListTool` (`tools/SshListTool.kt`) and `SshReadFileTool`
+(`tools/SshReadFileTool.kt`) are the SFTP-only read side. Neither runs a command,
+so an assistant can be configured with read/list/download and no `ssh_exec`:
+
+- `ssh_list` calls `SFTPClient.ls` once, non-recursively; directories sort first,
+  then names; at most 500 rows; each row is type, size, mtime and name.
+- `ssh_read_file` reuses the chunked `RemoteFile` read with a 64 KiB ceiling. It
+  refuses a NUL-containing file as binary and points at `ssh_download`; it does
+  not truncate a larger file, because a silently partial config is worse than an
+  error that says so.
+- Both are `mutates = false`, `reversible = true`, and `remote = true`; they still
+  need the once-per-conversation SSH grant, but not `ssh_exec`.
+
 ### File transfer
 
 `SshFileTransport`
@@ -659,7 +672,20 @@ resolves the destination through `SessionWorkspace` and imports it with
   tools exist next to `ssh_exec`; a real session had 54 heredocs and commands up
   to 8.9 KB writing scripts to `/tmp`.
 
-### Consent and registration
+### Consent text follows the selection
+
+`SshConsent` carries `canExec` and `canUpload`, read from the
+assistant/conversation selection at the moment the first SSH call is made. The
+dialog has three bodies: commands + files when `ssh_exec` is selected, files with
+upload when it is not, and read/download only otherwise. The warning is chosen
+the same way, so a read-only profile is never told that the agent can run
+commands or stop services.
+
+`sshAllowed` is still one boolean for the conversation. To keep that from
+silently covering a later expansion, `ChatViewModel.setConversationTools` calls
+`widensDangerousSsh`: adding `ssh_exec` or `ssh_upload` to a grant that did not
+have it clears `sshAllowed`, so the next call asks again with the new text.
+Adding `ssh_list` or `ssh_read_file` does not reset; removing tools never does.
 
 ### The Android BouncyCastle trap
 
@@ -682,12 +708,14 @@ therefore both device-tested, not just JVM-tested.
 Each SSH tool is registered only when **all** of these are true: the global
 Settings switch is on, the assistant/conversation tool selection explicitly names
 that tool, and the matching transport exists (`SshTransport` for exec,
-`SshFileTransport` for the two transfers). `ToolCatalog.permits` treats every
-entry with `remote = true` as explicit-only: `null` means "everything" for
-historical assistants, but it does **not** mean consent to SSH, and special-casing
-one name would silently grant the other two. The app has no host editor, no
-allowlist and no credential store — the user tells the model how to connect, or
-puts a key file in the workspace and tells it the path.
+`SshFileTransport` for list/read/upload/download). No SSH tool depends on
+another: `ssh_list`, `ssh_read_file` and `ssh_download` work with `ssh_exec`
+absent. `ToolCatalog.permits` treats every entry with `remote = true` as
+explicit-only: `null` means "everything" for historical assistants, but it does
+**not** mean consent to SSH, and special-casing one name would silently grant the
+other four. The app has no host editor, no allowlist and no credential store — the
+user tells the model how to connect, or puts a key file in the workspace and tells
+it the path.
 
 ## The tool catalogue
 
@@ -710,14 +738,15 @@ collapsing them would make one impossible to express (`ToolCatalog.kt:66-74`).
 `allSelection()` returns `null` for "select all" so that a later release adding
 a tool gives it to assistants that had chosen everything.
 
-The 14 tools and their `mutates` flags are tabulated in
+The 16 tools and their `mutates` flags are tabulated in
 [05-files-sandbox.md](05-files-sandbox.md) and
 [01-overview.md](01-overview.md).
 
 ## Tests in this module
 
-All JVM, no device. The one that needs a live key and is skipped by design is
-`DeepSeekWebLiveTest` (one search and one fetch, both paid).
+All JVM, no device. Two live tests are skipped by default: `DeepSeekWebLiveTest`
+(one search and one fetch, both paid) and `SshLiveProbeTest` (read-only SFTP
+against a host whose credentials are in the environment).
 
 | Test | Locks in |
 | --- | --- |
@@ -733,7 +762,9 @@ All JVM, no device. The one that needs a live key and is skipped by design is
 | `TimeToolTest` | Zone handling and date arithmetic |
 | `ToolCatalogTest` | null vs empty, renamed tools, ordering (reads before writes), SSH is never covered by `null` |
 | `SshClientTest` | Password and Ed25519 auth against embedded MINA SSHD; TOFU reuse, changed-key refusal, explicit fingerprint, timeout, output cap, exit code |
-| `SshFileClientTest` | SFTP against embedded MINA: binary round trip, existing-file refusal and overwrite, download size limit, missing file |
+| `SshFileClientTest` | SFTP against embedded MINA: binary round trip, directory listing with a cap, existing-file refusal and overwrite, download size limit, missing file |
+| `SshReadToolsTest` | List formatting and directory-first ordering, the 64 KiB/binary read refusal, missing auth, read-only flags |
 | `SshExecToolTest` | Password/identityFile/raw-key arguments, missing auth, host validation, wrapped `arguments` strings, transport errors |
 | `SshFileToolsTest` | Upload/download argument travel, local and remote limits, overwrite, workspace-save refusal, irreversibility flags |
+| `SshLiveProbeTest` | Skipped unless env credentials are set; lists `/tmp` and downloads `/etc/hostname`, read-only |
 | `DemoProviderTest` | The scripted turn, including that it only calls tools it was offered |

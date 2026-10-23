@@ -110,4 +110,35 @@ class ConversationToolsTest {
 		val merged = mergeConversationTools(emptyList(), plan.available, emptySet())
 		assertTrue(merged.isEmpty())
 	}
+
+	@Test
+	fun `adding a read-only ssh tool does not reset consent`() {
+		val before = listOf("ssh_download")
+		assertFalse(widensDangerousSsh(before, before + "ssh_list"))
+		assertFalse(widensDangerousSsh(before, before + "ssh_read_file"))
+	}
+
+	@Test
+	fun `adding upload or exec resets consent`() {
+		val before = listOf("ssh_download")
+		assertTrue(widensDangerousSsh(before, before + "ssh_upload"))
+		assertTrue(widensDangerousSsh(before, before + "ssh_exec"))
+		assertTrue(widensDangerousSsh(before, listOf("ssh_upload", "ssh_exec")))
+	}
+
+	@Test
+	fun `removing or repeating a tool does not reset consent`() {
+		val before = listOf("ssh_exec", "ssh_upload", "ssh_download")
+		assertFalse(widensDangerousSsh(before, listOf("ssh_download")))
+		assertFalse(widensDangerousSsh(before, before))
+	}
+
+	@Test
+	fun `a null selection permits no remote tool`() {
+		assertTrue(permittedRemoteTools(null).isEmpty())
+		assertEquals(
+			setOf("ssh_download", "ssh_list"),
+			permittedRemoteTools(listOf("ssh_download", "ssh_list", "read_file")),
+		)
+	}
 }

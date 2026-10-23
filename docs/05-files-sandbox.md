@@ -48,12 +48,12 @@ anything running as the same UID can read the same files regardless. Do not cite
 (SELinux/kernel, `isolatedProcess`), and none of it is implemented. There is no
 QuickJS, no `libqjssandbox`, and no `run_code` tool; the closed set of eight
 tools is asserted by `ToolMutationClassificationTest`. Those are the **file**
-tools. The SSH tools are not among them: `ssh_exec` never receives a
-`SessionWorkspace`; `ssh_upload` and `ssh_download` reach the workspace only
-through callbacks owned by `ChatViewModel`, which resolves every path with
-`SessionWorkspace`. Their effects outside the sandbox are why the capability has
-the separate consent gate in [03-ai-provider.md](03-ai-provider.md) and
-[09-approvals.md](09-approvals.md).
+tools. The SSH tools are not among them: `ssh_list`, `ssh_read_file` and
+`ssh_exec` never receive a `SessionWorkspace`; `ssh_upload` and `ssh_download`
+reach the workspace only through callbacks owned by `ChatViewModel`, which
+resolves every path with `SessionWorkspace`. Their effects outside the sandbox are
+why the capability has the separate consent gate in
+[03-ai-provider.md](03-ai-provider.md) and [09-approvals.md](09-approvals.md).
 
 ## `resolve()`: the one place a path becomes a `File`
 

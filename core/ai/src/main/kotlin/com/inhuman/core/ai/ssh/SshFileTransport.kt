@@ -12,6 +12,18 @@ class SshDownloadedFile(
 	val hostFingerprint: String,
 )
 
+/** The kind of a remote directory entry, as SFTP reports it. */
+enum class SshEntryType { FILE, DIRECTORY, SYMLINK, OTHER }
+
+/** One entry from a remote directory listing. */
+data class SshRemoteEntry(
+	val name: String,
+	val type: SshEntryType,
+	val size: Long,
+	/** Seconds since the epoch, or null when the server did not report one. */
+	val modifiedAt: Long?,
+)
+
 /**
  * The file-transfer seam, separate from [SshTransport].
  *
@@ -58,4 +70,24 @@ interface SshFileTransport {
 		maxBytes: Long,
 		connectTimeoutMs: Int = SshTransport.DEFAULT_CONNECT_TIMEOUT_MS,
 	): SshDownloadedFile
+
+	/**
+	 * List one remote directory.
+	 *
+	 * No recursion and no shell: this is SFTP `ls`, not `find`. The cap is
+	 * applied after the server returns the listing, because the SFTP protocol
+	 * has no streaming readdir; a directory with millions of entries is still
+	 * one server response and the caller's cap cannot prevent it arriving.
+	 */
+	suspend fun list(
+		host: String,
+		port: Int,
+		username: String,
+		remotePath: String,
+		auth: SshAuth,
+		hostKeyFingerprint: String? = null,
+		maxEntries: Int = 500,
+		connectTimeoutMs: Int = SshTransport.DEFAULT_CONNECT_TIMEOUT_MS,
+	): List<SshRemoteEntry> =
+		throw UnsupportedOperationException("listing is not supported by this transport")
 }
