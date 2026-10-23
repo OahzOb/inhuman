@@ -30,6 +30,7 @@
 - `:core:common`、`:core:ai`、`:core:files` 已从 Android library 改成 **plain JVM**；Android app 继续依赖同一批 jar，全量 Android 测试仍通过；
 - `:desktopApp` 已是可运行的 Compose Desktop 窗口，使用 `core:ai` 的 `DemoProvider` 流式生成回复，并依赖共享的 `SessionWorkspace`；
 - Room/JVM 的 KSP + `BundledSQLiteDriver` 已用当前 schema 验证：通过 source-set 桥接直接编译 `core:data` 的 `Entities.kt`/`InhumanDatabase.kt`，在 JVM 上打开 v13，并用导出的 `12.json` 构建 v12 数据库、跑完 `MIGRATION_12_13`；这还不是生产模块布局，schema 仍要提取到共享模块；
+- 真实的 `write_file`/`read_file` 工具已在桌面 JVM 上执行并通过测试；这证明共享 sandbox，但还不是完整的 `ChatEngine` 工具循环；
 - Windows DPAPI 已经通过 JNA 的 `Crypt32Util` 验证加解密往返；Linux 明确不做“假加密”回退，Secret Service 绑定仍是待办；
 - Windows **junction 逃逸**被 spike 的测试抓到并修复：`File.canonicalFile` 不解析 junction，`Files.isSymbolicLink` 也不识别它，现在对已存在组件使用 `toPath().toRealPath()`；
 - `:desktopApp:createDistributable` 已产出 Windows app 目录，打包后的 exe 能启动；Msi/Deb/Rpm/AppImage 目标已声明，Linux 包尚未在 Linux 上构建。
@@ -41,7 +42,7 @@
 - 从 `ChatViewModel` 抽出共享 `ChatEngine`，让两个 UI 用同一套工具循环/授权/快照；
 - 桌面端的完整安全/通知/文件对话框/图片适配。
 
-当前全量测试为 **458 tests / 60 suites / 0 failures / 2 skipped**。
+当前全量测试为 **459 tests / 61 suites / 0 failures / 2 skipped**。
 
 ### 为什么不是“所有 UI 也共用一套”
 
@@ -72,7 +73,7 @@
 | `:core:common` | 3 | 267 | **0** | 直接复用 |
 | **合计** | **106** | **31,100** | 120 个 | |
 
-测试侧还有 67 个文件、约 8,243 行；当前全量 458 tests / 60 suites。
+测试侧还有 67 个文件、约 8,243 行；当前全量 459 tests / 61 suites。
 
 这个分布说明：**领域层和 UI 层是分开的，Android 绑定集中在 data 和 app 的薄层**。这是移植能成立的前提。
 
