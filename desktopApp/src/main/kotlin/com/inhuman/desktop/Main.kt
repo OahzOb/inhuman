@@ -42,10 +42,11 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.inhuman.core.ai.ChatMessage
-import com.inhuman.core.ai.ChatRequest
 import com.inhuman.core.ai.Role
-import com.inhuman.core.ai.StreamChunk
 import com.inhuman.core.ai.provider.demo.DemoProvider
+import com.inhuman.core.engine.ChatEngine
+import com.inhuman.core.engine.EngineEvent
+import com.inhuman.core.engine.EngineTurn
 import kotlinx.coroutines.launch
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -105,7 +106,7 @@ private fun DesktopSpike() {
 		answer = ""
 		streaming = true
 		scope.launch {
-			val request = ChatRequest(
+			val turn = EngineTurn(
 				model = "demo-model",
 				messages = lines
 					.filter { it.role == Role.User || it.role == Role.Assistant }
@@ -113,12 +114,12 @@ private fun DesktopSpike() {
 				thinking = false,
 			)
 			try {
-				provider.stream(request).collect { chunk ->
-					when (chunk) {
-						is StreamChunk.ReasoningDelta -> reasoning += chunk.text
-						is StreamChunk.TextDelta -> answer += chunk.text
-						is StreamChunk.Failure -> {
-							answer += "\n\n[stream failure] ${chunk.message}"
+				ChatEngine(provider).run(turn).collect { event ->
+					when (event) {
+						is EngineEvent.ReasoningDelta -> reasoning += event.text
+						is EngineEvent.TextDelta -> answer += event.text
+						is EngineEvent.Failed -> {
+							answer += "\n\n[stream failure] ${event.message}"
 						}
 						else -> Unit
 					}

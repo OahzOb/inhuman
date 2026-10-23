@@ -371,6 +371,7 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   :app:testDebugUnitTest `
   :core:data:testDebugUnitTest `
   :core:db:test `
+  :core:engine:test `
   :core:ai:test `
   :core:files:test `
   :core:common:test `
@@ -384,7 +385,9 @@ warning output is empty as well as the error output — this tree currently
 compiles clean, and that is worth keeping. `:core:common`, `:core:ai`, `:core:files` and `:core:db` are plain JVM modules
 now; `:desktopApp` is the Compose Desktop spike and consumes the same jars.
 `:core:db` owns the Room schema, and both the Android app and desktop use the
-same generated database implementation.
+same generated database implementation. `:core:engine` is the extracted turn
+loop; the desktop window uses it, while Android still uses `ChatViewModel`'s loop
+until that integration lands.
 
 Two tests are skipped by default. `DeepSeekWebLiveTest` talks to the real Search
 and Fetch APIs and needs a key (and spends money). `SshLiveProbeTest` lists `/tmp`,

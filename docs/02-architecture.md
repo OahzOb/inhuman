@@ -8,7 +8,8 @@ Verified against each module's `build.gradle`:
 desktopApp ──┬──> core:common
              ├──> core:ai      (plain JVM)
              ├──> core:files   (plain JVM)
-             └──> core:db      (plain JVM, Room schema)
+             ├──> core:db      (plain JVM, Room schema)
+             └──> core:engine  (plain JVM, first turn-loop slice)
 
 app ──────────┬──> core:common  (plain JVM)
               ├──> core:design  (Compose Android; depends on no core module)
@@ -22,22 +23,31 @@ app ──────────┬──> core:common  (plain JVM)
 Read the arrows as "must be able to compile against". `core:data`, `core:ai` and
 `core:files` each also depend on `core:common` directly, with `implementation`;
 the diagram leaves that leaf edge out rather than drawing three lines to the same
-node. `:core:common`, `:core:ai`, `:core:files` and `:core:db` are **plain
-Kotlin/JVM modules** now, not Android libraries: the desktop spike depends on the
-same jars the Android app consumes. `:core:data` and `:core:design` remain
+node. `:core:common`, `:core:ai`, `:core:files`, `:core:db` and `:core:engine` are
+**plain Kotlin/JVM modules** now, not Android libraries: the desktop spike depends
+on the same jars the Android app consumes. `:core:data` and `:core:design` remain
 Android-only; `:core:db` owns the Room entities, DAOs, database and migrations so
-both `:core:data` and `:desktopApp` use one schema. Three things about this graph
-are deliberate and are commented where they are declared:
+both `:core:data` and `:desktopApp` use one schema.
+
+`:core:engine` is the first extraction of the turn loop: it streams a provider,
+assembles tool calls, asks an `EngineApproval` hook, executes tools and repeats
+until the model answers without a call or a budget is hit. It does **not** own
+persistence, snapshots, compaction or SSH policy yet, and Android still uses
+`ChatViewModel`'s loop; the desktop window is the first consumer. Moving the
+Android path onto it is the next refactor, not a claim already made here.
+Three things about this graph are deliberate and are commented where they
+are declared:
 
 - **`core:files` depends on `core:ai`, not the reverse.** The file tools
   implement the `Tool` contract defined in `core:ai`, so the dependency runs one
   way. The comment in `core/files/build.gradle` says why it is `implementation`
   rather than `api`: leaking the AI module to anything that depends on the
   sandbox would invert the direction.
-- **`core:data` re-exports both** with `api project(':core:files')` and
-  `api project(':core:ai')`, because a conversation's lifecycle spans the
-  sandbox that guards it and the provider that answers it — creating a
-  conversation, naming it and listing the models it may use are one lifecycle.
+- **`core:data` re-exports the shared core** with `api project(':core:files')`,
+  `api project(':core:ai')` and `api project(':core:db')`, because a
+  conversation's lifecycle spans the sandbox that guards it, the provider that
+  answers it and the schema that stores it — creating a conversation, naming it
+  and listing the models it may use are one lifecycle.
 - **`core:ai` exports coroutines and serialization with `api`** because its
   public surface is `Flow<StreamChunk>`, so consumers need both on their compile
   classpath regardless (`core/ai/build.gradle`).
@@ -228,6 +238,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :app:testDebugUnitTest `
   :core:data:testDebugUnitTest `
   :core:db:test `
+  :core:engine:test `
   :core:ai:test `
   :core:files:test `
   :core:common:test `

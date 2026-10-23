@@ -27,6 +27,7 @@ dependencies {
 	implementation project(':core:ai')
 	implementation project(':core:files')
 	implementation project(':core:db')
+	implementation project(':core:engine')
 
 	implementation(compose.desktop.currentOs)
 	implementation(compose.material3)

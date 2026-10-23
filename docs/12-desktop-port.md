@@ -28,7 +28,8 @@
 已经落地并验证：
 
 - `:core:common`、`:core:ai`、`:core:files` 已从 Android library 改成 **plain JVM**，并新增共享的 `:core:db`；Android app 继续依赖同一批 jar，全量 Android 测试仍通过，模拟器上也能启动；
-- `:desktopApp` 已是可运行的 Compose Desktop 窗口，使用 `core:ai` 的 `DemoProvider` 流式生成回复，并依赖共享的 `SessionWorkspace`；
+- `:desktopApp` 已是可运行的 Compose Desktop 窗口，使用 `core:engine` 的共享回合循环和 `core:ai` 的 `DemoProvider` 流式生成回复，并依赖共享的 `SessionWorkspace`；
+- `:core:engine` 已抽出第一版共享 `ChatEngine`：流式收集、tool call 组装、approval hook、工具执行、assistant/tool 消息和 round/call 预算；桌面端已接入，Android 仍走 `ChatViewModel` 的旧循环，接过去是下一步；
 - Room 的 `Entities.kt`/`InhumanDatabase.kt` 已移到 `:core:db`；`core:db` 在 JVM 上打开 v13，并用导出的 `12.json` 构建 v12 数据库、跑完 `MIGRATION_12_13`。Android app 使用同一份生成的数据库实现，模拟器启动无 Room 错误；
 - 真实的 `write_file`/`read_file` 工具已在桌面 JVM 上执行并通过测试；这证明共享 sandbox，但还不是完整的 `ChatEngine` 工具循环；
 - Windows DPAPI 已经通过 JNA 的 `Crypt32Util` 验证加解密往返；Linux 明确不做“假加密”回退，Secret Service 绑定仍是待办；
@@ -37,11 +38,11 @@
 
 仍未完成（下一步，不要误认为 spike 已完成）：
 
+- 把 Android 的 `ChatViewModel` 接到 `:core:engine`，再补上持久化、snapshot、compaction 和 SSH consent 策略；
 - Linux Secret Service（libsecret）绑定，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
-- 从 `ChatViewModel` 抽出共享 `ChatEngine`，让两个 UI 用同一套工具循环/授权/快照；
 - 桌面端的完整安全/通知/文件对话框/图片适配。
 
-当前全量测试为 **459 tests / 61 suites / 0 failures / 2 skipped**。
+当前全量测试为 **462 tests / 62 suites / 0 failures / 2 skipped**。
 
 ### 为什么不是“所有 UI 也共用一套”
 
@@ -68,12 +69,13 @@
 | `:core:ai` | 35 | 5,402 | **0** | 已是普通 JVM，高复用 |
 | `:core:data` | 8 | 2,522 | 23 个 | Android 平台层；schema 已移出 |
 | `:core:db` | 3 | 1,343 | **0** | Room schema/DAO/迁移，普通 JVM，共享 |
+| `:core:engine` | 1 | 216 | **0** | 共享回合循环第一版，普通 JVM |
 | `:core:files` | 5 | 1,043 | **0** | 已是普通 JVM，高复用 |
 | `:core:design` | 7 | 1,001 | **0** | Compose 组件，需 CMP |
 | `:core:common` | 3 | 267 | **0** | 已是普通 JVM，直接复用 |
-| **合计** | **106** | **31,100** | 120 个 | |
+| **合计** | **107** | **31,316** | 120 个 | |
 
-测试侧还有 67 个文件、约 8,243 行；当前全量 459 tests / 61 suites。
+测试侧还有 67 个文件、约 8,243 行；当前全量 462 tests / 62 suites。
 
 这个分布说明：**领域层和 UI 层是分开的，Android 绑定集中在 data 和 app 的薄层**。这是移植能成立的前提。
 
