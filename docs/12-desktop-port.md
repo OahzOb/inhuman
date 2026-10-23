@@ -1,4 +1,4 @@
-# 桌面端移植评估：Windows
+# 桌面端移植评估：Windows / Linux
 
 状态：**评估，不含实现**。数字来自当前工作树，不是估算。
 
@@ -6,7 +6,8 @@
 
 **可以移植，但不是把 APK 包一层。**
 
-- 技术路线建议 **Compose Multiplatform（Windows/JVM）+ 共享 Kotlin 核心**；
+- 技术路线建议：**一个 KMP 仓库，共享 `core`/`data`/`engine`，两个 UI**——Android 保留现有 Compose UI，Windows/Linux 共用一套 Compose Desktop UI；
+- **不把 Android UI 立即迁到 Compose Multiplatform**。CMP 的桌面框架是 Stable，但当前 CMP 1.11.1 的 Material3 仍是 `1.11.0-alpha07`、Lifecycle 仍是 `2.11.0-beta01`；让一个稳定的 Android app 跟着 alpha/beta 组件走，风险大于收益；
 - 现有分层帮了很大的忙：`:core:ai`、`:core:common`、`:core:design` **没有任何 `android.*` import**，`:core:files` 只有 2 处 `StatFs`；
 - 真正要重做的是 **`:core:data` 的 Android 适配**（Room/Keystore/DocumentsProvider）和 **`:app` 的 Android glue**（Activity、SAF、通知、前台服务、图片解码）；
 - 建议先做 **2 周技术验证（spike）**，通过再投入 MVP。直接开一个长期分支、边编译边改 20k 行 UI，是这场移植里最可能失败的方式。
@@ -15,12 +16,25 @@
 
 | 目标 | 估计 |
 | --- | --- |
-| 2 周 spike | 证明 5 个关键点 |
+| 2 周 spike | 证明 6 个关键点（含 Linux） |
 | 桌面 MVP | 4–6 周 |
 | 接近 Android 的功能完整度 | 再加 6–10 周 |
-| 总计 | **约 3–4 个月**（不含跨平台/签名/长期维护） |
+| 总计 | **约 3–4 个月**（不含签名/长期维护） |
 
 这不是“小功能”，但也不是“重写一个 app”。
+
+### 为什么不是“所有 UI 也共用一套”
+
+成熟产品里两种路线都存在，而且都能做到很大规模：
+
+- **共享逻辑、UI 原生**：Doist/Todoist 共享 core logic；Workday 强调“share code where it makes sense, without sacrificing native experience”；Philips 把业务逻辑集中共享；Down Dog 采用“maximum shared Kotlin”，但保留 native-only views。
+- **共享 UI**：Feres 共享 90% UI，Markaz 100+ 屏全部 CMP，Respawn 96% 共享，Fast&Fit 90% 含 UI，Wrike、Sony、BiliBili 也有 CMP 生产案例；JetBrains 官方的 KotlinConf app 在 Android/iOS/desktop/web 共享 UI。
+
+没有“成熟 app 都选 A”这回事。选择取决于 **UI 相似度、平台团队、组件库成熟度**，不是框架热度。
+
+对这个 app 来说，聊天/工作区结构在 Android 和桌面相似，但交互不同（触摸 vs 键盘/右键/拖放），而且 Android 现在依赖稳定的 Material3。**先共享引擎、后共享 UI** 是更稳的顺序；等 CMP Material3/Lifecycle 稳定、桌面 MVP 证明价值，再把设计系统和部分屏幕收进 commonMain。
+
+> 参考：[Compose Multiplatform](https://kotlinlang.org/compose-multiplatform/)、[KMP case studies](https://kotlinlang.org/case-studies/?type=multiplatform)、[Android → KMP migration](https://kotlinlang.org/docs/multiplatform/migrate-from-android.html)、[KMP stability](https://www.jetbrains.com/help/kotlin-multiplatform-dev/llms.txt/)。
 
 ---
 
@@ -52,11 +66,13 @@
 | --- | --- | --- | --- | --- |
 | Android 模拟器 / WSA | 原 APK | 0 | 仍是 Android app | **不推荐**；WSA 已结束支持，文件、通知、性能都不对 |
 | 浏览器 UI + 本地服务 | 后端高，UI 低 | 3–5 月 | 跨平台 Web app | 丢掉 20k 行 Compose UI，安全面变成“本机 HTTP 服务” |
-| **Compose Multiplatform** | 后端高，UI 中高 | 3–4 月 | 原生窗口桌面 app | **推荐** |
-| 新写 Compose Desktop UI + 共享后端 | 后端高，UI 低 | 2–3 月 MVP | 原生窗口，但没有现有 UI | 备选；适合只做核心工作流 |
+| **KMP 共享 core + 两个 UI**（Android Compose / 桌面 CMP） | 后端高，UI 中 | 3–4 月 | 原生窗口，Android UI 不动 | **推荐**；Windows/Linux 共用桌面 UI |
+| CMP 共享 core + 共享 UI | 高 | 4–6 月 | 一套屏幕代码 | 长期目标；当前 Material3 alpha/Lifecycle beta，Android 回归风险 |
 | WinUI/WPF 原生重写 | 低 | 6+ 月 | 最“Windows” | 不值，双 UI 双维护 |
 
 “在 Windows 上跑 Android app”不算移植：没有原生文件对话框、没有真正的桌面通知、没有窗口管理，也不会得到桌面用户期望的键盘/鼠标操作。
+
+Windows 和 Linux **共用同一个桌面 UI**，所以“两个 UI”是 Android 一个、桌面一个，不是三个。这是拆 UI 仍然可控的关键。
 
 ---
 
@@ -93,11 +109,11 @@ UI 不是“原样搬过去”：现有 tablet 双栏布局是一个很好的起
 
 ## 4. 最难的几件事
 
-### 4.1 Compose 与资源迁移
+### 4.1 Compose 与资源
 
-当前是 Android Compose BOM + AGP；CMP 需要换插件、换 artifact、换资源模型。`core:design` 虽然零 `android.*` import，但 `LocalConfiguration` 仍是 Android Compose API；`app` 里大量 `R.string` 需要机械迁移。
+桌面 UI 用 Compose Multiplatform，Android UI 继续用 Android Compose。CMP 需要自己的插件/artifact/资源模型；`core:design` 虽然零 `android.*` import，但 `LocalConfiguration` 仍是 Android Compose API，必须先抽掉。`app` 里 597 条字符串不必迁 Android 的 `R.string`，但桌面要生成一份 `composeResources`，两边的 key/占位符一致性要有测试。
 
-这不是不可做，而是**触碰面广**：728 个 Compose import、597 条字符串。先做一个屏幕（聊天 + 设置）验证成本，再决定是否全量。
+这不是不可做，而是**触碰面广**：728 个 Compose import 里，只有将来决定共享 UI 时才会碰到 Android 部分。先用桌面聊天 + 设置两屏验证成本，再决定是否把 Android UI 也迁到 commonMain。
 
 ### 4.2 Room / 数据层
 
@@ -136,17 +152,28 @@ Android 有 app sandbox + scoped storage；Windows 进程以当前用户权限�
 - 关闭窗口时正在跑的回合怎么办（继续/取消/托盘）；
 - 通知点击回到对应会话。
 
+### 4.6 Linux 不是“Windows 加个包”
+
+- **先做 Linux x64**；ARM64（树莓派等）要单独验证 Compose/Skiko 和打包，不要默认支持。
+- **密钥存储**：没有 DPAPI；走 Secret Service（libsecret / D-Bus）。没有 keyring 时要有明确降级策略，不能静默写明文。
+- **通知/托盘**：D-Bus `org.freedesktop.Notifications`；GNOME 托盘可能需要扩展，窗口内提示必须是 fallback。
+- **文件对话框**：AWT/GTK，X11 和 Wayland/XWayland 都要测。
+- **路径**：XDG 目录、大小写敏感、符号链接、权限；与 Windows 的 junction/UNC 测试分开。
+- **打包**：AppImage + deb/rpm，自带 JRE；Flatpak 是额外沙箱选项，不是默认。
+- **输入法/字体**：Linux 桌面必须实际验证中文输入和字体 fallback。
+
 ---
 
 ## 5. 建议的落地顺序
 
-### Phase 0：2 周 spike，五个退出条件
+### Phase 0：2 周 spike，六个退出条件
 
-1. **Compose Desktop 窗口**能复用 `InhumanTheme`/`Workbench` 的一个真实屏幕，并完成 CMP 资源的最小迁移；
+1. **Compose Desktop 窗口**能复用 `InhumanTheme`/`Workbench` 的一个真实屏幕，并完成桌面 UI 资源的最小迁移；**不改 Android UI**；
 2. **`:core:ai` 在 JVM 上**跑通一次流式回复 + 一个工具循环（OkHttp/sshj 不改协议）；
 3. **Room KMP/JVM** 打开当前 schema v13，跑一条真实查询和一个 migration；
-4. **DPAPI** 存/取一个 API key，SSH `identityFile` 仍从工作区读取；
-5. **Windows 路径逃逸测试**：symlink/junction/大小写/UNC 都不能把 `SessionWorkspace.resolve` 带出工作区。
+4. **DPAPI 和 libsecret** 各存/取一个 API key，SSH `identityFile` 仍从工作区读取；
+5. **Windows 路径逃逸测试**：symlink/junction/大小写/UNC 都不能把 `SessionWorkspace.resolve` 带出工作区；
+6. **Linux 包能启动**：AppImage（或 deb）在干净环境启动，中文字体/输入法至少手工验证一次。
 
 任何一项失败，都应该在 2 周内停下重新选路线，而不是继续堆 UI。
 
@@ -156,15 +183,15 @@ Android 有 app sandbox + scoped storage；Windows 进程以当前用户权限�
 - provider/模型/密钥、assistant、conversation；
 - workspace + 文件工具 + 导入/导出；
 - Markdown、代码高亮、图片附件（先支持 JPEG/PNG/WebP）；
-- SSH 五个工具 + 每会话授权 + limits；
-- Settings、中英文资源、安装包（MSI/EXE，带 JRE）。
+- 七个 SSH 工具 + 每会话授权 + limits；
+- Settings、中英文资源、安装包（MSI/EXE、AppImage/deb/rpm，带 JRE）。
 
 ### Phase 2：6–10 周接近 parity
 
 - snapshot/rewind、per-conversation tools、上下文压缩；
 - 备份/恢复、通知/托盘、Open with/拖放；
 - 图片 HEIC 决策、剪贴板/键盘完整化；
-- Windows 签名、自动更新、崩溃报告、性能/内存/大 transcript 测试。
+- Windows 签名、Linux 包签名/仓库、崩溃报告、性能/内存/大 transcript 测试。
 
 ---
 
@@ -174,11 +201,12 @@ Android 有 app sandbox + scoped storage；Windows 进程以当前用户权限�
 
 具体建议：
 
-1. 保留 Android app 原样，新建 `:desktop`（Compose Desktop）和共享的 `:core` 提取层；
-2. 先把 `:core:common`、`:core:ai`、`:core:files` 变成 JVM/KMP 共享模块，Android 继续依赖它们；
-3. 再处理 `:core:data` 的 Room/SecureStore/备份平台实现；
-4. UI 用 CMP 逐屏迁移，先聊天和设置，不要一次搬 20k 行；
-5. 不添加本地 shell/终端工具；那会把“工作区隔离”变成“用户账户权限”；
-6. 不在桌面版默认引入 host 列表/凭据仓库；SSH 的行为保持不变。
+1. **一个仓库**，不要拆两个 repo；保留 Android app 的 Compose UI；
+2. 新建 `:desktopApp`，Windows/Linux 共用一套 **Compose Desktop UI**；
+3. 先把 `:core:common`、`:core:ai`、`:core:files` 变成 JVM/KMP 共享模块，Android 继续依赖它们；
+4. 再处理 `:core:data` 的 Room/SecureStore/备份平台实现，以及 `:core:app` 的对话/工具/授权引擎；
+5. **不要现在把 Android UI 迁到 CMP**；等 CMP Material3/Lifecycle 稳定、桌面 MVP 证明值得，再按屏幕迁移；
+6. 不添加本地 shell/终端工具；那会把“工作区隔离”变成“用户账户权限”；
+7. 不在桌面版默认引入 host 列表/凭据仓库；SSH 的行为保持不变。
 
-如果目标只是“我在 Windows 上偶尔用一下”，**Android 模拟器**更便宜；如果目标是“Windows 成为正式客户端”，上面这条 CMP 路线是合理的，但请先做 spike，不要先承诺 3 个月。
+如果目标只是“我在 Windows 上偶尔用一下”，**Android 模拟器**更便宜；如果目标是“Windows 和 Linux 成为正式客户端”，先做 spike，再按上面的顺序推进，不要先承诺一套共享 UI。

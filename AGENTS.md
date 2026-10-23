@@ -23,7 +23,7 @@ architecture from scratch:
 | `docs/09-approvals.md` | The approval model: why the default is no prompts at all, how per-tool, per-assistant and per-path rules compose, and what of it is built |
 | `docs/10-diagnostics.md` | The flight recorder: what is logged, what is deliberately not, where the file lives and how to share it |
 | `docs/11-conversation-tools.md` | The conversation-level tool sheet: who may change it, the assistant ceiling, when it applies, and why it is not a new SSH exception |
-| `docs/12-desktop-port.md` | The measured Windows/desktop port assessment: what can be reused, what must be rebuilt, the CMP/Room/DPAPI risks, and the 2-week spike |
+| `docs/12-desktop-port.md` | The measured Windows/Linux desktop port assessment: what can be reused, what must be rebuilt, the KMP/CMP/Room/DPAPI risks, and the 2-week spike |
 | `docs/port-assessment.md`, `docs/port-design.md` | The measured feasibility and the plan |
 
 `docs/07-gotchas.md` is the one to read before changing anything in a hurry.
