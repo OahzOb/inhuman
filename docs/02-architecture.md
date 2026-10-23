@@ -32,11 +32,10 @@ both `:core:data` and `:desktopApp` use one schema.
 `:core:engine` is the first extraction of the turn loop: it streams a provider,
 assembles tool calls, asks an `EngineApproval` hook, executes tools and repeats
 until the model answers without a call or a budget is hit. It does **not** own
-persistence, snapshots, compaction or SSH policy yet. The desktop window uses it,
-and the Android demo path now bridges it into the real transcript/UI; real
-providers still use `ChatViewModel.runTurnLegacy`, which owns the SSH and
-approval plumbing. Moving that path over is the next refactor, not a claim
-already made here.
+full persistence/snapshot/compaction parity yet. The desktop window, the Android
+demo path and Android non-SSH provider turns use it; SSH turns and the
+no-provider/no-model fallback still use `ChatViewModel.runTurnLegacy`, which owns
+the SSH consent and legacy recovery plumbing.
 Three things about this graph are deliberate and are commented where they
 are declared:
 

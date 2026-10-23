@@ -386,18 +386,22 @@ compiles clean, and that is worth keeping. `:core:common`, `:core:ai`, `:core:fi
 now; `:desktopApp` is the Compose Desktop spike and consumes the same jars.
 `:core:db` owns the Room schema, and both the Android app and desktop use the
 same generated database implementation. `:core:engine` is the extracted turn
-loop; the desktop window and the Android demo path use it, while real providers
-still use `ChatViewModel.runTurnLegacy` until that integration lands.
+loop; the desktop window, the Android demo path and the Android non-SSH provider
+path use it. SSH turns and the no-provider/no-model fallback still use
+`ChatViewModel.runTurnLegacy`.
 
-Two tests are skipped by default. `DeepSeekWebLiveTest` talks to the real Search
-and Fetch APIs and needs a key (and spends money). `SshLiveProbeTest` lists `/tmp`,
-downloads `/etc/hostname` and runs the fixed `ssh_probe` snapshot from a real host
-when `INHUMAN_SSH_HOST`/`INHUMAN_SSH_USER`/`INHUMAN_SSH_PASSWORD` are set; it
-never uploads, writes or runs an arbitrary remote command. `RealProviderProbeTest`
-runs only when the device already has a DeepSeek key; it makes one `/models` call
-and is a no-op otherwise. The `:core:data` instrumentation suite (migrations,
-workspace lifetime, provider profiles, the documents provider) needs a device; its
-list and current count are in `docs/README.md`.
+Two tests are skipped by default, plus one opt-in live engine check.
+`DeepSeekWebLiveTest` talks to the real Search and Fetch APIs and needs a key (and
+spends money). `EngineLiveTest` makes one small real chat completion when
+`DEEPSEEK_LIVE_KEY` is set; it is skipped otherwise. `SshLiveProbeTest` lists
+`/tmp`, downloads `/etc/hostname` and runs the fixed `ssh_probe` snapshot from a
+real host when `INHUMAN_SSH_HOST`/`INHUMAN_SSH_USER`/`INHUMAN_SSH_PASSWORD` are
+set; it never uploads, writes or runs an arbitrary remote command.
+`RealProviderProbeTest` runs only when the device already has a DeepSeek key; it
+makes one `/models` call and is a no-op otherwise. The `:core:data`
+instrumentation suite (migrations, workspace lifetime, provider profiles, the
+documents provider) needs a device; its list and current count are in
+`docs/README.md`.
 
 Release builds sign from `keystore.properties` when present and fall back to the
 debug key otherwise. The keystore and properties are gitignored; losing them

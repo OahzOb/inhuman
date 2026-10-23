@@ -2073,20 +2073,33 @@ class ChatViewModel(
 	 * what was asked, appends the results, and goes round again.
 	 */
 	/**
-	 * Normal turns still go through the legacy loop for real providers. Demo
-	 * mode is the first Android consumer of :core:engine: it exercises the same
-	 * tool loop with no key and no network, which is what makes the bridge
-	 * testable before it is trusted with a billed request.
+	 * Real providers without SSH use the shared engine; SSH keeps the legacy
+	 * path until the consent/policy plumbing is moved. Demo always uses the
+	 * engine, which is how the bridge was validated first.
 	 */
 	private suspend fun runTurn(
 		demo: Boolean,
 		includeTools: Boolean = true,
 		suppressToolCalls: Boolean = false,
 	) {
-		if (demo) {
-			runTurnWithEngine(includeTools, suppressToolCalls)
+		val provider: ChatProvider? =
+			if (demo) {
+				DemoProvider()
+			} else {
+				agents.provider(providerId)?.let { agents.providerFromRow(it) }
+			}
+		val turnModel = model ?: agent?.model ?: if (demo) {
+			demoModelsIfEnabled(true)?.firstOrNull()?.id
 		} else {
-			runTurnLegacy(demo = false, includeTools, suppressToolCalls)
+			agents.models(providerId).getOrNull()?.firstOrNull()?.id
+		}
+		val selected = conversation?.tools ?: agent?.tools
+		val usesSsh = selected?.any { it.startsWith("ssh_") } == true
+
+		if (provider != null && turnModel != null && !usesSsh) {
+			runTurnWithEngine(provider, turnModel, includeTools, suppressToolCalls)
+		} else {
+			runTurnLegacy(demo, includeTools, suppressToolCalls)
 		}
 	}
 
@@ -2100,11 +2113,11 @@ class ChatViewModel(
 	 * before moving the billed path over.
 	 */
 	private suspend fun runTurnWithEngine(
+		provider: ChatProvider,
+		turnModel: String,
 		includeTools: Boolean,
 		suppressToolCalls: Boolean,
 	) {
-		val provider: ChatProvider = DemoProvider()
-		val turnModel = model ?: agent?.model ?: "demo-model"
 		val policies = loadPolicies()
 		val tools = if (includeTools && !suppressToolCalls) buildTools(policies) else emptyList()
 		val maxRounds = toolRoundLimit()
@@ -2302,6 +2315,10 @@ class ChatViewModel(
 							call.index,
 							if (event.result.isError) ToolCallUi.State.Failed else ToolCallUi.State.Done,
 						)
+						if (tools.firstOrNull { it.name == event.call.name }?.mutates == true) {
+							updateMessage(id) { it.copy(mutated = true) }
+							repository.markMutated(id)
+						}
 					}
 
 					is EngineEvent.ToolCallSkipped -> {
@@ -2327,6 +2344,7 @@ class ChatViewModel(
 					}
 				}
 			}
+			captureCheckpointAfterGroup()
 		} catch (e: kotlinx.coroutines.CancellationException) {
 			throw e
 		} finally {
