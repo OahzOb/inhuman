@@ -910,6 +910,24 @@ The engine path now calls `buildWireHistory(includeCurrent = true)`. The phone
 transcript is the reason the parameter is visible at that call site rather than
 hidden behind a default.
 
+### B31. Moving the checkpoint store to `:core:db` silently disabled every checkpoint — **FIXED**
+
+`SnapshotStore` serialises its manifests with kotlinx.serialization. The file
+moved to `:core:db`, which applied the JVM and KSP plugins but not
+`kotlin.plugin.serialization`; `:core:data` had applied it, so the move compiled
+clean. At runtime `Json.encodeToString(manifest)` threw `SerializationException`
+because no serializer had been generated, and `capture()` wraps its work in
+`runCatching` and returned `false` -- which the caller reads as "the snapshot
+could not be taken". The visible result on Android would have been every local
+mutation refused, a workspace that could not be written, while the build and
+every compile check passed.
+
+Four `SnapshotStoreTest` cases in `:core:data` caught it on the first full run,
+at `assertTrue(SnapshotStore.capture(...))`. The serialization plugin is now in
+`core/db/build.gradle`, with a comment at the plugin declaration. The general
+trap: moving a file can lose a **compiler** plugin the old module supplied, and a
+`runCatching` on the moved code turns that exception into a silent `false`.
+
 ## C. Comments that contradict the code
 
 By this repository's standard, the comment is the bug. These were all verified.

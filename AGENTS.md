@@ -384,14 +384,18 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
 warning output is empty as well as the error output — this tree currently
 compiles clean, and that is worth keeping. `:core:common`, `:core:ai`,
 `:core:files`, `:core:db` and `:core:engine` are plain JVM modules now;
-`:desktopApp` is the Compose Desktop spike and consumes the same jars.
-`:core:db` owns the Room schema, and both the Android app and desktop use the
-same generated database implementation. `:core:engine` is the turn loop; the
-desktop window and every Android provider turn use it, SSH included. SSH
-consent, approval, the start checkpoint and argument normalisation are injected
-through the engine's approval hook from `ChatViewModel.gateEngineCall`; a
-missing provider or model is refused before the engine starts. There is no
-second turn loop.
+`:desktopApp` is the Compose Desktop chat and consumes the same jars.
+`:core:db` owns the Room schema *and* the platform-free repositories
+(`ConversationRepository`, `AgentRepository`, `PolicyRepository`,
+`SnapshotStore`); `:core:data` is the Android adapter (Keystore `SecureStore`,
+`Database.open(context)`, backup, `DocumentsProvider`). Repositories take a
+`DataPaths` and, where needed, a `SecretStore` -- never a `Context` -- which is
+what lets the desktop open the same database and workspace layout.
+`:core:engine` is the turn loop; the desktop window and every Android provider
+turn use it, SSH included. SSH consent, approval, the start checkpoint and
+argument normalisation are injected through the engine's approval hook from
+`ChatViewModel.gateEngineCall`; a missing provider or model is refused before
+the engine starts. There is no second turn loop.
 
 Two tests are skipped by default, plus one opt-in live engine check.
 `DeepSeekWebLiveTest` talks to the real Search and Fetch APIs and needs a key (and

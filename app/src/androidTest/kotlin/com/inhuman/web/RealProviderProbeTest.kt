@@ -3,6 +3,7 @@ package com.inhuman.web
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.inhuman.core.data.AgentRepository
+import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.ProviderIds
 import com.inhuman.core.data.secret.SecureStore
 import kotlinx.coroutines.runBlocking
@@ -31,7 +32,7 @@ class RealProviderProbeTest {
 	fun deepSeekKeyAnswersModels() {
 		val context = InstrumentationRegistry.getInstrumentation().targetContext
 		val secure = SecureStore(context)
-		val agents = AgentRepository(context, secure)
+		val agents = AgentRepository(Database.open(context), secure)
 		// No key is not a failure: this probe exists for the device that has one.
 		if (!agents.hasKey(ProviderIds.DEEPSEEK)) return
 		runBlocking {

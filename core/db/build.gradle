@@ -1,5 +1,11 @@
 plugins {
 	alias(libs.plugins.kotlin.jvm)
+	// SnapshotStore serialises its manifests, so the compiler plugin has to be
+	// here, not just the json runtime. Without it `capture` compiled and then
+	// returned false at runtime: the serializer was never generated, the
+	// `runCatching` swallowed the SerializationException, and every rollback
+	// checkpoint silently failed.
+	alias(libs.plugins.kotlin.serialization)
 	alias(libs.plugins.ksp)
 }
 
@@ -20,9 +26,17 @@ ksp {
 }
 
 dependencies {
-	// The database, entities and DAOs are the public surface of this module.
+	// The database, entities, DAOs and the platform-free repositories are the
+	// public surface of this module.
 	api libs.androidx.room.runtime
 	api libs.kotlinx.coroutines.core
+	// `ConversationRepository.workspace` returns a `SessionWorkspace`, and the
+	// policy/agent repositories expose `PolicySet`, `RemoteModel` and
+	// `ChatProvider`. They are part of this module's API, not an implementation
+	// detail.
+	api project(':core:ai')
+	api project(':core:files')
+	implementation project(':core:common')
 	implementation libs.kotlinx.serialization.json
 	ksp libs.androidx.room.compiler
 

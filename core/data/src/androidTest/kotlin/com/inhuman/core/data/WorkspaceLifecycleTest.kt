@@ -37,7 +37,7 @@ class WorkspaceLifecycleTest {
 		db = Room.inMemoryDatabaseBuilder(context, InhumanDatabase::class.java)
 			.allowMainThreadQueries()
 			.build()
-		repository = ConversationRepository(context, db)
+		repository = ConversationRepository(db, DataPaths(context.filesDir))
 	}
 
 	@After

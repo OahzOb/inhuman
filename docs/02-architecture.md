@@ -8,7 +8,7 @@ Verified against each module's `build.gradle`:
 desktopApp ──┬──> core:common
              ├──> core:ai      (plain JVM)
              ├──> core:files   (plain JVM)
-             ├──> core:db      (plain JVM, Room schema)
+             ├──> core:db      (plain JVM, schema + repositories)
              └──> core:engine  (plain JVM, first turn-loop slice)
 
 app ──────────┬──> core:common  (plain JVM)
@@ -26,8 +26,12 @@ the diagram leaves that leaf edge out rather than drawing three lines to the sam
 node. `:core:common`, `:core:ai`, `:core:files`, `:core:db` and `:core:engine` are
 **plain Kotlin/JVM modules** now, not Android libraries: the desktop spike depends
 on the same jars the Android app consumes. `:core:data` and `:core:design` remain
-Android-only; `:core:db` owns the Room entities, DAOs, database and migrations so
-both `:core:data` and `:desktopApp` use one schema.
+Android-only. `:core:db` owns the Room entities, DAOs, database, migrations and
+the platform-free repositories; `:core:data` is the Android adapter around it
+(`Database.open(context)`, the Keystore-backed `SecureStore`, the encrypted
+backup and the `DocumentsProvider`). The split is what lets the desktop host
+create a conversation and append messages against the same schema without a
+`Context`.
 
 `:core:engine` is the turn loop: it streams a provider, assembles tool calls,
 asks an `EngineApproval` hook, executes tools and repeats until the model

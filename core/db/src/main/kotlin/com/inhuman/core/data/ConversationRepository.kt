@@ -1,11 +1,10 @@
 package com.inhuman.core.data
 
-import android.content.Context
-import androidx.room.withTransaction
+import androidx.room.immediateTransaction
+import androidx.room.useWriterConnection
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.ConversationStore
-import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.InhumanDatabase
 import com.inhuman.core.data.db.MessageEntity
 import com.inhuman.core.data.db.ToolsColumn
@@ -89,26 +88,24 @@ data class WorkspaceBulkDelete(
  * which of those is true.
  */
 class ConversationRepository(
-	context: Context,
-	private val db: InhumanDatabase = Database.open(context),
-) {
-
+	private val db: InhumanDatabase,
 	/**
-	 * The application context, never the one that was passed in.
+	 * Where workspaces and rollback snapshots live.
 	 *
-	 * A caller inside a composable hands over `LocalContext.current`, which is
-	 * the **Activity**. This repository is held by a view model, which outlives
-	 * a configuration change, so storing the Activity meant a rotated screen
-	 * left the destroyed one -- and its whole view hierarchy -- reachable until
-	 * the process ended. `SecureStore` and `Database` already take the
-	 * application context; this makes the repositories do the same rather than
-	 * leaving the rule to whoever happens to call them.
+	 * Injected rather than read from `context.filesDir` so this repository runs
+	 * on the desktop JVM too. Android passes `DataPaths(context.filesDir)`; the
+	 * directory layout is unchanged, so an existing install opens the same
+	 * files.
 	 */
-	private val appContext: Context = context.applicationContext
+	private val paths: DataPaths,
+) {
 
 	private val store = ConversationStore(db)
 
 	fun observeAll(): Flow<List<ConversationEntity>> = db.conversations().observeAll()
+
+	/** A one-shot list, for a host that has no flow collection at start-up. */
+	suspend fun all(): List<ConversationEntity> = db.conversations().all()
 
 	/**
 	 * Search conversation titles and the user/assistant text inside them.
@@ -221,7 +218,7 @@ class ConversationRepository(
 
 	/** Open a workspace by id, for the Files screen when no conversation is open. */
 	fun workspace(workspaceId: String) =
-		SessionWorkspace.open(Database.workspaceDir(appContext, workspaceId))
+		SessionWorkspace.open(paths.workspaceDir(workspaceId))
 
 	fun observeWorkspace(workspaceId: String): Flow<WorkspaceEntity?> =
 		db.workspaces().observe(workspaceId)
@@ -232,7 +229,7 @@ class ConversationRepository(
 
 	/** The absolute app-private directory shown to the user, never to the agent. */
 	fun workspacePath(workspaceId: String): String =
-		Database.workspaceDir(appContext, workspaceId).absolutePath
+		paths.workspaceDir(workspaceId).absolutePath
 
 	fun observePermanentWorkspaces(): Flow<List<WorkspaceEntity>> =
 		db.workspaces().observePermanent()
@@ -264,7 +261,7 @@ class ConversationRepository(
 			updatedAt = now,
 		)
 		db.workspaces().upsert(workspace)
-		Database.workspaceDir(appContext, workspace.id).mkdirs()
+		paths.workspaceDir(workspace.id).mkdirs()
 		return workspace
 	}
 
@@ -279,7 +276,7 @@ class ConversationRepository(
 		val workspace = db.workspaces().byId(conversation.workspaceId) ?: return null
 		if (workspace.isPermanent) return workspace
 		val now = System.currentTimeMillis()
-		Database.workspaceDir(appContext, workspace.id).mkdirs()
+		paths.workspaceDir(workspace.id).mkdirs()
 		db.workspaces().promote(
 			id = workspace.id,
 			name = name.trim().ifBlank { conversation.title.ifBlank { "Workspace" } },
@@ -305,7 +302,7 @@ class ConversationRepository(
 	suspend fun deleteWorkspace(workspace: WorkspaceEntity): Boolean {
 		if (!workspace.isPermanent) return false
 		if (db.workspaces().conversationCount(workspace.id) > 0) return false
-		Database.workspaceDir(appContext, workspace.id).deleteRecursively()
+		paths.workspaceDir(workspace.id).deleteRecursively()
 		db.workspaces().delete(workspace.id)
 		return true
 	}
@@ -314,9 +311,8 @@ class ConversationRepository(
 	 * The approval rules.
 	 *
 	 * Reached through this repository rather than constructed by the view model
-	 * so that both share the one `InhumanDatabase` instance -- `Database.open`
-	 * is a singleton, but a second `PolicyRepository(context)` would rely on
-	 * that being true rather than being handed the same object.
+	 * so that both use the one `InhumanDatabase` the host passed in, rather than
+	 * opening a second instance against the same file.
 	 */
 	fun policies(): PolicyRepository = policyRepository
 
@@ -417,7 +413,7 @@ class ConversationRepository(
 			createdAt = now,
 			updatedAt = now,
 		)
-		Database.workspaceDir(appContext, resolvedWorkspace).mkdirs()
+		paths.workspaceDir(resolvedWorkspace).mkdirs()
 		db.conversations().upsert(conversation)
 		return conversation
 	}
@@ -443,7 +439,7 @@ class ConversationRepository(
 		val workspace = db.workspaces().byId(conversation.workspaceId)
 		val temporary = workspace == null || !workspace.isPermanent
 		if (temporary) {
-			Database.workspaceDir(appContext, conversation.workspaceId).deleteRecursively()
+			paths.workspaceDir(conversation.workspaceId).deleteRecursively()
 		}
 		rollbackDir(conversation.id).deleteRecursively()
 		store.deleteConversation(conversation.id)
@@ -491,7 +487,7 @@ class ConversationRepository(
 			}
 			if (!clean) return@forEach
 			runCatching {
-				Database.workspaceDir(appContext, workspace.id).deleteRecursively()
+				paths.workspaceDir(workspace.id).deleteRecursively()
 				db.workspaces().delete(workspace.id)
 			}.onSuccess { deletedWorkspaces++ }
 				.onFailure {
@@ -539,7 +535,7 @@ class ConversationRepository(
 		}
 		staleTemp.forEach { workspace ->
 			runCatching {
-				Database.workspaceDir(appContext, workspace.id).deleteRecursively()
+				paths.workspaceDir(workspace.id).deleteRecursively()
 			}
 			db.workspaces().delete(workspace.id)
 		}
@@ -547,7 +543,7 @@ class ConversationRepository(
 		workspaces.removeAll { it.id in staleIds }
 
 		val known = workspaces.mapTo(mutableSetOf()) { it.id }
-		val doomed = orphanedWorkspaces(Database.workspacesRoot(appContext), known)
+		val doomed = orphanedWorkspaces(paths.workspacesRoot, known)
 
 		doomed.forEach { dir ->
 			runCatching { dir.deleteRecursively() }
@@ -608,7 +604,7 @@ class ConversationRepository(
 		val all = db.messages().all(conversationId)
 		if (all.none { it.id == rootId }) return
 		val doomed = descendantIds(all, rootId)
-		db.withTransaction {
+		transaction {
 			for (id in doomed) db.messages().delete(id)
 			if (parentId != null) db.messages().setSelectedChild(parentId, null)
 			db.conversations().touch(conversationId, System.currentTimeMillis())
@@ -626,12 +622,26 @@ class ConversationRepository(
 		val all = db.messages().all(conversationId)
 		if (all.none { it.id == afterId }) return
 		val doomed = descendantIds(all, afterId) - afterId
-		db.withTransaction {
+		transaction {
 			for (id in doomed) db.messages().delete(id)
 			db.messages().setSelectedChild(afterId, null)
 			db.conversations().touch(conversationId, System.currentTimeMillis())
 		}
 	}
+
+	/**
+	 * Run [block] in one write transaction.
+	 *
+	 * `RoomDatabase.withTransaction` is an Android-only room-ktx extension, so it
+	 * cannot live in this module. `useWriterConnection` plus an immediate
+	 * transaction is the same operation through the KMP API: BEGIN IMMEDIATE
+	 * avoids the upgrade deadlock a deferred transaction can hit when two
+	 * writers both try to go from a read to a write lock.
+	 */
+	private suspend fun <R> transaction(block: suspend () -> R): R =
+		db.useWriterConnection { transactor ->
+			transactor.immediateTransaction { block() }
+		}
 
 	private fun descendantIds(all: List<MessageEntity>, rootId: String): Set<String> {
 		val doomed = mutableSetOf(rootId)
@@ -648,7 +658,7 @@ class ConversationRepository(
 	}
 
 	private fun rollbackDir(conversationId: String): File =
-		Database.rollbackDir(appContext, conversationId)
+		paths.rollbackDir(conversationId)
 
 	suspend fun hasStartCheckpoint(conversationId: String, token: String): Boolean =
 		hasCheckpoint(conversationId, token, SnapshotStore.START)

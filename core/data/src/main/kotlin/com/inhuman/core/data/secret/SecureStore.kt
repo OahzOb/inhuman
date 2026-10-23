@@ -43,7 +43,7 @@ import javax.crypto.spec.GCMParameterSpec
 class SecureStore(
 	context: Context,
 	private val prefsName: String = "inhuman.secure",
-) {
+) : SecretStore {
 
 	private val prefs = context.applicationContext
 		.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
@@ -100,7 +100,7 @@ class SecureStore(
 		return generator.generateKey()
 	}
 
-	fun put(key: String, value: String) {
+	override fun put(key: String, value: String) {
 		val cipher = Cipher.getInstance(TRANSFORMATION)
 		cipher.init(Cipher.ENCRYPT_MODE, secretKey())
 
@@ -112,7 +112,7 @@ class SecureStore(
 		prefs.edit().putString(key, encoded).apply()
 	}
 
-	fun get(key: String): String? {
+	override fun get(key: String): String? {
 		val stored = prefs.getString(key, null) ?: return null
 		val parts = stored.split(':', limit = 2)
 		if (parts.size != 2) return null
@@ -141,11 +141,11 @@ class SecureStore(
 		}
 	}
 
-	fun remove(key: String) {
+	override fun remove(key: String) {
 		prefs.edit().remove(key).apply()
 	}
 
-	fun has(key: String): Boolean = prefs.contains(key)
+	override fun has(key: String): Boolean = prefs.contains(key)
 
 	/**
 	 * Whether a secret is present, decryptable, **and non-empty**.
@@ -161,7 +161,7 @@ class SecureStore(
 	 * encodes is the one the callers already assume: `ChatViewModel` uses this
 	 * answer to decide whether the composer is usable.
 	 */
-	fun hasUsable(key: String): Boolean = !get(key).isNullOrBlank()
+	override fun hasUsable(key: String): Boolean = !get(key).isNullOrBlank()
 
 	private fun b64(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.NO_WRAP)
 
@@ -173,8 +173,8 @@ class SecureStore(
 		private const val TRANSFORMATION = "AES/GCM/NoPadding"
 		private const val TAG_BITS = 128
 
-		/** Preference key for the DeepSeek API key. */
-		const val KEY_DEEPSEEK_API_KEY = "deepseek.api_key"
+		/** Preference key for the DeepSeek API key. The shared constant. */
+		const val KEY_DEEPSEEK_API_KEY = SecretStore.KEY_DEEPSEEK_API_KEY
 
 		/** Search/fetch credentials, deliberately independent of the chat key. */
 		const val KEY_WEB_DEEPSEEK_API_KEY = "web.deepseek.api_key"

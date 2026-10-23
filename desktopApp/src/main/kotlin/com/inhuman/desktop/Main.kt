@@ -74,20 +74,26 @@ private val DesktopColors = darkColorScheme(
 
 private data class Line(val role: Role, val text: String, val reasoning: String = "")
 
-fun main() = application {
-	Window(
-		onCloseRequest = ::exitApplication,
-		title = "inhuman · desktop spike",
-		state = rememberWindowState(width = 900.dp, height = 620.dp),
-	) {
-		MaterialTheme(colorScheme = DesktopColors) {
-			DesktopSpike()
+fun main() {
+	val store = DesktopStore.open()
+	application {
+		Window(
+			onCloseRequest = {
+				store.close()
+				exitApplication()
+			},
+			title = "inhuman · desktop",
+			state = rememberWindowState(width = 900.dp, height = 620.dp),
+		) {
+			MaterialTheme(colorScheme = DesktopColors) {
+				DesktopSpike(store)
+			}
 		}
 	}
 }
 
 @Composable
-private fun DesktopSpike() {
+private fun DesktopSpike(store: DesktopStore) {
 	val lines = remember { mutableStateListOf<Line>() }
 	val provider = remember { DemoProvider(chunkDelayMillis = 8) }
 	val scope = rememberCoroutineScope()
@@ -96,38 +102,70 @@ private fun DesktopSpike() {
 	var streaming by remember { mutableStateOf(false) }
 	var reasoning by remember { mutableStateOf("") }
 	var answer by remember { mutableStateOf("") }
+	// The newest row in the persisted conversation; each new message hangs off
+	// it so the stored tree, not just the list on screen, is a transcript.
+	var lastId by remember { mutableStateOf<String?>(null) }
+	var loaded by remember { mutableStateOf(false) }
+
+	LaunchedEffect(Unit) {
+		val stored = store.load()
+		lines.addAll(
+			stored.messages.map { message ->
+				Line(
+					role = if (message.fromUser) Role.User else Role.Assistant,
+					text = message.text,
+					reasoning = message.reasoning,
+				)
+			},
+		)
+		lastId = stored.messages.lastOrNull()?.id
+		loaded = true
+	}
 
 	fun send() {
 		val text = input.trim()
-		if (text.isEmpty() || streaming) return
+		if (text.isEmpty() || streaming || !loaded) return
 		input = ""
-		lines += Line(Role.User, text)
 		reasoning = ""
 		answer = ""
 		streaming = true
+		val parentId = lastId
 		scope.launch {
-			val turn = EngineTurn(
-				model = "demo-model",
-				messages = lines
-					.filter { it.role == Role.User || it.role == Role.Assistant }
-					.map { ChatMessage(role = it.role, content = it.text) },
-				thinking = false,
-			)
 			try {
-				ChatEngine(provider).run(turn).collect { event ->
-					when (event) {
-						is EngineEvent.ReasoningDelta -> reasoning += event.text
-						is EngineEvent.TextDelta -> answer += event.text
-						is EngineEvent.Failed -> {
-							answer += "\n\n[stream failure] ${event.message}"
+				// Persist first: the request history below is built from `lines`,
+				// and a message that is on screen but not in the database would
+				// make the next launch a different conversation.
+				val user = store.appendUser(text, parentId)
+				lastId = user.id
+				lines += Line(Role.User, user.text)
+				val turn = EngineTurn(
+					model = "demo-model",
+					messages = lines
+						.filter { it.role == Role.User || it.role == Role.Assistant }
+						.map { ChatMessage(role = it.role, content = it.text) },
+					thinking = false,
+				)
+				try {
+					ChatEngine(provider).run(turn).collect { event ->
+						when (event) {
+							is EngineEvent.ReasoningDelta -> reasoning += event.text
+							is EngineEvent.TextDelta -> answer += event.text
+							is EngineEvent.Failed -> {
+								answer += "\n\n[stream failure] ${event.message}"
+							}
+							else -> Unit
 						}
-						else -> Unit
+					}
+				} finally {
+					if (answer.isNotBlank() || reasoning.isNotBlank()) {
+						val reply = store.appendAssistant(answer, reasoning, lastId)
+						lastId = reply.id
+						lines += Line(Role.Assistant, answer, reasoning)
 					}
 				}
 			} finally {
-				if (answer.isNotBlank() || reasoning.isNotBlank()) {
-					lines += Line(Role.Assistant, answer, reasoning)
-				}
+				// Also covers a failed insert: without this the composer would
+				// stay locked for the rest of the session.
 				streaming = false
 				answer = ""
 				reasoning = ""
@@ -274,7 +312,8 @@ private fun EmptyState() {
 			fontWeight = FontWeight.Light,
 		)
 		Text(
-			"这段回复由 core:ai 的 DemoProvider 流式生成，没有网络、没有密钥。",
+			"这段回复由 core:ai 的 DemoProvider 流式生成，没有网络、没有密钥。" +
+				"消息写进桌面数据库，关掉窗口再打开还在。",
 			fontSize = 15.sp,
 			color = Muted,
 			modifier = Modifier.padding(top = 12.dp),

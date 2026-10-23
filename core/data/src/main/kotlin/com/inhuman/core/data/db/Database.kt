@@ -2,10 +2,8 @@ package com.inhuman.core.data.db
 
 import android.content.Context
 import androidx.room.Room
-import androidx.room.RoomDatabase
-import androidx.sqlite.SQLiteConnection
-import androidx.sqlite.execSQL
 import com.inhuman.core.common.diag.Diag
+import com.inhuman.core.data.DataPaths
 import java.io.File
 
 /**
@@ -28,47 +26,22 @@ object Database {
 	private fun build(context: Context): InhumanDatabase {
 		Diag.i("db", "opening ${InhumanDatabase.NAME}")
 		return try {
+			// The list and the seeding callback live in `:core:db`, because the
+			// desktop host builds from a file path and must install the same
+			// set. A host-local copy of either is how an upgrade path goes
+			// missing.
+			//
+			// Deliberately no fallbackToDestructiveMigration. It would make a
+			// missing migration look like a successful upgrade while deleting
+			// every conversation, and the whole point of writing the migration
+			// is that the data is the user's.
 			Room.databaseBuilder(
 				context.applicationContext,
 				InhumanDatabase::class.java,
 				InhumanDatabase.NAME,
 			)
-				.addMigrations(
-					InhumanDatabase.MIGRATION_1_2,
-					InhumanDatabase.MIGRATION_2_3,
-					InhumanDatabase.MIGRATION_3_4,
-					InhumanDatabase.MIGRATION_4_5,
-					InhumanDatabase.MIGRATION_5_6,
-					InhumanDatabase.MIGRATION_6_7,
-					InhumanDatabase.MIGRATION_7_8,
-					InhumanDatabase.MIGRATION_8_9,
-					InhumanDatabase.MIGRATION_9_10,
-					InhumanDatabase.MIGRATION_10_11,
-					InhumanDatabase.MIGRATION_11_12,
-					InhumanDatabase.MIGRATION_12_13,
-				)
-				// Deliberately no fallbackToDestructiveMigration. It would make
-				// a missing migration look like a successful upgrade while
-				// deleting every conversation, and the whole point of writing
-				// the migration is that the data is the user's.
-				.addCallback(object : RoomDatabase.Callback() {
-					override fun onCreate(connection: SQLiteConnection) {
-						super.onCreate(connection)
-						// Seeded in onCreate rather than on first read, so a
-						// conversation is never created without an assistant to
-						// attach to. A lazily-created default would mean the very
-						// first conversation has none, which is exactly the case
-						// the default exists for.
-						InhumanDatabase.seedDefaultProvider(connection)
-						InhumanDatabase.seedDefaultAgent(connection)
-						Diag.i("db", "created ${InhumanDatabase.NAME}")
-					}
-
-					override fun onOpen(connection: SQLiteConnection) {
-						super.onOpen(connection)
-						Diag.i("db", "opened ${InhumanDatabase.NAME}")
-					}
-				})
+				.addMigrations(*InhumanDatabase.MIGRATIONS)
+				.addCallback(InhumanDatabase.callback())
 				.build()
 		} catch (e: Exception) {
 			// A schema that will not open takes the app with it. The crash
@@ -105,13 +78,20 @@ object Database {
 		needs and no more.
 	""".trimIndent()
 
-	/** Directory holding one workspace per conversation. */
+	/**
+	 * The Android view of the directories `DataPaths` owns.
+	 *
+	 * Delegated rather than re-derived: the backup code and the instrumentation
+	 * tests reach for these, while the repositories take `DataPaths` directly.
+	 * Two copies of `files/conversations/<id>` is how a test ends up asserting a
+	 * layout the app no longer uses.
+	 */
 	fun workspacesRoot(context: Context): File =
-		File(context.filesDir, "conversations").apply { mkdirs() }
+		DataPaths(context.filesDir).workspacesRoot
 
 	/** The workspace directory for one conversation. */
 	fun workspaceDir(context: Context, workspaceId: String): File =
-		File(workspacesRoot(context), workspaceId)
+		DataPaths(context.filesDir).workspaceDir(workspaceId)
 
 	/**
 	 * Rollback snapshots live outside `conversations/`: they are not workspace
@@ -119,8 +99,8 @@ object Database {
 	 * recurse into the snapshot itself.
 	 */
 	fun rollbackRoot(context: Context): File =
-		File(context.filesDir, "rollback").apply { mkdirs() }
+		DataPaths(context.filesDir).rollbackRoot
 
 	fun rollbackDir(context: Context, conversationId: String): File =
-		File(rollbackRoot(context), conversationId)
+		DataPaths(context.filesDir).rollbackDir(conversationId)
 }

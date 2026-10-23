@@ -31,7 +31,7 @@ class ConversationSearchTest {
 		db = Room.inMemoryDatabaseBuilder(context, InhumanDatabase::class.java)
 			.allowMainThreadQueries()
 			.build()
-		repository = ConversationRepository(context, db)
+		repository = ConversationRepository(db, DataPaths(context.filesDir))
 		runBlocking {
 			db.workspaces().upsert(
 				WorkspaceEntity(

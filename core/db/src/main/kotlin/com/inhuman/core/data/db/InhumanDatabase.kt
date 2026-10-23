@@ -11,6 +11,7 @@ import androidx.room.Update
 import androidx.room.migration.Migration
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.execSQL
+import com.inhuman.core.common.diag.Diag
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -766,6 +767,52 @@ abstract class InhumanDatabase : RoomDatabase() {
 					"CREATE INDEX IF NOT EXISTS index_context_summaries_conversationId " +
 						"ON context_summaries (conversationId)",
 				)
+			}
+		}
+
+		/**
+		 * Every migration, in order.
+		 *
+		 * A host that builds the database itself must not copy this list. The
+		 * Android host has `Room.databaseBuilder(context, ...)`; the desktop host
+		 * builds from a file path, and forgetting one entry there would turn a
+		 * schema upgrade into a failure the moment a desktop install is older
+		 * than the code.
+		 */
+		val MIGRATIONS = arrayOf(
+			MIGRATION_1_2,
+			MIGRATION_2_3,
+			MIGRATION_3_4,
+			MIGRATION_4_5,
+			MIGRATION_5_6,
+			MIGRATION_6_7,
+			MIGRATION_7_8,
+			MIGRATION_8_9,
+			MIGRATION_9_10,
+			MIGRATION_10_11,
+			MIGRATION_11_12,
+			MIGRATION_12_13,
+		)
+
+		/**
+		 * What every host installs, on create and on open.
+		 *
+		 * The seeding lives here rather than in an anonymous callback in
+		 * `:core:data` because the desktop host has no `Context` builder to put
+		 * one in, and an install with no default assistant would create
+		 * conversations with nothing to attach to.
+		 */
+		fun callback(): RoomDatabase.Callback = object : RoomDatabase.Callback() {
+			override fun onCreate(connection: SQLiteConnection) {
+				super.onCreate(connection)
+				seedDefaultProvider(connection)
+				seedDefaultAgent(connection)
+				Diag.i("db", "created $NAME")
+			}
+
+			override fun onOpen(connection: SQLiteConnection) {
+				super.onOpen(connection)
+				Diag.i("db", "opened $NAME")
 			}
 		}
 

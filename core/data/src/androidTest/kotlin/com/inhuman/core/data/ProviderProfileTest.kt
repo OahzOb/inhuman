@@ -23,8 +23,8 @@ class ProviderProfileTest {
 
 	private val context: Context get() = InstrumentationRegistry.getInstrumentation().targetContext
 	private val db = Database.open(context)
-	private val agents = AgentRepository(context, SecureStore(context, "provider-test"), db)
-	private val conversations = ConversationRepository(context, db)
+	private val agents = AgentRepository(db, SecureStore(context, "provider-test"))
+	private val conversations = ConversationRepository(db, DataPaths(context.filesDir))
 
 	@Test
 	fun aConversationCopiesItsAssistantsProvider() = runBlocking {

@@ -34,12 +34,12 @@ Nine Gradle modules; `_research/` and `tools/` are not modules:
 app                      UI, theme, entry point, all ViewModels
 core/common              platform-free shared code (the diagnostics facade)
 core/design              colour, type, theme, layout constants
-core/data                repositories, Keystore-backed secrets, DocumentsProvider
-core/db                  Room entities, DAOs, database, migrations  (plain JVM)
+core/data                Android adapters: Keystore secrets, Database.open, backup, DocumentsProvider
+core/db                  Room schema + platform-free repositories       (plain JVM)
 core/engine              the turn loop, shared with the desktop host (plain JVM)
 core/ai                  provider + streaming + tools                (plain JVM)
 core/files               the workspace sandbox and the 8 file tools  (plain JVM)
-desktopApp               the Compose Desktop spike
+desktopApp               the Compose Desktop chat, persisted through core:db
 _research/               background investigations, kept as evidence — not compiled
 tools/                   PowerShell device-driving and verification scripts
 docs/                    this set

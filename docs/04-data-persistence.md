@@ -1,13 +1,24 @@
 # 04 — Data: Room, repositories, secrets, and the files outside Room
 
-Module: `:core:data`. It re-exports `:core:files`, `:core:ai` and `:core:db` with
-`api`, because a conversation's lifecycle spans the sandbox that guards it, the
-provider that answers it and the schema that stores it.
+Module: `:core:db` for the schema and the platform-free repositories, `:core:data`
+for the Android adapters. `:core:data` re-exports `:core:files`, `:core:ai` and
+`:core:db` with `api`, because a conversation's lifecycle spans the sandbox that
+guards it, the provider that answers it and the schema that stores it.
 
-`:core:db` is a plain JVM module: it owns the Room entities, DAOs, database and
-migrations, and both `:core:data` (Android) and `:desktopApp` depend on it. The
-Android builder stays in `:core:data`; only the Android-specific `Context` and
-driver setup live there.
+`:core:db` is a plain JVM module: it owns the Room entities, DAOs, database,
+migrations and the repositories (`ConversationRepository`, `AgentRepository`,
+`PolicyRepository`, `SnapshotStore`). The repositories take an `InhumanDatabase`,
+a `DataPaths` and -- for the agent repository -- a `SecretStore`, rather than an
+Android `Context`. `:core:data` holds the Android side: `Database.open(context)`,
+the Keystore-backed `SecureStore`, the encrypted backup and the
+`DocumentsProvider`. This is what lets the desktop host create a conversation
+and append messages against the same schema and directory layout.
+
+Both hosts install the same `InhumanDatabase.MIGRATIONS` and
+`InhumanDatabase.callback()`: Android's `Database.open(context)` adds the
+`Context` builder, while the desktop builds from a file path with
+`BundledSQLiteDriver`. The callback seeds the DeepSeek provider and the default
+assistant on create, so a desktop install is not a second, empty schema.
 
 ## The schema, version 13
 
@@ -295,11 +306,14 @@ The app-level suite adds 3 tests for web-key isolation; see
 
 ### `ConversationRepository`
 
-`core/data/src/main/kotlin/com/inhuman/core/data/ConversationRepository.kt`. It
-holds `appContext = context.applicationContext` (`:76`) for a stated reason: the
-caller passes an Activity from a composable while the repository is held by a
-view model, and retaining the Activity leaked a destroyed view hierarchy
-(`:65-75`).
+`core/db/src/main/kotlin/com/inhuman/core/data/ConversationRepository.kt`. It
+takes the database and a `DataPaths` rather than a `Context`: the directories are
+`DataPaths(filesDir)`, so Android opens the same `files/conversations/<id>` and
+`files/rollback/<conversationId>` layout it always did, and the desktop host can
+pass its own root. The old constructor retained `context.applicationContext` for
+a stated reason — the caller passes an Activity from a composable while the
+repository is held by a view model, and retaining the Activity leaked a destroyed
+view hierarchy — which `DataPaths` removes rather than works around.
 
 - `Conversation(entity, messages)` exposes only the **active branch**, not every
   row (`:16-26`).
@@ -329,7 +343,10 @@ view model, and retaining the Activity leaked a destroyed view hierarchy
 
 ### `AgentRepository`
 
-`core/data/src/main/kotlin/com/inhuman/core/data/AgentRepository.kt`.
+`core/db/src/main/kotlin/com/inhuman/core/data/AgentRepository.kt`. It takes the
+database and a `SecretStore`; the key slot for the built-in DeepSeek provider is
+`SecretStore.KEY_DEEPSEEK_API_KEY`, and Android's `SecureStore` re-exports the
+same constant so existing call sites did not move.
 
 - `DEFAULT_NEW_AGENT_TOOLS` is an **explicit 10-name list**, deliberately not
   `null` (`:81-98`). `null` means "every tool, including future ones" — right for
@@ -352,7 +369,11 @@ view model, and retaining the Activity leaked a destroyed view hierarchy
 
 ## `SecureStore`: where the API key lives
 
-`core/data/src/main/kotlin/com/inhuman/core/data/secret/SecureStore.kt`.
+`core/data/src/main/kotlin/com/inhuman/core/data/secret/SecureStore.kt`. It
+implements `SecretStore`
+(`core/db/src/main/kotlin/com/inhuman/core/data/secret/SecretStore.kt`), the
+platform-free interface the repository uses; a desktop host supplies DPAPI or a
+Secret Service binding with the same key names.
 
 - Backing store is a **plain `SharedPreferences`** named `inhuman.secure`
   (`:44-48`) holding one value per key: `base64(iv):base64(ciphertext)`. Nothing
@@ -395,9 +416,10 @@ filesDir/rollback/<conversationId>/<user-id>/
   manifests/<checkpoint>.json
 ```
 
-`Database.workspacesRoot` creates the parent on every call and `workspaceDir`
-joins the id (`core/data/src/main/kotlin/com/inhuman/core/data/db/Database.kt:81-88`).
-The name is the opaque `workspaceId`, never the display name.
+`DataPaths` (`core/db/src/main/kotlin/com/inhuman/core/data/DataPaths.kt`) creates
+the parents on access and joins the id; the Android `Database.workspacesRoot`
+remains for the backup code and the instrumentation tests. The name is the opaque
+`workspaceId`, never the display name.
 
 The directory name still says `conversations/` for compatibility: migration
 10→11 moved no files, and keeping the path meant every existing workspace
@@ -411,7 +433,7 @@ them. Moving a device is an explicit export, not an invisible copy.
 
 ### Rollback checkpoints
 
-`Database.rollbackDir` is outside `conversations/` on purpose: checkpoints are
+`DataPaths.rollbackDir` is outside `conversations/` on purpose: checkpoints are
 not workspace content, must not appear in Files, and must not be reachable by
 the sandbox. A turn directory is keyed by the user message id. Its `blobs/` are
 content-addressed file versions; a manifest maps relative paths to hashes. The

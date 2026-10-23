@@ -24,6 +24,8 @@ import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.BackupRepository
 import com.inhuman.core.data.ConversationRepository
+import com.inhuman.core.data.DataPaths
+import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.core.design.InhumanTheme
 import com.inhuman.core.design.LayoutPreference
@@ -105,8 +107,9 @@ private fun InhumanRoot(
 			LayoutPreference.fromStored(secure.get(SecureStore.KEY_LAYOUT_PREFERENCE)),
 		)
 	}
-	val repository = remember { ConversationRepository(context) }
-	val agents = remember { AgentRepository(context, secure) }
+	val db = remember { Database.open(context) }
+	val repository = remember { ConversationRepository(db, DataPaths(context.filesDir)) }
+	val agents = remember { AgentRepository(db, secure) }
 	val backup = remember { BackupRepository(context) }
 
 	// Clear out workspace directories that no conversation refers to.

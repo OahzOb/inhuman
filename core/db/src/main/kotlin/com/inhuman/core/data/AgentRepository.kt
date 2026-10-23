@@ -1,15 +1,13 @@
 package com.inhuman.core.data
 
-import android.content.Context
 import com.inhuman.core.ai.ChatProvider
 import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
 import com.inhuman.core.data.db.AgentEntity
-import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.InhumanDatabase
 import com.inhuman.core.data.db.ProviderIds
 import com.inhuman.core.data.db.ProviderProfileEntity
-import com.inhuman.core.data.secret.SecureStore
+import com.inhuman.core.data.secret.SecretStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -34,19 +32,9 @@ import java.util.UUID
  * appearing in the picker.
  */
 class AgentRepository(
-	context: Context,
-	private val secure: SecureStore,
-	private val db: InhumanDatabase = Database.open(context),
+	private val db: InhumanDatabase,
+	private val secure: SecretStore,
 ) {
-
-	/**
-	 * The application context, never the one that was passed in.
-	 *
-	 * The caller is a composable, so the argument is the Activity, and this
-	 * object is reachable from a view model that survives a configuration
-	 * change. See the same note in `ConversationRepository`.
-	 */
-	private val appContext: Context = context.applicationContext
 
 	private val modelsLock = Mutex()
 	private val cachedModels = mutableMapOf<String, List<RemoteModel>>()
@@ -109,7 +97,7 @@ class AgentRepository(
 
 	/** The secure slot a profile's key lives in. DeepSeek keeps the legacy slot. */
 	fun apiKeySlot(providerId: String): String =
-		if (providerId == ProviderIds.DEEPSEEK) SecureStore.KEY_DEEPSEEK_API_KEY
+		if (providerId == ProviderIds.DEEPSEEK) SecretStore.KEY_DEEPSEEK_API_KEY
 		else "provider.$providerId.api_key"
 
 	fun hasKey(providerId: String): Boolean =

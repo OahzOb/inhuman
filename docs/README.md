@@ -109,7 +109,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :desktopApp:test --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 476 tests in 64 suites, 0 failures, 3 skipped** — the skips
+**BUILD SUCCESSFUL, 481 tests in 66 suites, 0 failures, 3 skipped** — the skips
 are `DeepSeekWebLiveTest`, which talks to the real paid Search and Fetch APIs and
 needs `DEEPSEEK_LIVE_KEY`; `EngineLiveTest`, which makes one real chat completion
 when the same key is set; and `SshLiveProbeTest`, which needs
@@ -122,10 +122,10 @@ was empty. Suite by suite:
 | `:core:files` | 5 | 58 |
 | `:app` | 16 | 110 |
 | `:core:common` | 2 | 16 |
-| `:core:db` | 2 | 2 |
+| `:core:db` | 3 | 6 |
 | `:core:engine` | 2 | 10 (1 skipped) |
 | `:core:data` | 3 | 17 |
-| `:desktopApp` | 4 | 7 |
+| `:desktopApp` | 5 | 8 |
 
 The count grows with every fix that lands with a test, so treat the total as a
 baseline to re-measure rather than a fact to quote: the command above is the
@@ -189,16 +189,18 @@ throughout.
 | A path becoming a `File`; the confinement rules | `core/files/…/SessionWorkspace.kt` |
 | Import/export and name collisions | `core/files/…/WorkspaceTransfer.kt` |
 | HTTP, SSE, the decoder, model list, chat request shape | `core/ai/src/main/kotlin/com/inhuman/core/ai/provider/deepseek/` |
-| Provider profiles, provider-specific model cache, key slots | `core/data/…/AgentRepository.kt`, `ui/chat/SettingsViewModel.kt` |
+| Provider profiles, provider-specific model cache, key slots | `core/db/…/AgentRepository.kt`, `ui/chat/SettingsViewModel.kt` |
 | Demo mode's script and its magic words | `provider/demo/DemoProvider.kt` |
 | What was recorded before a bug, and how to get the log | `core/common/src/main/kotlin/com/inhuman/core/common/diag/`, `app/src/main/kotlin/com/inhuman/diagnostics/AppDiagnostics.kt` |
 | Tables, queries, ordering, migrations | `core/db/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`, `db/Entities.kt` |
-| Creating/deleting conversations, the orphan sweep | `core/data/…/ConversationRepository.kt` |
-| Assistants' persistence and the model cache | `core/data/…/AgentRepository.kt` |
+| Creating/deleting conversations, the orphan sweep | `core/db/…/ConversationRepository.kt` |
+| Assistants' persistence and the model cache | `core/db/…/AgentRepository.kt` |
+| The workspace/rollback directories, injected | `core/db/…/DataPaths.kt` |
 | The API key at rest | `core/data/…/secret/SecureStore.kt` |
 | What the system Files app can do to a workspace | `core/data/…/provider/WorkspaceDocumentsProvider.kt` |
 | Theme, type, hairlines, measure, wordmark | `core/design/src/main/kotlin/com/inhuman/core/design/` |
 | Driving the app and reading its UI | `tools/build-and-shot.ps1`, `tools/device-flow.ps1`, `tools/UiDump.psm1` |
+| The desktop host's database and transcript | `desktopApp/…/DesktopStore.kt` |
 
 Three files carry more weight than their size suggests, and breaking either of
 the first two restores a bug rather than adding one: `SessionWorkspace.kt` (the
