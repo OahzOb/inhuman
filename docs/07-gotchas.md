@@ -662,10 +662,10 @@ hiding the evidence. The correction is structural:
   mutation; after each completed tool group capture another checkpoint;
 - rollback restores `start` **before** deleting any rows; a failed restore
   leaves the conversation intact;
-- `ssh_exec` and `ssh_upload` are tagged `reversible = false`; a turn containing
-  either gets no Edit/rollback point, only the reason. `ssh_download` is remote
-  but writes a workspace copy, so it stays reversible. **Answer again** is still
-  available.
+- `ssh_exec`, `ssh_upload` and `ssh_write_file` are tagged `reversible = false`;
+  a turn containing any of them gets no Edit/rollback point, only the reason.
+  `ssh_download` is remote but writes a workspace copy, so it stays reversible.
+  **Answer again** is still available.
 
 Snapshots are per turn and per tool group. The chat menu lists each stored turn
 with its checkpoint count, bytes and timestamp, totals them, and sets retention

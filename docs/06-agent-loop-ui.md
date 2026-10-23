@@ -515,11 +515,12 @@ before "Allow SSH"; Cancel and Back both decline.
 
 The body follows the selected tools. `ssh_exec` present -> "run any command";
 `ssh_upload` without exec -> read/download/upload, explicitly "cannot run
-commands"; only list/read/download -> read-only text, no upload and no commands.
-The warning changes with it, so a read-only grant is not told that the agent can
-delete data or stop services. Adding `ssh_exec` or `ssh_upload` to a grant that
-did not have it clears `sshAllowed`, so the next call asks again; adding
-`ssh_list`/`ssh_read_file` does not.
+commands"; only `ssh_write_file` -> text-write body; only probe/list/read/download
+-> read-only text, no upload and no arbitrary commands. The warning changes with
+it, so a read-only grant is not told that the agent can delete data or stop
+services. Adding `ssh_exec`, `ssh_upload` or `ssh_write_file` to a grant that did
+not have it clears `sshAllowed`, so the next call asks again; adding `ssh_probe`,
+`ssh_list` or `ssh_read_file` does not.
 
 The checkbox sits **above** the long warning, not after it. On a phone the body
 scrolls; with the checkbox last it fell below the fold, so "Allow SSH" was
@@ -546,10 +547,12 @@ allowed. A stored remote name survives an edit made while SSH is off, so
 switching SSH off does not silently forget the selection. See
 [11-conversation-tools.md](11-conversation-tools.md).
 
-An inspection profile is just a selection: `ssh_list` + `ssh_read_file` +
-`ssh_download`, with `ssh_exec` and `ssh_upload` unchecked. No mode, no second
-settings screen. `ssh_download` still works without `ssh_exec`; the tools are
-registered independently.
+An inspection profile is just a selection: `ssh_probe` + `ssh_list` +
+`ssh_read_file` + `ssh_download`, with `ssh_exec`, `ssh_upload` and
+`ssh_write_file` unchecked. No mode, no second settings screen. `ssh_download`
+still works without `ssh_exec`; the tools are registered independently. Add
+`ssh_write_file` for small config edits and `ssh_upload` for artifacts, still
+without giving the model a shell.
 
 ### Tool rows
 

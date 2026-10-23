@@ -61,20 +61,25 @@ its assistant never had.
 ## The read-only SSH profile
 
 The same mechanism is what makes a no-exec SSH profile possible. Select
-`ssh_list`, `ssh_read_file` and `ssh_download`, leave `ssh_exec` and `ssh_upload`
-unchecked, and the model can find a file, read a small text file, or copy one
-file into the workspace without a shell on the remote machine. The three tools
-are registered independently; `ssh_download` does not require `ssh_exec`.
+`ssh_probe`, `ssh_list`, `ssh_read_file` and `ssh_download`, leave `ssh_exec`,
+`ssh_upload` and `ssh_write_file` unchecked, and the model can inspect a host,
+find a file, read a small text file or its tail, or copy one file into the
+workspace without a shell on the remote machine. The tools are registered
+independently; `ssh_download` does not require `ssh_exec`.
 
-`ssh_list` is one SFTP `ls`, not `find`: no recursion, at most 500 rows.
-`ssh_read_file` is capped at 64 KiB and refuses binary, pointing at
-`ssh_download` instead of truncating. Upload is the only remote write in this
-profile and is a separate explicit choice.
+`ssh_probe` runs one fixed read-only script (OS, load, disk, failed units, ports,
+containers); it accepts no command. `ssh_list` is one SFTP `ls`, not `find`: no
+recursion, at most 500 rows. `ssh_read_file` reads the head up to 64 KiB or the
+last `tailLines` from a bounded tail window, and refuses binary instead of
+truncating. `ssh_write_file` is a separate text-write tool, and upload is the
+artifact path; both are remote writes and explicit choices.
 
-The consent text follows the selection (`SshConsent.canExec`/`canUpload`), so a
-read-only grant is not described as "run any command". Adding `ssh_exec` or
-`ssh_upload` to a read-only grant clears `sshAllowed`; the next call asks again
-with the new text. Adding `ssh_list`/`ssh_read_file` does not reset it.
+The consent text follows the selection
+(`SshConsent.canExec`/`canUpload`/`canWriteFile`), so a read-only grant is not
+described as "run any command". Adding `ssh_exec`, `ssh_upload` or
+`ssh_write_file` to a read-only grant clears `sshAllowed`; the next call asks
+again with the new text. Adding `ssh_probe`/`ssh_list`/`ssh_read_file` does not
+reset it.
 
 ## UI
 

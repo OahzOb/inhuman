@@ -119,16 +119,17 @@ class ConversationToolsTest {
 	}
 
 	@Test
-	fun `adding upload or exec resets consent`() {
+	fun `adding upload, write or exec resets consent`() {
 		val before = listOf("ssh_download")
 		assertTrue(widensDangerousSsh(before, before + "ssh_upload"))
+		assertTrue(widensDangerousSsh(before, before + "ssh_write_file"))
 		assertTrue(widensDangerousSsh(before, before + "ssh_exec"))
 		assertTrue(widensDangerousSsh(before, listOf("ssh_upload", "ssh_exec")))
 	}
 
 	@Test
 	fun `removing or repeating a tool does not reset consent`() {
-		val before = listOf("ssh_exec", "ssh_upload", "ssh_download")
+		val before = listOf("ssh_exec", "ssh_upload", "ssh_write_file", "ssh_download")
 		assertFalse(widensDangerousSsh(before, listOf("ssh_download")))
 		assertFalse(widensDangerousSsh(before, before))
 	}

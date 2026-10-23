@@ -12,14 +12,15 @@ paths; the absolute location is a user-facing detail.
 
 The sandbox is the point. It is enforced in code, not requested in a prompt.
 
-**One capability can leave the device.** The SSH tools (`ssh_list`,
-`ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_download`) are off by default,
-require the global Settings switch, must be selected explicitly on the assistant,
-and ask for a separate acknowledgement in each conversation before the first
-call. They can read and move files on a remote machine, and run commands only if
-`ssh_exec` is selected; the app has no remote-host or credential configuration,
-and the user supplies those to the agent. This is a deliberate exception to the
-local sandbox, not a "full access" mode.
+**One capability can leave the device.** The SSH tools (`ssh_probe`,
+`ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`,
+`ssh_download`) are off by default, require the global Settings switch, must be
+selected explicitly on the assistant, and ask for a separate acknowledgement in
+each conversation before the first call. They can inspect a host, read and write
+small files, move files, and run commands only if `ssh_exec` is selected; the app
+has no remote-host or credential configuration, and the user supplies those to
+the agent. This is a deliberate exception to the local sandbox, not a "full
+access" mode.
 
 ---
 
@@ -74,12 +75,14 @@ be reached without an account.
 | `write_file` `append_file` `create_directory` `move_file` | change the workspace |
 | `delete_file` | deletes from the folder; asks first only if a rule says so |
 | `read_time` | the clock, in the device zone and UTC, plus date arithmetic |
+| `ssh_probe` | one fixed read-only host snapshot; no command argument and no sudo |
 | `ssh_list` | list one remote directory over SFTP; read-only, no shell |
-| `ssh_read_file` | read one remote text file over SFTP; 64 KiB, binary refused |
+| `ssh_read_file` | read a remote text file, head or tail; 64 KiB, binary refused |
 | `web_search` | paid search through DeepSeek or Exa; own key, independent of the chat provider |
 | `web_fetch` | paid fetch through DeepSeek or Exa; own key, independent of the chat provider |
 | `ssh_exec` | one command on a remote machine; **off by default**, explicit assistant selection, per-conversation consent, no host config |
-| `ssh_upload` | copy a workspace file to the remote machine over SFTP; **NO REWIND**, default refuses to overwrite |
+| `ssh_upload` | copy a workspace file to the remote machine over SFTP; **NO REWIND**, default refuses to overwrite, can create parents |
+| `ssh_write_file` | write a small remote text file over SFTP; **NO REWIND**, no heredoc |
 | `ssh_download` | copy a remote file into the workspace over SFTP; **REWIND**, default refuses to overwrite |
 
 Every mutating tool carries a **REWIND** or **NO REWIND** badge beside its name,
@@ -136,19 +139,22 @@ table and the home tool summary, and are not sent in tool schemas. They must be
 enabled globally and selected explicitly on an assistant (the historical "all
 tools" selection does not include them), and show a dedicated warning the first
 time a conversation uses one. The warning text follows the selection: a
-list/read/download profile is told it cannot run commands or upload. After that
-they follow the normal approval policy, which defaults to running without asking.
-Remote commands and replaced remote files are not a workspace copy: some damage
-cannot be undone. The app has no host list and no credential store; it provides
-the transport, and the user gives the agent the host, user and password/key file.
-SSH tool arguments are redacted before the tool-call row is stored, but text
-typed into the conversation is still stored verbatim. Standard host-key checking
-is TOFU with `SHA256:` fingerprints, fail-closed on a changed key. `ssh_list`
-lists one directory over SFTP (no recursion, 500 entries), `ssh_read_file` reads
-one text file (64 KiB, binary refused), `ssh_upload` writes one workspace file
-over SFTP (1 MiB read limit), and `ssh_download` saves one remote file into the
-workspace (4 MiB write limit); both transfers refuse to overwrite unless asked.
-Details are in [docs/03-ai-provider.md](docs/03-ai-provider.md).
+probe/list/read/download profile is told it cannot run arbitrary commands or write
+files. After that they follow the normal approval policy, which defaults to
+running without asking. Remote commands and replaced remote files are not a
+workspace copy: some damage cannot be undone. The app has no host list and no
+credential store; it provides the transport, and the user gives the agent the
+host, user and password/key file. SSH tool arguments are redacted before the
+tool-call row is stored, but text typed into the conversation is still stored
+verbatim. Standard host-key checking is TOFU with `SHA256:` fingerprints,
+fail-closed on a changed key. `ssh_probe` runs one fixed read-only snapshot;
+`ssh_list` lists one directory over SFTP (no recursion, 500 entries);
+`ssh_read_file` reads one text file's head or last N lines (64 KiB, binary
+refused); `ssh_write_file` writes up to 64 KiB of text; `ssh_upload` writes one
+workspace file over SFTP (1 MiB read limit); and `ssh_download` saves one remote
+file into the workspace (4 MiB write limit). Upload, write and download refuse to
+overwrite unless asked. Details are in
+[docs/03-ai-provider.md](docs/03-ai-provider.md).
 
 Search results are excerpts, not pages. DeepSeek search cleans campaign
 parameters from links before the model sees them, because it cites them back;

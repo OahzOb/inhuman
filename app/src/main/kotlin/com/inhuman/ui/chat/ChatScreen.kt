@@ -1793,11 +1793,13 @@ private fun SshConsentDialog(
 	val body = when {
 		consent.canExec -> R.string.chat_ssh_body
 		consent.canUpload -> R.string.chat_ssh_body_upload
+		consent.canWriteFile -> R.string.chat_ssh_body_write_file
 		else -> R.string.chat_ssh_body_read_only
 	}
 	val warning = when {
 		consent.canExec -> R.string.chat_ssh_warning
 		consent.canUpload -> R.string.chat_ssh_warning_upload
+		consent.canWriteFile -> R.string.chat_ssh_warning_write_file
 		else -> R.string.chat_ssh_warning_read_only
 	}
 	AlertDialog(

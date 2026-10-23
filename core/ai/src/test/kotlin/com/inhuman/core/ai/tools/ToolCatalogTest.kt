@@ -148,7 +148,7 @@ class ToolCatalogTest {
 		assertEquals(
 			setOf(
 				"write_file", "append_file", "create_directory", "move_file",
-				"delete_file", "ssh_exec", "ssh_upload", "ssh_download",
+				"delete_file", "ssh_exec", "ssh_upload", "ssh_write_file", "ssh_download",
 			),
 			mutating,
 		)
@@ -158,7 +158,10 @@ class ToolCatalogTest {
 	fun `only the SSH tools are marked remote`() {
 		val remote = ToolCatalog.all.filter { it.remote }.map { it.name }.toSet()
 		assertEquals(
-			setOf("ssh_list", "ssh_read_file", "ssh_exec", "ssh_upload", "ssh_download"),
+			setOf(
+				"ssh_probe", "ssh_list", "ssh_read_file", "ssh_exec", "ssh_upload",
+				"ssh_write_file", "ssh_download",
+			),
 			remote,
 		)
 	}
@@ -166,9 +169,10 @@ class ToolCatalogTest {
 	@Test
 	fun `remote writes are irreversible but reads and a download are not`() {
 		val irreversible = ToolCatalog.all.filterNot { it.reversible }.map { it.name }.toSet()
-		assertEquals(setOf("ssh_exec", "ssh_upload"), irreversible)
+		assertEquals(setOf("ssh_exec", "ssh_upload", "ssh_write_file"), irreversible)
 		assertTrue(ToolCatalog.all.first { it.name == "delete_file" }.reversible)
 		assertTrue(ToolCatalog.all.first { it.name == "ssh_download" }.reversible)
+		assertTrue(ToolCatalog.all.first { it.name == "ssh_probe" }.reversible)
 		assertTrue(ToolCatalog.all.first { it.name == "ssh_list" }.reversible)
 		assertTrue(ToolCatalog.all.first { it.name == "ssh_read_file" }.reversible)
 	}

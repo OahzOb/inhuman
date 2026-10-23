@@ -10,6 +10,10 @@ data class SshFileResult(
 class SshDownloadedFile(
 	val bytes: ByteArray,
 	val hostFingerprint: String,
+	/** Where [bytes] began in the remote file; non-zero for a tail read. */
+	val startOffset: Long = 0,
+	/** The full remote size, when known. */
+	val totalBytes: Long = bytes.size.toLong(),
 )
 
 /** The kind of a remote directory entry, as SFTP reports it. */
@@ -50,6 +54,8 @@ interface SshFileTransport {
 		auth: SshAuth,
 		hostKeyFingerprint: String? = null,
 		overwrite: Boolean = false,
+		/** Create missing remote parent directories before writing. */
+		createParents: Boolean = false,
 		connectTimeoutMs: Int = SshTransport.DEFAULT_CONNECT_TIMEOUT_MS,
 	): SshFileResult
 
@@ -70,6 +76,26 @@ interface SshFileTransport {
 		maxBytes: Long,
 		connectTimeoutMs: Int = SshTransport.DEFAULT_CONNECT_TIMEOUT_MS,
 	): SshDownloadedFile
+
+	/**
+	 * Read the last [maxBytes] of [remotePath].
+	 *
+	 * Unlike [download], this does not fail when the file is larger than the
+	 * limit: it starts at `size - maxBytes`. [SshDownloadedFile.startOffset] says
+	 * where the returned bytes began, so the caller can drop a partial first
+	 * line before taking the last N lines.
+	 */
+	suspend fun downloadTail(
+		host: String,
+		port: Int,
+		username: String,
+		remotePath: String,
+		auth: SshAuth,
+		hostKeyFingerprint: String? = null,
+		maxBytes: Long,
+		connectTimeoutMs: Int = SshTransport.DEFAULT_CONNECT_TIMEOUT_MS,
+	): SshDownloadedFile =
+		throw UnsupportedOperationException("tail reads are not supported by this transport")
 
 	/**
 	 * List one remote directory.

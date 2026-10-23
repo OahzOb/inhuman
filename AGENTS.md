@@ -14,7 +14,7 @@ architecture from scratch:
 | --- | --- |
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
-| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the SSH tools (`ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_download`)** |
+| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)** |
 | `docs/04-data-persistence.md` | Room schema v13, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
@@ -54,10 +54,11 @@ Two consequences bind every future change, and neither is negotiable:
 - **The capability boundary must be statable in one sentence a person can
   read.** The default sentence is: *code runs on your device, sees only what you
   hand it, cannot reach the network, and cannot reach your files.* One exception
-  exists, and only one: **the SSH tools (`ssh_list`, `ssh_read_file`,
-  `ssh_exec`, `ssh_upload`, `ssh_download`), off by default, enabled globally,
-  selected explicitly on the assistant or the conversation, and granted once per
-  conversation.** When SSH is on, the agent can read files, transfer files, and —
+  exists, and only one: **the SSH tools (`ssh_probe`, `ssh_list`,
+  `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`),
+  off by default, enabled globally, selected explicitly on the assistant or the
+  conversation, and granted once per conversation.** When SSH is on, the agent
+  can inspect a host, read files, write small text files, transfer files, and —
   only if `ssh_exec` is selected — run commands on a remote machine whose address
   and credentials the user supplies; the app has no host/credential configuration
   and redacts SSH tool arguments before storage. Do not add another exception
@@ -91,8 +92,8 @@ true`, a filled `REMOTE` badge, a notice above the tool list, and a dedicated
 first-call consent dialog. The app never configures a host or a credential store;
 the user gives them to the agent. SSH tool arguments are redacted before the
 transcript is stored. The ordinary approval dialog must never show a password or
-private key — the SSH tools supply a redacted `details` string; `ssh_upload` is
-also `NO REWIND` because it replaces a remote file.
+private key — the SSH tools supply a redacted `details` string; `ssh_upload` and
+`ssh_write_file` are also `NO REWIND` because they replace remote files.
 The rules are `docs/08-port-philosophy.md` §1.2.1 and §1.5.
 
 Full reasoning, plus the design questions and how each was answered, is in
@@ -294,7 +295,7 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   message** choice in Rewind restores the `start` checkpoint, then removes the
   message and all descendants and restores text/attachments. A restore failure
   must leave the rows intact. A turn containing `reversible = false` (`ssh_exec`,
-  `ssh_upload`) gets no Edit/rollback choice at all.
+  `ssh_upload`, `ssh_write_file`) gets no Edit/rollback choice at all.
 - **Checkpoints are content-addressed, per turn and per completed tool group.**
   `start` plus group manifests live under
   `filesDir/rollback/<conversation>/<user-id>`. Retention is 1/3/5/10 turns; the
@@ -362,14 +363,14 @@ warning output is empty as well as the error output — this tree currently
 compiles clean, and that is worth keeping.
 
 Two tests are skipped by default. `DeepSeekWebLiveTest` talks to the real Search
-and Fetch APIs and needs a key (and spends money). `SshLiveProbeTest` lists `/tmp`
-and downloads `/etc/hostname` from a real host when
-`INHUMAN_SSH_HOST`/`INHUMAN_SSH_USER`/`INHUMAN_SSH_PASSWORD` are set; it never
-uploads, writes or runs a remote command. `RealProviderProbeTest` runs only
-when the device already has a DeepSeek key; it makes one `/models` call and is a
-no-op otherwise. The `:core:data` instrumentation suite (migrations, workspace
-lifetime, provider profiles, the documents provider) needs a device; its list and
-current count are in `docs/README.md`.
+and Fetch APIs and needs a key (and spends money). `SshLiveProbeTest` lists `/tmp`,
+downloads `/etc/hostname` and runs the fixed `ssh_probe` snapshot from a real host
+when `INHUMAN_SSH_HOST`/`INHUMAN_SSH_USER`/`INHUMAN_SSH_PASSWORD` are set; it
+never uploads, writes or runs an arbitrary remote command. `RealProviderProbeTest`
+runs only when the device already has a DeepSeek key; it makes one `/models` call
+and is a no-op otherwise. The `:core:data` instrumentation suite (migrations,
+workspace lifetime, provider profiles, the documents provider) needs a device; its
+list and current count are in `docs/README.md`.
 
 Release builds sign from `keystore.properties` when present and fall back to the
 debug key otherwise. The keystore and properties are gitignored; losing them

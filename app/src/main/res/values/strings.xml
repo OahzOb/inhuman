@@ -180,7 +180,7 @@
 	<string name="settings_demo_title">Demo mode</string>
 	<string name="settings_demo_body">Replies are scripted on the device, and the file tools run for real. Nothing is sent anywhere and no key is needed. With tools switched on it creates a file and then deletes it, so the tool loop runs end to end without an account.</string>
 	<string name="settings_ssh_title">SSH tool</string>
-	<string name="settings_ssh_body">Off by default. When on, an assistant can be given the SSH tools: ssh_list and ssh_read_file read remote files over SFTP, ssh_upload and ssh_download move files, and ssh_exec runs commands. Selecting only the read tools uses no shell; adding ssh_exec or ssh_upload later resets the conversation\'s consent. The app does not configure any remote machine: the agent uses whatever host and credentials the user gives it. The first SSH call in each conversation shows a consent warning matched to the selected tools; after that, normal tool policy applies. Depending on the selection, the agent can read files, replace files or run any command on the remote machine, which may be irreversible. SSH tool arguments are redacted before the transcript is stored, but text you type is still stored.</string>
+	<string name="settings_ssh_body">Off by default. When on, an assistant can be given the SSH tools: ssh_probe takes a read-only host snapshot, ssh_list and ssh_read_file read remote files over SFTP (with optional tailing), ssh_write_file writes a small text file, ssh_upload and ssh_download move files, and ssh_exec runs commands. Selecting only the read tools uses no shell; adding ssh_exec or ssh_upload later resets the conversation\'s consent. The app does not configure any remote machine: the agent uses whatever host and credentials the user gives it. The first SSH call in each conversation shows a consent warning matched to the selected tools; after that, normal tool policy applies. Depending on the selection, the agent can read files, replace files or run any command on the remote machine, which may be irreversible. SSH tool arguments are redacted before the transcript is stored, but text you type is still stored.</string>
 	<string name="settings_host_keys_none">No pinned host keys yet</string>
 	<string name="settings_host_keys_count">Pinned host keys (%1$d)</string>
 	<string name="settings_section_limits">04 / Turn limits</string>
@@ -461,6 +461,8 @@
 	<string name="tool_blurb_web_fetch">Fetch a page via the configured paid fetch API</string>
 	<string name="tool_blurb_ssh_list">List one remote directory</string>
 	<string name="tool_blurb_ssh_read_file">Read a remote text file</string>
+	<string name="tool_blurb_ssh_probe">Snapshot a remote Linux machine</string>
+	<string name="tool_blurb_ssh_write_file">Write a remote text file</string>
 	<string name="tool_blurb_ssh_exec">Run a command on another machine over SSH</string>
 	<string name="tool_blurb_ssh_upload">Send a workspace file to the remote machine</string>
 	<string name="tool_blurb_ssh_download">Copy a remote file into the workspace</string>
@@ -513,13 +515,15 @@
 	<string name="chat_ssh_title">Allow SSH in this conversation?</string>
 	<string name="chat_ssh_body">The agent will be able to connect to %1$s@%2$s, run any command there, and move files between this conversation\'s workspace and that machine. It can also connect to any other host it is given credentials for, without asking again in this conversation.</string>
 	<string name="chat_ssh_body_upload">The agent will be able to connect to %1$s@%2$s, read files there, download them into this conversation\'s workspace, and upload workspace files to that machine. It cannot run commands.</string>
-	<string name="chat_ssh_body_read_only">The agent will be able to connect to %1$s@%2$s, read files there, and download them into this conversation\'s workspace. It cannot upload files or run commands.</string>
+	<string name="chat_ssh_body_write_file">The agent will be able to connect to %1$s@%2$s, read and download files, and write small text files there. It cannot upload workspace files or run arbitrary commands.</string>
+	<string name="chat_ssh_body_read_only">The agent will be able to connect to %1$s@%2$s, read files there, and download them into this conversation\'s workspace. It cannot upload files or run arbitrary commands.</string>
 	<string name="chat_ssh_first_operation">First operation:\n%1$s</string>
 	<string name="chat_ssh_host_key">Pinned host key:\n%1$s</string>
 	<string name="chat_ssh_understand">I understand this may read or change data on the remote machine</string>
 	<string name="chat_ssh_warning">It can delete data, stop services, change access, install software, or expose files. Some damage cannot be undone. Prompt injection from a web page or a file can direct it.</string>
 	<string name="chat_ssh_warning_upload">It can read, upload and download remote files. Uploading can overwrite a remote file, and that cannot be undone. It cannot run commands.</string>
-	<string name="chat_ssh_warning_read_only">It can read remote files and download them into the workspace, where the content becomes part of the conversation. It cannot change remote files or run commands.</string>
+	<string name="chat_ssh_warning_write_file">It can write or replace a remote text file; that cannot be undone. It cannot run commands.</string>
+	<string name="chat_ssh_warning_read_only">It can read remote files and download them into the workspace, where the content becomes part of the conversation. It cannot change remote files or run arbitrary commands.</string>
 	<string name="chat_ssh_password_note">If you paste a password or key, it becomes part of this conversation and is sent to the configured model provider. A key file in the workspace stays on the device and is read locally. Depending on the selected tools, workspace files may be uploaded and remote files may be saved into the workspace; a read-only profile only downloads.</string>
 	<string name="chat_allow_ssh">Allow SSH</string>
 	<string name="ssh_operation_upload">Upload %1$s → %2$s</string>

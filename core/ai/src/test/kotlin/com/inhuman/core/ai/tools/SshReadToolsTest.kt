@@ -27,6 +27,8 @@ class SshReadToolsTest {
 		private val entries: List<SshRemoteEntry> = emptyList(),
 		private val file: ByteArray = "hello\n".toByteArray(),
 		private val failure: Exception? = null,
+		private val tailStart: Long = 0,
+		private val tailTotal: Long = file.size.toLong(),
 	) : SshFileTransport {
 		override suspend fun upload(
 			host: String,
@@ -37,6 +39,7 @@ class SshReadToolsTest {
 			auth: SshAuth,
 			hostKeyFingerprint: String?,
 			overwrite: Boolean,
+			createParents: Boolean,
 			connectTimeoutMs: Int,
 		): SshFileResult = error("upload is not used here")
 
@@ -52,6 +55,20 @@ class SshReadToolsTest {
 		): SshDownloadedFile {
 			failure?.let { throw it }
 			return SshDownloadedFile(file, "SHA256:abc")
+		}
+
+		override suspend fun downloadTail(
+			host: String,
+			port: Int,
+			username: String,
+			remotePath: String,
+			auth: SshAuth,
+			hostKeyFingerprint: String?,
+			maxBytes: Long,
+			connectTimeoutMs: Int,
+		): SshDownloadedFile {
+			failure?.let { throw it }
+			return SshDownloadedFile(file, "SHA256:abc", tailStart, tailTotal)
 		}
 
 		override suspend fun list(
@@ -143,6 +160,53 @@ class SshReadToolsTest {
 		}
 		assertTrue(SshListTool(FakeTransport()).execute(bare).isError)
 		assertTrue(SshReadFileTool(FakeTransport()).execute(bare).isError)
+	}
+
+	@Test
+	fun `tail returns the last requested lines`() = runBlocking {
+		val result = SshReadFileTool(
+			FakeTransport(file = "one\ntwo\nthree\nfour\n".toByteArray()),
+		).execute(args("remotePath" to "/var/log/app.log", "tailLines" to "2"))
+
+		assertFalse(result.isError)
+		assertTrue(result.content.contains("last 2 lines"))
+		assertTrue(result.content.contains("three"))
+		assertTrue(result.content.contains("four"))
+		assertFalse(result.content.contains("one"))
+	}
+
+	@Test
+	fun `tail drops a partial first line from a bounded window`() = runBlocking {
+		val result = SshReadFileTool(
+			FakeTransport(
+				file = "partial-line\nlast-1\nlast-2\n".toByteArray(),
+				tailStart = 100,
+				tailTotal = 400,
+			),
+		).execute(args("remotePath" to "/var/log/app.log", "tailLines" to "2"))
+
+		assertFalse(result.isError)
+		assertTrue(result.content.contains("last-1"))
+		assertTrue(result.content.contains("last-2"))
+		assertFalse(result.content.contains("partial-line"))
+	}
+
+	@Test
+	fun `tail refuses an unreasonable line count`() = runBlocking {
+		val result = SshReadFileTool(FakeTransport()).execute(
+			args("remotePath" to "/var/log/app.log", "tailLines" to "2001"),
+		)
+		assertTrue(result.isError)
+		assertTrue(result.content.contains("between 0 and 2000"))
+	}
+
+	@Test
+	fun `tail refuses a binary window`() = runBlocking {
+		val result = SshReadFileTool(
+			FakeTransport(file = byteArrayOf(0, 1, 2)),
+		).execute(args("remotePath" to "/tmp/blob", "tailLines" to "2"))
+		assertTrue(result.isError)
+		assertTrue(result.content.contains("binary"))
 	}
 
 	@Test

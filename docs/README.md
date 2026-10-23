@@ -31,10 +31,10 @@ and a future session that trusts them will start from a false premise:
 | "the chat screen applies [the cap] to the transcript *and* to the composer strip" | `AGENTS.md` | True for the transcript and composer, which share the 900dp `ChatMeasure`. User messages are 560dp bubbles; assistant replies have no bubble and a 900dp measure. Forms/settings still use 640dp. See [06](06-agent-loop-ui.md). |
 | "`writeText` is wrapped in `NonCancellable`" | `AGENTS.md:151` (now corrected) | It is the row insert at `ChatViewModel.kt:1040`, not the tool-layer `writeText`. |
 
-The tool table in `README.md` is worth trusting: sixteen tools, including
-`read_time`, `web_search`, `web_fetch`, `ssh_list`, `ssh_read_file`,
-`ssh_exec`, `ssh_upload` and `ssh_download`. What has drifted is the *prose*
-around mechanisms rather than the lists.
+The tool table in `README.md` is worth trusting: eighteen tools, including
+`read_time`, `web_search`, `web_fetch`, `ssh_probe`, `ssh_list`, `ssh_read_file`,
+`ssh_exec`, `ssh_upload`, `ssh_write_file` and `ssh_download`. What has drifted
+is the *prose* around mechanisms rather than the lists.
 
 The pattern is worth naming, because it is the one thing this docs set exists to
 prevent: **a description of a mechanism outlives the mechanism.** When a count, a
@@ -49,7 +49,7 @@ citation.
 | --- | --- |
 | [01-overview.md](01-overview.md) | What is this, which module holds what, what does the app actually do today, what is deliberately missing |
 | [02-architecture.md](02-architecture.md) | Module graph, dependency rule, how the app is wired at start-up, navigation, build toolchain, build/verify commands |
-| [03-ai-provider.md](03-ai-provider.md) | The provider interface and stream types, provider profiles, the OpenAI-compatible adapter, SSE decoding, demo mode, `web_search`/`web_fetch` and the paid backends behind them, and the SSH tools (`ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_download`) |
+| [03-ai-provider.md](03-ai-provider.md) | The provider interface and stream types, provider profiles, the OpenAI-compatible adapter, SSE decoding, demo mode, `web_search`/`web_fetch` and the paid backends behind them, and the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`) |
 | [04-data-persistence.md](04-data-persistence.md) | Room schema v13 and its exported versions, repositories, ordering rules, key storage, `DocumentsProvider`, orphan sweeps |
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the 8 file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | The turn lifecycle, tool-call execution, the approval gate, cancellation, context gauge, Compose layout rules |
@@ -108,7 +108,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :app:testDebugUnitTest --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 420 tests in 52 suites, 0 failures, 2 skipped** — the skips
+**BUILD SUCCESSFUL, 436 tests in 54 suites, 0 failures, 2 skipped** — the skips
 are `DeepSeekWebLiveTest`, which talks to the real paid Search and Fetch APIs and
 needs `DEEPSEEK_LIVE_KEY`, and `SshLiveProbeTest`, which needs
 `INHUMAN_SSH_HOST`/`USER`/`PASSWORD` for its read-only live check. Warn output
@@ -116,7 +116,7 @@ was empty. Suite by suite:
 
 | Module | Suites | Tests |
 | --- | --- | --- |
-| `:core:ai` | 26 | 220 (2 skipped) |
+| `:core:ai` | 28 | 236 (2 skipped) |
 | `:core:files` | 5 | 57 |
 | `:app` | 16 | 110 |
 | `:core:common` | 2 | 16 |

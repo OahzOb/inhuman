@@ -40,7 +40,7 @@ class SshUploadTool(
 		Use it to deploy a script or config you already wrote in the workspace instead of pasting the whole file into a command; it is binary-safe and avoids shell quoting.
 		The app has no host inventory or credential store: pass host, username and a way to authenticate, exactly as for ssh_exec. Prefer identityFile over a password or raw key.
 		The user is asked once per conversation, before the first SSH call, that the agent may reach the machines it is given. After that, normal tool policy applies.
-		Limit: $maxBytes bytes per call. An existing remote file is refused unless overwrite=true; overwriting it may be irreversible.
+		Limit: $maxBytes bytes per call. An existing remote file is refused unless overwrite=true; overwriting it may be irreversible. Set createParents=true to create a missing parent directory.
 	""".trimIndent()
 
 	override val parameters: Map<String, Any?> = mapOf(
@@ -52,11 +52,15 @@ class SshUploadTool(
 			),
 			"remotePath" to mapOf(
 				"type" to "string",
-				"description" to "Destination path on the remote machine; its parent directory must exist",
+				"description" to "Destination path on the remote machine; its parent must exist unless createParents=true",
 			),
 			"overwrite" to mapOf(
 				"type" to "boolean",
 				"description" to "Replace an existing remote file; default false",
+			),
+			"createParents" to mapOf(
+				"type" to "boolean",
+				"description" to "Create missing remote parent directories; default false",
 			),
 		),
 		"required" to listOf("host", "username", "localPath", "remotePath"),
@@ -97,6 +101,7 @@ class SshUploadTool(
 				auth = connection.auth,
 				hostKeyFingerprint = connection.hostKeyFingerprint,
 				overwrite = SshArguments.boolean(args, "overwrite"),
+				createParents = SshArguments.boolean(args, "createParents"),
 				connectTimeoutMs = SshTransport.DEFAULT_CONNECT_TIMEOUT_MS,
 			)
 			ToolResult.ok(

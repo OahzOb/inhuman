@@ -24,6 +24,8 @@ fun toolBlurb(entry: ToolCatalog.Entry): String = when (entry.name) {
 	"web_fetch" -> stringResource(R.string.tool_blurb_web_fetch)
 	"ssh_list" -> stringResource(R.string.tool_blurb_ssh_list)
 	"ssh_read_file" -> stringResource(R.string.tool_blurb_ssh_read_file)
+	"ssh_probe" -> stringResource(R.string.tool_blurb_ssh_probe)
+	"ssh_write_file" -> stringResource(R.string.tool_blurb_ssh_write_file)
 	"ssh_exec" -> stringResource(R.string.tool_blurb_ssh_exec)
 	"ssh_upload" -> stringResource(R.string.tool_blurb_ssh_upload)
 	"ssh_download" -> stringResource(R.string.tool_blurb_ssh_download)

@@ -218,6 +218,7 @@ class SshClient(private val knownHostsFile: File) : SshTransport, SshFileTranspo
 		auth: SshAuth,
 		hostKeyFingerprint: String?,
 		overwrite: Boolean,
+		createParents: Boolean,
 		connectTimeoutMs: Int,
 	): SshFileResult = withContext(Dispatchers.IO) {
 		require(remotePath.isNotBlank()) { "remotePath is required" }
@@ -233,6 +234,12 @@ class SshClient(private val knownHostsFile: File) : SshTransport, SshFileTranspo
 		try {
 			val sftp = ssh.newSFTPClient()
 			try {
+				if (createParents) {
+					val parent = remotePath.substringBeforeLast('/', "")
+					if (parent.isNotEmpty() && parent != "." && parent != "/") {
+						sftp.mkdirs(parent)
+					}
+				}
 				if (!overwrite && sftp.statExistence(remotePath) != null) {
 					throw SshException("remote file exists: $remotePath")
 				}
@@ -302,6 +309,72 @@ class SshClient(private val knownHostsFile: File) : SshTransport, SshFileTranspo
 		} catch (e: Exception) {
 			Diag.w("ssh", "download failed host=$host: ${e.message}")
 			throw SshException(e.message ?: "SFTP download failed", e)
+		} finally {
+			runCatching { ssh.close() }
+		}
+	}
+
+	override suspend fun downloadTail(
+		host: String,
+		port: Int,
+		username: String,
+		remotePath: String,
+		auth: SshAuth,
+		hostKeyFingerprint: String?,
+		maxBytes: Long,
+		connectTimeoutMs: Int,
+	): SshDownloadedFile = withContext(Dispatchers.IO) {
+		require(remotePath.isNotBlank()) { "remotePath is required" }
+		require(maxBytes > 0) { "maxBytes must be positive" }
+		val (ssh, knownHosts) = openConnection(
+			host = host,
+			port = port,
+			username = username,
+			auth = auth,
+			explicitFingerprint = hostKeyFingerprint,
+			connectTimeoutMs = connectTimeoutMs,
+			socketTimeoutMs = TRANSFER_TIMEOUT_MS,
+		)
+		try {
+			val sftp = ssh.newSFTPClient()
+			try {
+				val attributes = sftp.statExistence(remotePath)
+					?: throw SshException("remote file not found: $remotePath")
+				val total = attributes.size
+				val start = (total - maxBytes).coerceAtLeast(0)
+				val remote = sftp.open(remotePath, setOf(OpenMode.READ))
+				try {
+					val out = ByteArrayOutputStream((total - start).toInt().coerceAtLeast(64))
+					val buffer = ByteArray(TRANSFER_CHUNK)
+					var offset = start
+					while (offset < total) {
+						val want = minOf(buffer.size.toLong(), total - offset).toInt()
+						val read = remote.read(offset, buffer, 0, want)
+						if (read <= 0) break
+						out.write(buffer, 0, read)
+						offset += read
+					}
+					if (offset < total) {
+						throw SshException("remote file ended early: $offset of $total bytes")
+					}
+					val bytes = out.toByteArray()
+					Diag.i(
+						"ssh",
+						"tail done host=$host path=$remotePath bytes=${bytes.size} " +
+							"start=$start total=$total",
+					)
+					SshDownloadedFile(bytes, knownHosts.fingerprint.orEmpty(), start, total)
+				} finally {
+					runCatching { remote.close() }
+				}
+			} finally {
+				runCatching { sftp.close() }
+			}
+		} catch (e: SshException) {
+			throw e
+		} catch (e: Exception) {
+			Diag.w("ssh", "tail failed host=$host: ${e.message}")
+			throw SshException(e.message ?: "SFTP tail failed", e)
 		} finally {
 			runCatching { ssh.close() }
 		}

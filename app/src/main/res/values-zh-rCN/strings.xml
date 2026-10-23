@@ -166,7 +166,7 @@
 	<string name="settings_demo_title">演示模式</string>
 	<string name="settings_demo_body">回复由设备本地按脚本生成，文件工具会真实执行；不会向任何地方发送内容，也不需要密钥。开启工具后，它会先创建一个文件再删除，因此不用账号也能完整跑通工具循环。</string>
 	<string name="settings_ssh_title">SSH 工具</string>
-	<string name="settings_ssh_body">默认关闭。开启后，可以给助手授予 SSH 工具：ssh_list 和 ssh_read_file 通过 SFTP 读取远端文件，ssh_upload 和 ssh_download 传输文件，ssh_exec 执行命令。只选读取类工具就不经过 shell；之后再加 ssh_exec 或 ssh_upload 会重置这个对话的授权。应用不会配置任何远程机器，助手使用你提供的地址和凭据。每个对话首次调用 SSH 时会显示与所选工具匹配的授权提示，之后按普通工具策略执行。按选择不同，助手可以读取文件、替换文件或在远程机器上执行任意命令，这些操作可能无法撤销。SSH 工具参数在写入记录前会脱敏，但你输入的文本仍会被保存。</string>
+	<string name="settings_ssh_body">默认关闭。开启后，可以给助手授予 SSH 工具：ssh_probe 读取主机快照，ssh_list 和 ssh_read_file 通过 SFTP 读取远端文件（可只看末尾几行），ssh_write_file 写入小型文本文件，ssh_upload 和 ssh_download 传输文件，ssh_exec 执行命令。只选读取类工具就不经过 shell；之后再加 ssh_exec 或 ssh_upload 会重置这个对话的授权。应用不会配置任何远程机器，助手使用你提供的地址和凭据。每个对话首次调用 SSH 时会显示与所选工具匹配的授权提示，之后按普通工具策略执行。按选择不同，助手可以读取文件、替换文件或在远程机器上执行任意命令，这些操作可能无法撤销。SSH 工具参数在写入记录前会脱敏，但你输入的文本仍会被保存。</string>
 	<string name="settings_host_keys_none">还没有固定的主机密钥</string>
 	<string name="settings_host_keys_count">已固定 %1$d 个主机密钥</string>
 	<string name="settings_section_limits">04 / 轮次上限</string>
@@ -442,6 +442,8 @@
 	<string name="tool_blurb_web_fetch">通过配置的付费抓取 API 读取网页</string>
 	<string name="tool_blurb_ssh_list">列出一个远端目录</string>
 	<string name="tool_blurb_ssh_read_file">读取远端文本文件</string>
+	<string name="tool_blurb_ssh_probe">查看远端 Linux 机器状态</string>
+	<string name="tool_blurb_ssh_write_file">写入远端文本文件</string>
 	<string name="tool_blurb_ssh_exec">在另一台机器上通过 SSH 执行命令</string>
 	<string name="tool_blurb_ssh_upload">把工作区文件发送到远程机器</string>
 	<string name="tool_blurb_ssh_download">把远程文件复制到工作区</string>
@@ -494,13 +496,15 @@
 	<string name="chat_ssh_title">允许这个对话使用 SSH？</string>
 	<string name="chat_ssh_body">助手可以连接到 %1$s@%2$s，在那里执行任意命令，并在此对话的工作区和这台机器之间传输文件。它也可以连接任何你提供了凭据的主机，本对话中不再询问。</string>
 	<string name="chat_ssh_body_upload">助手可以连接到 %1$s@%2$s，读取该机器上的文件、把文件下载到此对话的工作区，也可以把工作区文件上传到该机器。它不能执行命令。</string>
-	<string name="chat_ssh_body_read_only">助手可以连接到 %1$s@%2$s，读取该机器上的文件，并把文件下载到此对话的工作区。它不能上传文件，也不能执行命令。</string>
+	<string name="chat_ssh_body_write_file">助手可以连接到 %1$s@%2$s，读取、下载文件，并写入小型文本文件。它不能上传工作区文件，也不能执行任意命令。</string>
+	<string name="chat_ssh_body_read_only">助手可以连接到 %1$s@%2$s，读取该机器上的文件，并把文件下载到此对话的工作区。它不能上传文件，也不能执行任意命令。</string>
 	<string name="chat_ssh_first_operation">第一个操作：\n%1$s</string>
 	<string name="chat_ssh_host_key">已固定主机密钥：\n%1$s</string>
 	<string name="chat_ssh_understand">我明白这可能读取或修改远端数据</string>
 	<string name="chat_ssh_warning">它可以删除数据、停止服务、修改权限、安装软件或泄露文件。有些损坏无法撤销。网页或文件中的提示注入可以操纵它。</string>
 	<string name="chat_ssh_warning_upload">它可以读取、上传和下载远端文件；上传可能覆盖远端文件，且无法撤销。它不能执行命令。</string>
-	<string name="chat_ssh_warning_read_only">它可以读取远端文件，下载的内容会进入工作区并成为对话的一部分。它不能修改远端文件，也不能执行命令。</string>
+	<string name="chat_ssh_warning_write_file">它可以写入或替换远端文本文件，且无法撤销。它不能执行命令。</string>
+	<string name="chat_ssh_warning_read_only">它可以读取远端文件，下载的内容会进入工作区并成为对话的一部分。它不能修改远端文件，也不能执行任意命令。</string>
 	<string name="chat_ssh_password_note">如果你粘贴密码或密钥，它会成为对话的一部分，并发送给配置的模型服务商。工作区里的密钥文件只在设备本地读取。按所选工具不同，工作区文件可能被上传、远程文件可能被下载到工作区；只读配置只下载。</string>
 	<string name="chat_allow_ssh">允许 SSH</string>
 	<string name="ssh_operation_upload">上传 %1$s → %2$s</string>

@@ -77,10 +77,11 @@ Confirmed by `README.md:17-29` and by the code:
   and allows it once per conversation; there is no host list or credential store,
   and SSH tool-call arguments are redacted before storage
   ([03-ai-provider.md](03-ai-provider.md)).
-- SSH also has a read-only profile: `ssh_list` and `ssh_read_file` browse over
-  SFTP without a shell, and `ssh_download` copies one file into the workspace.
-  An assistant can use those without `ssh_exec`; adding command or upload access
-  later resets the conversation's consent.
+- SSH also has a read-only profile: `ssh_probe` takes a fixed host snapshot,
+  `ssh_list` and `ssh_read_file` browse over SFTP without a shell (with optional
+  tailing), and `ssh_download` copies one file into the workspace. An assistant
+  can use those without `ssh_exec`; `ssh_write_file` adds small text edits, and
+  adding command or write access later resets the conversation's consent.
 - A conversation can change which of the assistant's tools it uses, from the chat
   menu, at a turn boundary. The assistant is the ceiling; the model cannot change
   the set; the next turn picks it up

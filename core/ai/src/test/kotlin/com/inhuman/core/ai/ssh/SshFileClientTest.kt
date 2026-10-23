@@ -108,6 +108,39 @@ class SshFileClientTest {
 	}
 
 	@Test(timeout = 30000)
+	fun `tail reads only the end of a file larger than the limit`() = runBlocking {
+		val content = ByteArray(300_000) { index -> (index % 251).toByte() }
+		Files.write(root.resolve("big.bin"), content)
+		val tail = SshClient(knownHosts.toFile()).downloadTail(
+			host = "127.0.0.1",
+			port = server.port,
+			username = "tester",
+			remotePath = "big.bin",
+			auth = SshAuth(password = "secret"),
+			maxBytes = 4096,
+		)
+		assertEquals(4096L, tail.bytes.size.toLong())
+		assertEquals(content.size.toLong() - 4096, tail.startOffset)
+		assertEquals(content.size.toLong(), tail.totalBytes)
+		assertArrayEquals(content.copyOfRange(content.size - 4096, content.size), tail.bytes)
+	}
+
+	@Test(timeout = 30000)
+	fun `upload can create missing parent directories`() = runBlocking {
+		SshClient(knownHosts.toFile()).upload(
+			host = "127.0.0.1",
+			port = server.port,
+			username = "tester",
+			remotePath = "new/deep/file.txt",
+			content = "hello".toByteArray(),
+			auth = SshAuth(password = "secret"),
+			overwrite = true,
+			createParents = true,
+		)
+		assertEquals("hello", Files.readString(root.resolve("new/deep/file.txt")))
+	}
+
+	@Test(timeout = 30000)
 	fun `an existing remote file is refused unless overwrite is true`() = runBlocking {
 		val client = SshClient(knownHosts.toFile())
 		Files.createDirectories(root.resolve("keep"))

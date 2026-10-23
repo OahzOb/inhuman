@@ -634,18 +634,31 @@ replay would run the remote command again) and `needsApproval = false`; the
 separate per-conversation consent gate is in `ChatViewModel`, and the ordinary
 `ToolPolicy` applies after it.
 
+`SshProbeTool` (`tools/SshProbeTool.kt`) is the read-only snapshot: one fixed
+script, no model-supplied command, no sudo. It reports OS, kernel, uptime, load,
+CPU count, memory, disk, inodes, failed systemd units, listening ports and Docker
+containers when those commands exist. It is `mutates = false` and can be selected
+without `ssh_exec`; a missing command becomes `unavailable`, not a failed probe.
+
 `SshListTool` (`tools/SshListTool.kt`) and `SshReadFileTool`
 (`tools/SshReadFileTool.kt`) are the SFTP-only read side. Neither runs a command,
-so an assistant can be configured with read/list/download and no `ssh_exec`:
+so an assistant can be configured with probe/list/read/download and no
+`ssh_exec`:
 
 - `ssh_list` calls `SFTPClient.ls` once, non-recursively; directories sort first,
   then names; at most 500 rows; each row is type, size, mtime and name.
-- `ssh_read_file` reuses the chunked `RemoteFile` read with a 64 KiB ceiling. It
-  refuses a NUL-containing file as binary and points at `ssh_download`; it does
-  not truncate a larger file, because a silently partial config is worse than an
-  error that says so.
+- `ssh_read_file` reads the head with a 64 KiB ceiling, or the last `tailLines`
+  from a 256 KiB SFTP tail window. It refuses a NUL-containing file as binary and
+  points at `ssh_download`; it does not truncate a larger head, because a
+  silently partial config is worse than an error that says so.
 - Both are `mutates = false`, `reversible = true`, and `remote = true`; they still
   need the once-per-conversation SSH grant, but not `ssh_exec`.
+
+`SshWriteFileTool` (`tools/SshWriteFileTool.kt`) writes one small UTF-8 text file
+directly, without a local copy or a heredoc: 64 KiB, optional `createParents`,
+`overwrite` default false. It uses the same SFTP upload path and is `mutates =
+true`, `reversible = false`; a remote file replacement cannot be undone by
+deleting the conversation.
 
 ### File transfer
 
@@ -666,26 +679,28 @@ resolves the destination through `SessionWorkspace` and imports it with
   false` (`NO REWIND`) because replacing a remote file cannot be undone by
   deleting the conversation; download is reversible, because the bytes land in a
   workspace copy the rollback checkpoints can restore.
-- The parent folder of an upload must already exist on the remote; a download
-  creates its workspace parent folders after `resolve` confines them.
+- The parent folder of an upload must already exist on the remote unless
+  `createParents=true`; a download creates its workspace parent folders after
+  `resolve` confines them. `ssh_upload` and `ssh_write_file` share this option.
 - Binary-safe: no base64, no heredoc, no shell quoting. This is the reason the
   tools exist next to `ssh_exec`; a real session had 54 heredocs and commands up
   to 8.9 KB writing scripts to `/tmp`.
 
 ### Consent text follows the selection
 
-`SshConsent` carries `canExec` and `canUpload`, read from the
+`SshConsent` carries `canExec`, `canUpload` and `canWriteFile`, read from the
 assistant/conversation selection at the moment the first SSH call is made. The
-dialog has three bodies: commands + files when `ssh_exec` is selected, files with
-upload when it is not, and read/download only otherwise. The warning is chosen
-the same way, so a read-only profile is never told that the agent can run
-commands or stop services.
+dialog has four bodies: commands + files when `ssh_exec` is selected, files with
+upload when it is not, text-write when only `ssh_write_file` is present, and
+read/download otherwise. The warning is chosen the same way, so a read-only
+profile is never told that the agent can run commands or stop services.
 
 `sshAllowed` is still one boolean for the conversation. To keep that from
 silently covering a later expansion, `ChatViewModel.setConversationTools` calls
-`widensDangerousSsh`: adding `ssh_exec` or `ssh_upload` to a grant that did not
-have it clears `sshAllowed`, so the next call asks again with the new text.
-Adding `ssh_list` or `ssh_read_file` does not reset; removing tools never does.
+`widensDangerousSsh`: adding `ssh_exec`, `ssh_upload` or `ssh_write_file` to a
+grant that did not have it clears `sshAllowed`, so the next call asks again with
+the new text. Adding `ssh_probe`, `ssh_list` or `ssh_read_file` does not reset;
+removing tools never does.
 
 ### The Android BouncyCastle trap
 
@@ -738,7 +753,7 @@ collapsing them would make one impossible to express (`ToolCatalog.kt:66-74`).
 `allSelection()` returns `null` for "select all" so that a later release adding
 a tool gives it to assistants that had chosen everything.
 
-The 16 tools and their `mutates` flags are tabulated in
+The 18 tools and their `mutates` flags are tabulated in
 [05-files-sandbox.md](05-files-sandbox.md) and
 [01-overview.md](01-overview.md).
 
@@ -762,9 +777,11 @@ against a host whose credentials are in the environment).
 | `TimeToolTest` | Zone handling and date arithmetic |
 | `ToolCatalogTest` | null vs empty, renamed tools, ordering (reads before writes), SSH is never covered by `null` |
 | `SshClientTest` | Password and Ed25519 auth against embedded MINA SSHD; TOFU reuse, changed-key refusal, explicit fingerprint, timeout, output cap, exit code |
-| `SshFileClientTest` | SFTP against embedded MINA: binary round trip, directory listing with a cap, existing-file refusal and overwrite, download size limit, missing file |
-| `SshReadToolsTest` | List formatting and directory-first ordering, the 64 KiB/binary read refusal, missing auth, read-only flags |
+| `SshFileClientTest` | SFTP against embedded MINA: binary round trip, directory listing with a cap, tail reads, upload parent creation, existing-file refusal and overwrite, download size limit, missing file |
+| `SshReadToolsTest` | List formatting and directory-first ordering, head/binary refusal, tail last-lines and partial-first-line handling, missing auth, read-only flags |
+| `SshProbeToolTest` | The fixed command, its read-only sections, missing auth, transport failure |
+| `SshWriteFileToolTest` | Exact bytes including the final newline, size/null-byte refusals, overwrite/createParents travel |
 | `SshExecToolTest` | Password/identityFile/raw-key arguments, missing auth, host validation, wrapped `arguments` strings, transport errors |
 | `SshFileToolsTest` | Upload/download argument travel, local and remote limits, overwrite, workspace-save refusal, irreversibility flags |
-| `SshLiveProbeTest` | Skipped unless env credentials are set; lists `/tmp` and downloads `/etc/hostname`, read-only |
+| `SshLiveProbeTest` | Skipped unless env credentials are set; lists `/tmp`, downloads `/etc/hostname` and runs the fixed probe, read-only |
 | `DemoProviderTest` | The scripted turn, including that it only calls tools it was offered |

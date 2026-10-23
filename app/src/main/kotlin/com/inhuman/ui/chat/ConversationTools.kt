@@ -80,5 +80,5 @@ internal fun permittedRemoteTools(selection: List<String>?): Set<String> =
  */
 internal fun widensDangerousSsh(before: List<String>?, after: List<String>): Boolean =
 	(permittedRemoteTools(after) - permittedRemoteTools(before)).any {
-		it == "ssh_exec" || it == "ssh_upload"
+		it == "ssh_exec" || it == "ssh_upload" || it == "ssh_write_file"
 	}

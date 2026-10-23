@@ -1,6 +1,10 @@
 package com.inhuman.core.ai.ssh
 
+import com.inhuman.core.ai.tools.SshProbeTool
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -57,6 +61,16 @@ class SshLiveProbeTest {
 				maxBytes = 64L * 1024,
 			)
 			assertTrue("live host returned an empty /etc/hostname", file.bytes.isNotEmpty())
+
+			val probe = SshProbeTool(client).execute(
+				buildJsonObject {
+					put("host", host)
+					put("username", user)
+					put("password", password)
+				},
+			)
+			assertFalse("ssh_probe failed: ${probe.content}", probe.isError)
+			assertTrue(probe.content.contains("== uptime =="))
 		} finally {
 			dir.toFile().deleteRecursively()
 		}

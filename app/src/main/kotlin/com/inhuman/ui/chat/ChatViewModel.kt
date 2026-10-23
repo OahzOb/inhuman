@@ -52,8 +52,10 @@ import com.inhuman.core.ai.ssh.SshTransport
 import com.inhuman.core.ai.tools.SshArguments
 import com.inhuman.core.ai.tools.SshDownloadTool
 import com.inhuman.core.ai.tools.SshListTool
+import com.inhuman.core.ai.tools.SshProbeTool
 import com.inhuman.core.ai.tools.SshReadFileTool
 import com.inhuman.core.ai.tools.SshUploadTool
+import com.inhuman.core.ai.tools.SshWriteFileTool
 import com.inhuman.core.files.tools.FileTools
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -2783,10 +2785,12 @@ class ChatViewModel(
 					val selection = conversation?.tools ?: agent?.tools
 					val canExec = selection?.contains("ssh_exec") == true
 					val canUpload = selection?.contains("ssh_upload") == true
+					val canWriteFile = selection?.contains("ssh_write_file") == true
 					Diag.i(
 						"ssh",
 						"consent ask host=$host user=$username tool=${tool.name} " +
-							"exec=$canExec upload=$canUpload operationChars=${operation.length}",
+							"exec=$canExec upload=$canUpload write=$canWriteFile " +
+							"operationChars=${operation.length}",
 					)
 					_state.update {
 						it.copy(
@@ -2798,6 +2802,7 @@ class ChatViewModel(
 								operation = operation,
 								canExec = canExec,
 								canUpload = canUpload,
+								canWriteFile = canWriteFile,
 								hostKeyFingerprint = stringArg(parsed, "hostKeyFingerprint")
 									?.trim()
 									?.takeIf { it.isNotEmpty() },
@@ -3195,6 +3200,9 @@ class ChatViewModel(
 				if (sshTransport != null && selected?.contains("ssh_exec") == true) {
 					add(SshExecTool(sshTransport, readIdentity))
 				}
+				if (sshTransport != null && selected?.contains("ssh_probe") == true) {
+					add(SshProbeTool(sshTransport, readIdentity))
+				}
 				if (sshFileTransport != null && selected?.contains("ssh_list") == true) {
 					add(SshListTool(sshFileTransport, readIdentity))
 				}
@@ -3207,6 +3215,14 @@ class ChatViewModel(
 							transport = sshFileTransport,
 							readWorkspaceFile = readUpload,
 							maxBytes = ws.limits.maxReadBytes,
+						),
+					)
+				}
+				if (sshFileTransport != null && selected?.contains("ssh_write_file") == true) {
+					add(
+						SshWriteFileTool(
+							transport = sshFileTransport,
+							readWorkspaceFile = readIdentity,
 						),
 					)
 				}

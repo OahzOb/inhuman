@@ -30,6 +30,7 @@ class SshFileToolsTest {
 		var uploaded: ByteArray? = null
 		var remotePath: String? = null
 		var overwrite: Boolean? = null
+		var createParents: Boolean? = null
 		var maxBytes: Long? = null
 
 		override suspend fun upload(
@@ -41,12 +42,14 @@ class SshFileToolsTest {
 			auth: SshAuth,
 			hostKeyFingerprint: String?,
 			overwrite: Boolean,
+			createParents: Boolean,
 			connectTimeoutMs: Int,
 		): SshFileResult {
 			failure?.let { throw it }
 			this.uploaded = content
 			this.remotePath = remotePath
 			this.overwrite = overwrite
+			this.createParents = createParents
 			return SshFileResult(content.size.toLong(), "SHA256:abc")
 		}
 
@@ -83,6 +86,7 @@ class SshFileToolsTest {
 				"localPath" to "deploy/run.sh",
 				"remotePath" to "/srv/run.sh",
 				"overwrite" to "true",
+				"createParents" to "true",
 			),
 		)
 
@@ -90,6 +94,7 @@ class SshFileToolsTest {
 		assertArrayEquals("script".toByteArray(), transport.uploaded)
 		assertEquals("/srv/run.sh", transport.remotePath)
 		assertEquals(true, transport.overwrite)
+		assertEquals(true, transport.createParents)
 		assertTrue(result.content.contains("/srv/run.sh"))
 	}
 

@@ -130,6 +130,19 @@ object SshArguments {
 	fun string(arguments: JsonObject, name: String): String? =
 		arguments.stringOrNull(name)?.trim()
 
+	/**
+	 * String argument without trimming.
+	 *
+	 * File content must keep its leading/trailing whitespace and newlines; using
+	 * [string] here silently wrote a config without its final newline.
+	 */
+	fun rawString(arguments: JsonObject, name: String): String? =
+		arguments.stringOrNull(name)
+
+	/** Integer argument, or [default] when absent or not a number. */
+	fun int(arguments: JsonObject, name: String, default: Int = 0): Int =
+		(arguments[name] as? JsonPrimitive)?.intOrNull ?: default
+
 	/** The authentication block every SSH tool's schema repeats. */
 	fun connectionParameters(): Map<String, Any?> = mapOf(
 		"host" to mapOf("type" to "string", "description" to "Hostname or IP address"),

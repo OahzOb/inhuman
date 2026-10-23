@@ -80,6 +80,8 @@ data class SshConsent(
 	val canExec: Boolean = false,
 	/** Whether `ssh_upload` is part of this conversation's selection. */
 	val canUpload: Boolean = false,
+	/** Whether `ssh_write_file` is part of this conversation's selection. */
+	val canWriteFile: Boolean = false,
 	/** Present only when the model supplied an explicit host-key pin. */
 	val hostKeyFingerprint: String? = null,
 )

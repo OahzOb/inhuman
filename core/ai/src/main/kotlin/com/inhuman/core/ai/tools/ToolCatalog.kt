@@ -93,6 +93,13 @@ object ToolCatalog {
 			paid = true,
 		),
 		Entry(
+			"ssh_probe",
+			"Snapshot a remote Linux machine",
+			mutates = false,
+			reversible = true,
+			remote = true,
+		),
+		Entry(
 			"ssh_list",
 			"List one remote directory over SFTP",
 			mutates = false,
@@ -116,6 +123,13 @@ object ToolCatalog {
 		Entry(
 			"ssh_upload",
 			"Send a workspace file to the remote machine",
+			mutates = true,
+			reversible = false,
+			remote = true,
+		),
+		Entry(
+			"ssh_write_file",
+			"Write a remote text file",
 			mutates = true,
 			reversible = false,
 			remote = true,
