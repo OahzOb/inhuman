@@ -229,7 +229,12 @@ class DesktopChat(
 				val remote = ToolCatalog.all.firstOrNull { it.name == tool.name }?.remote == true
 
 				var remoteRefusal: EngineDecision? = null
-				if (parsed != null && remote) {
+				if (
+					parsed != null &&
+					remote &&
+					policy != ToolPolicy.Deny &&
+					policy != ToolPolicy.Blind
+				) {
 					if (!store.sshEnabled()) {
 						remoteRefusal = EngineDecision.Deny(
 							"$REFUSED SSH is disabled in Settings.",

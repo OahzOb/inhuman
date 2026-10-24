@@ -356,6 +356,47 @@ class DesktopChatTest {
 			store.close()
 		}
 	}
+
+	@Test
+	fun `a denied policy does not ask for ssh consent first`() = runBlocking {
+		val store = DesktopStore.open(tmp.newFolder("ssh-policy-deny"))
+		try {
+			store.setSshEnabled(true)
+			store.setGlobalRule("ssh_probe", ToolPolicy.Deny)
+			val base = store.defaultAssistant()
+			assertNotNull(base)
+			val withSsh = base!!.copy(toolsJson = ToolsColumn.encode(listOf("ssh_probe")))
+			store.saveAssistant(withSsh)
+			val conversation = store.create("SSH policy deny", withSsh)
+			val transport = FakeSshTransport()
+			var asked = 0
+
+			DesktopChat(
+				store = store,
+				conversationId = conversation.id,
+				assistant = null,
+				ssh = transport,
+				sshConsent = {
+					asked++
+					true
+				},
+			).send(
+				userText = "probe",
+				provider = SshProbeProvider(),
+				model = "recording-model",
+			) {}
+
+			assertEquals("policy refusal must come before consent", 0, asked)
+			assertEquals(0, transport.calls)
+			assertTrue(
+				store.messages(conversation.id).any {
+					it.role == "tool" && it.content.contains("[refused]")
+				},
+			)
+		} finally {
+			store.close()
+		}
+	}
 }
 
 private class SshProbeProvider : ChatProvider {

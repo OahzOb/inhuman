@@ -109,7 +109,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :desktopApp:test --console=plain --rerun-tasks
 ```
 
-**BUILD SUCCESSFUL, 505 tests in 73 suites, 0 failures, 3 skipped** — the skips
+**BUILD SUCCESSFUL, 506 tests in 73 suites, 0 failures, 3 skipped** — the skips
 are `DeepSeekWebLiveTest`, which talks to the real paid Search and Fetch APIs and
 needs `DEEPSEEK_LIVE_KEY`; `EngineLiveTest`, which makes one real chat completion
 when the same key is set; and `SshLiveProbeTest`, which needs
@@ -125,7 +125,7 @@ was empty. Suite by suite:
 | `:core:db` | 4 | 9 |
 | `:core:engine` | 2 | 10 (1 skipped) |
 | `:core:data` | 3 | 17 |
-| `:desktopApp` | 11 | 29 |
+| `:desktopApp` | 11 | 30 |
 
 The count grows with every fix that lands with a test, so treat the total as a
 baseline to re-measure rather than a fact to quote: the command above is the
