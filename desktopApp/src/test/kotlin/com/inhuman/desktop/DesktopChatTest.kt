@@ -7,6 +7,9 @@ import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.ai.StreamChunk
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.provider.demo.DemoProvider
+import com.inhuman.core.ai.ssh.SshAuth
+import com.inhuman.core.ai.ssh.SshResult
+import com.inhuman.core.ai.ssh.SshTransport
 import com.inhuman.core.data.db.ToolCallsColumn
 import com.inhuman.core.data.db.ToolsColumn
 import kotlinx.coroutines.flow.Flow
@@ -210,6 +213,200 @@ class DesktopChatTest {
 		} finally {
 			store.close()
 		}
+	}
+
+	@Test
+	fun `ssh tools stay absent while the global switch is off`() = runBlocking {
+		val store = DesktopStore.open(tmp.newFolder("ssh-off"))
+		try {
+			val base = store.defaultAssistant()
+			assertNotNull(base)
+			val withSsh = base!!.copy(toolsJson = ToolsColumn.encode(listOf("ssh_probe")))
+			store.saveAssistant(withSsh)
+			val conversation = store.create("SSH off", withSsh)
+			val provider = RecordingProvider()
+
+			DesktopChat(store, conversation.id, null).send(
+				userText = "probe",
+				provider = provider,
+				model = "recording-model",
+			) {}
+
+			assertTrue(
+				"a disabled global switch must hide the remote tools",
+				provider.request!!.tools.none { it.name.startsWith("ssh_") },
+			)
+		} finally {
+			store.close()
+		}
+	}
+
+	@Test
+	fun `denying ssh consent stops the call before the transport runs`() = runBlocking {
+		val store = DesktopStore.open(tmp.newFolder("ssh-deny"))
+		try {
+			store.setSshEnabled(true)
+			val base = store.defaultAssistant()
+			assertNotNull(base)
+			val withSsh = base!!.copy(toolsJson = ToolsColumn.encode(listOf("ssh_probe")))
+			store.saveAssistant(withSsh)
+			val conversation = store.create("SSH deny", withSsh)
+			val transport = FakeSshTransport()
+			var asked = 0
+
+			val failure = DesktopChat(
+				store = store,
+				conversationId = conversation.id,
+				assistant = null,
+				ssh = transport,
+				sshConsent = {
+					asked++
+					false
+				},
+			).send(
+				userText = "probe",
+				provider = SshProbeProvider(),
+				model = "recording-model",
+			) {}
+
+			assertNull(failure)
+			assertEquals(1, asked)
+			assertEquals("deny must not reach the transport", 0, transport.calls)
+			assertFalse(store.sshAllowed(conversation.id))
+			assertTrue(
+				store.messages(conversation.id).any {
+					it.role == "tool" && it.content.startsWith("[declined]")
+				},
+			)
+		} finally {
+			store.close()
+		}
+	}
+
+	@Test
+	fun `allowing ssh consent persists the grant and runs the probe`() = runBlocking {
+		val store = DesktopStore.open(tmp.newFolder("ssh-allow"))
+		try {
+			store.setSshEnabled(true)
+			val base = store.defaultAssistant()
+			assertNotNull(base)
+			val withSsh = base!!.copy(toolsJson = ToolsColumn.encode(listOf("ssh_probe")))
+			store.saveAssistant(withSsh)
+			val conversation = store.create("SSH allow", withSsh)
+			val transport = FakeSshTransport()
+			var asked = 0
+
+			val failure = DesktopChat(
+				store = store,
+				conversationId = conversation.id,
+				assistant = null,
+				ssh = transport,
+				sshConsent = {
+					asked++
+					true
+				},
+			).send(
+				userText = "probe",
+				provider = SshProbeProvider(),
+				model = "recording-model",
+			) {}
+
+			assertNull(failure)
+			assertEquals(1, asked)
+			assertTrue("the grant is persisted for this conversation", store.sshAllowed(conversation.id))
+			assertTrue("the transport ran", transport.calls > 0)
+			assertTrue(
+				store.messages(conversation.id).any {
+					it.role == "tool" && it.toolName == "ssh_probe" && it.error == null
+				},
+			)
+		} finally {
+			store.close()
+		}
+	}
+
+	@Test
+	fun `turning the global switch off revokes every grant`() = runBlocking {
+		val store = DesktopStore.open(tmp.newFolder("ssh-revoke"))
+		try {
+			store.setSshEnabled(true)
+			val conversation = store.create("Revoke")
+			store.setSshAllowed(conversation.id, true)
+			assertTrue(store.sshAllowed(conversation.id))
+			store.setSshEnabled(false)
+			assertFalse("off is a boundary, not a pause", store.sshAllowed(conversation.id))
+		} finally {
+			store.close()
+		}
+	}
+
+	@Test
+	fun `adding exec to a read-only grant resets ssh consent`() = runBlocking {
+		val store = DesktopStore.open(tmp.newFolder("ssh-widen"))
+		try {
+			store.setSshEnabled(true)
+			val conversation = store.create("Widen")
+			store.setConversationTools(conversation.id, listOf("ssh_probe", "ssh_read_file"))
+			store.setSshAllowed(conversation.id, true)
+			assertTrue(store.sshAllowed(conversation.id))
+
+			store.setConversationTools(conversation.id, listOf("ssh_probe", "ssh_read_file", "ssh_exec"))
+			assertFalse("exec is not covered by the read-only grant", store.sshAllowed(conversation.id))
+		} finally {
+			store.close()
+		}
+	}
+}
+
+private class SshProbeProvider : ChatProvider {
+	override val id = "ssh-probe"
+	private var turns = 0
+
+	override suspend fun listModels(): List<RemoteModel> = emptyList()
+
+	override fun stream(request: ChatRequest): Flow<StreamChunk> {
+		turns++
+		return if (turns == 1) {
+			flowOf(
+				StreamChunk.ToolCallStart(index = 0, id = "call-1", name = "ssh_probe"),
+				StreamChunk.ToolCallDelta(
+					index = 0,
+					inputDelta = """{"host":"example.test","username":"root","password":"secret"}""",
+				),
+				StreamChunk.ToolCallEnd(0),
+				StreamChunk.Finish(FinishReason.ToolCalls),
+			)
+		} else {
+			flowOf(
+				StreamChunk.TextDelta("probe finished"),
+				StreamChunk.Finish(FinishReason.Stop),
+			)
+		}
+	}
+}
+
+private class FakeSshTransport : SshTransport {
+	var calls = 0
+
+	override suspend fun execute(
+		host: String,
+		port: Int,
+		username: String,
+		command: String,
+		auth: SshAuth,
+		hostKeyFingerprint: String?,
+		connectTimeoutMs: Int,
+		commandTimeoutMs: Int,
+		maxOutputBytes: Int,
+	): SshResult {
+		calls++
+		return SshResult(
+			stdout = "probe ok",
+			stderr = "",
+			exitCode = 0,
+			truncated = false,
+			hostFingerprint = "SHA256:fake",
+		)
 	}
 }
 

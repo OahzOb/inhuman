@@ -8,6 +8,7 @@ import com.inhuman.core.ai.ChatProvider
 import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.ai.policy.PolicySet
 import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.core.ai.ssh.SshLimits
 import com.inhuman.core.ai.provider.demo.DemoProvider
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.Conversation
@@ -86,11 +87,18 @@ data class ResolvedChat(
  * conversation must reload the transcript and a store that remembered an id
  * would be a second source of truth for what is on screen.
  */
+private const val KEY_SSH_ENABLED = "ssh.enabled"
+private const val KEY_SSH_COMMAND_SECONDS = "ssh.command_timeout_seconds"
+private const val KEY_SSH_OUTPUT_BYTES = "ssh.output_bytes"
+private const val KEY_SSH_LIST_ENTRIES = "ssh.list_entries"
+private const val KEY_SSH_READ_BYTES = "ssh.read_bytes"
+
 class DesktopStore private constructor(
 	private val db: InhumanDatabase,
 	private val conversations: ConversationRepository,
 	private val agents: AgentRepository,
 	private val paths: DataPaths,
+	private val secrets: DpapiSecretStore,
 ) {
 
 	/** The outcome of removing the newest turn. */
@@ -330,6 +338,62 @@ class DesktopStore private constructor(
 	suspend fun policies(conversationId: String, agentId: String?): PolicySet =
 		PolicyRepository(db).forConversation(conversationId, agentId)
 
+	fun sshEnabled(): Boolean = secrets.get(KEY_SSH_ENABLED) == "1"
+
+	/**
+	 * Turning the global switch off revokes every conversation's grant.
+	 *
+	 * A grant made while SSH was on must not survive the switch being turned
+	 * off and on again; otherwise "off" is a pause, not a capability boundary.
+	 */
+	suspend fun setSshEnabled(enabled: Boolean) {
+		secrets.put(KEY_SSH_ENABLED, if (enabled) "1" else "0")
+		if (!enabled) conversations.clearAllSshAllowed()
+	}
+
+	fun sshLimits(): SshLimits = SshLimits.fromStored(
+		commandTimeoutSeconds = secrets.get(KEY_SSH_COMMAND_SECONDS),
+		outputBytes = secrets.get(KEY_SSH_OUTPUT_BYTES),
+		listEntries = secrets.get(KEY_SSH_LIST_ENTRIES),
+		readBytes = secrets.get(KEY_SSH_READ_BYTES),
+	)
+
+	fun setSshLimits(limits: SshLimits) {
+		secrets.put(KEY_SSH_COMMAND_SECONDS, limits.commandTimeoutCeilingSeconds.toString())
+		secrets.put(KEY_SSH_OUTPUT_BYTES, limits.outputCeilingBytes.toString())
+		secrets.put(KEY_SSH_LIST_ENTRIES, limits.listCeilingEntries.toString())
+		secrets.put(KEY_SSH_READ_BYTES, limits.readCeilingBytes.toString())
+	}
+
+	suspend fun sshAllowed(conversationId: String): Boolean =
+		conversations.sshAllowed(conversationId) ?: false
+
+	suspend fun setSshAllowed(conversationId: String, allowed: Boolean) {
+		conversations.setSshAllowed(conversationId, allowed)
+	}
+
+	suspend fun clearAllSshAllowed() {
+		conversations.clearAllSshAllowed()
+	}
+
+	/**
+	 * Replace a conversation's tool selection.
+	 *
+	 * Adding `ssh_exec`, `ssh_upload` or `ssh_write_file` to an existing grant
+	 * resets the conversation's SSH consent: the grant was for the narrower
+	 * capability set, and a write is not covered by a read-only yes.
+	 */
+	suspend fun setConversationTools(conversationId: String, tools: List<String>) {
+		val entity = conversation(conversationId)?.entity ?: return
+		val clean = tools.distinct()
+		val before = entity.tools.orEmpty().toSet()
+		val added = clean.toSet() - before
+		val dangerous = setOf("ssh_exec", "ssh_upload", "ssh_write_file")
+		val reset = entity.sshAllowed && added.any { it in dangerous }
+		conversations.setTools(conversationId, clean)
+		if (reset) conversations.setSshAllowed(conversationId, false)
+	}
+
 	/** The global approval rules, as the settings screen will edit them. */
 	suspend fun globalRules(): Map<String, ToolPolicy> =
 		PolicyRepository(db).globalRules()
@@ -470,14 +534,13 @@ class DesktopStore private constructor(
 				.addMigrations(*InhumanDatabase.MIGRATIONS)
 				.addCallback(InhumanDatabase.callback())
 				.build()
+			val secrets = DpapiSecretStore(File(dataDir, "secrets.bin"))
 			return DesktopStore(
 				db = db,
 				conversations = ConversationRepository(db, DataPaths(File(dataDir, "files"))),
-				agents = AgentRepository(
-					db = db,
-					secure = DpapiSecretStore(File(dataDir, "secrets.bin")),
-				),
+				agents = AgentRepository(db = db, secure = secrets),
 				paths = DataPaths(File(dataDir, "files")),
+				secrets = secrets,
 			)
 		}
 	}

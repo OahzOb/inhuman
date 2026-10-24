@@ -55,6 +55,8 @@ import androidx.compose.ui.window.rememberDialogState
 import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.ai.Role
 import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.core.ai.ssh.SshClient
+import com.inhuman.core.ai.ssh.SshLimits
 import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ProviderProfileEntity
@@ -177,6 +179,13 @@ private fun DesktopSpike(store: DesktopStore) {
 	val lines = remember { mutableStateListOf<Line>() }
 	val scope = rememberCoroutineScope()
 	val listState = rememberLazyListState()
+	val ssh = remember {
+		SshClient(
+			File(DesktopStore.defaultDataDir(), "ssh/known_hosts").apply {
+				parentFile?.mkdirs()
+			},
+		)
+	}
 	var conversations by remember { mutableStateOf<List<ConversationSummary>>(emptyList()) }
 	var selectedId by remember { mutableStateOf<String?>(null) }
 	var query by remember { mutableStateOf("") }
@@ -189,8 +198,11 @@ private fun DesktopSpike(store: DesktopStore) {
 	var showAssistants by remember { mutableStateOf(false) }
 	var showFiles by remember { mutableStateOf(false) }
 	var showRewind by remember { mutableStateOf(false) }
+	var showTools by remember { mutableStateOf(false) }
 	var pendingApproval by remember { mutableStateOf<DesktopChat.ApprovalRequest?>(null) }
 	var approvalAnswer by remember { mutableStateOf<CompletableDeferred<Boolean>?>(null) }
+	var pendingSshConsent by remember { mutableStateOf<DesktopChat.SshConsentRequest?>(null) }
+	var sshConsentAnswer by remember { mutableStateOf<CompletableDeferred<Boolean>?>(null) }
 	var error by remember { mutableStateOf<String?>(null) }
 	var input by remember { mutableStateOf("") }
 	var streaming by remember { mutableStateOf(false) }
@@ -278,7 +290,22 @@ private fun DesktopSpike(store: DesktopStore) {
 				}
 				providerLabel = "${resolved.label} / ${resolved.model}"
 
-				val failure = DesktopChat(store, conversationId, assistant).send(
+				val failure = DesktopChat(
+					store = store,
+					conversationId = conversationId,
+					assistant = assistant,
+					ssh = ssh,
+					sshFiles = ssh,
+					sshConsent = { request ->
+						val answer = CompletableDeferred<Boolean>()
+						pendingSshConsent = request
+						sshConsentAnswer = answer
+						val allowed = answer.await()
+						pendingSshConsent = null
+						sshConsentAnswer = null
+						allowed
+					},
+				).send(
 					userText = text,
 					provider = resolved.provider,
 					model = resolved.model,
@@ -334,6 +361,8 @@ private fun DesktopSpike(store: DesktopStore) {
 				reasoning = ""
 				pendingApproval = null
 				approvalAnswer = null
+				pendingSshConsent = null
+				sshConsentAnswer = null
 				turnJob = null
 			}
 		}
@@ -380,6 +409,7 @@ private fun DesktopSpike(store: DesktopStore) {
 				title = selectedTitle,
 				provider = providerLabel,
 				onRewind = { if (!streaming) showRewind = true },
+				onTools = { if (!streaming) showTools = true },
 				onFiles = { showFiles = true },
 				onAssistants = { showAssistants = true },
 				onSettings = { showSettings = true },
@@ -483,6 +513,14 @@ private fun DesktopSpike(store: DesktopStore) {
 		)
 	}
 
+	if (showTools) {
+		ConversationToolsWindow(
+			store = store,
+			conversationId = selectedId,
+			onClose = { showTools = false },
+		)
+	}
+
 	pendingApproval?.let { request ->
 		ApprovalWindow(
 			request = request,
@@ -490,6 +528,17 @@ private fun DesktopSpike(store: DesktopStore) {
 				approvalAnswer?.complete(allowed)
 				pendingApproval = null
 				approvalAnswer = null
+			},
+		)
+	}
+
+	pendingSshConsent?.let { request ->
+		SshConsentWindow(
+			request = request,
+			onDecision = { allowed ->
+				sshConsentAnswer?.complete(allowed)
+				pendingSshConsent = null
+				sshConsentAnswer = null
 			},
 		)
 	}
@@ -739,6 +788,7 @@ private fun TopBar(
 	title: String,
 	provider: String,
 	onRewind: () -> Unit,
+	onTools: () -> Unit,
 	onFiles: () -> Unit,
 	onAssistants: () -> Unit,
 	onSettings: () -> Unit,
@@ -757,6 +807,15 @@ private fun TopBar(
 					modifier = Modifier.padding(top = 2.dp),
 				)
 			}
+			Text(
+				text = "TOOLS",
+				fontFamily = FontFamily.Monospace,
+				fontSize = 10.sp,
+				letterSpacing = 1.sp,
+				color = Signal,
+				modifier = Modifier.clickable { onTools() },
+			)
+			Spacer(Modifier.width(18.dp))
 			Text(
 				text = "REWIND",
 				fontFamily = FontFamily.Monospace,
@@ -1070,6 +1129,11 @@ private fun SettingsWindow(
 	var policies by remember { mutableStateOf<Map<String, ToolPolicy>>(emptyMap()) }
 	var passphrase by remember { mutableStateOf("") }
 	var backupBusy by remember { mutableStateOf(false) }
+	var sshEnabled by remember { mutableStateOf(false) }
+	var sshSeconds by remember { mutableStateOf("") }
+	var sshOutput by remember { mutableStateOf("") }
+	var sshList by remember { mutableStateOf("") }
+	var sshRead by remember { mutableStateOf("") }
 
 	LaunchedEffect(Unit) {
 		providers = store.providers()
@@ -1077,6 +1141,13 @@ private fun SettingsWindow(
 		selected = providers.firstOrNull()
 		currentModel = conversationId?.let { store.conversation(it)?.entity?.model }
 		policies = store.globalRules()
+		sshEnabled = store.sshEnabled()
+		store.sshLimits().let { limits ->
+			sshSeconds = limits.commandTimeoutCeilingSeconds.toString()
+			sshOutput = limits.outputCeilingBytes.toString()
+			sshList = limits.listCeilingEntries.toString()
+			sshRead = limits.readCeilingBytes.toString()
+		}
 	}
 
 	LaunchedEffect(tab, selected?.id, keyStatus[selected?.id]) {
@@ -1346,7 +1417,7 @@ private fun SettingsWindow(
 							)
 							Spacer(Modifier.height(10.dp))
 							LazyColumn(modifier = Modifier.weight(1f)) {
-								items(ToolCatalog.all.filter { !it.remote }, key = { it.name }) { entry ->
+								items(ToolCatalog.visible(sshEnabled), key = { it.name }) { entry ->
 									val policy = policies[entry.name] ?: ToolPolicy.Free
 									Row(
 										modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
@@ -1375,6 +1446,119 @@ private fun SettingsWindow(
 										}
 									}
 								}
+							}
+						}
+
+						SettingsTab.Ssh -> Column(
+							Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+						) {
+							Text(
+								"SSH is the one capability that leaves this device. It is off by default; enabling it only makes the tools available to assistants that explicitly select them. Each conversation asks once before its first remote call.",
+								fontSize = 12.sp,
+								color = Muted,
+							)
+							Row(
+								modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+								verticalAlignment = Alignment.CenterVertically,
+							) {
+								Checkbox(
+									checked = sshEnabled,
+									onCheckedChange = { enabled ->
+										scope.launch {
+											store.setSshEnabled(enabled)
+											sshEnabled = store.sshEnabled()
+											if (!enabled) status = "SSH disabled; every conversation grant was revoked."
+										}
+									},
+								)
+								Text("Enable SSH tools", fontSize = 13.sp, color = Paper)
+							}
+							Text(
+								"LIMITS · the model may request less, never more",
+								fontFamily = FontFamily.Monospace,
+								fontSize = 9.sp,
+								letterSpacing = 1.sp,
+								color = Muted,
+								modifier = Modifier.padding(top = 8.dp),
+							)
+							Row(
+								modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+								horizontalArrangement = Arrangement.spacedBy(10.dp),
+							) {
+								OutlinedTextField(
+									value = sshSeconds,
+									onValueChange = { sshSeconds = it },
+									label = { Text("Command seconds") },
+									singleLine = true,
+									modifier = Modifier.weight(1f),
+								)
+								OutlinedTextField(
+									value = sshOutput,
+									onValueChange = { sshOutput = it },
+									label = { Text("Output bytes") },
+									singleLine = true,
+									modifier = Modifier.weight(1f),
+								)
+							}
+							Row(
+								modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+								horizontalArrangement = Arrangement.spacedBy(10.dp),
+							) {
+								OutlinedTextField(
+									value = sshList,
+									onValueChange = { sshList = it },
+									label = { Text("List entries") },
+									singleLine = true,
+									modifier = Modifier.weight(1f),
+								)
+								OutlinedTextField(
+									value = sshRead,
+									onValueChange = { sshRead = it },
+									label = { Text("Read bytes") },
+									singleLine = true,
+									modifier = Modifier.weight(1f),
+								)
+							}
+							Row(
+								modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+								verticalAlignment = Alignment.CenterVertically,
+								horizontalArrangement = Arrangement.spacedBy(18.dp),
+							) {
+								Button(
+									onClick = {
+										val limits = SshLimits.fromStored(
+											commandTimeoutSeconds = sshSeconds,
+											outputBytes = sshOutput,
+											listEntries = sshList,
+											readBytes = sshRead,
+										)
+										store.setSshLimits(limits)
+										sshSeconds = limits.commandTimeoutCeilingSeconds.toString()
+										sshOutput = limits.outputCeilingBytes.toString()
+										sshList = limits.listCeilingEntries.toString()
+										sshRead = limits.readCeilingBytes.toString()
+										status = "SSH limits saved."
+									},
+									colors = ButtonDefaults.buttonColors(
+										containerColor = Signal,
+										contentColor = Color(0xFF22140E),
+									),
+									shape = RoundedCornerShape(6.dp),
+								) {
+									Text("Save limits")
+								}
+								Text(
+									text = "Revoke all grants",
+									fontFamily = FontFamily.Monospace,
+									fontSize = 10.sp,
+									color = Signal,
+									modifier = Modifier.clickable {
+										scope.launch {
+											store.clearAllSshAllowed()
+											status = "Every conversation will ask again."
+										}
+									},
+								)
 							}
 						}
 
@@ -1521,6 +1705,7 @@ private enum class SettingsTab(val label: String) {
 	Providers("PROVIDERS"),
 	Model("MODEL"),
 	Approvals("APPROVALS"),
+	Ssh("SSH"),
 	Backup("BACKUP"),
 	Diagnostics("DIAGNOSTICS"),
 }
@@ -1763,6 +1948,7 @@ private fun AssistantsWindow(
 	var draft by remember { mutableStateOf<AgentEntity?>(null) }
 	var status by remember { mutableStateOf<String?>(null) }
 	var providerMenu by remember { mutableStateOf(false) }
+	var sshEnabled by remember { mutableStateOf(false) }
 
 	suspend fun reload(select: String? = null) {
 		assistants = store.assistants()
@@ -1770,7 +1956,10 @@ private fun AssistantsWindow(
 		draft = assistants.firstOrNull { it.id == select } ?: assistants.firstOrNull()
 	}
 
-	LaunchedEffect(Unit) { reload() }
+	LaunchedEffect(Unit) {
+		reload()
+		sshEnabled = store.sshEnabled()
+	}
 
 	DialogWindow(
 		onCloseRequest = onClose,
@@ -1949,8 +2138,8 @@ private fun AssistantsWindow(
 							)
 							val selection = ToolsColumn.decode(agent.toolsJson)
 							val effective = selection
-								?: ToolCatalog.all.filter { !it.remote }.map { it.name }.toSet()
-							ToolCatalog.all.filter { !it.remote }.forEach { entry ->
+								?: ToolCatalog.visible(sshEnabled).map { it.name }.toSet()
+							ToolCatalog.visible(sshEnabled).forEach { entry ->
 								Row(
 									modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
 									verticalAlignment = Alignment.CenterVertically,
@@ -1966,7 +2155,27 @@ private fun AssistantsWindow(
 										},
 									)
 									Column(Modifier.weight(1f)) {
-										Text(entry.name, fontSize = 12.sp, color = Paper)
+										Row(verticalAlignment = Alignment.CenterVertically) {
+											Text(entry.name, fontSize = 12.sp, color = Paper)
+											if (entry.remote) {
+												Text(
+													text = "REMOTE",
+													fontFamily = FontFamily.Monospace,
+													fontSize = 8.sp,
+													color = Color(0xFFFF8A7A),
+													modifier = Modifier.padding(start = 6.dp),
+												)
+											}
+											if (entry.paid) {
+												Text(
+													text = "PAID",
+													fontFamily = FontFamily.Monospace,
+													fontSize = 8.sp,
+													color = Signal,
+													modifier = Modifier.padding(start = 6.dp),
+												)
+											}
+										}
 										Text(
 											entry.blurb,
 											fontSize = 10.sp,
@@ -2440,6 +2649,222 @@ private fun FileAction(label: String, onClick: () -> Unit) {
 		color = Signal,
 		modifier = Modifier.clickable(onClick = onClick),
 	)
+}
+
+@Composable
+private fun ConversationToolsWindow(
+	store: DesktopStore,
+	conversationId: String?,
+	onClose: () -> Unit,
+) {
+	val scope = rememberCoroutineScope()
+	var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+	var sshEnabled by remember { mutableStateOf(false) }
+	var loaded by remember { mutableStateOf(false) }
+
+	LaunchedEffect(conversationId) {
+		sshEnabled = store.sshEnabled()
+		val tools = conversationId?.let { store.conversation(it)?.entity?.tools }
+		selected = tools?.toSet()
+			?: ToolCatalog.visible(false).map { it.name }.toSet()
+		loaded = true
+	}
+
+	DialogWindow(
+		onCloseRequest = onClose,
+		title = "inhuman · conversation tools",
+		state = rememberDialogState(width = 560.dp, height = 640.dp),
+	) {
+		MaterialTheme(colorScheme = DesktopColors) {
+			Column(
+				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(24.dp),
+			) {
+				Text(
+					text = "CONVERSATION TOOLS",
+					fontFamily = FontFamily.Monospace,
+					fontSize = 11.sp,
+					letterSpacing = 1.5.sp,
+					color = Signal,
+				)
+				Text(
+					text = "This selection applies to the next turn. SSH tools are shown only when enabled in Settings; adding exec, upload or write resets this conversation's SSH consent.",
+					fontSize = 12.sp,
+					color = Muted,
+					modifier = Modifier.padding(top = 8.dp),
+				)
+				Spacer(Modifier.height(10.dp))
+				if (!loaded) {
+					Text("Loading…", fontSize = 12.sp, color = Muted)
+				} else {
+					LazyColumn(modifier = Modifier.weight(1f)) {
+						items(ToolCatalog.visible(sshEnabled), key = { it.name }) { entry ->
+							Row(
+								modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+								verticalAlignment = Alignment.CenterVertically,
+							) {
+								Checkbox(
+									checked = entry.name in selected,
+									onCheckedChange = { checked ->
+										selected = if (checked) selected + entry.name else selected - entry.name
+									},
+								)
+								Column(Modifier.weight(1f)) {
+									Row(verticalAlignment = Alignment.CenterVertically) {
+										Text(entry.name, fontSize = 12.sp, color = Paper)
+										if (entry.remote) {
+											Text(
+												text = "REMOTE",
+												fontFamily = FontFamily.Monospace,
+												fontSize = 8.sp,
+												color = Color(0xFFFF8A7A),
+												modifier = Modifier.padding(start = 6.dp),
+											)
+										}
+										if (entry.paid) {
+											Text(
+												text = "PAID",
+												fontFamily = FontFamily.Monospace,
+												fontSize = 8.sp,
+												color = Signal,
+												modifier = Modifier.padding(start = 6.dp),
+											)
+										}
+									}
+									Text(
+										entry.blurb,
+										fontSize = 10.sp,
+										color = Muted,
+										maxLines = 1,
+										overflow = TextOverflow.Ellipsis,
+									)
+								}
+							}
+						}
+					}
+				}
+				Row(
+					modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					Button(
+						onClick = {
+							val id = conversationId
+							if (id != null) {
+								scope.launch {
+									store.setConversationTools(id, selected.toList())
+									onClose()
+								}
+							}
+						},
+						enabled = loaded && conversationId != null,
+						colors = ButtonDefaults.buttonColors(
+							containerColor = Signal,
+							contentColor = Color(0xFF22140E),
+						),
+						shape = RoundedCornerShape(6.dp),
+					) {
+						Text("Save")
+					}
+					Spacer(Modifier.weight(1f))
+					Text(
+						text = "Done",
+						color = Paper,
+						fontSize = 13.sp,
+						modifier = Modifier.clickable { onClose() },
+					)
+				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun SshConsentWindow(
+	request: DesktopChat.SshConsentRequest,
+	onDecision: (Boolean) -> Unit,
+) {
+	DialogWindow(
+		onCloseRequest = { onDecision(false) },
+		title = "inhuman · ssh consent",
+		state = rememberDialogState(width = 600.dp, height = 430.dp),
+	) {
+		MaterialTheme(colorScheme = DesktopColors) {
+			Column(
+				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(24.dp),
+			) {
+				Text(
+					text = "SSH CONSENT",
+					fontFamily = FontFamily.Monospace,
+					fontSize = 11.sp,
+					letterSpacing = 1.5.sp,
+					color = Color(0xFFFF8A7A),
+				)
+				Text(
+					text = "The model wants to reach a remote machine. This is the one capability that leaves the device; the app does not configure the host or keep the credentials.",
+					fontSize = 12.sp,
+					lineHeight = 19.sp,
+					color = Muted,
+					modifier = Modifier.padding(top = 8.dp),
+				)
+				Spacer(Modifier.height(14.dp))
+				SshDetail("TOOL", request.toolName)
+				SshDetail("HOST", request.host)
+				SshDetail("USER", request.username)
+				SshDetail("OPERATION", request.operation)
+				Spacer(Modifier.weight(1f))
+				Text(
+					text = "Allowing applies to this conversation. Later SSH calls will not ask again; revoke it in Settings → SSH.",
+					fontSize = 11.sp,
+					color = Muted,
+				)
+				Spacer(Modifier.height(12.dp))
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					horizontalArrangement = Arrangement.End,
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					Text(
+						text = "Deny",
+						color = Muted,
+						fontSize = 13.sp,
+						modifier = Modifier.clickable { onDecision(false) },
+					)
+					Spacer(Modifier.width(20.dp))
+					Button(
+						onClick = { onDecision(true) },
+						colors = ButtonDefaults.buttonColors(
+							containerColor = Color(0xFFB3402A),
+							contentColor = Paper,
+						),
+						shape = RoundedCornerShape(6.dp),
+					) {
+						Text("Allow for this conversation")
+					}
+				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun SshDetail(label: String, value: String) {
+	Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+		Text(
+			text = label,
+			fontFamily = FontFamily.Monospace,
+			fontSize = 9.sp,
+			color = Muted,
+			modifier = Modifier.width(90.dp),
+		)
+		Text(
+			text = value.ifBlank { "?" },
+			fontFamily = FontFamily.Monospace,
+			fontSize = 11.sp,
+			color = Paper,
+			maxLines = 2,
+			overflow = TextOverflow.Ellipsis,
+		)
+	}
 }
 
 @Composable

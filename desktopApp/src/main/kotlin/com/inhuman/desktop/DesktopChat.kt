@@ -5,6 +5,16 @@ import com.inhuman.core.ai.ChatProvider
 import com.inhuman.core.ai.Role
 import com.inhuman.core.ai.ToolCall
 import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.core.ai.ssh.SshFileTransport
+import com.inhuman.core.ai.ssh.SshLimits
+import com.inhuman.core.ai.ssh.SshTransport
+import com.inhuman.core.ai.tools.SshDownloadTool
+import com.inhuman.core.ai.tools.SshExecTool
+import com.inhuman.core.ai.tools.SshListTool
+import com.inhuman.core.ai.tools.SshProbeTool
+import com.inhuman.core.ai.tools.SshReadFileTool
+import com.inhuman.core.ai.tools.SshUploadTool
+import com.inhuman.core.ai.tools.SshWriteFileTool
 import com.inhuman.core.ai.tools.TimeTool
 import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.data.db.AgentEntity
@@ -20,6 +30,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import java.util.UUID
 
@@ -42,6 +55,9 @@ class DesktopChat(
 	private val store: DesktopStore,
 	private val conversationId: String,
 	private val assistant: AgentEntity?,
+	private val ssh: SshTransport? = null,
+	private val sshFiles: SshFileTransport? = null,
+	private val sshConsent: (suspend (SshConsentRequest) -> Boolean)? = null,
 ) {
 
 	sealed interface Event {
@@ -66,6 +82,20 @@ class DesktopChat(
 		val toolName: String,
 		val argumentsJson: String,
 		val description: String,
+	)
+
+	/**
+	 * The first remote call in a conversation.
+	 *
+	 * It carries only host, user and a short operation summary. A password or
+	 * private key must never reach this dialogue; the model supplied them, and
+	 * the user does not need to read them back.
+	 */
+	data class SshConsentRequest(
+		val toolName: String,
+		val host: String,
+		val username: String,
+		val operation: String,
 	)
 
 	/**
@@ -103,8 +133,85 @@ class DesktopChat(
 			return message
 		}
 		val selected = entity.tools ?: agent?.tools
-		val tools = (FileTools.all(workspace) + TimeTool())
-			.filter { ToolCatalog.permits(selected, it.name) }
+		val sshEnabled = store.sshEnabled()
+		val limits = store.sshLimits()
+		val tools = buildList {
+			addAll(FileTools.all(workspace))
+			add(TimeTool())
+			if (sshEnabled) {
+				val readIdentity: (String) -> ByteArray? = { path ->
+					when (val resolved = workspace.resolve(path)) {
+						is com.inhuman.core.files.SessionWorkspace.Resolution.Ok ->
+							resolved.file
+								.takeIf { it.isFile && it.length() <= MAX_SSH_IDENTITY_BYTES }
+								?.readBytes()
+						else -> null
+					}
+				}
+				val readUpload: (String) -> ByteArray? = { path ->
+					when (val resolved = workspace.resolve(path)) {
+						is com.inhuman.core.files.SessionWorkspace.Resolution.Ok ->
+							resolved.file
+								.takeIf { it.isFile && it.length() <= MAX_SSH_UPLOAD_READ_BYTES }
+								?.readBytes()
+						else -> null
+					}
+				}
+				if (ssh != null && selected?.contains("ssh_exec") == true) {
+					add(SshExecTool(ssh, limits, readIdentity))
+				}
+				if (ssh != null && selected?.contains("ssh_probe") == true) {
+					add(SshProbeTool(ssh, limits, readIdentity))
+				}
+				if (sshFiles != null && selected?.contains("ssh_list") == true) {
+					add(
+						SshListTool(
+							transport = sshFiles,
+							readWorkspaceFile = readIdentity,
+							maxEntries = limits.listCeilingEntries,
+						),
+					)
+				}
+				if (sshFiles != null && selected?.contains("ssh_read_file") == true) {
+					add(
+						SshReadFileTool(
+							transport = sshFiles,
+							readWorkspaceFile = readIdentity,
+							maxBytes = limits.readCeilingBytes,
+						),
+					)
+				}
+				if (sshFiles != null && selected?.contains("ssh_upload") == true) {
+					add(
+						SshUploadTool(
+							transport = sshFiles,
+							readWorkspaceFile = readUpload,
+							maxBytes = workspace.limits.maxReadBytes,
+						),
+					)
+				}
+				if (sshFiles != null && selected?.contains("ssh_write_file") == true) {
+					add(
+						SshWriteFileTool(
+							transport = sshFiles,
+							readWorkspaceFile = readIdentity,
+						),
+					)
+				}
+				if (sshFiles != null && selected?.contains("ssh_download") == true) {
+					add(
+						SshDownloadTool(
+							transport = sshFiles,
+							readWorkspaceFile = readIdentity,
+							saveWorkspaceFile = { path, bytes, overwrite ->
+								saveDownload(workspace, path, bytes, overwrite)
+							},
+							maxBytes = workspace.limits.maxWriteBytes,
+						),
+					)
+				}
+			}
+		}.filter { ToolCatalog.permits(selected, it.name) }
 		val policies = store.policies(conversationId, entity.agentId)
 
 		var lastId: String? = userLine.id
@@ -119,7 +226,44 @@ class DesktopChat(
 					Json.parseToJsonElement(call.argumentsJson.ifBlank { "{}" }).jsonObject
 				}.getOrNull()
 				val policy = policies.effective(tool.name)
+				val remote = ToolCatalog.all.firstOrNull { it.name == tool.name }?.remote == true
+
+				var remoteRefusal: EngineDecision? = null
+				if (parsed != null && remote) {
+					if (!store.sshEnabled()) {
+						remoteRefusal = EngineDecision.Deny(
+							"$REFUSED SSH is disabled in Settings.",
+							stopTurn = false,
+						)
+					} else if (!store.sshAllowed(conversationId)) {
+						val request = SshConsentRequest(
+							toolName = tool.name,
+							host = parsed.string("host").orEmpty(),
+							username = parsed.string("username").orEmpty(),
+							operation = sshOperation(tool.name, parsed),
+						)
+						val allowed = sshConsent?.invoke(request) ?: false
+						if (!allowed) {
+							remoteRefusal = EngineDecision.Deny(
+								"$DECLINED The user declined SSH access for this conversation.",
+								stopTurn = true,
+								declined = true,
+							)
+						} else {
+							store.setSshAllowed(conversationId, true)
+							if (!store.sshEnabled()) {
+								remoteRefusal = EngineDecision.Deny(
+									"$REFUSED SSH was disabled in Settings before the call ran.",
+									stopTurn = false,
+								)
+							}
+						}
+					}
+				}
+
 				when {
+					remoteRefusal != null -> remoteRefusal
+
 					parsed == null -> EngineDecision.Deny(
 						"$REFUSED invalid tool arguments",
 						stopTurn = false,
@@ -344,6 +488,54 @@ class DesktopChat(
 		return out
 	}
 
+	private fun JsonObject.string(key: String): String? =
+		(this[key] as? JsonPrimitive)?.contentOrNull
+
+	private fun sshOperation(toolName: String, arguments: JsonObject): String = when (toolName) {
+		"ssh_exec" -> "run: " + arguments.string("command").orEmpty().take(160)
+		"ssh_probe" -> "inspect the host"
+		"ssh_list" -> "list " + arguments.string("path").orEmpty().ifBlank { "." }
+		"ssh_read_file" -> "read " + arguments.string("path").orEmpty().ifBlank { "?" }
+		"ssh_write_file" -> "write " + arguments.string("remotePath").orEmpty().ifBlank { "?" }
+		"ssh_upload" -> "upload to " + arguments.string("remotePath").orEmpty().ifBlank { "?" }
+		"ssh_download" -> "download " + arguments.string("remotePath").orEmpty().ifBlank { "?" }
+		else -> "use the remote host"
+	}
+
+	/**
+	 * Put a downloaded file into the workspace under the same quota rules as
+	 * import. The model cannot replace an existing file unless it explicitly
+	 * asked to overwrite.
+	 */
+	private fun saveDownload(
+		workspace: com.inhuman.core.files.SessionWorkspace,
+		path: String,
+		bytes: ByteArray,
+		overwrite: Boolean,
+	): String {
+		val file = when (val resolved = workspace.resolve(path)) {
+			is com.inhuman.core.files.SessionWorkspace.Resolution.Ok -> resolved.file
+			is com.inhuman.core.files.SessionWorkspace.Resolution.Rejected -> return resolved.reason
+		}
+		val existed = file.isFile
+		if (existed && !overwrite) {
+			return "refused: $path already exists; pass overwrite=true to replace it"
+		}
+		val refusal = workspace.quotaRefusal(
+			stagingBytes = 0,
+			stagingFiles = 0,
+			replacedBytes = if (existed) file.length() else 0,
+			addsFiles = if (existed) 0 else 1,
+			newBytes = bytes.size.toLong(),
+		)
+		if (refusal != null) return "refused: $refusal"
+		runCatching {
+			file.parentFile?.mkdirs()
+			file.writeBytes(bytes)
+		}.onFailure { return "could not write $path: ${it.message}" }
+		return "downloaded $path (${bytes.size} bytes)"
+	}
+
 	private inner class Round(
 		val id: String,
 		val parentId: String?,
@@ -381,5 +573,7 @@ class DesktopChat(
 		const val REFUSED = "[refused]"
 		const val SKIPPED = "[skipped]"
 		const val DECLINED = "[declined]"
+		const val MAX_SSH_IDENTITY_BYTES = 256L * 1024L
+		const val MAX_SSH_UPLOAD_READ_BYTES = 8L * 1024L * 1024L
 	}
 }
