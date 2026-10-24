@@ -195,6 +195,22 @@ Android 有 app sandbox + scoped storage；Windows 进程以当前用户权限�
 
 ## 5. 建议的落地顺序
 
+### Windows x64 产品（当前目标，Linux 暂不做）
+
+已经落地：共享 JVM core、真实 v13 文件库、会话 rail（列表/新建/切换/自动命名）、Markdown（Java 21+ 运行时）、DPAPI 密钥文件、真实 provider（已用一个 DeepSeek 短回合验证）、设置窗里的 provider/key。
+
+接下来按“每一刀都能独立验证”的顺序：
+
+1. 会话管理（搜索、重命名、固定、删除）+ 流式中的 Stop；
+2. 工具循环 + 工作区 + 审批（默认不问；规则表沿用 `PolicySet`）；
+3. Assistants 与完整设置（模型选择、审批规则、SSH、turn limits、diagnostics）；
+4. Workspaces / Files 两个屏（浏览、导入、导出、编辑、下载 URL）；
+5. Rewind/checkpoints、context gauge、compaction；
+6. 备份/恢复、通知/托盘、文件对话框/拖放/快捷键；
+7. MSI（自带 JRE 21+）、签名、单实例。
+
+下面 Phase 0 的第 4 项（libsecret）和第 6 项（Linux 包）在 Windows-only 目标下暂缓，其余保留；Phase 1/2 的 Linux 部分同样暂缓。
+
 ### Phase 0：2 周 spike，六个退出条件
 
 1. **Compose Desktop 窗口**能复用 `InhumanTheme`/`Workbench` 的一个真实屏幕，并完成桌面 UI 资源的最小迁移；**不改 Android UI**；
