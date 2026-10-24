@@ -23,6 +23,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -59,6 +61,7 @@ import com.mikepenz.markdown.model.rememberMarkdownState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -132,6 +135,10 @@ private fun DesktopSpike(store: DesktopStore) {
 	val listState = rememberLazyListState()
 	var conversations by remember { mutableStateOf<List<ConversationSummary>>(emptyList()) }
 	var selectedId by remember { mutableStateOf<String?>(null) }
+	var query by remember { mutableStateOf("") }
+	var matches by remember { mutableStateOf<List<ConversationMatch>>(emptyList()) }
+	var renameTarget by remember { mutableStateOf<ConversationSummary?>(null) }
+	var deleteTarget by remember { mutableStateOf<ConversationSummary?>(null) }
 	var assistant by remember { mutableStateOf<com.inhuman.core.data.db.AgentEntity?>(null) }
 	var providerLabel by remember { mutableStateOf("Demo / demo-model") }
 	var showSettings by remember { mutableStateOf(false) }
@@ -173,12 +180,36 @@ private fun DesktopSpike(store: DesktopStore) {
 		selectedId = id
 	}
 
+	LaunchedEffect(query) {
+		val text = query.trim()
+		if (text.isEmpty()) {
+			matches = emptyList()
+			return@LaunchedEffect
+		}
+		delay(150)
+		matches = store.search(text)
+	}
+
 	fun newConversation() {
 		if (streaming) return
 		scope.launch {
 			val created = store.create()
 			conversations = store.list()
 			selectedId = created.id
+		}
+	}
+
+	fun deleteConversation(target: ConversationSummary) {
+		if (streaming) return
+		scope.launch {
+			store.delete(target.id)
+			var all = store.list()
+			if (all.isEmpty()) {
+				store.create()
+				all = store.list()
+			}
+			conversations = all
+			if (selectedId == target.id) selectedId = all.firstOrNull()?.id
 		}
 	}
 
@@ -278,8 +309,24 @@ private fun DesktopSpike(store: DesktopStore) {
 			conversations = conversations,
 			selectedId = selectedId,
 			busy = streaming,
-			onSelect = ::select,
+			query = query,
+			matches = matches,
+			onQuery = { query = it },
+			onSelect = { id ->
+				query = ""
+				select(id)
+			},
 			onNew = ::newConversation,
+			onRename = { renameTarget = it },
+			onPin = { target ->
+				if (!streaming) {
+					scope.launch {
+						store.setPinned(target.id, !target.pinned)
+						conversations = store.list()
+					}
+				}
+			},
+			onDelete = { deleteTarget = it },
 		)
 		Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
 			TopBar(
@@ -344,6 +391,31 @@ private fun DesktopSpike(store: DesktopStore) {
 			},
 		)
 	}
+
+	renameTarget?.let { target ->
+		RenameWindow(
+			initial = target.title,
+			onCancel = { renameTarget = null },
+			onSave = { title ->
+				renameTarget = null
+				scope.launch {
+					store.rename(target.id, title)
+					conversations = store.list()
+				}
+			},
+		)
+	}
+
+	deleteTarget?.let { target ->
+		DeleteWindow(
+			title = target.title,
+			onCancel = { deleteTarget = null },
+			onDelete = {
+				deleteTarget = null
+				deleteConversation(target)
+			},
+		)
+	}
 }
 
 @Composable
@@ -351,8 +423,14 @@ private fun Sidebar(
 	conversations: List<ConversationSummary>,
 	selectedId: String?,
 	busy: Boolean,
+	query: String,
+	matches: List<ConversationMatch>,
+	onQuery: (String) -> Unit,
 	onSelect: (String) -> Unit,
 	onNew: () -> Unit,
+	onRename: (ConversationSummary) -> Unit,
+	onPin: (ConversationSummary) -> Unit,
+	onDelete: (ConversationSummary) -> Unit,
 ) {
 	Column(
 		modifier = Modifier
@@ -374,10 +452,20 @@ private fun Sidebar(
 			color = Muted,
 			modifier = Modifier.padding(top = 2.dp),
 		)
-		Spacer(Modifier.height(28.dp))
+		Spacer(Modifier.height(18.dp))
+		OutlinedTextField(
+			value = query,
+			onValueChange = onQuery,
+			placeholder = { Text("Search conversations", color = Muted, fontSize = 12.sp) },
+			singleLine = true,
+			textStyle = TextStyle(fontSize = 12.sp, color = Paper),
+			shape = RoundedCornerShape(6.dp),
+			modifier = Modifier.fillMaxWidth(),
+		)
+		Spacer(Modifier.height(16.dp))
 		Row(verticalAlignment = Alignment.CenterVertically) {
 			Text(
-				text = "CONVERSATIONS",
+				text = if (query.isBlank()) "CONVERSATIONS" else "SEARCH",
 				fontFamily = FontFamily.Monospace,
 				fontSize = 11.sp,
 				letterSpacing = 1.5.sp,
@@ -393,33 +481,53 @@ private fun Sidebar(
 				modifier = Modifier.clickable(enabled = !busy) { onNew() },
 			)
 		}
-		Spacer(Modifier.height(12.dp))
+		Spacer(Modifier.height(10.dp))
 		LazyColumn(modifier = Modifier.weight(1f)) {
-			items(conversations, key = { it.id }) { conversation ->
-				val selected = conversation.id == selectedId
-				Column(
-					modifier = Modifier
-						.fillMaxWidth()
-						.background(
-							if (selected) Color(0xFF26211D) else Color.Transparent,
-							RoundedCornerShape(6.dp),
+			if (query.isBlank()) {
+				items(conversations, key = { it.id }) { conversation ->
+					ConversationRow(
+						conversation = conversation,
+						selected = conversation.id == selectedId,
+						busy = busy,
+						onSelect = { onSelect(conversation.id) },
+						onRename = { onRename(conversation) },
+						onPin = { onPin(conversation) },
+						onDelete = { onDelete(conversation) },
+					)
+				}
+			} else {
+				items(matches, key = { it.id }) { match ->
+					Column(
+						modifier = Modifier
+							.fillMaxWidth()
+							.clickable(enabled = !busy) { onSelect(match.id) }
+							.padding(horizontal = 10.dp, vertical = 9.dp),
+					) {
+						Text(
+							text = match.title,
+							fontSize = 13.sp,
+							color = Paper,
+							maxLines = 1,
 						)
-						.clickable(enabled = !busy) { onSelect(conversation.id) }
-						.padding(horizontal = 10.dp, vertical = 9.dp),
-				) {
-					Text(
-						text = conversation.title,
-						fontSize = 13.sp,
-						color = if (selected) Paper else Paper.copy(alpha = 0.82f),
-						maxLines = 1,
-					)
-					Text(
-						text = ageLabel(conversation.updatedAt),
-						fontFamily = FontFamily.Monospace,
-						fontSize = 10.sp,
-						color = Muted,
-						modifier = Modifier.padding(top = 2.dp),
-					)
+						Text(
+							text = match.snippet.replace('\n', ' '),
+							fontSize = 11.sp,
+							color = Muted,
+							maxLines = 2,
+							overflow = TextOverflow.Ellipsis,
+							modifier = Modifier.padding(top = 2.dp),
+						)
+					}
+				}
+				if (matches.isEmpty()) {
+					item {
+						Text(
+							text = "No matches",
+							fontSize = 12.sp,
+							color = Muted,
+							modifier = Modifier.padding(10.dp),
+						)
+					}
 				}
 			}
 		}
@@ -439,6 +547,88 @@ private fun Sidebar(
 			color = Muted,
 			modifier = Modifier.padding(top = 4.dp),
 		)
+	}
+}
+
+@Composable
+private fun ConversationRow(
+	conversation: ConversationSummary,
+	selected: Boolean,
+	busy: Boolean,
+	onSelect: () -> Unit,
+	onRename: () -> Unit,
+	onPin: () -> Unit,
+	onDelete: () -> Unit,
+) {
+	var menuOpen by remember { mutableStateOf(false) }
+	Box {
+		Column(
+			modifier = Modifier
+				.fillMaxWidth()
+				.background(
+					if (selected) Color(0xFF26211D) else Color.Transparent,
+					RoundedCornerShape(6.dp),
+				)
+				.clickable(enabled = !busy, onClick = onSelect)
+				.padding(horizontal = 10.dp, vertical = 9.dp),
+		) {
+			Row(verticalAlignment = Alignment.CenterVertically) {
+				if (conversation.pinned) {
+					Text(
+						text = "★",
+						fontSize = 10.sp,
+						color = Signal,
+						modifier = Modifier.padding(end = 4.dp),
+					)
+				}
+				Text(
+					text = conversation.title,
+					fontSize = 13.sp,
+					color = if (selected) Paper else Paper.copy(alpha = 0.82f),
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis,
+					modifier = Modifier.weight(1f),
+				)
+				Text(
+					text = "⋯",
+					fontSize = 13.sp,
+					color = Muted,
+					modifier = Modifier
+						.clickable(enabled = !busy) { menuOpen = true }
+						.padding(horizontal = 4.dp),
+				)
+			}
+			Text(
+				text = ageLabel(conversation.updatedAt),
+				fontFamily = FontFamily.Monospace,
+				fontSize = 10.sp,
+				color = Muted,
+				modifier = Modifier.padding(top = 2.dp),
+			)
+		}
+		DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+			DropdownMenuItem(
+				text = { Text("Rename") },
+				onClick = {
+					menuOpen = false
+					onRename()
+				},
+			)
+			DropdownMenuItem(
+				text = { Text(if (conversation.pinned) "Unpin" else "Pin") },
+				onClick = {
+					menuOpen = false
+					onPin()
+				},
+			)
+			DropdownMenuItem(
+				text = { Text("Delete") },
+				onClick = {
+					menuOpen = false
+					onDelete()
+				},
+			)
+		}
 	}
 }
 
@@ -960,6 +1150,133 @@ private fun ApprovalWindow(
 						shape = RoundedCornerShape(6.dp),
 					) {
 						Text("Allow once")
+					}
+				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun RenameWindow(
+	initial: String,
+	onCancel: () -> Unit,
+	onSave: (String) -> Unit,
+) {
+	var title by remember { mutableStateOf(initial) }
+	DialogWindow(
+		onCloseRequest = onCancel,
+		title = "inhuman · rename",
+		state = rememberDialogState(width = 440.dp, height = 210.dp),
+	) {
+		MaterialTheme(colorScheme = DesktopColors) {
+			Column(
+				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(24.dp),
+			) {
+				Text(
+					text = "RENAME CONVERSATION",
+					fontFamily = FontFamily.Monospace,
+					fontSize = 11.sp,
+					letterSpacing = 1.4.sp,
+					color = Signal,
+				)
+				Spacer(Modifier.height(14.dp))
+				OutlinedTextField(
+					value = title,
+					onValueChange = { title = it },
+					singleLine = true,
+					modifier = Modifier.fillMaxWidth(),
+					keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+					keyboardActions = KeyboardActions(onDone = { onSave(title) }),
+				)
+				Spacer(Modifier.weight(1f))
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					horizontalArrangement = Arrangement.End,
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					Text(
+						text = "Cancel",
+						color = Muted,
+						fontSize = 13.sp,
+						modifier = Modifier.clickable { onCancel() },
+					)
+					Spacer(Modifier.width(20.dp))
+					Button(
+						onClick = { onSave(title) },
+						enabled = title.isNotBlank(),
+						colors = ButtonDefaults.buttonColors(
+							containerColor = Signal,
+							contentColor = Color(0xFF22140E),
+						),
+						shape = RoundedCornerShape(6.dp),
+					) {
+						Text("Save")
+					}
+				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun DeleteWindow(
+	title: String,
+	onCancel: () -> Unit,
+	onDelete: () -> Unit,
+) {
+	DialogWindow(
+		onCloseRequest = onCancel,
+		title = "inhuman · delete",
+		state = rememberDialogState(width = 460.dp, height = 230.dp),
+	) {
+		MaterialTheme(colorScheme = DesktopColors) {
+			Column(
+				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(24.dp),
+			) {
+				Text(
+					text = "DELETE CONVERSATION",
+					fontFamily = FontFamily.Monospace,
+					fontSize = 11.sp,
+					letterSpacing = 1.4.sp,
+					color = Color(0xFFFF8A7A),
+				)
+				Text(
+					text = title,
+					fontSize = 17.sp,
+					color = Paper,
+					maxLines = 2,
+					overflow = TextOverflow.Ellipsis,
+					modifier = Modifier.padding(top = 10.dp),
+				)
+				Text(
+					text = "Its messages and temporary workspace are deleted. This cannot be undone.",
+					fontSize = 12.sp,
+					color = Muted,
+					modifier = Modifier.padding(top = 6.dp),
+				)
+				Spacer(Modifier.weight(1f))
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					horizontalArrangement = Arrangement.End,
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					Text(
+						text = "Cancel",
+						color = Muted,
+						fontSize = 13.sp,
+						modifier = Modifier.clickable { onCancel() },
+					)
+					Spacer(Modifier.width(20.dp))
+					Button(
+						onClick = onDelete,
+						colors = ButtonDefaults.buttonColors(
+							containerColor = Color(0xFFB3402A),
+							contentColor = Paper,
+						),
+						shape = RoundedCornerShape(6.dp),
+					) {
+						Text("Delete")
 					}
 				}
 			}

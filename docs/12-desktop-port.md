@@ -34,6 +34,7 @@
 - `ConversationRepository`、`AgentRepository`、`PolicyRepository`、`SnapshotStore` 已从 `:core:data` 移到 `:core:db`，改用注入的 `DataPaths` 和 `SecretStore` 接口，不再依赖 `Context`；`:core:data` 只剩 Android 适配（Keystore、`Database.open`、备份、DocumentsProvider）。`ConversationRepositoryTest` 在 JVM 上创建/删除会话、写消息、跑回滚事务；
 - `:desktopApp` 已用真实 v13 文件库替代 spike 的内存列表：同一个 `InhumanDatabase`、同一份 `MIGRATIONS` 与 onCreate 回调（会种下默认 assistant/provider）、同一个 `ConversationRepository`、同一套 `files/conversations/<id>` 布局。关掉窗口重开，消息还在；`RepositoryOnDesktopTest` 用文件库验证写入、重开和 provider 密钥槽；
 - 桌面窗口现在有会话栏：列出 `ConversationRepository.all()`、新建会话、切换时重新加载 transcript、按首条消息自动命名；`DesktopStoreTest` 覆盖列表/切换/重开，窗口内也手工验证了新建、切换和发送后落库；
+- 桌面会话现在可以搜索、重命名、固定和删除：搜索走 `ConversationRepository.search` 并去重到会话，固定影响列表顺序，删除同时删临时工作区；`DesktopStoreTest` 覆盖这四条路径；
 - 桌面有了最小设置窗与真实 provider：provider 列表、API key 通过 **DPAPI** 整文件加密保存（`secrets.bin`，key 名也不以明文出现），聊天按默认 assistant 的 provider/model 解析，没 key 时回退 demo。用真实 DeepSeek key 验证过一个短回合：标题显示 `DeepSeek / deepseek-flash`，回复按 Markdown 渲染，落库正常，密钥文件不含明文；验证后测试数据已删除；
 - 真实的 `write_file`/`read_file` 工具已在桌面 JVM 上执行并通过测试；这证明共享 sandbox，但还不是完整的 `ChatEngine` 工具循环；
 - Windows DPAPI 已经通过 JNA 的 `Crypt32Util` 验证加解密往返；Linux 明确不做“假加密”回退，Secret Service 绑定仍是待办；
@@ -47,7 +48,7 @@
 - Linux Secret Service（libsecret）绑定，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
 - 桌面端的完整安全/通知/文件对话框/图片适配。
 
-当前全量测试为 **491 tests / 70 suites / 0 failures / 3 skipped**。
+当前全量测试为 **492 tests / 70 suites / 0 failures / 3 skipped**。
 
 ### 为什么不是“所有 UI 也共用一套”
 
@@ -80,7 +81,7 @@
 | `:core:common` | 3 | 303 | **0** | 已是普通 JVM，直接复用 |
 | **合计** | **110** | **33,366** | 76 个 | |
 
-测试侧还有 67 个文件、约 8,243 行；当前全量 491 tests / 70 suites。
+测试侧还有 67 个文件、约 8,243 行；当前全量 492 tests / 70 suites。
 
 这个分布说明：**领域层和 UI 层是分开的，Android 绑定集中在 data 和 app 的薄层**。这是移植能成立的前提。
 

@@ -81,4 +81,31 @@ class DesktopStoreTest {
 			store.close()
 		}
 	}
+
+	@Test
+	fun `rename pin search and delete are one store operation each`() = runBlocking {
+		val store = DesktopStore.open(tmp.newFolder("desktop-manage"))
+		try {
+			val first = store.create("First")
+			val second = store.create("Second")
+			store.appendUser(first.id, "alpha unique needle", null)
+
+			store.rename(first.id, "Renamed")
+			store.setPinned(first.id, true)
+
+			val all = store.list()
+			val renamed = all.first { it.id == first.id }
+			assertEquals("Renamed", renamed.title)
+			assertTrue("the pin is visible to the rail", renamed.pinned)
+			assertEquals("a pinned conversation sorts first", first.id, all.first().id)
+
+			val hits = store.search("needle")
+			assertEquals(listOf(first.id), hits.map { it.id })
+
+			store.delete(second.id)
+			assertFalse(store.list().any { it.id == second.id })
+		} finally {
+			store.close()
+		}
+	}
 }

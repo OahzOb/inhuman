@@ -44,6 +44,14 @@ data class ConversationSummary(
 	val id: String,
 	val title: String,
 	val updatedAt: Long,
+	val pinned: Boolean = false,
+)
+
+/** One conversation-level search hit, deduplicated from the message matches. */
+data class ConversationMatch(
+	val id: String,
+	val title: String,
+	val snippet: String,
 )
 
 /** Where the next turn goes, and what the header should call it. */
@@ -80,6 +88,37 @@ class DesktopStore private constructor(
 	/** Newest first, the same ordering the Android conversation list uses. */
 	suspend fun list(): List<ConversationSummary> =
 		conversations.all().map(::summary)
+
+	/**
+	 * Full-text search, shown as one row per conversation.
+	 *
+	 * The repository returns one row per matching message; the rail needs one
+	 * per conversation, with the first snippet as the reason it matched. Pinned
+	 * conversations are not special-cased here -- a search is a search.
+	 */
+	suspend fun search(rawQuery: String): List<ConversationMatch> =
+		conversations.search(rawQuery).distinctBy { it.conversationId }.map { hit ->
+			ConversationMatch(
+				id = hit.conversationId,
+				title = hit.conversationTitle.ifBlank { "Untitled conversation" },
+				snippet = hit.snippet,
+			)
+		}
+
+	suspend fun rename(id: String, title: String) {
+		val trimmed = title.trim()
+		if (trimmed.isNotBlank()) conversations.rename(id, trimmed)
+	}
+
+	suspend fun setPinned(id: String, pinned: Boolean) {
+		conversations.setPinned(id, pinned)
+	}
+
+	/** Delete the conversation and its temporary workspace, as Android does. */
+	suspend fun delete(id: String) {
+		val conversation = conversations.conversation(id) ?: return
+		conversations.delete(conversation.entity)
+	}
 
 	suspend fun create(title: String = "New conversation"): ConversationSummary =
 		summary(conversations.create(title = title))
@@ -268,6 +307,7 @@ class DesktopStore private constructor(
 			id = entity.id,
 			title = entity.title.ifBlank { "Untitled conversation" },
 			updatedAt = entity.updatedAt,
+			pinned = entity.pinned,
 		)
 
 	companion object {
