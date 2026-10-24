@@ -1,6 +1,8 @@
 package com.inhuman.desktop
 
 import androidx.room.Room
+import androidx.room.execSQL
+import androidx.room.useWriterConnection
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.inhuman.core.ai.ChatProvider
 import com.inhuman.core.ai.RemoteModel
@@ -262,6 +264,22 @@ class DesktopStore private constructor(
 	/** The current conversation's workspace, for the Files window. */
 	suspend fun workspaceFor(conversationId: String): SessionWorkspace? =
 		conversation(conversationId)?.let { workspace(it.entity) }
+
+	/**
+	 * Write a standalone SQLite snapshot with `VACUUM INTO`.
+	 *
+	 * Copying `inhuman.db` while Room has it open can miss committed frames
+	 * still in the WAL; `VACUUM INTO` checkpoints and writes one consistent
+	 * file. The target must not exist.
+	 */
+	suspend fun snapshotDatabase(target: File): Unit = withContext(Dispatchers.IO) {
+		target.parentFile?.mkdirs()
+		target.delete()
+		val escaped = target.absolutePath.replace("'", "''")
+		db.useWriterConnection { transactor ->
+			transactor.execSQL("VACUUM INTO '$escaped'")
+		}
+	}
 
 	/**
 	 * Snapshot the workspace at the start of a turn.

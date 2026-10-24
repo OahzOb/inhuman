@@ -50,11 +50,12 @@
 - 桌面新增 Files 窗口：浏览/进入目录、导入（`JFileChooser`，走 `quotaRefusal`）、导出、用系统程序打开、文本编辑并保存（512 KB / 二进制保护）；窗口内已验证列目录、打开 `notes.md`、编辑保存后文件内容变化；导入/导出路径由同一套 `SessionWorkspace.resolve` 约束；
 - 桌面新增“重做上一轮”的 rewind：每轮开始前用 `SnapshotStore` 抓 `start` checkpoint（以 user message id 为目录），`rewindLastTurn` 先恢复工作区、成功后才删 user/assistant/tool 子树并把 user 文本放回输入框；没有 checkpoint 时拒绝且不动数据。窗口内已验证删除 5 条消息、恢复文件并把消息放回 composer；完整的多轮 rewind 树和 compaction 还没做；
 - 桌面 diagnostics：`DesktopDiagnostics` 把 `Diag` 写到 `inhuman-data/logs/inhuman.log`（5 MB 轮转一个备份），安装前不写；Settings 的 DIAGNOSTICS tab 显示路径、打开目录、清空日志。测试覆盖文件写入和 key 脱敏；
-- 桌面端仍缺完整 rewind 树、compaction、备份/恢复、SSH consent、通知/图片附件/拖放/快捷键、完整中英文资源和真实签名证书。数据层、conversation rail、Markdown、DPAPI 密钥、真实 provider、工具与审批、assistant 编辑、Files 窗口、单轮 rewind、diagnostics 和 MSI 已经就绪；
+- 桌面备份/恢复已接上 Android 的加密格式：`VACUUM INTO` 数据库快照 + 所有 workspace 打成 ZIP，再用 `INHUMAN_BACKUP_1` 头、PBKDF2-SHA256 210k、AES-256-GCM 加密；API key 和 rollback 快照不入包。恢复先解密/校验到 `restore-staging`，写 marker，下次启动在 Room 打开前由 `applyPendingRestore` 换文件，失败会回滚旧文件。Settings 的 BACKUP tab 提供 passphrase、导出和导入；`DesktopBackupTest` 覆盖错误口令、导出/读取、staging 和换库后会话仍在；
+- 桌面端仍缺完整 rewind 树、compaction、SSH consent、通知/图片附件/拖放/快捷键、完整中英文资源和真实签名证书。数据层、conversation rail、Markdown、DPAPI 密钥、真实 provider、工具与审批、assistant 编辑、Files 窗口、单轮 rewind、diagnostics、备份/恢复和 MSI 已经就绪；
 - Linux Secret Service（libsecret）绑定，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
 - 桌面端的完整安全/通知/文件对话框/图片适配。
 
-当前全量测试为 **498 tests / 72 suites / 0 failures / 3 skipped**。
+当前全量测试为 **500 tests / 73 suites / 0 failures / 3 skipped**。
 
 ### 为什么不是“所有 UI 也共用一套”
 
@@ -87,7 +88,7 @@
 | `:core:common` | 3 | 303 | **0** | 已是普通 JVM，直接复用 |
 | **合计** | **110** | **33,366** | 76 个 | |
 
-测试侧还有 67 个文件、约 8,243 行；当前全量 498 tests / 72 suites。
+测试侧还有 67 个文件、约 8,243 行；当前全量 500 tests / 73 suites。
 
 这个分布说明：**领域层和 UI 层是分开的，Android 绑定集中在 data 和 app 的薄层**。这是移植能成立的前提。
 
@@ -214,7 +215,7 @@ Android 有 app sandbox + scoped storage；Windows 进程以当前用户权限�
 3. Assistants 与完整设置（模型选择、审批规则、SSH、turn limits、diagnostics）；（assistant 编辑器、模型选择、工具级审批规则已做；SSH/turn limits/diagnostics 未接）
 4. Workspaces / Files 两个屏（浏览、导入、导出、编辑、下载 URL）；（Files 窗口已做；permanent workspace 管理和下载 URL 未做）
 5. Rewind/checkpoints、context gauge、compaction；（单轮 rewind + start checkpoint 已做；完整树、gauge、compaction 未做）
-6. 备份/恢复、通知/托盘、文件对话框/拖放/快捷键；
+6. 备份/恢复、通知/托盘、文件对话框/拖放/快捷键；（备份/恢复、原生文件对话框已做；通知/托盘、拖放、快捷键未做）
 7. MSI（自带 JRE 21+）、签名、单实例。（per-user MSI、图标、单实例已做；签名脚本已接，真实证书待提供）
 
 下面 Phase 0 的第 4 项（libsecret）和第 6 项（Linux 包）在 Windows-only 目标下暂缓，其余保留；Phase 1/2 的 Linux 部分同样暂缓。

@@ -61,6 +61,7 @@ import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.db.StoredToolCall
 import com.inhuman.core.data.db.ToolsColumn
 import com.inhuman.core.files.SessionWorkspace
+import com.inhuman.desktop.backup.DesktopBackup
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
@@ -150,6 +151,9 @@ fun main() {
 		)
 		return
 	}
+	// A staged restore must replace the files before Room opens, and only the
+	// process that owns the data directory may do it.
+	DesktopBackup.applyPendingRestore(dataDir)
 	val store = DesktopStore.open(dataDir)
 	application {
 		Window(
@@ -1064,6 +1068,8 @@ private fun SettingsWindow(
 	var modelsLoading by remember { mutableStateOf(false) }
 	var currentModel by remember { mutableStateOf<String?>(null) }
 	var policies by remember { mutableStateOf<Map<String, ToolPolicy>>(emptyMap()) }
+	var passphrase by remember { mutableStateOf("") }
+	var backupBusy by remember { mutableStateOf(false) }
 
 	LaunchedEffect(Unit) {
 		providers = store.providers()
@@ -1411,6 +1417,84 @@ private fun SettingsWindow(
 								)
 							}
 						}
+
+						SettingsTab.Backup -> Column(Modifier.fillMaxSize()) {
+							Text(
+								"Encrypted backup of the database and every workspace. API keys are deliberately not included. Restore is staged and applied when inhuman next starts.",
+								fontSize = 12.sp,
+								color = Muted,
+							)
+							Spacer(Modifier.height(12.dp))
+							OutlinedTextField(
+								value = passphrase,
+								onValueChange = { passphrase = it },
+								label = { Text("Backup passphrase (at least 8 characters)") },
+								visualTransformation = PasswordVisualTransformation(),
+								singleLine = true,
+								modifier = Modifier.fillMaxWidth(),
+							)
+							Spacer(Modifier.height(12.dp))
+							Row(
+								verticalAlignment = Alignment.CenterVertically,
+								horizontalArrangement = Arrangement.spacedBy(18.dp),
+							) {
+								Button(
+									onClick = {
+										val chooser = JFileChooser().apply {
+											selectedFile = File("inhuman-backup.inhuman")
+										}
+										if (chooser.showSaveDialog(null) != JFileChooser.APPROVE_OPTION) {
+											return@Button
+										}
+										val target = chooser.selectedFile ?: return@Button
+										scope.launch {
+											backupBusy = true
+											val outcome = DesktopBackup.export(
+												store = store,
+												dataDir = DesktopStore.defaultDataDir(),
+												target = target,
+												passphrase = passphrase.toCharArray(),
+											)
+											backupBusy = false
+											status = outcome.error
+												?: "Backup written to ${target.absolutePath}."
+										}
+									},
+									enabled = !backupBusy && passphrase.length >= 8,
+									colors = ButtonDefaults.buttonColors(
+										containerColor = Signal,
+										contentColor = Color(0xFF22140E),
+									),
+									shape = RoundedCornerShape(6.dp),
+								) {
+									Text(if (backupBusy) "Working…" else "Export backup")
+								}
+								Text(
+									text = "Import backup",
+									fontFamily = FontFamily.Monospace,
+									fontSize = 10.sp,
+									color = if (backupBusy || passphrase.length < 8) Muted else Signal,
+									modifier = Modifier.clickable(enabled = !backupBusy && passphrase.length >= 8) {
+										val chooser = JFileChooser()
+										if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) {
+											return@clickable
+										}
+										val source = chooser.selectedFile ?: return@clickable
+										scope.launch {
+											backupBusy = true
+											val outcome = DesktopBackup.stageRestore(
+												backup = source,
+												passphrase = passphrase.toCharArray(),
+												dataDir = DesktopStore.defaultDataDir(),
+											)
+											backupBusy = false
+											status = outcome.error
+												?: "Backup staged. Close and reopen inhuman to apply it."
+										}
+									},
+								)
+							}
+						}
 					}
 				}
 				Row(
@@ -1437,6 +1521,7 @@ private enum class SettingsTab(val label: String) {
 	Providers("PROVIDERS"),
 	Model("MODEL"),
 	Approvals("APPROVALS"),
+	Backup("BACKUP"),
 	Diagnostics("DIAGNOSTICS"),
 }
 
