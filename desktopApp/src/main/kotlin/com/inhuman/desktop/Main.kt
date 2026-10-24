@@ -56,7 +56,11 @@ import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.rememberMarkdownState
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -114,6 +118,7 @@ private fun DesktopSpike(store: DesktopStore) {
 	var error by remember { mutableStateOf<String?>(null) }
 	var input by remember { mutableStateOf("") }
 	var streaming by remember { mutableStateOf(false) }
+	var turnJob by remember { mutableStateOf<Job?>(null) }
 	var reasoning by remember { mutableStateOf("") }
 	var answer by remember { mutableStateOf("") }
 	// The newest row in the persisted conversation; each new message hangs off
@@ -179,7 +184,7 @@ private fun DesktopSpike(store: DesktopStore) {
 		streaming = true
 		val parentId = lastId
 		val firstMessage = lines.isEmpty()
-		scope.launch {
+		turnJob = scope.launch {
 			try {
 				val resolved = store.resolve(assistant)
 				if (resolved.error != null) {
@@ -219,18 +224,25 @@ private fun DesktopSpike(store: DesktopStore) {
 						}
 					}
 				} finally {
-					if (answer.isNotBlank() || reasoning.isNotBlank()) {
-						val reply = store.appendAssistant(
-							conversationId = conversationId,
-							text = answer,
-							reasoning = reasoning,
-							parentId = lastId,
-						)
-						lastId = reply.id
-						lines += Line(Role.Assistant, answer, reasoning)
+					// Stop cancels this coroutine; the closing writes still have to
+					// happen, or the part already streamed is lost even though the
+					// provider was paid for it.
+					withContext(NonCancellable) {
+						if (answer.isNotBlank() || reasoning.isNotBlank()) {
+							val reply = store.appendAssistant(
+								conversationId = conversationId,
+								text = answer,
+								reasoning = reasoning,
+								parentId = lastId,
+							)
+							lastId = reply.id
+							lines += Line(Role.Assistant, answer, reasoning)
+						}
+						conversations = store.list()
 					}
-					conversations = store.list()
 				}
+			} catch (cancelled: CancellationException) {
+				throw cancelled
 			} catch (failure: Exception) {
 				error = failure.message ?: failure::class.simpleName
 			} finally {
@@ -239,8 +251,14 @@ private fun DesktopSpike(store: DesktopStore) {
 				streaming = false
 				answer = ""
 				reasoning = ""
+				turnJob = null
 			}
 		}
+	}
+
+	fun stop() {
+		turnJob?.cancel()
+		turnJob = null
 	}
 
 	LaunchedEffect(lines.size, streaming) {
@@ -302,6 +320,7 @@ private fun DesktopSpike(store: DesktopStore) {
 				streaming = streaming,
 				ready = loaded && selectedId != null,
 				onSend = ::send,
+				onStop = ::stop,
 			)
 		}
 	}
@@ -565,6 +584,7 @@ private fun Composer(
 	streaming: Boolean,
 	ready: Boolean,
 	onSend: () -> Unit,
+	onStop: () -> Unit,
 ) {
 	Column(
 		modifier = Modifier
@@ -594,16 +614,29 @@ private fun Composer(
 				fontFamily = FontFamily.Monospace,
 			)
 			Spacer(Modifier.weight(1f))
-			Button(
-				onClick = onSend,
-				enabled = input.isNotBlank() && !streaming && ready,
-				colors = ButtonDefaults.buttonColors(
-					containerColor = Signal,
-					contentColor = Color(0xFF22140E),
-				),
-				shape = RoundedCornerShape(6.dp),
-			) {
-				Text(if (streaming) "Streaming" else "Send")
+			if (streaming) {
+				Button(
+					onClick = onStop,
+					colors = ButtonDefaults.buttonColors(
+						containerColor = Color(0xFF3A332D),
+						contentColor = Paper,
+					),
+					shape = RoundedCornerShape(6.dp),
+				) {
+					Text("Stop")
+				}
+			} else {
+				Button(
+					onClick = onSend,
+					enabled = input.isNotBlank() && ready,
+					colors = ButtonDefaults.buttonColors(
+						containerColor = Signal,
+						contentColor = Color(0xFF22140E),
+					),
+					shape = RoundedCornerShape(6.dp),
+				) {
+					Text("Send")
+				}
 			}
 		}
 	}
