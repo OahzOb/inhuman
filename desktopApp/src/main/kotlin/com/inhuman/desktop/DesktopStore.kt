@@ -12,6 +12,7 @@ import com.inhuman.core.data.Conversation
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.DataPaths
 import com.inhuman.core.data.PolicyRepository
+import com.inhuman.core.data.SnapshotStore
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.InhumanDatabase
@@ -26,6 +27,8 @@ import com.inhuman.desktop.secret.DpapiSecretStore
 import java.io.File
 import java.util.Locale
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** One row the window can draw. */
 data class StoredLine(
@@ -85,7 +88,14 @@ class DesktopStore private constructor(
 	private val db: InhumanDatabase,
 	private val conversations: ConversationRepository,
 	private val agents: AgentRepository,
+	private val paths: DataPaths,
 ) {
+
+	/** The outcome of removing the newest turn. */
+	data class RewindOutcome(
+		val userText: String? = null,
+		val error: String? = null,
+	)
 
 	/** Newest first, the same ordering the Android conversation list uses. */
 	suspend fun list(): List<ConversationSummary> =
@@ -253,6 +263,52 @@ class DesktopStore private constructor(
 	suspend fun workspaceFor(conversationId: String): SessionWorkspace? =
 		conversation(conversationId)?.let { workspace(it.entity) }
 
+	/**
+	 * Snapshot the workspace at the start of a turn.
+	 *
+	 * A failure is not fatal to the turn -- the user still gets an answer -- it
+	 * only means that turn cannot be rewound. `DesktopChat` records the user
+	 * message id before this runs, because the id is the checkpoint directory.
+	 */
+	suspend fun captureTurnStart(conversationId: String, userMessageId: String): Boolean {
+		val workspace = workspaceFor(conversationId) ?: return false
+		return withContext(Dispatchers.IO) {
+			SnapshotStore.capture(
+				workspaceRoot = workspace.rootPath(),
+				turnDir = SnapshotStore.turnDir(paths.rollbackDir(conversationId), userMessageId),
+				checkpointId = "start",
+			)
+		}
+	}
+
+	/**
+	 * Remove the newest user turn and restore the workspace to its start.
+	 *
+	 * Restore happens **before** the rows are deleted: if it fails, the
+	 * transcript must stay untouched, or the user loses the text and keeps the
+	 * side effects.
+	 */
+	suspend fun rewindLastTurn(conversationId: String): RewindOutcome {
+		val messages = messages(conversationId)
+		val user = messages.lastOrNull { it.role == "user" }
+			?: return RewindOutcome(error = "There is no user turn to rewind.")
+		val turnDir = SnapshotStore.turnDir(paths.rollbackDir(conversationId), user.id)
+		if (!SnapshotStore.hasCheckpoint(turnDir, "start")) {
+			return RewindOutcome(error = "This turn has no start checkpoint, so it cannot be restored.")
+		}
+		val workspace = workspaceFor(conversationId)
+			?: return RewindOutcome(error = "The workspace is not available.")
+		val restored = withContext(Dispatchers.IO) {
+			SnapshotStore.restore(workspace.rootPath(), turnDir, "start")
+		}
+		if (!restored) {
+			return RewindOutcome(error = "The workspace could not be restored; nothing was deleted.")
+		}
+		conversations.deleteSubtree(user.id, user.parentId, conversationId)
+		withContext(Dispatchers.IO) { SnapshotStore.deleteTurn(paths.rollbackDir(conversationId), user.id) }
+		return RewindOutcome(userText = user.content)
+	}
+
 	suspend fun policies(conversationId: String, agentId: String?): PolicySet =
 		PolicyRepository(db).forConversation(conversationId, agentId)
 
@@ -403,6 +459,7 @@ class DesktopStore private constructor(
 					db = db,
 					secure = DpapiSecretStore(File(dataDir, "secrets.bin")),
 				),
+				paths = DataPaths(File(dataDir, "files")),
 			)
 		}
 	}

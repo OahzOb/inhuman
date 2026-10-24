@@ -93,6 +93,9 @@ class DesktopChat(
 		if (firstMessage) {
 			store.autoTitle(conversationId, userText)
 		}
+		// The checkpoint is keyed by the user message id and taken before any
+		// tool runs. A failure only makes this turn unrewindable.
+		store.captureTurnStart(conversationId, userLine.id)
 
 		val workspace = runCatching { store.workspace(entity) }.getOrElse { failure ->
 			val message = "Workspace could not be opened: ${failure.message}"

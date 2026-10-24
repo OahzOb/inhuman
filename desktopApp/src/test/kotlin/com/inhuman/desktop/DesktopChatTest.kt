@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -174,6 +175,38 @@ class DesktopChatTest {
 			assertEquals("Be terse.", request!!.messages.first().content)
 			assertEquals(listOf("read_file"), request.tools.map { it.name })
 			assertEquals(true, request.thinking)
+		} finally {
+			store.close()
+		}
+	}
+
+	@Test
+	fun `rewind restores the workspace and removes the turn`() = runBlocking {
+		val store = DesktopStore.open(tmp.newFolder("chat-rewind"))
+		try {
+			val conversation = store.create("Rewind")
+			val assistant = store.defaultAssistant()
+			assertNotNull(assistant)
+			val workspace = store.workspaceFor(conversation.id)
+			assertNotNull(workspace)
+			val file = java.io.File(workspace!!.rootPath(), "demo/notes.txt")
+			file.parentFile?.mkdirs()
+			file.writeText("before")
+
+			val failure = DesktopChat(store, conversation.id, assistant).send(
+				userText = "make a file and remove it",
+				provider = DemoProvider(chunkDelayMillis = 0),
+				model = "demo-model",
+			) {}
+			assertNull(failure)
+			assertFalse("the demo deletes the file", file.exists())
+
+			val outcome = store.rewindLastTurn(conversation.id)
+			assertNull(outcome.error)
+			assertEquals("make a file and remove it", outcome.userText)
+			assertTrue("the start checkpoint restores the file", file.exists())
+			assertEquals("before", file.readText())
+			assertTrue("the whole turn is removed", store.messages(conversation.id).isEmpty())
 		} finally {
 			store.close()
 		}

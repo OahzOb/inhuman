@@ -139,6 +139,7 @@ private fun bytesLabel(bytes: Long): String = when {
 
 fun main() {
 	val dataDir = DesktopStore.defaultDataDir()
+	DesktopDiagnostics.install(dataDir)
 	val single = SingleInstance.acquire(dataDir)
 	if (single == null) {
 		javax.swing.JOptionPane.showMessageDialog(
@@ -183,6 +184,7 @@ private fun DesktopSpike(store: DesktopStore) {
 	var showSettings by remember { mutableStateOf(false) }
 	var showAssistants by remember { mutableStateOf(false) }
 	var showFiles by remember { mutableStateOf(false) }
+	var showRewind by remember { mutableStateOf(false) }
 	var pendingApproval by remember { mutableStateOf<DesktopChat.ApprovalRequest?>(null) }
 	var approvalAnswer by remember { mutableStateOf<CompletableDeferred<Boolean>?>(null) }
 	var error by remember { mutableStateOf<String?>(null) }
@@ -373,6 +375,7 @@ private fun DesktopSpike(store: DesktopStore) {
 			TopBar(
 				title = selectedTitle,
 				provider = providerLabel,
+				onRewind = { if (!streaming) showRewind = true },
 				onFiles = { showFiles = true },
 				onAssistants = { showAssistants = true },
 				onSettings = { showSettings = true },
@@ -449,6 +452,30 @@ private fun DesktopSpike(store: DesktopStore) {
 			store = store,
 			conversationId = selectedId,
 			onClose = { showFiles = false },
+		)
+	}
+
+	if (showRewind) {
+		RewindWindow(
+			onCancel = { showRewind = false },
+			onConfirm = {
+				showRewind = false
+				val id = selectedId
+				if (id != null) {
+					scope.launch {
+						val outcome = store.rewindLastTurn(id)
+						if (outcome.error != null) {
+							error = outcome.error
+						} else {
+							lines.clear()
+							lines.addAll(store.load(id).map { it.toLine() })
+							input = outcome.userText.orEmpty()
+							conversations = store.list()
+							error = null
+						}
+					}
+				}
+			},
 		)
 	}
 
@@ -707,6 +734,7 @@ private fun ConversationRow(
 private fun TopBar(
 	title: String,
 	provider: String,
+	onRewind: () -> Unit,
 	onFiles: () -> Unit,
 	onAssistants: () -> Unit,
 	onSettings: () -> Unit,
@@ -725,6 +753,15 @@ private fun TopBar(
 					modifier = Modifier.padding(top = 2.dp),
 				)
 			}
+			Text(
+				text = "REWIND",
+				fontFamily = FontFamily.Monospace,
+				fontSize = 10.sp,
+				letterSpacing = 1.sp,
+				color = Signal,
+				modifier = Modifier.clickable { onRewind() },
+			)
+			Spacer(Modifier.width(18.dp))
 			Text(
 				text = "FILES",
 				fontFamily = FontFamily.Monospace,
@@ -1334,6 +1371,46 @@ private fun SettingsWindow(
 								}
 							}
 						}
+
+						SettingsTab.Diagnostics -> Column(Modifier.fillMaxSize()) {
+							Text(
+								"The flight recorder records what happened around a turn -- model, message counts, failures -- and never keys, prompts or file content.",
+								fontSize = 12.sp,
+								color = Muted,
+							)
+							Spacer(Modifier.height(12.dp))
+							Text(
+								text = DesktopDiagnostics.currentLog()?.absolutePath ?: "Log file not installed.",
+								fontFamily = FontFamily.Monospace,
+								fontSize = 10.sp,
+								color = Paper,
+							)
+							Spacer(Modifier.height(12.dp))
+							Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+								Text(
+									text = "Open folder",
+									fontFamily = FontFamily.Monospace,
+									fontSize = 10.sp,
+									color = Signal,
+									modifier = Modifier.clickable {
+										val dir = DesktopDiagnostics.currentLog()?.parentFile
+										if (dir != null && Desktop.isDesktopSupported()) {
+											runCatching { Desktop.getDesktop().open(dir) }
+										}
+									},
+								)
+								Text(
+									text = "Clear log",
+									fontFamily = FontFamily.Monospace,
+									fontSize = 10.sp,
+									color = Signal,
+									modifier = Modifier.clickable {
+										DesktopDiagnostics.clear()
+										status = "Log cleared."
+									},
+								)
+							}
+						}
 					}
 				}
 				Row(
@@ -1360,6 +1437,7 @@ private enum class SettingsTab(val label: String) {
 	Providers("PROVIDERS"),
 	Model("MODEL"),
 	Approvals("APPROVALS"),
+	Diagnostics("DIAGNOSTICS"),
 }
 
 @Composable
@@ -2277,6 +2355,60 @@ private fun FileAction(label: String, onClick: () -> Unit) {
 		color = Signal,
 		modifier = Modifier.clickable(onClick = onClick),
 	)
+}
+
+@Composable
+private fun RewindWindow(onCancel: () -> Unit, onConfirm: () -> Unit) {
+	DialogWindow(
+		onCloseRequest = onCancel,
+		title = "inhuman · rewind",
+		state = rememberDialogState(width = 540.dp, height = 280.dp),
+	) {
+		MaterialTheme(colorScheme = DesktopColors) {
+			Column(
+				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(24.dp),
+			) {
+				Text(
+					text = "REWIND LAST TURN",
+					fontFamily = FontFamily.Monospace,
+					fontSize = 11.sp,
+					letterSpacing = 1.5.sp,
+					color = Signal,
+				)
+				Text(
+					text = "The last user message and every reply after it are removed. The workspace is restored to the checkpoint taken before that turn, and the message text returns to the composer.",
+					fontSize = 12.sp,
+					lineHeight = 19.sp,
+					color = Muted,
+					modifier = Modifier.padding(top = 10.dp),
+				)
+				Spacer(Modifier.weight(1f))
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					horizontalArrangement = Arrangement.End,
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					Text(
+						text = "Cancel",
+						color = Muted,
+						fontSize = 13.sp,
+						modifier = Modifier.clickable { onCancel() },
+					)
+					Spacer(Modifier.width(20.dp))
+					Button(
+						onClick = onConfirm,
+						colors = ButtonDefaults.buttonColors(
+							containerColor = Color(0xFFB3402A),
+							contentColor = Paper,
+						),
+						shape = RoundedCornerShape(6.dp),
+					) {
+						Text("Remove turn")
+					}
+				}
+			}
+		}
+	}
 }
 
 private fun openExternally(file: File) {
