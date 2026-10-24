@@ -5,11 +5,15 @@ import androidx.room.execSQL
 import androidx.room.useWriterConnection
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.inhuman.core.ai.ChatProvider
+import com.inhuman.core.ai.ChatMessage
+import com.inhuman.core.ai.ChatRequest
 import com.inhuman.core.ai.RemoteModel
+import com.inhuman.core.ai.Role
+import com.inhuman.core.ai.StreamChunk
+import com.inhuman.core.ai.provider.demo.DemoProvider
 import com.inhuman.core.ai.policy.PolicySet
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.ssh.SshLimits
-import com.inhuman.core.ai.provider.demo.DemoProvider
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.Conversation
 import com.inhuman.core.data.ConversationRepository
@@ -17,6 +21,7 @@ import com.inhuman.core.data.DataPaths
 import com.inhuman.core.data.PolicyRepository
 import com.inhuman.core.data.SnapshotStore
 import com.inhuman.core.data.db.AgentEntity
+import com.inhuman.core.data.db.ContextSummaryEntity
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.InhumanDatabase
 import com.inhuman.core.data.db.MessageEntity
@@ -93,6 +98,11 @@ private const val KEY_SSH_OUTPUT_BYTES = "ssh.output_bytes"
 private const val KEY_SSH_LIST_ENTRIES = "ssh.list_entries"
 private const val KEY_SSH_READ_BYTES = "ssh.read_bytes"
 
+private const val COMPACTION_PROMPT =
+	"You compress an earlier part of a chat transcript into a compact factual summary. " +
+		"Keep decisions, file paths, tool results that matter, unresolved questions and the user's " +
+		"preferences. Do not invent anything. Write plain prose, no preamble."
+
 class DesktopStore private constructor(
 	private val db: InhumanDatabase,
 	private val conversations: ConversationRepository,
@@ -104,6 +114,12 @@ class DesktopStore private constructor(
 	/** The outcome of removing the newest turn. */
 	data class RewindOutcome(
 		val userText: String? = null,
+		val error: String? = null,
+	)
+
+	/** The outcome of replacing older turns with a summary. */
+	data class CompactOutcome(
+		val omittedMessages: Int = 0,
 		val error: String? = null,
 	)
 
@@ -272,6 +288,116 @@ class DesktopStore private constructor(
 	/** The current conversation's workspace, for the Files window. */
 	suspend fun workspaceFor(conversationId: String): SessionWorkspace? =
 		conversation(conversationId)?.let { workspace(it.entity) }
+
+	suspend fun contextSummary(conversationId: String): ContextSummaryEntity? =
+		conversations.contextSummary(conversationId)
+
+	suspend fun clearContextSummary(conversationId: String) {
+		conversations.clearContextSummary(conversationId)
+	}
+
+	/**
+	 * A rough context size: the last provider usage when available, otherwise
+	 * four characters per token across the transcript.
+	 *
+	 * The gauge is an estimate, not billing. It exists so "compact" has a number
+	 * beside it rather than being a blind action.
+	 */
+	suspend fun contextTokens(conversationId: String): Int {
+		val messages = messages(conversationId)
+		val lastUsage = messages.lastOrNull {
+			it.role == "assistant" && it.promptTokens != null
+		}
+		if (lastUsage != null) {
+			return (lastUsage.promptTokens ?: 0) + (lastUsage.completionTokens ?: 0)
+		}
+		val chars = messages.sumOf { it.content.length + it.reasoning.orEmpty().length }
+		return (chars / 4).coerceAtLeast(0)
+	}
+
+	/**
+	 * Summarize older turns and store the projection.
+	 *
+	 * The original rows are untouched. A demo provider gets a local deterministic
+	 * summary so the path is testable offline and does not spend money.
+	 */
+	suspend fun compact(
+		conversationId: String,
+		provider: ChatProvider,
+		model: String,
+		keepTurns: Int = 2,
+	): CompactOutcome = withContext(Dispatchers.IO) {
+		val all = messages(conversationId)
+		if (all.isEmpty()) return@withContext CompactOutcome(error = "There is nothing to compact.")
+		val userIndices = all.indices.filter { all[it].role == "user" }
+		if (userIndices.size <= keepTurns) {
+			return@withContext CompactOutcome(error = "Keep at least $keepTurns turns; there are not enough older turns yet.")
+		}
+		val keepStart = userIndices[userIndices.size - keepTurns]
+		val boundary = keepStart - 1
+		if (boundary < 0 || boundary >= all.lastIndex) {
+			return@withContext CompactOutcome(error = "There is no older prefix to summarize.")
+		}
+		val covered = all.subList(0, boundary + 1)
+		val summary = if (provider is DemoProvider) {
+			demoSummary(covered)
+		} else {
+			val transcript = covered.joinToString("\n\n") { message ->
+				val body = message.content.take(4_000)
+				when (message.role) {
+					"user" -> "USER: $body"
+					"tool" -> "TOOL${message.toolName?.let { "($it)" } ?: ""}: $body"
+					else -> "ASSISTANT: $body"
+				}
+			}.take(24_000)
+			val output = StringBuilder()
+			try {
+				provider.stream(
+					ChatRequest(
+						model = model,
+						messages = listOf(
+							ChatMessage(Role.System, COMPACTION_PROMPT),
+							ChatMessage(
+								Role.User,
+								"Summarize this earlier part of the conversation:\n\n$transcript",
+							),
+						),
+						maxTokens = 900,
+						thinking = false,
+						userId = conversationId,
+					),
+				).collect { chunk ->
+					when (chunk) {
+						is StreamChunk.TextDelta -> output.append(chunk.text)
+						is StreamChunk.Failure -> throw IllegalStateException(chunk.message)
+						else -> Unit
+					}
+				}
+			} catch (failure: Exception) {
+				return@withContext CompactOutcome(
+					error = "Summarizing failed: ${failure.message}",
+				)
+			}
+			output.toString().trim()
+		}
+		if (summary.isBlank()) {
+			return@withContext CompactOutcome(error = "The summarizer returned nothing.")
+		}
+		conversations.saveContextSummary(
+			conversationId = conversationId,
+			throughMessageId = all[boundary].id,
+			summary = summary,
+		)
+		CompactOutcome(omittedMessages = boundary + 1)
+	}
+
+	private fun demoSummary(messages: List<MessageEntity>): String {
+		val users = messages.count { it.role == "user" }
+		val last = messages.lastOrNull { it.role == "assistant" }?.content.orEmpty()
+		return "Earlier conversation: $users user turns, ${messages.size} messages. " +
+			"The latest assistant answer before the kept turns was: " +
+			last.take(500)
+	}
 
 	/**
 	 * Write a standalone SQLite snapshot with `VACUUM INTO`.

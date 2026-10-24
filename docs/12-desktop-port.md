@@ -52,11 +52,13 @@
 - 桌面 diagnostics：`DesktopDiagnostics` 把 `Diag` 写到 `inhuman-data/logs/inhuman.log`（5 MB 轮转一个备份），安装前不写；Settings 的 DIAGNOSTICS tab 显示路径、打开目录、清空日志。测试覆盖文件写入和 key 脱敏；
 - 桌面备份/恢复已接上 Android 的加密格式：`VACUUM INTO` 数据库快照 + 所有 workspace 打成 ZIP，再用 `INHUMAN_BACKUP_1` 头、PBKDF2-SHA256 210k、AES-256-GCM 加密；API key 和 rollback 快照不入包。恢复先解密/校验到 `restore-staging`，写 marker，下次启动在 Room 打开前由 `applyPendingRestore` 换文件，失败会回滚旧文件。Settings 的 BACKUP tab 提供 passphrase、导出和导入；`DesktopBackupTest` 覆盖错误口令、导出/读取、staging 和换库后会话仍在；
 - 桌面 SSH 已接上共享的七个工具和 Android 的 consent 模型：全局开关默认关、四项 `SshLimits` 可调、assistant/conversation 只有显式选中才注册；每个会话第一次远程调用弹出 host/user/operation 的 consent 窗（不显示 password/privateKey），允许后写 `conversations.sshAllowed`，之后不再问；拒绝写成 `[declined]` 并结束回合；关闭全局开关会清空所有会话 grant，给已有 grant 增加 `ssh_exec`/`ssh_upload`/`ssh_write_file` 会重置 grant。`DesktopChatTest` 用 fake transport/consent 覆盖关闭、拒绝、允许、全局撤销和加危险工具重置；没有可用的真实 SSH 主机，所以未跑 live；`SshClient` 本身由 `:core:ai` 的 MINA 测试覆盖；
-- 桌面端仍缺完整 rewind 树、compaction、通知/图片附件/拖放/快捷键、完整中英文资源和真实签名证书。数据层、conversation rail、Markdown、DPAPI 密钥、真实 provider、工具与审批、SSH、assistant 编辑、Files 窗口、单轮 rewind、diagnostics、备份/恢复和 MSI 已经就绪；
+- 桌面新增 context gauge 和手动 compaction：底部显示 `~N tokens`（上次 provider usage，缺失时按 4 chars/token 估算）；COMPACT 保留最近 2 个 user turn，把更早的前缀总结后写入 `context_summaries.throughMessageId`，`DesktopChat.history` 把 summary 拼进 system prompt 并只发送边界之后的消息；CLEAR 恢复完整投影。真实 provider 花一次 summarize 请求，DemoProvider 用本地确定性 summary；边界失效（分支/删除）时忽略 summary。`DesktopChatTest` 验证压缩后请求变短、summary 在 system、clear 后恢复；
+- 桌面新增系统托盘：Open/Exit 菜单，窗口最小化或失焦时回合完成弹 “Reply ready” 通知；headless 或系统托盘不可用时静默跳过；
+- 桌面端仍缺完整多轮 rewind 树、图片附件/拖放/快捷键、完整中英文资源和真实签名证书。数据层、conversation rail、Markdown、DPAPI 密钥、真实 provider、工具与审批、SSH、assistant 编辑、Files 窗口、单轮 rewind、compaction、diagnostics、备份/恢复、托盘通知和 MSI 已经就绪；
 - Linux Secret Service（libsecret）绑定，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
 - 桌面端的完整安全/通知/文件对话框/图片适配。
 
-当前全量测试为 **506 tests / 73 suites / 0 failures / 3 skipped**。
+当前全量测试为 **507 tests / 73 suites / 0 failures / 3 skipped**。
 
 ### 为什么不是“所有 UI 也共用一套”
 
@@ -89,7 +91,7 @@
 | `:core:common` | 3 | 303 | **0** | 已是普通 JVM，直接复用 |
 | **合计** | **110** | **33,366** | 76 个 | |
 
-测试侧还有 67 个文件、约 8,243 行；当前全量 506 tests / 73 suites。
+测试侧还有 67 个文件、约 8,243 行；当前全量 507 tests / 73 suites。
 
 这个分布说明：**领域层和 UI 层是分开的，Android 绑定集中在 data 和 app 的薄层**。这是移植能成立的前提。
 
@@ -215,8 +217,8 @@ Android 有 app sandbox + scoped storage；Windows 进程以当前用户权限�
 2. 工具循环 + 工作区 + 审批（默认不问；规则表沿用 `PolicySet`；工具与审批窗已落地，路径规则/SSH 未接）；
 3. Assistants 与完整设置（模型选择、审批规则、SSH、turn limits、diagnostics）；（assistant 编辑器、模型选择、工具级审批规则、SSH 开关/limits/consent、diagnostics 已做；tool round/call limits 仍固定为 8/32，未暴露设置）
 4. Workspaces / Files 两个屏（浏览、导入、导出、编辑、下载 URL）；（Files 窗口已做；permanent workspace 管理和下载 URL 未做）
-5. Rewind/checkpoints、context gauge、compaction；（单轮 rewind + start checkpoint 已做；完整树、gauge、compaction 未做）
-6. 备份/恢复、通知/托盘、文件对话框/拖放/快捷键；（备份/恢复、原生文件对话框已做；通知/托盘、拖放、快捷键未做）
+5. Rewind/checkpoints、context gauge、compaction；（单轮 rewind + start checkpoint、gauge、手动 compaction 已做；完整多轮 rewind 树未做）
+6. 备份/恢复、通知/托盘、文件对话框/拖放/快捷键；（备份/恢复、原生文件对话框、托盘通知已做；拖放、快捷键未做）
 7. MSI（自带 JRE 21+）、签名、单实例。（per-user MSI、图标、单实例已做；签名脚本已接，真实证书待提供）
 
 下面 Phase 0 的第 4 项（libsecret）和第 6 项（Linux 包）在 Windows-only 目标下暂缓，其余保留；Phase 1/2 的 Linux 部分同样暂缓。

@@ -442,11 +442,26 @@ class DesktopChat(
 	 */
 	private suspend fun history(agent: AgentEntity?): List<ChatMessage> {
 		val out = mutableListOf<ChatMessage>()
-		agent?.systemPrompt?.takeIf { it.isNotBlank() }?.let {
-			out += ChatMessage(Role.System, it)
-		}
 		val messages = store.messages(conversationId)
-		var index = 0
+		val summary = store.contextSummary(conversationId)
+		val boundary = summary?.let { active ->
+			messages.indexOfFirst { it.id == active.throughMessageId }
+		} ?: -1
+		// A stale summary from another branch, or one that already covers the
+		// whole transcript, is ignored rather than applied to the wrong prefix.
+		val activeSummary = summary.takeIf { boundary >= 0 && boundary < messages.lastIndex }
+
+		val system = buildString {
+			agent?.systemPrompt?.takeIf { it.isNotBlank() }?.let { append(it) }
+			if (activeSummary != null) {
+				if (isNotEmpty()) append("\n\n")
+				append("Earlier conversation summary (the messages it covers are omitted from this request):\n")
+				append(activeSummary.summary.trim())
+			}
+		}
+		if (system.isNotBlank()) out += ChatMessage(Role.System, system)
+
+		var index = if (activeSummary != null) boundary + 1 else 0
 		while (index < messages.size) {
 			val message = messages[index]
 			when (message.role) {

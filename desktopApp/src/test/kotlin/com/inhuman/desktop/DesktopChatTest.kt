@@ -397,6 +397,77 @@ class DesktopChatTest {
 			store.close()
 		}
 	}
+
+	@Test
+	fun `compaction removes the old prefix from the next request`() = runBlocking {
+		val store = DesktopStore.open(tmp.newFolder("compact"))
+		try {
+			val conversation = store.create("Compact")
+			var parent: String? = null
+			repeat(4) { turn ->
+				val user = store.appendUser(conversation.id, "question $turn", parent)
+				parent = user.id
+				val assistant = store.appendAssistant(
+					conversationId = conversation.id,
+					text = "answer $turn",
+					reasoning = "",
+					parentId = parent,
+				)
+				parent = assistant.id
+			}
+
+			val outcome = store.compact(
+				conversationId = conversation.id,
+				provider = SummaryProvider(),
+				model = "summary-model",
+				keepTurns = 2,
+			)
+			assertNull(outcome.error)
+			assertTrue(outcome.omittedMessages > 0)
+			assertEquals("SUMMARY", store.contextSummary(conversation.id)?.summary)
+
+			val provider = RecordingProvider()
+			DesktopChat(store, conversation.id, null).send(
+				userText = "next",
+				provider = provider,
+				model = "recording-model",
+			) {}
+			val request = provider.request!!
+			assertTrue(
+				"the summary is part of the system message",
+				request.messages.first().content.contains("SUMMARY"),
+			)
+			assertTrue(
+				"the old prefix is omitted",
+				request.messages.size < 8,
+			)
+
+			store.clearContextSummary(conversation.id)
+			val full = RecordingProvider()
+			DesktopChat(store, conversation.id, null).send(
+				userText = "again",
+				provider = full,
+				model = "recording-model",
+			) {}
+			assertTrue(
+				"clearing restores the full transcript",
+				full.request!!.messages.size > request.messages.size,
+			)
+		} finally {
+			store.close()
+		}
+	}
+}
+
+private class SummaryProvider : ChatProvider {
+	override val id = "summary"
+
+	override suspend fun listModels(): List<RemoteModel> = emptyList()
+
+	override fun stream(request: ChatRequest): Flow<StreamChunk> = flowOf(
+		StreamChunk.TextDelta("SUMMARY"),
+		StreamChunk.Finish(FinishReason.Stop),
+	)
 }
 
 private class SshProbeProvider : ChatProvider {

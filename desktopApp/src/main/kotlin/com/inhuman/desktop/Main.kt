@@ -32,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -167,15 +168,41 @@ fun main() {
 			title = "inhuman · desktop",
 			state = rememberWindowState(width = 900.dp, height = 620.dp),
 		) {
+			var tray by remember { mutableStateOf<DesktopTray?>(null) }
+			DisposableEffect(Unit) {
+				val created = DesktopTray(
+					onOpen = {
+						window.isMinimized = false
+						window.isVisible = true
+						window.toFront()
+						window.requestFocus()
+					},
+					onExit = {
+						store.close()
+						single.close()
+						exitApplication()
+					},
+				)
+				tray = if (created.install()) created else null
+				onDispose {
+					created.remove()
+					tray = null
+				}
+			}
 			MaterialTheme(colorScheme = DesktopColors) {
-				DesktopSpike(store)
+				DesktopSpike(
+					store = store,
+					onReplyReady = {
+						if (window.isMinimized || !window.isActive) tray?.notifyReply()
+					},
+				)
 			}
 		}
 	}
 }
 
 @Composable
-private fun DesktopSpike(store: DesktopStore) {
+private fun DesktopSpike(store: DesktopStore, onReplyReady: () -> Unit = {}) {
 	val lines = remember { mutableStateListOf<Line>() }
 	val scope = rememberCoroutineScope()
 	val listState = rememberLazyListState()
@@ -207,6 +234,10 @@ private fun DesktopSpike(store: DesktopStore) {
 	var input by remember { mutableStateOf("") }
 	var streaming by remember { mutableStateOf(false) }
 	var turnJob by remember { mutableStateOf<Job?>(null) }
+	var contextTokens by remember { mutableStateOf(0) }
+	var compactionActive by remember { mutableStateOf(false) }
+	var compactBusy by remember { mutableStateOf(false) }
+	var showCompact by remember { mutableStateOf(false) }
 	var reasoning by remember { mutableStateOf("") }
 	var answer by remember { mutableStateOf("") }
 	var loaded by remember { mutableStateOf(false) }
@@ -231,6 +262,8 @@ private fun DesktopSpike(store: DesktopStore) {
 		lines.clear()
 		val stored = store.load(id)
 		lines.addAll(stored.map { it.toLine() })
+		contextTokens = store.contextTokens(id)
+		compactionActive = store.contextSummary(id) != null
 		loaded = true
 	}
 
@@ -338,7 +371,12 @@ private fun DesktopSpike(store: DesktopStore) {
 							lines += event.line.toLine()
 							reasoning = ""
 							answer = ""
-							scope.launch { conversations = store.list() }
+							onReplyReady()
+							scope.launch {
+								conversations = store.list()
+								contextTokens = store.contextTokens(conversationId)
+								compactionActive = store.contextSummary(conversationId) != null
+							}
 						}
 
 						is DesktopChat.Event.ToolResult -> {
@@ -446,6 +484,24 @@ private fun DesktopSpike(store: DesktopStore) {
 						.padding(horizontal = 36.dp, vertical = 8.dp),
 				)
 			}
+			ContextBar(
+				tokens = contextTokens,
+				compacted = compactionActive,
+				busy = compactBusy,
+				onCompact = {
+					if (!streaming && !compactBusy && selectedId != null) showCompact = true
+				},
+				onClear = {
+					val id = selectedId
+					if (id != null) {
+						scope.launch {
+							store.clearContextSummary(id)
+							compactionActive = false
+							contextTokens = store.contextTokens(id)
+						}
+					}
+				},
+			)
 			Composer(
 				input = input,
 				onInput = { input = it },
@@ -518,6 +574,35 @@ private fun DesktopSpike(store: DesktopStore) {
 			store = store,
 			conversationId = selectedId,
 			onClose = { showTools = false },
+		)
+	}
+
+	if (showCompact) {
+		CompactWindow(
+			onCancel = { showCompact = false },
+			onConfirm = {
+				showCompact = false
+				val id = selectedId
+				if (id != null) {
+					scope.launch {
+						compactBusy = true
+						val resolved = store.resolve(assistant, id)
+						if (resolved.error != null) {
+							error = resolved.error
+						} else {
+							val outcome = store.compact(id, resolved.provider, resolved.model)
+							if (outcome.error != null) {
+								error = outcome.error
+							} else {
+								compactionActive = true
+								contextTokens = store.contextTokens(id)
+								error = null
+							}
+						}
+						compactBusy = false
+					}
+				}
+			},
 		)
 	}
 
@@ -2649,6 +2734,108 @@ private fun FileAction(label: String, onClick: () -> Unit) {
 		color = Signal,
 		modifier = Modifier.clickable(onClick = onClick),
 	)
+}
+
+@Composable
+private fun ContextBar(
+	tokens: Int,
+	compacted: Boolean,
+	busy: Boolean,
+	onCompact: () -> Unit,
+	onClear: () -> Unit,
+) {
+	Row(
+		modifier = Modifier
+			.fillMaxWidth()
+			.background(GraphiteRaised)
+			.padding(horizontal = 36.dp, vertical = 6.dp),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		Text(
+			text = "~$tokens tokens" + if (compacted) " · earlier turns summarized" else "",
+			fontFamily = FontFamily.Monospace,
+			fontSize = 10.sp,
+			color = Muted,
+		)
+		Spacer(Modifier.weight(1f))
+		if (compacted) {
+			Text(
+				text = "CLEAR",
+				fontFamily = FontFamily.Monospace,
+				fontSize = 10.sp,
+				color = Signal,
+				modifier = Modifier.clickable(enabled = !busy) { onClear() },
+			)
+			Spacer(Modifier.width(18.dp))
+		}
+		Text(
+			text = if (busy) "COMPACTING…" else "COMPACT",
+			fontFamily = FontFamily.Monospace,
+			fontSize = 10.sp,
+			color = if (busy) Muted else Signal,
+			modifier = Modifier.clickable(enabled = !busy) { onCompact() },
+		)
+	}
+}
+
+@Composable
+private fun CompactWindow(onCancel: () -> Unit, onConfirm: () -> Unit) {
+	DialogWindow(
+		onCloseRequest = onCancel,
+		title = "inhuman · compact context",
+		state = rememberDialogState(width = 560.dp, height = 320.dp),
+	) {
+		MaterialTheme(colorScheme = DesktopColors) {
+			Column(
+				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(24.dp),
+			) {
+				Text(
+					text = "COMPACT CONTEXT",
+					fontFamily = FontFamily.Monospace,
+					fontSize = 11.sp,
+					letterSpacing = 1.5.sp,
+					color = Signal,
+				)
+				Text(
+					text = "Older messages are summarized and omitted from the next request; the last two user turns stay verbatim. The transcript itself is not deleted, and Clear restores the full projection.",
+					fontSize = 12.sp,
+					lineHeight = 19.sp,
+					color = Muted,
+					modifier = Modifier.padding(top = 10.dp),
+				)
+				Text(
+					text = "With a real provider this costs one summarization request.",
+					fontSize = 11.sp,
+					color = Color(0xFFFF8A7A),
+					modifier = Modifier.padding(top = 8.dp),
+				)
+				Spacer(Modifier.weight(1f))
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					horizontalArrangement = Arrangement.End,
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					Text(
+						text = "Cancel",
+						color = Muted,
+						fontSize = 13.sp,
+						modifier = Modifier.clickable { onCancel() },
+					)
+					Spacer(Modifier.width(20.dp))
+					Button(
+						onClick = onConfirm,
+						colors = ButtonDefaults.buttonColors(
+							containerColor = Signal,
+							contentColor = Color(0xFF22140E),
+						),
+						shape = RoundedCornerShape(6.dp),
+					) {
+						Text("Compact")
+					}
+				}
+			}
+		}
+	}
 }
 
 @Composable
