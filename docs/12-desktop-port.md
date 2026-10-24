@@ -41,7 +41,7 @@
 
 仍未完成（下一步，不要误认为 spike 已完成）：
 
-- 桌面端仍缺 assistant/设置/工作区/文件屏、Markdown 渲染、工具调用与审批、SSH consent、snapshot/compaction、通知/文件对话框/图片适配。数据层与 conversation rail 已经就绪；
+- 桌面端仍缺 assistant/设置/工作区/文件屏、真实 provider 与密钥、工具调用与审批、SSH consent、snapshot/compaction、通知/文件对话框/图片适配。数据层、conversation rail 和 Markdown 已经就绪；
 - Linux Secret Service（libsecret）绑定，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
 - 桌面端的完整安全/通知/文件对话框/图片适配。
 
@@ -141,7 +141,7 @@ UI 不是“原样搬过去”：现有 tablet 双栏布局是一个很好的起
 
 这不是不可做，而是**触碰面广**：728 个 Compose import 里，只有将来决定共享 UI 时才会碰到 Android 部分。先用桌面聊天 + 设置两屏验证成本，再决定是否把 Android UI 也迁到 commonMain。
 
-**实测：Markdown 渲染器的字节码。** Android 用的 `multiplatform-markdown-renderer-jvm:0.45.0` 是 class-file major **65（Java 21）**。桌面 app 跑在 JDK 17 上，构建能过，但渲染第一条回复时抛 `UnsupportedClassVersionError`；Android 不受影响，因为 D8 会重写字节码。在把桌面 JRE 提到 21（并随安装包一起发）或找到 Java 17 可用的渲染器之前，桌面窗口只显示原始 Markdown 文本。这是 4.1 描述的依赖侧风险：一个 artifact 可以是 multiplatform，但仍然跑不进桌面工具链。
+**已解决：Markdown 渲染器的字节码。** Android 用的 `multiplatform-markdown-renderer-jvm:0.45.0` 是 class-file major **65（Java 21）**。桌面**编译**仍然是 target 17，但 `run` 和打包改用 **Java 21+** 运行时（本机用 Android Studio 的 JBR 25）：`desktopApp/build.gradle` 的 `javaHome` 读 `INHUMAN_DESKTOP_JAVA_HOME`，MSI 会把这个运行时一起打进去。窗口现在用同一个渲染器，已验证标题、粗体、列表；运行 `:desktopApp:run` 或打安装包时必须设置这个变量，否则会在第一条回复时抛 `UnsupportedClassVersionError`。这也是安装包必须自带 JRE、不能依赖用户机器上已有 Java 的原因。
 
 ### 4.2 Room / 数据层
 

@@ -33,6 +33,12 @@ dependencies {
 	implementation(compose.material3)
 	implementation(libs.kotlinx.coroutines.core)
 
+	// The same Markdown renderer the Android chat uses. Its JVM artifact is
+	// Java 21 bytecode, so the desktop runtime (not the compile target) must be
+	// 21+; see `javaHome` below.
+	implementation libs.markdown.renderer
+	implementation libs.markdown.renderer.m3
+
 	implementation libs.androidx.room.runtime
 	implementation 'androidx.sqlite:sqlite-bundled:2.5.2'
 	implementation libs.jna.platform
@@ -45,6 +51,16 @@ dependencies {
 compose.desktop {
 	application {
 		mainClass = 'com.inhuman.desktop.MainKt'
+
+		// The JVM the app is **run and packaged** with, not the Kotlin compile
+		// target (still 17): the Markdown renderer ships Java 21 bytecode, and
+		// Android Studio's JBR is the 25 runtime on this machine. A product
+		// build must set INHUMAN_DESKTOP_JAVA_HOME to a JDK 21+ so the MSI
+		// bundles that runtime; falling back to the Gradle JVM keeps
+		// `:desktopApp:test` working without the variable, and a run without it
+		// fails loudly at the first rendered reply rather than silently.
+		javaHome = System.getenv('INHUMAN_DESKTOP_JAVA_HOME')
+			?: System.getProperty('java.home')
 
 		nativeDistributions {
 			targetFormats(

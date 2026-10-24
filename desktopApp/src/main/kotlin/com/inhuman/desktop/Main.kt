@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -48,6 +49,10 @@ import com.inhuman.core.ai.provider.demo.DemoProvider
 import com.inhuman.core.engine.ChatEngine
 import com.inhuman.core.engine.EngineEvent
 import com.inhuman.core.engine.EngineTurn
+import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.m3.markdownColor
+import com.mikepenz.markdown.m3.markdownTypography
+import com.mikepenz.markdown.model.rememberMarkdownState
 import kotlinx.coroutines.launch
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -464,13 +469,51 @@ private fun TranscriptLine(line: Line, cursor: Boolean = false) {
 					modifier = Modifier.padding(top = 6.dp, bottom = 8.dp),
 				)
 			}
-			Text(
-				text = line.text.trim().ifBlank { "…" } + if (cursor) " ▍" else "",
-				fontSize = 15.sp,
-				lineHeight = 24.sp,
-				color = Paper,
-				modifier = Modifier.padding(top = 6.dp),
-			)
+			val markdownState = rememberMarkdownState(line.text.trim().ifBlank { "…" })
+			if (cursor) {
+				// While the answer is still arriving the renderer would re-parse
+				// the whole document on every chunk. The Android chat solves
+				// that with a streaming state; the desktop window keeps the raw
+				// text until the reply is complete, which is honest about what
+				// it is showing and cheap.
+				Text(
+					text = line.text.trim().ifBlank { "…" } + " ▍",
+					fontSize = 15.sp,
+					lineHeight = 24.sp,
+					color = Paper,
+					modifier = Modifier.padding(top = 6.dp),
+				)
+			} else {
+				Markdown(
+					markdownState = markdownState,
+					colors = markdownColor(
+						text = Paper,
+						codeBackground = Color(0xFF26211D),
+						inlineCodeBackground = Color(0xFF26211D),
+						dividerColor = Hairline,
+						tableBackground = GraphiteRaised,
+					),
+					typography = markdownTypography(
+						text = TextStyle(fontSize = 15.sp, lineHeight = 24.sp, color = Paper),
+						paragraph = TextStyle(fontSize = 15.sp, lineHeight = 24.sp, color = Paper),
+						h1 = TextStyle(fontSize = 24.sp, fontWeight = FontWeight.Light, color = Paper),
+						h2 = TextStyle(fontSize = 20.sp, color = Paper),
+						h3 = TextStyle(fontSize = 17.sp, color = Paper),
+						code = TextStyle(
+							fontSize = 13.sp,
+							fontFamily = FontFamily.Monospace,
+							color = Paper,
+						),
+						inlineCode = TextStyle(
+							fontSize = 14.sp,
+							fontFamily = FontFamily.Monospace,
+							color = Paper,
+						),
+						quote = TextStyle(fontSize = 15.sp, lineHeight = 24.sp, color = Muted),
+					),
+					modifier = Modifier.padding(top = 6.dp),
+				)
+			}
 		}
 	}
 }

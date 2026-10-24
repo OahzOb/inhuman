@@ -410,6 +410,12 @@ instrumentation suite (migrations, workspace lifetime, provider profiles, the
 documents provider) needs a device; its list and current count are in
 `docs/README.md`.
 
+The desktop app compiles to Java 17 but **runs and packages on Java 21+**: the
+Markdown renderer is Java 21 bytecode. Set `INHUMAN_DESKTOP_JAVA_HOME` to a
+JDK 21+ before `:desktopApp:run`, `createDistributable` or `packageMsi`; tests
+and compilation still use the Gradle JDK 17. A run without it fails at the first
+rendered reply, not at build time.
+
 Release builds sign from `keystore.properties` when present and fall back to the
 debug key otherwise. The keystore and properties are gitignored; losing them
 means no future release can update an installed build.
