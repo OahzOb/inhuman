@@ -97,6 +97,7 @@ private const val KEY_SSH_COMMAND_SECONDS = "ssh.command_timeout_seconds"
 private const val KEY_SSH_OUTPUT_BYTES = "ssh.output_bytes"
 private const val KEY_SSH_LIST_ENTRIES = "ssh.list_entries"
 private const val KEY_SSH_READ_BYTES = "ssh.read_bytes"
+private const val KEY_LANGUAGE = "desktop.language"
 
 private const val COMPACTION_PROMPT =
 	"You compress an earlier part of a chat transcript into a compact factual summary. " +
@@ -465,6 +466,14 @@ class DesktopStore private constructor(
 		PolicyRepository(db).forConversation(conversationId, agentId)
 
 	fun sshEnabled(): Boolean = secrets.get(KEY_SSH_ENABLED) == "1"
+
+	/** UI language code; Chinese on a Chinese system, English otherwise. */
+	fun language(): String = secrets.get(KEY_LANGUAGE)
+		?: if (Locale.getDefault().language == "zh") "zh" else "en"
+
+	fun setLanguage(code: String) {
+		secrets.put(KEY_LANGUAGE, if (code == "zh") "zh" else "en")
+	}
 
 	/**
 	 * Turning the global switch off revokes every conversation's grant.

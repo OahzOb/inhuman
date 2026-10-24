@@ -55,11 +55,12 @@
 - 桌面新增 context gauge 和手动 compaction：底部显示 `~N tokens`（上次 provider usage，缺失时按 4 chars/token 估算）；COMPACT 保留最近 2 个 user turn，把更早的前缀总结后写入 `context_summaries.throughMessageId`，`DesktopChat.history` 把 summary 拼进 system prompt 并只发送边界之后的消息；CLEAR 恢复完整投影。真实 provider 花一次 summarize 请求，DemoProvider 用本地确定性 summary；边界失效（分支/删除）时忽略 summary。`DesktopChatTest` 验证压缩后请求变短、summary 在 system、clear 后恢复；
 - 桌面新增系统托盘：Open/Exit 菜单，窗口最小化或失焦时回合完成弹 “Reply ready” 通知；headless 或系统托盘不可用时静默跳过；
 - 桌面快捷键：`Ctrl+N` 新会话、`Ctrl+Enter` 发送、`Ctrl+F` 聚焦搜索、`Ctrl+,` 打开设置、`Esc` 停止流式回合；
-- 桌面端仍缺完整多轮 rewind 树、图片附件/拖放、完整中英文资源和真实签名证书。数据层、conversation rail、Markdown、DPAPI 密钥、真实 provider、工具与审批、SSH、assistant 编辑、Files 窗口、单轮 rewind、compaction、diagnostics、备份/恢复、托盘通知、快捷键和 MSI 已经就绪；
+- 桌面新增中英文切换：Settings 顶部 `EN / 中文`，选择写进 DPAPI secrets，默认跟随系统语言；主壳、会话栏、composer、context bar、设置 tabs、审批/SSH/rewind/compaction/files/assistant 的可见标题和按钮已双语；provider/DB 的原始错误、部分技术状态仍是英文；
+- 桌面端仍缺完整多轮 rewind 树、图片附件/拖放和真实签名证书；完整 i18n（错误文本与少量技术状态）仍有英文残留。数据层、conversation rail、Markdown、DPAPI 密钥、真实 provider、工具与审批、SSH、assistant 编辑、Files 窗口、单轮 rewind、compaction、diagnostics、备份/恢复、托盘通知、快捷键、中英文主界面和 MSI 已经就绪；
 - Linux Secret Service（libsecret）绑定，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
 - 桌面端的完整安全/通知/文件对话框/图片适配。
 
-当前全量测试为 **507 tests / 73 suites / 0 failures / 3 skipped**。
+当前全量测试为 **508 tests / 73 suites / 0 failures / 3 skipped**。
 
 ### 为什么不是“所有 UI 也共用一套”
 
@@ -92,7 +93,7 @@
 | `:core:common` | 3 | 303 | **0** | 已是普通 JVM，直接复用 |
 | **合计** | **110** | **33,366** | 76 个 | |
 
-测试侧还有 67 个文件、约 8,243 行；当前全量 507 tests / 73 suites。
+测试侧还有 67 个文件、约 8,243 行；当前全量 508 tests / 73 suites。
 
 这个分布说明：**领域层和 UI 层是分开的，Android 绑定集中在 data 和 app 的薄层**。这是移植能成立的前提。
 

@@ -151,4 +151,22 @@ class DesktopStoreTest {
 			store.close()
 		}
 	}
+
+	@Test
+	fun `language choice survives a reopen`() = runBlocking {
+		val dataDir = tmp.newFolder("desktop-language")
+		var store = DesktopStore.open(dataDir)
+		try {
+			store.setLanguage("zh")
+			assertEquals("zh", store.language())
+		} finally {
+			store.close()
+		}
+		store = DesktopStore.open(dataDir)
+		try {
+			assertEquals("zh", store.language())
+		} finally {
+			store.close()
+		}
+	}
 }

@@ -33,6 +33,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -177,6 +178,11 @@ fun main() {
 			title = "inhuman · desktop",
 			state = rememberWindowState(width = 900.dp, height = 620.dp),
 		) {
+			var language by remember { mutableStateOf(store.language()) }
+			val setLanguage: (String) -> Unit = { code ->
+				language = code
+				store.setLanguage(code)
+			}
 			var tray by remember { mutableStateOf<DesktopTray?>(null) }
 			DisposableEffect(Unit) {
 				val created = DesktopTray(
@@ -198,13 +204,18 @@ fun main() {
 					tray = null
 				}
 			}
-			MaterialTheme(colorScheme = DesktopColors) {
-				DesktopSpike(
-					store = store,
-					onReplyReady = {
-						if (window.isMinimized || !window.isActive) tray?.notifyReply()
-					},
-				)
+			CompositionLocalProvider(
+				LocalDesktopLanguage provides language,
+				LocalSetDesktopLanguage provides setLanguage,
+			) {
+				MaterialTheme(colorScheme = DesktopColors) {
+					DesktopSpike(
+						store = store,
+						onReplyReady = {
+							if (window.isMinimized || !window.isActive) tray?.notifyReply()
+						},
+					)
+				}
 			}
 		}
 	}
@@ -428,7 +439,7 @@ private fun DesktopSpike(store: DesktopStore, onReplyReady: () -> Unit = {}) {
 	}
 
 	val selectedTitle = conversations.firstOrNull { it.id == selectedId }?.title
-		?: "New conversation"
+		?: s("New conversation", "新会话")
 
 	Row(
 		modifier = Modifier
@@ -734,7 +745,7 @@ private fun Sidebar(
 			color = Paper,
 		)
 		Text(
-			text = "私有智能体工作台",
+			text = s("Private agent workbench", "私有智能体工作台"),
 			fontSize = 12.sp,
 			color = Muted,
 			modifier = Modifier.padding(top = 2.dp),
@@ -743,7 +754,7 @@ private fun Sidebar(
 		OutlinedTextField(
 			value = query,
 			onValueChange = onQuery,
-			placeholder = { Text("Search conversations", color = Muted, fontSize = 12.sp) },
+			placeholder = { Text(s("Search conversations", "搜索会话"), color = Muted, fontSize = 12.sp) },
 			singleLine = true,
 			textStyle = TextStyle(fontSize = 12.sp, color = Paper),
 			shape = RoundedCornerShape(6.dp),
@@ -752,7 +763,7 @@ private fun Sidebar(
 		Spacer(Modifier.height(16.dp))
 		Row(verticalAlignment = Alignment.CenterVertically) {
 			Text(
-				text = if (query.isBlank()) "CONVERSATIONS" else "SEARCH",
+				text = if (query.isBlank()) s("CONVERSATIONS", "会话") else s("SEARCH", "搜索"),
 				fontFamily = FontFamily.Monospace,
 				fontSize = 11.sp,
 				letterSpacing = 1.5.sp,
@@ -760,7 +771,7 @@ private fun Sidebar(
 			)
 			Spacer(Modifier.weight(1f))
 			Text(
-				text = "+ NEW",
+				text = s("+ NEW", "+ 新建"),
 				fontFamily = FontFamily.Monospace,
 				fontSize = 10.sp,
 				letterSpacing = 1.sp,
@@ -809,7 +820,7 @@ private fun Sidebar(
 				if (matches.isEmpty()) {
 					item {
 						Text(
-							text = "No matches",
+							text = s("No matches", "没有匹配"),
 							fontSize = 12.sp,
 							color = Muted,
 							modifier = Modifier.padding(10.dp),
@@ -822,7 +833,7 @@ private fun Sidebar(
 		Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
 		Spacer(Modifier.height(14.dp))
 		Text(
-			text = "DATABASE",
+			text = s("DATABASE", "数据库"),
 			fontFamily = FontFamily.Monospace,
 			fontSize = 10.sp,
 			color = Muted,
@@ -895,21 +906,21 @@ private fun ConversationRow(
 		}
 		DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
 			DropdownMenuItem(
-				text = { Text("Rename") },
+				text = { Text(s("Rename", "重命名")) },
 				onClick = {
 					menuOpen = false
 					onRename()
 				},
 			)
 			DropdownMenuItem(
-				text = { Text(if (conversation.pinned) "Unpin" else "Pin") },
+				text = { Text(if (conversation.pinned) s("Unpin", "取消固定") else s("Pin", "固定")) },
 				onClick = {
 					menuOpen = false
 					onPin()
 				},
 			)
 			DropdownMenuItem(
-				text = { Text("Delete") },
+				text = { Text(s("Delete", "删除")) },
 				onClick = {
 					menuOpen = false
 					onDelete()
@@ -944,7 +955,7 @@ private fun TopBar(
 				)
 			}
 			Text(
-				text = "TOOLS",
+				text = s("TOOLS", "工具"),
 				fontFamily = FontFamily.Monospace,
 				fontSize = 10.sp,
 				letterSpacing = 1.sp,
@@ -953,7 +964,7 @@ private fun TopBar(
 			)
 			Spacer(Modifier.width(18.dp))
 			Text(
-				text = "REWIND",
+				text = s("REWIND", "回退"),
 				fontFamily = FontFamily.Monospace,
 				fontSize = 10.sp,
 				letterSpacing = 1.sp,
@@ -962,7 +973,7 @@ private fun TopBar(
 			)
 			Spacer(Modifier.width(18.dp))
 			Text(
-				text = "FILES",
+				text = s("FILES", "文件"),
 				fontFamily = FontFamily.Monospace,
 				fontSize = 10.sp,
 				letterSpacing = 1.sp,
@@ -971,7 +982,7 @@ private fun TopBar(
 			)
 			Spacer(Modifier.width(18.dp))
 			Text(
-				text = "ASSISTANTS",
+				text = s("ASSISTANTS", "助手"),
 				fontFamily = FontFamily.Monospace,
 				fontSize = 10.sp,
 				letterSpacing = 1.sp,
@@ -980,7 +991,7 @@ private fun TopBar(
 			)
 			Spacer(Modifier.width(18.dp))
 			Text(
-				text = "SETTINGS",
+				text = s("SETTINGS", "设置"),
 				fontFamily = FontFamily.Monospace,
 				fontSize = 10.sp,
 				letterSpacing = 1.sp,
@@ -992,13 +1003,14 @@ private fun TopBar(
 	}
 }
 
+@Composable
 private fun ageLabel(at: Long): String {
 	val minutes = ((System.currentTimeMillis() - at) / 60_000).coerceAtLeast(0)
 	return when {
-		minutes < 1 -> "just now"
-		minutes < 60 -> "${minutes}m ago"
-		minutes < 1_440 -> "${minutes / 60}h ago"
-		else -> "${minutes / 1_440}d ago"
+		minutes < 1 -> s("just now", "刚刚")
+		minutes < 60 -> s("${minutes}m ago", "${minutes} 分钟前")
+		minutes < 1_440 -> s("${minutes / 60}h ago", "${minutes / 60} 小时前")
+		else -> s("${minutes / 1_440}d ago", "${minutes / 1_440} 天前")
 	}
 }
 
@@ -1009,20 +1021,20 @@ private fun EmptyState() {
 		verticalArrangement = Arrangement.Center,
 	) {
 		Text(
-			"桌面端脚手架已经跑起来了。",
+			s("The desktop scaffold is running.", "桌面端脚手架已经跑起来了。"),
 			fontSize = 28.sp,
 			color = Paper,
 			fontWeight = FontWeight.Light,
 		)
 		Text(
-			"这段回复由 core:ai 的 DemoProvider 流式生成，没有网络、没有密钥。" +
-				"消息写进桌面数据库，关掉窗口再打开还在。",
+			s("This reply is streamed by core:ai's DemoProvider, with no network and no key. ", "这段回复由 core:ai 的 DemoProvider 流式生成，没有网络、没有密钥。") +
+				s("Messages are written to the desktop database and survive closing the window.", "消息写进桌面数据库，关掉窗口再打开还在。"),
 			fontSize = 15.sp,
 			color = Muted,
 			modifier = Modifier.padding(top = 12.dp),
 		)
 		Text(
-			"输入一句话，验证共享核心在 JVM 上工作。",
+			s("Type a message to verify that the shared core works on the JVM.", "输入一句话，验证共享核心在 JVM 上工作。"),
 			fontSize = 13.sp,
 			color = Muted,
 			modifier = Modifier.padding(top = 22.dp),
@@ -1069,7 +1081,7 @@ private fun TranscriptLine(line: Line, cursor: Boolean = false) {
 					)
 					Spacer(Modifier.width(8.dp))
 					Text(
-						text = if (line.isError) "FAILED" else "RESULT",
+						text = if (line.isError) s("FAILED", "失败") else s("RESULT", "结果"),
 						fontFamily = FontFamily.Monospace,
 						fontSize = 9.sp,
 						color = Muted,
@@ -1086,7 +1098,7 @@ private fun TranscriptLine(line: Line, cursor: Boolean = false) {
 			}
 		} else {
 			Text(
-				text = "ASSISTANT",
+				text = s("ASSISTANT", "助手"),
 				fontFamily = FontFamily.Monospace,
 				fontSize = 10.sp,
 				letterSpacing = 1.2.sp,
@@ -1198,7 +1210,7 @@ private fun Composer(
 		OutlinedTextField(
 			value = input,
 			onValueChange = onInput,
-			placeholder = { Text("给这个桌面会话发一条消息…", color = Muted) },
+			placeholder = { Text(s("Message this desktop conversation…", "给这个桌面会话发一条消息…"), color = Muted) },
 			modifier = Modifier.fillMaxWidth(),
 			minLines = 2,
 			maxLines = 6,
@@ -1211,7 +1223,7 @@ private fun Composer(
 			verticalAlignment = Alignment.CenterVertically,
 		) {
 			Text(
-				if (streaming) "streaming…" else "desktop · shared core",
+				if (streaming) s("streaming…", "生成中…") else s("desktop · shared core", "桌面端 · 共享核心"),
 				fontSize = 11.sp,
 				color = Muted,
 				fontFamily = FontFamily.Monospace,
@@ -1226,7 +1238,7 @@ private fun Composer(
 					),
 					shape = RoundedCornerShape(6.dp),
 				) {
-					Text("Stop")
+					Text(s("Stop", "停止"))
 				}
 			} else {
 				Button(
@@ -1238,7 +1250,7 @@ private fun Composer(
 					),
 					shape = RoundedCornerShape(6.dp),
 				) {
-					Text("Send")
+					Text(s("Send", "发送"))
 				}
 			}
 		}
@@ -1252,6 +1264,8 @@ private fun SettingsWindow(
 	onClose: () -> Unit,
 ) {
 	val scope = rememberCoroutineScope()
+	val setLanguage = LocalSetDesktopLanguage.current
+	val language = LocalDesktopLanguage.current
 	var tab by remember { mutableStateOf(SettingsTab.Providers) }
 	var providers by remember { mutableStateOf<List<ProviderProfileEntity>>(emptyList()) }
 	var selected by remember { mutableStateOf<ProviderProfileEntity?>(null) }
@@ -1318,17 +1332,44 @@ private fun SettingsWindow(
 				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(28.dp),
 			) {
 				Text(
-					text = "SETTINGS",
+					text = s("SETTINGS", "设置"),
 					fontFamily = FontFamily.Monospace,
 					fontSize = 11.sp,
 					letterSpacing = 1.5.sp,
 					color = Signal,
 				)
+				Row(
+					modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+					horizontalArrangement = Arrangement.End,
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					Text(
+						text = "EN",
+						fontFamily = FontFamily.Monospace,
+						fontSize = 10.sp,
+						color = if (language == "en") Signal else Muted,
+						modifier = Modifier.clickable { setLanguage("en") },
+					)
+					Text(
+						text = "中文",
+						fontFamily = FontFamily.Monospace,
+						fontSize = 10.sp,
+						color = if (language == "zh") Signal else Muted,
+						modifier = Modifier.padding(start = 12.dp).clickable { setLanguage("zh") },
+					)
+				}
 				Spacer(Modifier.height(10.dp))
 				Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
 					SettingsTab.entries.forEach { entry ->
 						Text(
-							text = entry.label,
+							text = when (entry) {
+								SettingsTab.Providers -> s("PROVIDERS", "服务商")
+								SettingsTab.Model -> s("MODEL", "模型")
+								SettingsTab.Approvals -> s("APPROVALS", "审批")
+								SettingsTab.Ssh -> s("SSH", "SSH")
+								SettingsTab.Backup -> s("BACKUP", "备份")
+								SettingsTab.Diagnostics -> s("DIAGNOSTICS", "诊断")
+							},
 							fontFamily = FontFamily.Monospace,
 							fontSize = 10.sp,
 							letterSpacing = 1.sp,
@@ -1345,7 +1386,7 @@ private fun SettingsWindow(
 					when (tab) {
 						SettingsTab.Providers -> Column(Modifier.fillMaxSize()) {
 							Text(
-								"Keys are encrypted with Windows DPAPI. Without a key the assistant answers from the demo provider.",
+								s("Keys are encrypted with Windows DPAPI. Without a key the assistant answers from the demo provider.", "密钥用 Windows DPAPI 加密；没有密钥时助手使用 Demo provider。"),
 								fontSize = 12.sp,
 								color = Muted,
 							)
@@ -1432,11 +1473,11 @@ private fun SettingsWindow(
 										),
 										shape = RoundedCornerShape(6.dp),
 									) {
-										Text("Save key")
+										Text(s("Save key", "保存密钥"))
 									}
 									Spacer(Modifier.width(14.dp))
 									Text(
-										text = "Remove key",
+										text = s("Remove key", "移除密钥"),
 										color = Muted,
 										fontSize = 12.sp,
 										modifier = Modifier.clickable {
@@ -1453,13 +1494,13 @@ private fun SettingsWindow(
 
 						SettingsTab.Model -> Column(Modifier.fillMaxSize()) {
 							Text(
-								"Choose the model for this conversation. A blank choice uses the provider's first model.",
+								s("Choose the model for this conversation. A blank choice uses the provider's first model.", "选择本会话使用的模型；留空则使用服务商的第一个模型。"),
 								fontSize = 12.sp,
 								color = Muted,
 							)
 							Spacer(Modifier.height(10.dp))
 							Text(
-								text = "CURRENT · ${currentModel ?: "provider default"}",
+								text = s("CURRENT · ", "当前 · ") + (currentModel ?: s("provider default", "服务商默认")),
 								fontFamily = FontFamily.Monospace,
 								fontSize = 10.sp,
 								color = Signal,
@@ -1475,7 +1516,7 @@ private fun SettingsWindow(
 							} else {
 								Row(verticalAlignment = Alignment.CenterVertically) {
 									Text(
-										text = "MODELS",
+										text = s("MODELS", "模型"),
 										fontFamily = FontFamily.Monospace,
 										fontSize = 10.sp,
 										color = Muted,
@@ -1547,7 +1588,7 @@ private fun SettingsWindow(
 
 						SettingsTab.Approvals -> Column(Modifier.fillMaxSize()) {
 							Text(
-								"Default is no prompt. Ask shows the approval window before a call; Deny refuses it. Changes apply to the next turn.",
+								s("Default is no prompt. Ask shows the approval window before a call; Deny refuses it. Changes apply to the next turn.", "默认不询问。Ask 会在调用前弹出审批窗；Deny 直接拒绝。修改从下一轮生效。"),
 								fontSize = 12.sp,
 								color = Muted,
 							)
@@ -1589,7 +1630,7 @@ private fun SettingsWindow(
 							Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
 						) {
 							Text(
-								"SSH is the one capability that leaves this device. It is off by default; enabling it only makes the tools available to assistants that explicitly select them. Each conversation asks once before its first remote call.",
+								s("SSH is the one capability that leaves this device. It is off by default; enabling it only makes the tools available to assistants that explicitly select them. Each conversation asks once before its first remote call.", "SSH 是唯一离开本机的能力。默认关闭；打开只是让显式选择它的 assistant 能用这些工具。每个会话在第一次远程调用前询问一次。"),
 								fontSize = 12.sp,
 								color = Muted,
 							)
@@ -1607,7 +1648,7 @@ private fun SettingsWindow(
 										}
 									},
 								)
-								Text("Enable SSH tools", fontSize = 13.sp, color = Paper)
+								Text(s("Enable SSH tools", "启用 SSH 工具"), fontSize = 13.sp, color = Paper)
 							}
 							Text(
 								"LIMITS · the model may request less, never more",
@@ -1624,14 +1665,14 @@ private fun SettingsWindow(
 								OutlinedTextField(
 									value = sshSeconds,
 									onValueChange = { sshSeconds = it },
-									label = { Text("Command seconds") },
+									label = { Text(s("Command seconds", "命令秒数")) },
 									singleLine = true,
 									modifier = Modifier.weight(1f),
 								)
 								OutlinedTextField(
 									value = sshOutput,
 									onValueChange = { sshOutput = it },
-									label = { Text("Output bytes") },
+									label = { Text(s("Output bytes", "输出字节")) },
 									singleLine = true,
 									modifier = Modifier.weight(1f),
 								)
@@ -1643,14 +1684,14 @@ private fun SettingsWindow(
 								OutlinedTextField(
 									value = sshList,
 									onValueChange = { sshList = it },
-									label = { Text("List entries") },
+									label = { Text(s("List entries", "列表条数")) },
 									singleLine = true,
 									modifier = Modifier.weight(1f),
 								)
 								OutlinedTextField(
 									value = sshRead,
 									onValueChange = { sshRead = it },
-									label = { Text("Read bytes") },
+									label = { Text(s("Read bytes", "读取字节")) },
 									singleLine = true,
 									modifier = Modifier.weight(1f),
 								)
@@ -1681,10 +1722,10 @@ private fun SettingsWindow(
 									),
 									shape = RoundedCornerShape(6.dp),
 								) {
-									Text("Save limits")
+									Text(s("Save limits", "保存上限"))
 								}
 								Text(
-									text = "Revoke all grants",
+									text = s("Revoke all grants", "撤销所有授权"),
 									fontFamily = FontFamily.Monospace,
 									fontSize = 10.sp,
 									color = Signal,
@@ -1700,7 +1741,7 @@ private fun SettingsWindow(
 
 						SettingsTab.Diagnostics -> Column(Modifier.fillMaxSize()) {
 							Text(
-								"The flight recorder records what happened around a turn -- model, message counts, failures -- and never keys, prompts or file content.",
+								s("The flight recorder records what happened around a turn -- model, message counts, failures -- and never keys, prompts or file content.", "飞行记录器记录回合周围发生的事：模型、消息数、失败；绝不记录密钥、提示词或文件内容。"),
 								fontSize = 12.sp,
 								color = Muted,
 							)
@@ -1714,7 +1755,7 @@ private fun SettingsWindow(
 							Spacer(Modifier.height(12.dp))
 							Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
 								Text(
-									text = "Open folder",
+									text = s("Open folder", "打开目录"),
 									fontFamily = FontFamily.Monospace,
 									fontSize = 10.sp,
 									color = Signal,
@@ -1726,7 +1767,7 @@ private fun SettingsWindow(
 									},
 								)
 								Text(
-									text = "Clear log",
+									text = s("Clear log", "清空日志"),
 									fontFamily = FontFamily.Monospace,
 									fontSize = 10.sp,
 									color = Signal,
@@ -1740,7 +1781,7 @@ private fun SettingsWindow(
 
 						SettingsTab.Backup -> Column(Modifier.fillMaxSize()) {
 							Text(
-								"Encrypted backup of the database and every workspace. API keys are deliberately not included. Restore is staged and applied when inhuman next starts.",
+								s("Encrypted backup of the database and every workspace. API keys are deliberately not included. Restore is staged and applied when inhuman next starts.", "加密备份数据库和所有工作区。API key 故意不包含在内。恢复会先暂存，并在下次启动 inhuman 时应用。"),
 								fontSize = 12.sp,
 								color = Muted,
 							)
@@ -1748,7 +1789,7 @@ private fun SettingsWindow(
 							OutlinedTextField(
 								value = passphrase,
 								onValueChange = { passphrase = it },
-								label = { Text("Backup passphrase (at least 8 characters)") },
+								label = { Text(s("Backup passphrase (at least 8 characters)", "备份口令（至少 8 个字符）")) },
 								visualTransformation = PasswordVisualTransformation(),
 								singleLine = true,
 								modifier = Modifier.fillMaxWidth(),
@@ -1790,7 +1831,7 @@ private fun SettingsWindow(
 									Text(if (backupBusy) "Working…" else "Export backup")
 								}
 								Text(
-									text = "Import backup",
+									text = s("Import backup", "导入备份"),
 									fontFamily = FontFamily.Monospace,
 									fontSize = 10.sp,
 									color = if (backupBusy || passphrase.length < 8) Muted else Signal,
@@ -1826,7 +1867,7 @@ private fun SettingsWindow(
 					}
 					Spacer(Modifier.weight(1f))
 					Text(
-						text = "Done",
+						text = s("Done", "完成"),
 						color = Paper,
 						fontSize = 13.sp,
 						modifier = Modifier.clickable { onClose() },
@@ -1881,7 +1922,7 @@ private fun ApprovalWindow(
 				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(24.dp),
 			) {
 				Text(
-					text = "APPROVAL REQUIRED",
+					text = s("APPROVAL REQUIRED", "需要审批"),
 					fontFamily = FontFamily.Monospace,
 					fontSize = 11.sp,
 					letterSpacing = 1.5.sp,
@@ -1895,7 +1936,7 @@ private fun ApprovalWindow(
 					modifier = Modifier.padding(top = 8.dp),
 				)
 				Text(
-					text = "The model wants to run this tool. It runs only if you allow it; Deny ends the turn.",
+					text = s("The model wants to run this tool. It runs only if you allow it; Deny ends the turn.", "模型想运行这个工具。只有你允许才会执行；拒绝会结束本回合。"),
 					fontSize = 12.sp,
 					color = Muted,
 					modifier = Modifier.padding(top = 6.dp),
@@ -1923,7 +1964,7 @@ private fun ApprovalWindow(
 					horizontalArrangement = Arrangement.End,
 				) {
 					Text(
-						text = "Deny",
+						text = s("Deny", "拒绝"),
 						color = Muted,
 						fontSize = 13.sp,
 						modifier = Modifier.clickable { onDecision(false) },
@@ -1937,7 +1978,7 @@ private fun ApprovalWindow(
 						),
 						shape = RoundedCornerShape(6.dp),
 					) {
-						Text("Allow once")
+						Text(s("Allow once", "允许一次"))
 					}
 				}
 			}
@@ -1962,7 +2003,7 @@ private fun RenameWindow(
 				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(24.dp),
 			) {
 				Text(
-					text = "RENAME CONVERSATION",
+					text = s("RENAME CONVERSATION", "重命名会话"),
 					fontFamily = FontFamily.Monospace,
 					fontSize = 11.sp,
 					letterSpacing = 1.4.sp,
@@ -1984,7 +2025,7 @@ private fun RenameWindow(
 					verticalAlignment = Alignment.CenterVertically,
 				) {
 					Text(
-						text = "Cancel",
+						text = s("Cancel", "取消"),
 						color = Muted,
 						fontSize = 13.sp,
 						modifier = Modifier.clickable { onCancel() },
@@ -1999,7 +2040,7 @@ private fun RenameWindow(
 						),
 						shape = RoundedCornerShape(6.dp),
 					) {
-						Text("Save")
+						Text(s("Save", "保存"))
 					}
 				}
 			}
@@ -2023,7 +2064,7 @@ private fun DeleteWindow(
 				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(24.dp),
 			) {
 				Text(
-					text = "DELETE CONVERSATION",
+					text = s("DELETE CONVERSATION", "删除会话"),
 					fontFamily = FontFamily.Monospace,
 					fontSize = 11.sp,
 					letterSpacing = 1.4.sp,
@@ -2038,7 +2079,7 @@ private fun DeleteWindow(
 					modifier = Modifier.padding(top = 10.dp),
 				)
 				Text(
-					text = "Its messages and temporary workspace are deleted. This cannot be undone.",
+					text = s("Its messages and temporary workspace are deleted. This cannot be undone.", "它的消息和临时工作区会被删除，且无法撤销。"),
 					fontSize = 12.sp,
 					color = Muted,
 					modifier = Modifier.padding(top = 6.dp),
@@ -2050,7 +2091,7 @@ private fun DeleteWindow(
 					verticalAlignment = Alignment.CenterVertically,
 				) {
 					Text(
-						text = "Cancel",
+						text = s("Cancel", "取消"),
 						color = Muted,
 						fontSize = 13.sp,
 						modifier = Modifier.clickable { onCancel() },
@@ -2064,7 +2105,7 @@ private fun DeleteWindow(
 						),
 						shape = RoundedCornerShape(6.dp),
 					) {
-						Text("Delete")
+						Text(s("Delete", "删除"))
 					}
 				}
 			}
@@ -2108,7 +2149,7 @@ private fun AssistantsWindow(
 			) {
 				Column(modifier = Modifier.width(230.dp).fillMaxHeight()) {
 					Text(
-						text = "ASSISTANTS",
+						text = s("ASSISTANTS", "助手"),
 						fontFamily = FontFamily.Monospace,
 						fontSize = 11.sp,
 						letterSpacing = 1.5.sp,
@@ -2116,7 +2157,7 @@ private fun AssistantsWindow(
 					)
 					Spacer(Modifier.height(12.dp))
 					Text(
-						text = "+ NEW",
+						text = s("+ NEW", "+ 新建"),
 						fontFamily = FontFamily.Monospace,
 						fontSize = 10.sp,
 						color = Signal,
@@ -2151,7 +2192,7 @@ private fun AssistantsWindow(
 									overflow = TextOverflow.Ellipsis,
 								)
 								Text(
-									text = if (agent.isDefault) "DEFAULT" else "ASSISTANT",
+									text = if (agent.isDefault) s("DEFAULT", "默认") else s("ASSISTANT", "助手"),
 									fontFamily = FontFamily.Monospace,
 									fontSize = 9.sp,
 									color = Muted,
@@ -2162,7 +2203,7 @@ private fun AssistantsWindow(
 					}
 					Spacer(Modifier.height(10.dp))
 					Text(
-						text = "Done",
+						text = s("Done", "完成"),
 						color = Paper,
 						fontSize = 13.sp,
 						modifier = Modifier.clickable { onClose() },
@@ -2180,7 +2221,7 @@ private fun AssistantsWindow(
 						) {
 							Row(verticalAlignment = Alignment.CenterVertically) {
 								Text(
-									text = agent.name.ifBlank { "Untitled assistant" },
+									text = agent.name.ifBlank { s("Untitled assistant", "未命名助手") },
 									fontSize = 20.sp,
 									fontWeight = FontWeight.Light,
 									color = Paper,
@@ -2188,7 +2229,7 @@ private fun AssistantsWindow(
 								)
 								if (agent.isDefault) {
 									Text(
-										text = "DEFAULT",
+										text = s("DEFAULT", "默认"),
 										fontFamily = FontFamily.Monospace,
 										fontSize = 9.sp,
 										color = Signal,
@@ -2199,7 +2240,7 @@ private fun AssistantsWindow(
 							OutlinedTextField(
 								value = agent.name,
 								onValueChange = { draft = agent.copy(name = it) },
-								label = { Text("Name") },
+								label = { Text(s("Name", "名称")) },
 								singleLine = true,
 								modifier = Modifier.fillMaxWidth(),
 							)
@@ -2207,7 +2248,7 @@ private fun AssistantsWindow(
 							OutlinedTextField(
 								value = agent.systemPrompt,
 								onValueChange = { draft = agent.copy(systemPrompt = it) },
-								label = { Text("System prompt") },
+								label = { Text(s("System prompt", "系统提示词")) },
 								minLines = 4,
 								maxLines = 7,
 								modifier = Modifier.fillMaxWidth(),
@@ -2249,7 +2290,7 @@ private fun AssistantsWindow(
 								onValueChange = {
 									draft = agent.copy(model = it.takeIf { value -> value.isNotBlank() })
 								},
-								label = { Text("Model (blank = provider default)") },
+								label = { Text(s("Model (blank = provider default)", "模型（留空使用服务商默认）")) },
 								singleLine = true,
 								modifier = Modifier.fillMaxWidth(),
 							)
@@ -2261,12 +2302,12 @@ private fun AssistantsWindow(
 									checked = agent.thinking,
 									onCheckedChange = { draft = agent.copy(thinking = it) },
 								)
-								Text("Thinking", fontSize = 12.sp, color = Paper)
+								Text(s("Thinking", "思考"), fontSize = 12.sp, color = Paper)
 							}
 
 							Spacer(Modifier.height(6.dp))
 							Text(
-								text = "TOOLS",
+								text = s("TOOLS", "工具"),
 								fontFamily = FontFamily.Monospace,
 								fontSize = 10.sp,
 								letterSpacing = 1.sp,
@@ -2295,7 +2336,7 @@ private fun AssistantsWindow(
 											Text(entry.name, fontSize = 12.sp, color = Paper)
 											if (entry.remote) {
 												Text(
-													text = "REMOTE",
+													text = s("REMOTE", "远程"),
 													fontFamily = FontFamily.Monospace,
 													fontSize = 8.sp,
 													color = Color(0xFFFF8A7A),
@@ -2304,7 +2345,7 @@ private fun AssistantsWindow(
 											}
 											if (entry.paid) {
 												Text(
-													text = "PAID",
+													text = s("PAID", "付费"),
 													fontFamily = FontFamily.Monospace,
 													fontSize = 8.sp,
 													color = Signal,
@@ -2342,12 +2383,12 @@ private fun AssistantsWindow(
 								),
 								shape = RoundedCornerShape(6.dp),
 							) {
-								Text("Save")
+								Text(s("Save", "保存"))
 							}
 							Spacer(Modifier.width(12.dp))
 							if (!agent.isDefault) {
 								Text(
-									text = "Delete",
+									text = s("Delete", "删除"),
 									color = Color(0xFFFF8A7A),
 									fontSize = 12.sp,
 									modifier = Modifier.clickable {
@@ -2361,7 +2402,7 @@ private fun AssistantsWindow(
 							}
 							Spacer(Modifier.weight(1f))
 							Text(
-								text = "New conversation",
+								text = s("New conversation", "新会话"),
 								color = Paper,
 								fontSize = 13.sp,
 								modifier = Modifier.clickable {
@@ -2379,7 +2420,7 @@ private fun AssistantsWindow(
 						}
 					}
 				} ?: Text(
-					text = "No assistants. Create one with + NEW.",
+					text = s("No assistants. Create one with + NEW.", "没有助手，用 + 新建 创建一个。"),
 					fontSize = 12.sp,
 					color = Muted,
 				)
@@ -2524,7 +2565,7 @@ private fun FilesWindow(
 			) {
 				Row(verticalAlignment = Alignment.CenterVertically) {
 					Text(
-						text = "FILES",
+						text = s("FILES", "文件"),
 						fontFamily = FontFamily.Monospace,
 						fontSize = 11.sp,
 						letterSpacing = 1.5.sp,
@@ -2532,7 +2573,7 @@ private fun FilesWindow(
 					)
 					Spacer(Modifier.weight(1f))
 					Text(
-						text = "Done",
+						text = s("Done", "完成"),
 						color = Paper,
 						fontSize = 13.sp,
 						modifier = Modifier.clickable { onClose() },
@@ -2589,7 +2630,7 @@ private fun FilesWindow(
 						}
 						Spacer(Modifier.height(8.dp))
 						if (loading) {
-							Text("Loading…", fontSize = 12.sp, color = Muted)
+							Text(s("Loading…", "加载中…"), fontSize = 12.sp, color = Muted)
 						} else {
 							LazyColumn(modifier = Modifier.weight(1f)) {
 								items(entries, key = { it.path }) { entry ->
@@ -2658,7 +2699,7 @@ private fun FilesWindow(
 						val entry = selected
 						if (entry == null) {
 							Text(
-								text = "Select a file to read, edit, open or export.",
+								text = s("Select a file to read, edit, open or export.", "选择文件以读取、编辑、打开或导出。"),
 								fontSize = 12.sp,
 								color = Muted,
 							)
@@ -2683,7 +2724,7 @@ private fun FilesWindow(
 							Spacer(Modifier.height(10.dp))
 							if (entry.directory) {
 								Text(
-									text = "Open the folder from the list on the left.",
+									text = s("Open the folder from the list on the left.", "在左侧列表中打开文件夹。"),
 									fontSize = 12.sp,
 									color = Muted,
 								)
@@ -2736,10 +2777,10 @@ private fun FilesWindow(
 										),
 										shape = RoundedCornerShape(6.dp),
 									) {
-										Text("Save")
+										Text(s("Save", "保存"))
 									}
 									Text(
-										text = "Open",
+										text = s("Open", "打开"),
 										color = Signal,
 										fontSize = 12.sp,
 										modifier = Modifier.clickable {
@@ -2749,7 +2790,7 @@ private fun FilesWindow(
 										},
 									)
 									Text(
-										text = "Export",
+										text = s("Export", "导出"),
 										color = Signal,
 										fontSize = 12.sp,
 										modifier = Modifier.clickable {
@@ -2761,7 +2802,7 @@ private fun FilesWindow(
 								}
 								if (binary) {
 									Text(
-										text = "Binary or too-large file: editing is disabled. Open or Export it instead.",
+										text = s("Binary or too-large file: editing is disabled. Open or Export it instead.", "二进制或过大文件：不能编辑，请打开或导出。"),
 										fontSize = 11.sp,
 										color = Muted,
 										modifier = Modifier.padding(top = 6.dp),
@@ -2803,7 +2844,11 @@ private fun ContextBar(
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		Text(
-			text = "~$tokens tokens" + if (compacted) " · earlier turns summarized" else "",
+			text = if (compacted) {
+				s("~$tokens tokens · earlier turns summarized", "约 $tokens tokens · 已摘要更早轮次")
+			} else {
+				s("~$tokens tokens", "约 $tokens tokens")
+			},
 			fontFamily = FontFamily.Monospace,
 			fontSize = 10.sp,
 			color = Muted,
@@ -2811,7 +2856,7 @@ private fun ContextBar(
 		Spacer(Modifier.weight(1f))
 		if (compacted) {
 			Text(
-				text = "CLEAR",
+				text = s("CLEAR", "清除"),
 				fontFamily = FontFamily.Monospace,
 				fontSize = 10.sp,
 				color = Signal,
@@ -2820,7 +2865,7 @@ private fun ContextBar(
 			Spacer(Modifier.width(18.dp))
 		}
 		Text(
-			text = if (busy) "COMPACTING…" else "COMPACT",
+			text = if (busy) s("COMPACTING…", "压缩中…") else s("COMPACT", "压缩"),
 			fontFamily = FontFamily.Monospace,
 			fontSize = 10.sp,
 			color = if (busy) Muted else Signal,
@@ -2841,21 +2886,21 @@ private fun CompactWindow(onCancel: () -> Unit, onConfirm: () -> Unit) {
 				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(24.dp),
 			) {
 				Text(
-					text = "COMPACT CONTEXT",
+					text = s("COMPACT CONTEXT", "压缩上下文"),
 					fontFamily = FontFamily.Monospace,
 					fontSize = 11.sp,
 					letterSpacing = 1.5.sp,
 					color = Signal,
 				)
 				Text(
-					text = "Older messages are summarized and omitted from the next request; the last two user turns stay verbatim. The transcript itself is not deleted, and Clear restores the full projection.",
+					text = s("Older messages are summarized and omitted from the next request; the last two user turns stay verbatim. The transcript itself is not deleted, and Clear restores the full projection.", "较早的消息会被摘要并从下一次请求中省略；最近两个 user 回合保持原文。transcript 本身不会删除，Clear 可恢复完整投影。"),
 					fontSize = 12.sp,
 					lineHeight = 19.sp,
 					color = Muted,
 					modifier = Modifier.padding(top = 10.dp),
 				)
 				Text(
-					text = "With a real provider this costs one summarization request.",
+					text = s("With a real provider this costs one summarization request.", "使用真实 provider 时会花一次摘要请求。"),
 					fontSize = 11.sp,
 					color = Color(0xFFFF8A7A),
 					modifier = Modifier.padding(top = 8.dp),
@@ -2867,7 +2912,7 @@ private fun CompactWindow(onCancel: () -> Unit, onConfirm: () -> Unit) {
 					verticalAlignment = Alignment.CenterVertically,
 				) {
 					Text(
-						text = "Cancel",
+						text = s("Cancel", "取消"),
 						color = Muted,
 						fontSize = 13.sp,
 						modifier = Modifier.clickable { onCancel() },
@@ -2881,7 +2926,7 @@ private fun CompactWindow(onCancel: () -> Unit, onConfirm: () -> Unit) {
 						),
 						shape = RoundedCornerShape(6.dp),
 					) {
-						Text("Compact")
+						Text(s("Compact", "压缩"))
 					}
 				}
 			}
@@ -2918,7 +2963,7 @@ private fun ConversationToolsWindow(
 				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(24.dp),
 			) {
 				Text(
-					text = "CONVERSATION TOOLS",
+					text = s("CONVERSATION TOOLS", "会话工具"),
 					fontFamily = FontFamily.Monospace,
 					fontSize = 11.sp,
 					letterSpacing = 1.5.sp,
@@ -2932,7 +2977,7 @@ private fun ConversationToolsWindow(
 				)
 				Spacer(Modifier.height(10.dp))
 				if (!loaded) {
-					Text("Loading…", fontSize = 12.sp, color = Muted)
+					Text(s("Loading…", "加载中…"), fontSize = 12.sp, color = Muted)
 				} else {
 					LazyColumn(modifier = Modifier.weight(1f)) {
 						items(ToolCatalog.visible(sshEnabled), key = { it.name }) { entry ->
@@ -2951,7 +2996,7 @@ private fun ConversationToolsWindow(
 										Text(entry.name, fontSize = 12.sp, color = Paper)
 										if (entry.remote) {
 											Text(
-												text = "REMOTE",
+												text = s("REMOTE", "远程"),
 												fontFamily = FontFamily.Monospace,
 												fontSize = 8.sp,
 												color = Color(0xFFFF8A7A),
@@ -2960,7 +3005,7 @@ private fun ConversationToolsWindow(
 										}
 										if (entry.paid) {
 											Text(
-												text = "PAID",
+												text = s("PAID", "付费"),
 												fontFamily = FontFamily.Monospace,
 												fontSize = 8.sp,
 												color = Signal,
@@ -3001,11 +3046,11 @@ private fun ConversationToolsWindow(
 						),
 						shape = RoundedCornerShape(6.dp),
 					) {
-						Text("Save")
+						Text(s("Save", "保存"))
 					}
 					Spacer(Modifier.weight(1f))
 					Text(
-						text = "Done",
+						text = s("Done", "完成"),
 						color = Paper,
 						fontSize = 13.sp,
 						modifier = Modifier.clickable { onClose() },
@@ -3031,14 +3076,14 @@ private fun SshConsentWindow(
 				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(24.dp),
 			) {
 				Text(
-					text = "SSH CONSENT",
+					text = s("SSH CONSENT", "SSH 授权"),
 					fontFamily = FontFamily.Monospace,
 					fontSize = 11.sp,
 					letterSpacing = 1.5.sp,
 					color = Color(0xFFFF8A7A),
 				)
 				Text(
-					text = "The model wants to reach a remote machine. This is the one capability that leaves the device; the app does not configure the host or keep the credentials.",
+					text = s("The model wants to reach a remote machine. This is the one capability that leaves the device; the app does not configure the host or keep the credentials.", "模型想访问一台远程机器。这是唯一离开本机的能力；应用不配置主机，也不保存凭据。"),
 					fontSize = 12.sp,
 					lineHeight = 19.sp,
 					color = Muted,
@@ -3051,7 +3096,7 @@ private fun SshConsentWindow(
 				SshDetail("OPERATION", request.operation)
 				Spacer(Modifier.weight(1f))
 				Text(
-					text = "Allowing applies to this conversation. Later SSH calls will not ask again; revoke it in Settings → SSH.",
+					text = s("Allowing applies to this conversation. Later SSH calls will not ask again; revoke it in Settings → SSH.", "允许只作用于本会话。后续 SSH 调用不再询问；可在 设置 → SSH 中撤销。"),
 					fontSize = 11.sp,
 					color = Muted,
 				)
@@ -3062,7 +3107,7 @@ private fun SshConsentWindow(
 					verticalAlignment = Alignment.CenterVertically,
 				) {
 					Text(
-						text = "Deny",
+						text = s("Deny", "拒绝"),
 						color = Muted,
 						fontSize = 13.sp,
 						modifier = Modifier.clickable { onDecision(false) },
@@ -3076,7 +3121,7 @@ private fun SshConsentWindow(
 						),
 						shape = RoundedCornerShape(6.dp),
 					) {
-						Text("Allow for this conversation")
+						Text(s("Allow for this conversation", "允许此会话"))
 					}
 				}
 			}
@@ -3117,14 +3162,14 @@ private fun RewindWindow(onCancel: () -> Unit, onConfirm: () -> Unit) {
 				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(24.dp),
 			) {
 				Text(
-					text = "REWIND LAST TURN",
+					text = s("REWIND LAST TURN", "回退最后一轮"),
 					fontFamily = FontFamily.Monospace,
 					fontSize = 11.sp,
 					letterSpacing = 1.5.sp,
 					color = Signal,
 				)
 				Text(
-					text = "The last user message and every reply after it are removed. The workspace is restored to the checkpoint taken before that turn, and the message text returns to the composer.",
+					text = s("The last user message and every reply after it are removed. The workspace is restored to the checkpoint taken before that turn, and the message text returns to the composer.", "最后一条 user 消息及其后的所有回复会被移除。工作区恢复到该轮开始前的 checkpoint，消息文本回到输入框。"),
 					fontSize = 12.sp,
 					lineHeight = 19.sp,
 					color = Muted,
@@ -3137,7 +3182,7 @@ private fun RewindWindow(onCancel: () -> Unit, onConfirm: () -> Unit) {
 					verticalAlignment = Alignment.CenterVertically,
 				) {
 					Text(
-						text = "Cancel",
+						text = s("Cancel", "取消"),
 						color = Muted,
 						fontSize = 13.sp,
 						modifier = Modifier.clickable { onCancel() },
@@ -3151,7 +3196,7 @@ private fun RewindWindow(onCancel: () -> Unit, onConfirm: () -> Unit) {
 						),
 						shape = RoundedCornerShape(6.dp),
 					) {
-						Text("Remove turn")
+						Text(s("Remove turn", "移除该轮"))
 					}
 				}
 			}
