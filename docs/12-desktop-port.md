@@ -141,9 +141,11 @@ UI 不是“原样搬过去”：现有 tablet 双栏布局是一个很好的起
 
 这不是不可做，而是**触碰面广**：728 个 Compose import 里，只有将来决定共享 UI 时才会碰到 Android 部分。先用桌面聊天 + 设置两屏验证成本，再决定是否把 Android UI 也迁到 commonMain。
 
+**实测：Markdown 渲染器的字节码。** Android 用的 `multiplatform-markdown-renderer-jvm:0.45.0` 是 class-file major **65（Java 21）**。桌面 app 跑在 JDK 17 上，构建能过，但渲染第一条回复时抛 `UnsupportedClassVersionError`；Android 不受影响，因为 D8 会重写字节码。在把桌面 JRE 提到 21（并随安装包一起发）或找到 Java 17 可用的渲染器之前，桌面窗口只显示原始 Markdown 文本。这是 4.1 描述的依赖侧风险：一个 artifact 可以是 multiplatform，但仍然跑不进桌面工具链。
+
 ### 4.2 Room / 数据层
 
-Android Room 的 `Context`、`RoomDatabase.Callback`、schema assets、instrumentation migration tests 都要改。推荐保留 schema 和 DAO 形状，换 builder/driver；不要换成“自己写一套 SQL”作为第一选择，迁移风险更大。
+**已实测并落地。** `:core:db` 现在同时拥有 schema 和平台无关 repositories（`ConversationRepository`、`AgentRepository`、`PolicyRepository`、`SnapshotStore`），用注入的 `DataPaths` 和 `SecretStore` 替代 `Context`；Android 与桌面安装同一份 `MIGRATIONS` 和 onCreate 回调。桌面用 `BundledSQLiteDriver` 打开同一个 v13 文件库，`RepositoryOnDesktopTest` 验证写入、重开和 provider 密钥槽。唯一需要平台重写的是事务入口：`androidx.room.withTransaction` 是 Android-only 的 room-ktx 扩展，已换成 KMP 的 `useWriterConnection` + `immediateTransaction`。备份/恢复和 `SecureStore` 仍未跨平台。
 
 ### 4.3 Windows 文件路径
 
