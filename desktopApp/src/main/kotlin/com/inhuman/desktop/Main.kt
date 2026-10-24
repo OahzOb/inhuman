@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -55,6 +57,7 @@ import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.rememberMarkdownState
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import androidx.compose.ui.window.Window
@@ -132,6 +135,8 @@ private fun DesktopSpike(store: DesktopStore) {
 	var assistant by remember { mutableStateOf<com.inhuman.core.data.db.AgentEntity?>(null) }
 	var providerLabel by remember { mutableStateOf("Demo / demo-model") }
 	var showSettings by remember { mutableStateOf(false) }
+	var pendingApproval by remember { mutableStateOf<DesktopChat.ApprovalRequest?>(null) }
+	var approvalAnswer by remember { mutableStateOf<CompletableDeferred<Boolean>?>(null) }
 	var error by remember { mutableStateOf<String?>(null) }
 	var input by remember { mutableStateOf("") }
 	var streaming by remember { mutableStateOf(false) }
@@ -199,6 +204,15 @@ private fun DesktopSpike(store: DesktopStore) {
 					userText = text,
 					provider = resolved.provider,
 					model = resolved.model,
+					approve = { request ->
+						val answer = CompletableDeferred<Boolean>()
+						pendingApproval = request
+						approvalAnswer = answer
+						val allowed = answer.await()
+						pendingApproval = null
+						approvalAnswer = null
+						allowed
+					},
 				) { event ->
 					when (event) {
 						is DesktopChat.Event.UserMessage -> {
@@ -240,6 +254,8 @@ private fun DesktopSpike(store: DesktopStore) {
 				streaming = false
 				answer = ""
 				reasoning = ""
+				pendingApproval = null
+				approvalAnswer = null
 				turnJob = null
 			}
 		}
@@ -316,6 +332,17 @@ private fun DesktopSpike(store: DesktopStore) {
 
 	if (showSettings) {
 		SettingsWindow(store = store, onClose = { showSettings = false })
+	}
+
+	pendingApproval?.let { request ->
+		ApprovalWindow(
+			request = request,
+			onDecision = { allowed ->
+				approvalAnswer?.complete(allowed)
+				pendingApproval = null
+				approvalAnswer = null
+			},
+		)
 	}
 }
 
@@ -854,6 +881,85 @@ private fun SettingsWindow(store: DesktopStore, onClose: () -> Unit) {
 							fontSize = 12.sp,
 							modifier = Modifier.padding(top = 8.dp),
 						)
+					}
+				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun ApprovalWindow(
+	request: DesktopChat.ApprovalRequest,
+	onDecision: (Boolean) -> Unit,
+) {
+	DialogWindow(
+		onCloseRequest = { onDecision(false) },
+		title = "inhuman · approval",
+		state = rememberDialogState(width = 560.dp, height = 440.dp),
+	) {
+		MaterialTheme(colorScheme = DesktopColors) {
+			Column(
+				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(24.dp),
+			) {
+				Text(
+					text = "APPROVAL REQUIRED",
+					fontFamily = FontFamily.Monospace,
+					fontSize = 11.sp,
+					letterSpacing = 1.5.sp,
+					color = Signal,
+				)
+				Text(
+					text = request.toolName,
+					fontSize = 20.sp,
+					fontWeight = FontWeight.Light,
+					color = Paper,
+					modifier = Modifier.padding(top = 8.dp),
+				)
+				Text(
+					text = "The model wants to run this tool. It runs only if you allow it; Deny ends the turn.",
+					fontSize = 12.sp,
+					color = Muted,
+					modifier = Modifier.padding(top = 6.dp),
+				)
+				Box(
+					modifier = Modifier
+						.weight(1f)
+						.fillMaxWidth()
+						.padding(top = 14.dp)
+						.background(Graphite, RoundedCornerShape(6.dp))
+						.padding(12.dp)
+						.verticalScroll(rememberScrollState()),
+				) {
+					Text(
+						text = request.argumentsJson.ifBlank { "{}" },
+						fontFamily = FontFamily.Monospace,
+						fontSize = 11.sp,
+						lineHeight = 17.sp,
+						color = Paper,
+					)
+				}
+				Row(
+					modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+					verticalAlignment = Alignment.CenterVertically,
+					horizontalArrangement = Arrangement.End,
+				) {
+					Text(
+						text = "Deny",
+						color = Muted,
+						fontSize = 13.sp,
+						modifier = Modifier.clickable { onDecision(false) },
+					)
+					Spacer(Modifier.width(20.dp))
+					Button(
+						onClick = { onDecision(true) },
+						colors = ButtonDefaults.buttonColors(
+							containerColor = Signal,
+							contentColor = Color(0xFF22140E),
+						),
+						shape = RoundedCornerShape(6.dp),
+					) {
+						Text("Allow once")
 					}
 				}
 			}

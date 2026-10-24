@@ -4,6 +4,7 @@ import androidx.room.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.inhuman.core.ai.ChatProvider
 import com.inhuman.core.ai.policy.PolicySet
+import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.provider.demo.DemoProvider
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.Conversation
@@ -161,6 +162,14 @@ class DesktopStore private constructor(
 
 	suspend fun policies(conversationId: String, agentId: String?): PolicySet =
 		PolicyRepository(db).forConversation(conversationId, agentId)
+
+	/** The global approval rules, as the settings screen will edit them. */
+	suspend fun globalRules(): Map<String, ToolPolicy> =
+		PolicyRepository(db).globalRules()
+
+	suspend fun setGlobalRule(toolName: String, policy: ToolPolicy) {
+		PolicyRepository(db).setGlobalRule(toolName, policy)
+	}
 
 	suspend fun appendUser(conversationId: String, text: String, parentId: String?): StoredLine {
 		val message = MessageEntity(

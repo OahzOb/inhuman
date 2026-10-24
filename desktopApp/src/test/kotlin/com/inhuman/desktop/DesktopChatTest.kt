@@ -1,5 +1,6 @@
 package com.inhuman.desktop
 
+import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.provider.demo.DemoProvider
 import com.inhuman.core.data.db.ToolCallsColumn
 import kotlinx.coroutines.runBlocking
@@ -73,6 +74,66 @@ class DesktopChatTest {
 			) {}
 			assertNull("a follow-up after a tool loop must send", followUp)
 			assertEquals(2, store.messages(conversation.id).count { it.role == "user" })
+		} finally {
+			store.close()
+		}
+	}
+
+	@Test
+	fun `ask policy is shown and an allow runs the call`() = runBlocking {
+		val store = DesktopStore.open(tmp.newFolder("chat-ask"))
+		try {
+			val conversation = store.create("Approval")
+			val assistant = store.defaultAssistant()
+			assertNotNull(assistant)
+			store.setGlobalRule("delete_file", ToolPolicy.Ask)
+
+			var asked: DesktopChat.ApprovalRequest? = null
+			val failure = DesktopChat(store, conversation.id, assistant).send(
+				userText = "make a file and remove it",
+				provider = DemoProvider(chunkDelayMillis = 0),
+				model = "demo-model",
+				approve = { request ->
+					asked = request
+					true
+				},
+			) {}
+
+			assertNull(failure)
+			assertEquals("delete_file", asked?.toolName)
+			assertTrue(
+				"allow must run the delete",
+				store.messages(conversation.id).any {
+					it.role == "tool" && it.toolName == "delete_file" && it.error == null
+				},
+			)
+		} finally {
+			store.close()
+		}
+	}
+
+	@Test
+	fun `a denied call is stored as declined and stops the turn`() = runBlocking {
+		val store = DesktopStore.open(tmp.newFolder("chat-deny"))
+		try {
+			val conversation = store.create("Declined")
+			val assistant = store.defaultAssistant()
+			assertNotNull(assistant)
+			store.setGlobalRule("delete_file", ToolPolicy.Ask)
+
+			val failure = DesktopChat(store, conversation.id, assistant).send(
+				userText = "make a file and remove it",
+				provider = DemoProvider(chunkDelayMillis = 0),
+				model = "demo-model",
+				approve = { false },
+			) {}
+
+			assertNull("a user refusal is not a transport failure", failure)
+			val declined = store.messages(conversation.id)
+				.firstOrNull { it.role == "tool" && it.toolName == "delete_file" }
+			assertNotNull(declined)
+			assertTrue(declined!!.content.startsWith("[declined]"))
+			assertNotNull("the UI must be able to mark the row as a refusal", declined.error)
 		} finally {
 			store.close()
 		}

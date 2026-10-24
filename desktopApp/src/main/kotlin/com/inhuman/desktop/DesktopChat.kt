@@ -54,15 +54,32 @@ class DesktopChat(
 	}
 
 	/**
+	 * One call the configured policy wants the user to see.
+	 *
+	 * [argumentsJson] is the normalised call as the tool will run it. It can
+	 * contain paths and file content, which is the point: the user is being
+	 * asked about *this* call. SSH credentials are not shown here because the
+	 * desktop does not offer SSH yet; when it does, this must carry the
+	 * redacted details rather than the raw arguments.
+	 */
+	data class ApprovalRequest(
+		val toolName: String,
+		val argumentsJson: String,
+		val description: String,
+	)
+
+	/**
 	 * Run one turn and return the error, or null on a clean finish.
 	 *
-	 * The caller is expected to run this on the UI dispatcher: `onEvent` touches
-	 * Compose state, and every database call resumes on the caller's context.
+	 * [approve] is consulted only when the policy says `Ask` or the tool's own
+	 * `needsApproval` says yes. Returning false is a user refusal, which ends
+	 * the turn with a `[declined]` result rather than a failed one.
 	 */
 	suspend fun send(
 		userText: String,
 		provider: ChatProvider,
 		model: String,
+		approve: (suspend (ApprovalRequest) -> Boolean)? = null,
 		onEvent: (Event) -> Unit,
 	): String? {
 		val conversation = store.conversation(conversationId) ?: return "Conversation not found."
@@ -110,15 +127,27 @@ class DesktopChat(
 							stopTurn = false,
 						)
 
-					// The desktop settings sheet can configure Ask; it does not
-					// yet own an approval dialogue. Refusing is the safe half of
-					// that feature: the alternative is running a call the user
-					// asked to be consulted about.
-					policy == ToolPolicy.Ask || tool.needsApproval(parsed) ->
-						EngineDecision.Deny(
-							"$REFUSED This call requires approval, which is not available on the desktop yet.",
-							stopTurn = false,
-						)
+					// The policy can ask; the window supplies the dialogue. With
+					// no dialogue wired (a test or a future headless host), the
+					// answer is no -- never an implicit yes.
+					policy == ToolPolicy.Ask || tool.needsApproval(parsed) -> {
+						val allowed = approve?.invoke(
+							ApprovalRequest(
+								toolName = tool.name,
+								argumentsJson = call.argumentsJson,
+								description = tool.description,
+							),
+						) ?: false
+						if (allowed) {
+							EngineDecision.Allow
+						} else {
+							EngineDecision.Deny(
+								"$DECLINED The user declined this call.",
+								stopTurn = true,
+								declined = true,
+							)
+						}
+					}
 
 					else -> EngineDecision.Allow
 				}
@@ -347,5 +376,6 @@ class DesktopChat(
 		const val DEFAULT_TOOL_CALLS = 32
 		const val REFUSED = "[refused]"
 		const val SKIPPED = "[skipped]"
+		const val DECLINED = "[declined]"
 	}
 }
