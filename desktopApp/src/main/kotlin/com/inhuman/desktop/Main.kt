@@ -41,11 +41,14 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogWindow
+import androidx.compose.ui.window.rememberDialogState
 import com.inhuman.core.ai.ChatMessage
 import com.inhuman.core.ai.Role
-import com.inhuman.core.ai.provider.demo.DemoProvider
+import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.engine.ChatEngine
 import com.inhuman.core.engine.EngineEvent
 import com.inhuman.core.engine.EngineTurn
@@ -101,11 +104,14 @@ fun main() {
 @Composable
 private fun DesktopSpike(store: DesktopStore) {
 	val lines = remember { mutableStateListOf<Line>() }
-	val provider = remember { DemoProvider(chunkDelayMillis = 8) }
 	val scope = rememberCoroutineScope()
 	val listState = rememberLazyListState()
 	var conversations by remember { mutableStateOf<List<ConversationSummary>>(emptyList()) }
 	var selectedId by remember { mutableStateOf<String?>(null) }
+	var assistant by remember { mutableStateOf<com.inhuman.core.data.db.AgentEntity?>(null) }
+	var providerLabel by remember { mutableStateOf("Demo / demo-model") }
+	var showSettings by remember { mutableStateOf(false) }
+	var error by remember { mutableStateOf<String?>(null) }
 	var input by remember { mutableStateOf("") }
 	var streaming by remember { mutableStateOf(false) }
 	var reasoning by remember { mutableStateOf("") }
@@ -116,6 +122,7 @@ private fun DesktopSpike(store: DesktopStore) {
 	var loaded by remember { mutableStateOf(false) }
 
 	LaunchedEffect(Unit) {
+		assistant = store.defaultAssistant()
 		var all = store.list()
 		if (all.isEmpty()) {
 			store.create()
@@ -168,11 +175,19 @@ private fun DesktopSpike(store: DesktopStore) {
 		input = ""
 		reasoning = ""
 		answer = ""
+		error = null
 		streaming = true
 		val parentId = lastId
 		val firstMessage = lines.isEmpty()
 		scope.launch {
 			try {
+				val resolved = store.resolve(assistant)
+				if (resolved.error != null) {
+					error = resolved.error
+					return@launch
+				}
+				providerLabel = "${resolved.label} / ${resolved.model}"
+
 				// Persist first: the request history below is built from `lines`,
 				// and a message that is on screen but not in the database would
 				// make the next launch a different conversation.
@@ -184,14 +199,16 @@ private fun DesktopSpike(store: DesktopStore) {
 					conversations = store.list()
 				}
 				val turn = EngineTurn(
-					model = "demo-model",
+					model = resolved.model,
 					messages = lines
 						.filter { it.role == Role.User || it.role == Role.Assistant }
 						.map { ChatMessage(role = it.role, content = it.text) },
-					thinking = false,
+					thinking = assistant?.thinking ?: false,
+					reasoningEffort = assistant?.reasoningEffort,
+					userId = conversationId,
 				)
 				try {
-					ChatEngine(provider).run(turn).collect { event ->
+					ChatEngine(resolved.provider).run(turn).collect { event ->
 						when (event) {
 							is EngineEvent.ReasoningDelta -> reasoning += event.text
 							is EngineEvent.TextDelta -> answer += event.text
@@ -214,6 +231,8 @@ private fun DesktopSpike(store: DesktopStore) {
 					}
 					conversations = store.list()
 				}
+			} catch (failure: Exception) {
+				error = failure.message ?: failure::class.simpleName
 			} finally {
 				// Also covers a failed insert: without this the composer would
 				// stay locked for the rest of the session.
@@ -240,7 +259,11 @@ private fun DesktopSpike(store: DesktopStore) {
 			onNew = ::newConversation,
 		)
 		Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-			TopBar(selectedTitle)
+			TopBar(
+				title = selectedTitle,
+				provider = providerLabel,
+				onSettings = { showSettings = true },
+			)
 			Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
 				if (lines.isEmpty()) {
 					EmptyState()
@@ -262,6 +285,17 @@ private fun DesktopSpike(store: DesktopStore) {
 					}
 				}
 			}
+			error?.let { message ->
+				Text(
+					text = message,
+					color = Color(0xFFFF8A7A),
+					fontSize = 12.sp,
+					modifier = Modifier
+						.fillMaxWidth()
+						.background(GraphiteRaised)
+						.padding(horizontal = 36.dp, vertical = 8.dp),
+				)
+			}
 			Composer(
 				input = input,
 				onInput = { input = it },
@@ -270,6 +304,10 @@ private fun DesktopSpike(store: DesktopStore) {
 				onSend = ::send,
 			)
 		}
+	}
+
+	if (showSettings) {
+		SettingsWindow(store = store, onClose = { showSettings = false })
 	}
 }
 
@@ -370,7 +408,7 @@ private fun Sidebar(
 }
 
 @Composable
-private fun TopBar(title: String) {
+private fun TopBar(title: String, provider: String, onSettings: () -> Unit) {
 	Column {
 		Row(
 			modifier = Modifier.fillMaxWidth().padding(horizontal = 36.dp, vertical = 18.dp),
@@ -379,17 +417,19 @@ private fun TopBar(title: String) {
 			Column(Modifier.weight(1f)) {
 				Text(title, fontSize = 18.sp, fontWeight = FontWeight.Medium, color = Paper, maxLines = 1)
 				Text(
-					"Demo / demo-model · 桌面端",
+					provider,
 					fontSize = 12.sp,
 					color = Muted,
 					modifier = Modifier.padding(top = 2.dp),
 				)
 			}
 			Text(
-				"DEMO",
+				text = "SETTINGS",
 				fontFamily = FontFamily.Monospace,
 				fontSize = 10.sp,
+				letterSpacing = 1.sp,
 				color = Signal,
+				modifier = Modifier.clickable { onSettings() },
 			)
 		}
 		Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
@@ -564,6 +604,170 @@ private fun Composer(
 				shape = RoundedCornerShape(6.dp),
 			) {
 				Text(if (streaming) "Streaming" else "Send")
+			}
+		}
+	}
+}
+
+@Composable
+private fun SettingsWindow(store: DesktopStore, onClose: () -> Unit) {
+	val scope = rememberCoroutineScope()
+	var providers by remember { mutableStateOf<List<ProviderProfileEntity>>(emptyList()) }
+	var selected by remember { mutableStateOf<ProviderProfileEntity?>(null) }
+	var keyStatus by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
+	var keyInput by remember { mutableStateOf("") }
+	var status by remember { mutableStateOf<String?>(null) }
+	var saving by remember { mutableStateOf(false) }
+
+	LaunchedEffect(Unit) {
+		providers = store.providers()
+		keyStatus = providers.associate { it.id to store.hasProviderKey(it.id) }
+		selected = providers.firstOrNull()
+	}
+
+	fun refreshKeyStatus() {
+		scope.launch {
+			keyStatus = providers.associate { it.id to store.hasProviderKey(it.id) }
+		}
+	}
+
+	DialogWindow(
+		onCloseRequest = onClose,
+		title = "inhuman · settings",
+		state = rememberDialogState(width = 560.dp, height = 470.dp),
+	) {
+		MaterialTheme(colorScheme = DesktopColors) {
+			Column(
+				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(28.dp),
+			) {
+				Text(
+					text = "PROVIDERS",
+					fontFamily = FontFamily.Monospace,
+					fontSize = 11.sp,
+					letterSpacing = 1.5.sp,
+					color = Signal,
+				)
+				Spacer(Modifier.height(8.dp))
+				Text(
+					"Keys are encrypted with Windows DPAPI. Without a key the assistant answers from the demo provider.",
+					fontSize = 12.sp,
+					color = Muted,
+				)
+				Spacer(Modifier.height(16.dp))
+				LazyColumn(modifier = Modifier.weight(1f)) {
+					items(providers, key = { it.id }) { profile ->
+						val isSelected = profile.id == selected?.id
+						val hasKey = keyStatus[profile.id] == true
+						Column(
+							modifier = Modifier
+								.fillMaxWidth()
+								.background(
+									if (isSelected) Color(0xFF26211D) else Color.Transparent,
+									RoundedCornerShape(6.dp),
+								)
+								.clickable {
+									selected = profile
+									keyInput = ""
+									status = null
+								}
+								.padding(12.dp),
+						) {
+							Text(profile.name, color = Paper, fontSize = 14.sp)
+							Text(
+								profile.baseUrl,
+								fontFamily = FontFamily.Monospace,
+								fontSize = 10.sp,
+								color = Muted,
+								modifier = Modifier.padding(top = 2.dp),
+							)
+							Text(
+								if (hasKey) "KEY SAVED" else "NO KEY",
+								fontFamily = FontFamily.Monospace,
+								fontSize = 9.sp,
+								color = if (hasKey) Signal else Muted,
+								modifier = Modifier.padding(top = 4.dp),
+							)
+						}
+					}
+				}
+				selected?.let { profile ->
+					Spacer(Modifier.height(12.dp))
+					OutlinedTextField(
+						value = keyInput,
+						onValueChange = { keyInput = it },
+						label = {
+							Text(
+								if (keyStatus[profile.id] == true) {
+									"New key (blank keeps the saved one)"
+								} else {
+									"API key"
+								},
+							)
+						},
+						visualTransformation = PasswordVisualTransformation(),
+						singleLine = true,
+						modifier = Modifier.fillMaxWidth(),
+					)
+					Row(
+						modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+						verticalAlignment = Alignment.CenterVertically,
+					) {
+						Button(
+							onClick = {
+								scope.launch {
+									saving = true
+									status = null
+									val value = keyInput.ifBlank { null }
+									val ok = store.saveProviderKey(profile.id, value)
+									status = when {
+										!ok -> "That provider no longer exists."
+										value == null -> "Nothing changed."
+										else -> "Key saved."
+									}
+									keyInput = ""
+									saving = false
+									refreshKeyStatus()
+								}
+							},
+							enabled = !saving,
+							colors = ButtonDefaults.buttonColors(
+								containerColor = Signal,
+								contentColor = Color(0xFF22140E),
+							),
+							shape = RoundedCornerShape(6.dp),
+						) {
+							Text("Save key")
+						}
+						Spacer(Modifier.width(14.dp))
+						Text(
+							text = "Remove key",
+							color = Muted,
+							fontSize = 12.sp,
+							modifier = Modifier.clickable {
+								scope.launch {
+									store.saveProviderKey(profile.id, "")
+									status = "Key removed; replies use the demo provider."
+									refreshKeyStatus()
+								}
+							},
+						)
+						Spacer(Modifier.weight(1f))
+						Text(
+							text = "Done",
+							color = Paper,
+							fontSize = 13.sp,
+							modifier = Modifier.clickable { onClose() },
+						)
+					}
+					status?.let {
+						Text(
+							text = it,
+							color = Muted,
+							fontSize = 12.sp,
+							modifier = Modifier.padding(top = 8.dp),
+						)
+					}
+				}
 			}
 		}
 	}

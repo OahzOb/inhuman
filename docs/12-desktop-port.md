@@ -34,6 +34,7 @@
 - `ConversationRepository`、`AgentRepository`、`PolicyRepository`、`SnapshotStore` 已从 `:core:data` 移到 `:core:db`，改用注入的 `DataPaths` 和 `SecretStore` 接口，不再依赖 `Context`；`:core:data` 只剩 Android 适配（Keystore、`Database.open`、备份、DocumentsProvider）。`ConversationRepositoryTest` 在 JVM 上创建/删除会话、写消息、跑回滚事务；
 - `:desktopApp` 已用真实 v13 文件库替代 spike 的内存列表：同一个 `InhumanDatabase`、同一份 `MIGRATIONS` 与 onCreate 回调（会种下默认 assistant/provider）、同一个 `ConversationRepository`、同一套 `files/conversations/<id>` 布局。关掉窗口重开，消息还在；`RepositoryOnDesktopTest` 用文件库验证写入、重开和 provider 密钥槽；
 - 桌面窗口现在有会话栏：列出 `ConversationRepository.all()`、新建会话、切换时重新加载 transcript、按首条消息自动命名；`DesktopStoreTest` 覆盖列表/切换/重开，窗口内也手工验证了新建、切换和发送后落库；
+- 桌面有了最小设置窗与真实 provider：provider 列表、API key 通过 **DPAPI** 整文件加密保存（`secrets.bin`，key 名也不以明文出现），聊天按默认 assistant 的 provider/model 解析，没 key 时回退 demo。用真实 DeepSeek key 验证过一个短回合：标题显示 `DeepSeek / deepseek-flash`，回复按 Markdown 渲染，落库正常，密钥文件不含明文；验证后测试数据已删除；
 - 真实的 `write_file`/`read_file` 工具已在桌面 JVM 上执行并通过测试；这证明共享 sandbox，但还不是完整的 `ChatEngine` 工具循环；
 - Windows DPAPI 已经通过 JNA 的 `Crypt32Util` 验证加解密往返；Linux 明确不做“假加密”回退，Secret Service 绑定仍是待办；
 - Windows **junction 逃逸**被 spike 的测试抓到并修复：`File.canonicalFile` 不解析 junction，`Files.isSymbolicLink` 也不识别它，现在对已存在组件使用 `toPath().toRealPath()`；
@@ -41,11 +42,11 @@
 
 仍未完成（下一步，不要误认为 spike 已完成）：
 
-- 桌面端仍缺 assistant/设置/工作区/文件屏、真实 provider 与密钥、工具调用与审批、SSH consent、snapshot/compaction、通知/文件对话框/图片适配。数据层、conversation rail 和 Markdown 已经就绪；
+- 桌面端仍缺 assistant 编辑、模型选择、工作区/文件屏、工具调用与审批、SSH consent、snapshot/compaction、通知/文件对话框/图片适配。数据层、conversation rail、Markdown、DPAPI 密钥与真实 provider 已经就绪；
 - Linux Secret Service（libsecret）绑定，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
 - 桌面端的完整安全/通知/文件对话框/图片适配。
 
-当前全量测试为 **482 tests / 67 suites / 0 failures / 3 skipped**。
+当前全量测试为 **485 tests / 68 suites / 0 failures / 3 skipped**。
 
 ### 为什么不是“所有 UI 也共用一套”
 
@@ -78,7 +79,7 @@
 | `:core:common` | 3 | 303 | **0** | 已是普通 JVM，直接复用 |
 | **合计** | **110** | **33,366** | 76 个 | |
 
-测试侧还有 67 个文件、约 8,243 行；当前全量 482 tests / 67 suites。
+测试侧还有 67 个文件、约 8,243 行；当前全量 485 tests / 68 suites。
 
 这个分布说明：**领域层和 UI 层是分开的，Android 绑定集中在 data 和 app 的薄层**。这是移植能成立的前提。
 
@@ -145,7 +146,7 @@ UI 不是“原样搬过去”：现有 tablet 双栏布局是一个很好的起
 
 ### 4.2 Room / 数据层
 
-**已实测并落地。** `:core:db` 现在同时拥有 schema 和平台无关 repositories（`ConversationRepository`、`AgentRepository`、`PolicyRepository`、`SnapshotStore`），用注入的 `DataPaths` 和 `SecretStore` 替代 `Context`；Android 与桌面安装同一份 `MIGRATIONS` 和 onCreate 回调。桌面用 `BundledSQLiteDriver` 打开同一个 v13 文件库，`RepositoryOnDesktopTest` 验证写入、重开和 provider 密钥槽。唯一需要平台重写的是事务入口：`androidx.room.withTransaction` 是 Android-only 的 room-ktx 扩展，已换成 KMP 的 `useWriterConnection` + `immediateTransaction`。备份/恢复和 `SecureStore` 仍未跨平台。
+**已实测并落地。** `:core:db` 现在同时拥有 schema 和平台无关 repositories（`ConversationRepository`、`AgentRepository`、`PolicyRepository`、`SnapshotStore`），用注入的 `DataPaths` 和 `SecretStore` 替代 `Context`；Android 与桌面安装同一份 `MIGRATIONS` 和 onCreate 回调。桌面用 `BundledSQLiteDriver` 打开同一个 v13 文件库，`RepositoryOnDesktopTest` 验证写入、重开和 provider 密钥槽。唯一需要平台重写的是事务入口：`androidx.room.withTransaction` 是 Android-only 的 room-ktx 扩展，已换成 KMP 的 `useWriterConnection` + `immediateTransaction`。`SecretStore` 的桌面实现是 DPAPI（`DpapiSecretStore`，整文件加密、原子写、损坏文件按空读取）；备份/恢复仍未跨平台。
 
 ### 4.3 Windows 文件路径
 

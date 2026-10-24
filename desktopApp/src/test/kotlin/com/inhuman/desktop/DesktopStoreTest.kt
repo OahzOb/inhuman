@@ -2,6 +2,8 @@ package com.inhuman.desktop
 
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -53,6 +55,28 @@ class DesktopStoreTest {
 			assertEquals(2, lines.size)
 			assertEquals("hello", lines.first().text)
 			assertEquals("hi", lines.last().text)
+		} finally {
+			store.close()
+		}
+	}
+
+	@Test
+	fun `provider keys are stored through DPAPI and survive a reopen`() = runBlocking {
+		val dataDir = tmp.newFolder("desktop-keys")
+		var store = DesktopStore.open(dataDir)
+		try {
+			assertFalse(store.hasProviderKey("deepseek"))
+			assertTrue(store.saveProviderKey("deepseek", "sk-desktop-test"))
+			assertTrue(store.hasProviderKey("deepseek"))
+			assertNotNull("a saved key must build a provider", store.provider("deepseek"))
+		} finally {
+			store.close()
+		}
+
+		store = DesktopStore.open(dataDir)
+		try {
+			assertTrue("the key survives the next launch", store.hasProviderKey("deepseek"))
+			assertNotNull(store.provider("deepseek"))
 		} finally {
 			store.close()
 		}

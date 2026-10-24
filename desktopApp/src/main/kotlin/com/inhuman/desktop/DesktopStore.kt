@@ -2,10 +2,17 @@ package com.inhuman.desktop
 
 import androidx.room.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import com.inhuman.core.ai.ChatProvider
+import com.inhuman.core.ai.provider.demo.DemoProvider
+import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.DataPaths
+import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.InhumanDatabase
 import com.inhuman.core.data.db.MessageEntity
+import com.inhuman.core.data.db.ProviderIds
+import com.inhuman.core.data.db.ProviderProfileEntity
+import com.inhuman.desktop.secret.DpapiSecretStore
 import java.io.File
 import java.util.Locale
 import java.util.UUID
@@ -23,6 +30,14 @@ data class ConversationSummary(
 	val id: String,
 	val title: String,
 	val updatedAt: Long,
+)
+
+/** Where the next turn goes, and what the header should call it. */
+data class ResolvedChat(
+	val provider: ChatProvider,
+	val model: String,
+	val label: String,
+	val error: String? = null,
 )
 
 /**
@@ -45,6 +60,7 @@ data class ConversationSummary(
 class DesktopStore private constructor(
 	private val db: InhumanDatabase,
 	private val conversations: ConversationRepository,
+	private val agents: AgentRepository,
 ) {
 
 	/** Newest first, the same ordering the Android conversation list uses. */
@@ -53,6 +69,58 @@ class DesktopStore private constructor(
 
 	suspend fun create(title: String = "New conversation"): ConversationSummary =
 		summary(conversations.create(title = title))
+
+	suspend fun defaultAssistant(): AgentEntity? = agents.defaultAgent()
+
+	suspend fun assistants(): List<AgentEntity> = agents.all()
+
+	suspend fun providers(): List<ProviderProfileEntity> = agents.providers()
+
+	suspend fun hasProviderKey(providerId: String): Boolean = agents.hasKey(providerId)
+
+	/**
+	 * Save a provider key and return whether the profile exists.
+	 *
+	 * A null key leaves the stored one alone; a blank string removes it. That is
+	 * the Android editor's contract, and the caller decides which it means.
+	 */
+	suspend fun saveProviderKey(providerId: String, apiKey: String?): Boolean {
+		val profile = agents.provider(providerId) ?: return false
+		agents.saveProvider(profile, apiKey)
+		return true
+	}
+
+	/** A provider built from the saved profile and key, or null without a key. */
+	suspend fun provider(providerId: String): ChatProvider? =
+		agents.provider(providerId)?.let { agents.providerFromRow(it) }
+
+	/**
+	 * What the next turn should send to.
+	 *
+	 * No key means demo mode, not an error: that is the state a fresh install
+	 * starts in and the state the Android app treats as usable. A key that
+	 * exists but whose model list will not answer is different, and is reported
+	 * so the composer can say why nothing is being sent.
+	 */
+	suspend fun resolve(assistant: AgentEntity?): ResolvedChat {
+		val providerId = assistant?.providerId ?: ProviderIds.DEEPSEEK
+		val profile = agents.provider(providerId)
+		val provider = profile?.let { agents.providerFromRow(it) }
+		if (provider == null) {
+			return ResolvedChat(DemoProvider(chunkDelayMillis = 8), "demo-model", "Demo")
+		}
+		val model = assistant?.model?.takeIf { it.isNotBlank() }
+			?: agents.models(providerId).getOrNull()?.firstOrNull()?.id
+		if (model == null) {
+			return ResolvedChat(
+				provider = DemoProvider(chunkDelayMillis = 8),
+				model = "demo-model",
+				label = "Demo",
+				error = "No model is available for ${profile.name}. Check the provider key and endpoint.",
+			)
+		}
+		return ResolvedChat(provider, model, profile.name)
+	}
 
 	suspend fun load(conversationId: String): List<StoredLine> =
 		conversations.conversation(conversationId)?.messages.orEmpty()
@@ -142,6 +210,10 @@ class DesktopStore private constructor(
 			return DesktopStore(
 				db = db,
 				conversations = ConversationRepository(db, DataPaths(File(dataDir, "files"))),
+				agents = AgentRepository(
+					db = db,
+					secure = DpapiSecretStore(File(dataDir, "secrets.bin")),
+				),
 			)
 		}
 	}
