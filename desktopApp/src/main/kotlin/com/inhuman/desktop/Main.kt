@@ -767,13 +767,15 @@ private fun DesktopSpike(
 
 	if (showRewind) {
 		RewindWindow(
+			store = store,
+			conversationId = selectedId,
 			onCancel = { showRewind = false },
-			onConfirm = {
+			onRewind = { messageId ->
 				showRewind = false
 				val id = selectedId
 				if (id != null) {
 					scope.launch {
-						val outcome = store.rewindLastTurn(id)
+						val outcome = store.rewindTo(id, messageId)
 						if (outcome.error != null) {
 							error = outcome.error
 						} else {
@@ -781,6 +783,8 @@ private fun DesktopSpike(
 							lines.addAll(store.load(id).map { it.toLine() })
 							input = outcome.userText.orEmpty()
 							pendingAttachments = outcome.attachments
+							contextTokens = store.contextTokens(id)
+							compactionActive = store.contextSummary(id) != null
 							conversations = store.list()
 							error = null
 						}
@@ -3443,31 +3447,106 @@ private fun SshDetail(label: String, value: String) {
 }
 
 @Composable
-private fun RewindWindow(onCancel: () -> Unit, onConfirm: () -> Unit) {
+private fun RewindWindow(
+	store: DesktopStore,
+	conversationId: String?,
+	onCancel: () -> Unit,
+	onRewind: (String) -> Unit,
+) {
+	var points by remember { mutableStateOf<List<DesktopStore.RewindPoint>>(emptyList()) }
+	var selected by remember { mutableStateOf<String?>(null) }
+	var loaded by remember { mutableStateOf(false) }
+
+	LaunchedEffect(conversationId) {
+		points = conversationId?.let { store.rewindPoints(it) }.orEmpty()
+		selected = points.lastOrNull { it.restorable }?.messageId
+		loaded = true
+	}
+
 	DialogWindow(
 		onCloseRequest = onCancel,
 		title = "inhuman · rewind",
-		state = rememberDialogState(width = 540.dp, height = 280.dp),
+		state = rememberDialogState(width = 620.dp, height = 560.dp),
 	) {
 		MaterialTheme(colorScheme = DesktopColors) {
 			Column(
 				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(24.dp),
 			) {
 				Text(
-					text = s("REWIND LAST TURN", "回退最后一轮"),
+					text = s("REWIND", "回退"),
 					fontFamily = FontFamily.Monospace,
 					fontSize = 11.sp,
 					letterSpacing = 1.5.sp,
 					color = Signal,
 				)
 				Text(
-					text = s("The last user message and every reply after it are removed. The workspace is restored to the checkpoint taken before that turn, and the message text returns to the composer.", "最后一条 user 消息及其后的所有回复会被移除。工作区恢复到该轮开始前的 checkpoint，消息文本回到输入框。"),
+					text = s(
+						"Choose a user turn. That turn and every later turn are removed; the workspace is restored to the checkpoint taken before it, and its text and images return to the composer.",
+						"选择一个 user 回合。该回合及其后的所有回合会被移除；工作区恢复到该回合开始前的 checkpoint，文本和图片回到输入框。",
+					),
 					fontSize = 12.sp,
 					lineHeight = 19.sp,
 					color = Muted,
 					modifier = Modifier.padding(top = 10.dp),
 				)
-				Spacer(Modifier.weight(1f))
+				Spacer(Modifier.height(10.dp))
+				if (!loaded) {
+					Text(s("Loading…", "加载中…"), fontSize = 12.sp, color = Muted)
+				} else if (points.isEmpty()) {
+					Text(
+						s("There are no user turns yet.", "还没有 user 回合。"),
+						fontSize = 12.sp,
+						color = Muted,
+					)
+				} else {
+					LazyColumn(modifier = Modifier.weight(1f)) {
+						items(points.asReversed(), key = { it.messageId }) { point ->
+							val isSelected = point.messageId == selected
+							Row(
+								modifier = Modifier
+									.fillMaxWidth()
+									.padding(vertical = 2.dp)
+									.background(
+										if (isSelected) Color(0xFF2A241F) else Color.Transparent,
+										RoundedCornerShape(6.dp),
+									)
+									.clickable(enabled = point.restorable) {
+										selected = point.messageId
+									}
+									.padding(10.dp),
+								verticalAlignment = Alignment.CenterVertically,
+							) {
+								Column(modifier = Modifier.weight(1f)) {
+									Text(
+										text = point.text.ifBlank {
+											s("[image message]", "[图片消息]")
+										},
+										fontSize = 12.sp,
+										color = if (point.restorable) Paper else Muted,
+										maxLines = 2,
+										overflow = TextOverflow.Ellipsis,
+									)
+									Text(
+										text = when {
+											!point.restorable ->
+												s("No start checkpoint; cannot restore", "没有开始 checkpoint，无法恢复")
+											point.attachments.isNotEmpty() ->
+												s("${point.attachments.size} image(s)", "${point.attachments.size} 张图片")
+											else -> ""
+										},
+										fontFamily = FontFamily.Monospace,
+										fontSize = 9.sp,
+										color = Muted,
+									)
+								}
+								if (isSelected) {
+									Text("●", color = Signal, fontSize = 10.sp)
+								}
+							}
+						}
+					}
+				}
+				Spacer(Modifier.height(10.dp))
 				Row(
 					modifier = Modifier.fillMaxWidth(),
 					horizontalArrangement = Arrangement.End,
@@ -3481,14 +3560,15 @@ private fun RewindWindow(onCancel: () -> Unit, onConfirm: () -> Unit) {
 					)
 					Spacer(Modifier.width(20.dp))
 					Button(
-						onClick = onConfirm,
+						onClick = { selected?.let(onRewind) },
+						enabled = selected != null,
 						colors = ButtonDefaults.buttonColors(
 							containerColor = Color(0xFFB3402A),
 							contentColor = Paper,
 						),
 						shape = RoundedCornerShape(6.dp),
 					) {
-						Text(s("Remove turn", "移除该轮"))
+						Text(s("Rewind to here", "回退到这里"))
 					}
 				}
 			}

@@ -14,6 +14,7 @@ import com.inhuman.core.ai.provider.demo.DemoProvider
 import com.inhuman.core.ai.policy.PolicySet
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.ssh.SshLimits
+import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.Conversation
 import com.inhuman.core.data.ConversationRepository
@@ -124,6 +125,15 @@ class DesktopStore private constructor(
 	data class CompactOutcome(
 		val omittedMessages: Int = 0,
 		val error: String? = null,
+	)
+
+	/** One user turn offered by the rewind picker. */
+	data class RewindPoint(
+		val messageId: String,
+		val text: String,
+		val createdAt: Long,
+		val attachments: List<DesktopAttachment>,
+		val restorable: Boolean,
 	)
 
 	/** Newest first, the same ordering the Android conversation list uses. */
@@ -507,13 +517,74 @@ class DesktopStore private constructor(
 	 * transcript must stay untouched, or the user loses the text and keeps the
 	 * side effects.
 	 */
-	suspend fun rewindLastTurn(conversationId: String): RewindOutcome {
+	/**
+	 * Every user turn on the active path, newest last.
+	 *
+	 * A turn without a start checkpoint is listed but not restorable: the
+	 * transcript is the source of truth for what the user said, while the
+	 * checkpoint decides whether the workspace can be put back.
+	 */
+	suspend fun rewindPoints(conversationId: String): List<RewindPoint> =
+		messages(conversationId)
+			.filter { it.role == "user" }
+			.map { user ->
+				RewindPoint(
+					messageId = user.id,
+					text = user.content,
+					createdAt = user.createdAt,
+					attachments = DesktopAttachmentCodec.decode(user.attachmentsJson),
+					restorable = SnapshotStore.hasCheckpoint(
+						SnapshotStore.turnDir(paths.rollbackDir(conversationId), user.id),
+						"start",
+					),
+				)
+			}
+
+	/**
+	 * Remove one user turn and every later turn, and restore the workspace to
+	 * the checkpoint taken before that turn.
+	 *
+	 * Restore happens **before** the rows are deleted: if it fails, the
+	 * transcript must stay untouched, or the user loses the text and keeps the
+	 * side effects. A turn whose suffix contains a remote write cannot be
+	 * rewound, because the local snapshot cannot undo the other machine.
+	 */
+	suspend fun rewindTo(conversationId: String, messageId: String): RewindOutcome {
 		val messages = messages(conversationId)
-		val user = messages.lastOrNull { it.role == "user" }
-			?: return RewindOutcome(error = "There is no user turn to rewind.")
+		val index = messages.indexOfFirst { it.id == messageId && it.role == "user" }
+		if (index < 0) return RewindOutcome(error = "That user turn is no longer in this conversation.")
+		val user = messages[index]
 		val turnDir = SnapshotStore.turnDir(paths.rollbackDir(conversationId), user.id)
 		if (!SnapshotStore.hasCheckpoint(turnDir, "start")) {
 			return RewindOutcome(error = "This turn has no start checkpoint, so it cannot be restored.")
+		}
+		val removedTurns = messages.subList(index, messages.size)
+			.filter { it.role == "user" }
+			.map { it.id }
+		val irreversible = removedTurns
+			.asSequence()
+			.flatMap { turnId ->
+				val turn = messages.first { it.id == turnId }
+				val end = messages.indexOf(turn).let { start ->
+					messages.drop(start + 1).indexOfFirst { it.role == "user" }
+						.let { relative -> if (relative < 0) messages.size else start + 1 + relative }
+				}
+				messages.subList(messages.indexOf(turn), end)
+					.filter { it.role == "assistant" }
+					.flatMap { assistant ->
+						ToolCallsColumn.decode(assistant.toolCallsJson).asSequence()
+					}
+					.filter { call ->
+						val name = call.name ?: return@filter false
+						ToolCatalog.all.firstOrNull { it.name == name }?.reversible == false
+					}
+					.map { call -> call.name.orEmpty() }
+			}
+			.firstOrNull()
+		if (irreversible != null) {
+			return RewindOutcome(
+				error = "This turn used $irreversible, which changes another machine and cannot be rolled back.",
+			)
 		}
 		val workspace = workspaceFor(conversationId)
 			?: return RewindOutcome(error = "The workspace is not available.")
@@ -524,11 +595,26 @@ class DesktopStore private constructor(
 			return RewindOutcome(error = "The workspace could not be restored; nothing was deleted.")
 		}
 		conversations.deleteSubtree(user.id, user.parentId, conversationId)
-		withContext(Dispatchers.IO) { SnapshotStore.deleteTurn(paths.rollbackDir(conversationId), user.id) }
+		val summary = conversations.contextSummary(conversationId)
+		if (summary != null && removedTurns.contains(summary.throughMessageId)) {
+			conversations.clearContextSummary(conversationId)
+		}
+		withContext(Dispatchers.IO) {
+			removedTurns.forEach { turnId ->
+				SnapshotStore.deleteTurn(paths.rollbackDir(conversationId), turnId)
+			}
+		}
 		return RewindOutcome(
 			userText = user.content,
 			attachments = DesktopAttachmentCodec.decode(user.attachmentsJson),
 		)
+	}
+
+	/** Remove the newest user turn; a thin wrapper over [rewindTo]. */
+	suspend fun rewindLastTurn(conversationId: String): RewindOutcome {
+		val user = messages(conversationId).lastOrNull { it.role == "user" }
+			?: return RewindOutcome(error = "There is no user turn to rewind.")
+		return rewindTo(conversationId, user.id)
 	}
 
 	suspend fun policies(conversationId: String, agentId: String?): PolicySet =
