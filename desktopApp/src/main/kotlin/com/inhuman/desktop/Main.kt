@@ -688,7 +688,7 @@ private fun DesktopSpike(
 			}
 			error?.let { message ->
 				Text(
-					text = message,
+					text = localizedError(message),
 					color = Color(0xFFFF8A7A),
 					fontSize = 12.sp,
 					modifier = Modifier
@@ -1254,7 +1254,7 @@ private fun TranscriptLine(
 			) {
 				Row(verticalAlignment = Alignment.CenterVertically) {
 					Text(
-						text = (line.toolName ?: "tool").uppercase(),
+						text = (line.toolName ?: s("tool", "工具")).uppercase(),
 						fontFamily = FontFamily.Monospace,
 						fontSize = 9.sp,
 						letterSpacing = 1.sp,
@@ -1354,7 +1354,7 @@ private fun ToolCallList(calls: List<StoredToolCall>) {
 		calls.forEach { call ->
 			Row(verticalAlignment = Alignment.CenterVertically) {
 				Text(
-					text = "→ ${call.name ?: "tool"}",
+					text = "→ ${call.name ?: s("tool", "工具")}",
 					fontFamily = FontFamily.Monospace,
 					fontSize = 10.sp,
 					color = Signal,
@@ -1714,7 +1714,7 @@ private fun SettingsWindow(
 											modifier = Modifier.padding(top = 2.dp),
 										)
 										Text(
-											if (hasKey) "KEY SAVED" else "NO KEY",
+											if (hasKey) s("KEY SAVED", "已保存密钥") else s("NO KEY", "无密钥"),
 											fontFamily = FontFamily.Monospace,
 											fontSize = 9.sp,
 											color = if (hasKey) Signal else Muted,
@@ -1805,7 +1805,7 @@ private fun SettingsWindow(
 							val profile = selected
 							if (profile == null || keyStatus[profile.id] != true) {
 								Text(
-									"Save a provider key on the Providers tab first.",
+									s("Save a provider key on the Providers tab first.", "请先在服务商页保存 API key。"),
 									fontSize = 12.sp,
 									color = Muted,
 								)
@@ -1819,7 +1819,7 @@ private fun SettingsWindow(
 									)
 									Spacer(Modifier.weight(1f))
 									Text(
-										text = if (modelsLoading) "loading…" else "Refresh",
+										text = if (modelsLoading) s("loading…", "加载中…") else s("Refresh", "刷新"),
 										fontFamily = FontFamily.Monospace,
 										fontSize = 10.sp,
 										color = Signal,
@@ -1871,7 +1871,7 @@ private fun SettingsWindow(
 									if (models.isEmpty() && !modelsLoading) {
 										item {
 											Text(
-												"No models returned. Check the key and endpoint.",
+												s("No models returned. Check the key and endpoint.", "没有返回模型；请检查密钥和 endpoint。"),
 												fontSize = 12.sp,
 												color = Muted,
 												modifier = Modifier.padding(10.dp),
@@ -2043,7 +2043,7 @@ private fun SettingsWindow(
 							)
 							Spacer(Modifier.height(12.dp))
 							Text(
-								text = DesktopDiagnostics.currentLog()?.absolutePath ?: "Log file not installed.",
+								text = DesktopDiagnostics.currentLog()?.absolutePath ?: s("Log file not installed.", "日志文件未安装。"),
 								fontFamily = FontFamily.Monospace,
 								fontSize = 10.sp,
 								color = Paper,
@@ -2124,7 +2124,7 @@ private fun SettingsWindow(
 									),
 									shape = RoundedCornerShape(6.dp),
 								) {
-									Text(if (backupBusy) "Working…" else "Export backup")
+									Text(if (backupBusy) s("Working…", "处理中…") else s("Export backup", "导出备份"))
 								}
 								Text(
 									text = s("Import backup", "导入备份"),
@@ -2159,7 +2159,7 @@ private fun SettingsWindow(
 					verticalAlignment = Alignment.CenterVertically,
 				) {
 					status?.let {
-						Text(it, fontSize = 11.sp, color = Muted)
+						Text(localizedStatus(it), fontSize = 11.sp, color = Muted)
 					}
 					Spacer(Modifier.weight(1f))
 					Text(
@@ -2552,7 +2552,7 @@ private fun AssistantsWindow(
 							Spacer(Modifier.height(10.dp))
 							Box {
 								Text(
-									text = "PROVIDER · " + (
+									text = s("PROVIDER · ", "服务商 · ") + (
 										providers.firstOrNull { it.id == agent.providerId }?.name
 											?: agent.providerId
 										),
@@ -2708,7 +2708,7 @@ private fun AssistantsWindow(
 						}
 						status?.let {
 							Text(
-								text = it,
+								text = localizedStatus(it),
 								fontSize = 11.sp,
 								color = Muted,
 								modifier = Modifier.padding(top = 8.dp),
@@ -2877,7 +2877,7 @@ private fun FilesWindow(
 				}
 				Spacer(Modifier.height(6.dp))
 				Text(
-					text = "PATH · /${directory}",
+					text = s("PATH · /${directory}", "路径 · /${directory}"),
 					fontFamily = FontFamily.Monospace,
 					fontSize = 10.sp,
 					color = Muted,
@@ -2979,7 +2979,7 @@ private fun FilesWindow(
 						}
 						status?.let {
 							Text(
-								text = it,
+								text = localizedStatus(it),
 								fontSize = 10.sp,
 								color = Muted,
 								modifier = Modifier.padding(top = 6.dp),
@@ -3008,7 +3008,7 @@ private fun FilesWindow(
 							)
 							Text(
 								text = if (entry.directory) {
-									"folder · /${entry.path}"
+									s("folder · /${entry.path}", "文件夹 · /${entry.path}")
 								} else {
 									"${bytesLabel(entry.size)} · /${entry.path}"
 								},
@@ -3266,7 +3266,10 @@ private fun ConversationToolsWindow(
 					color = Signal,
 				)
 				Text(
-					text = "This selection applies to the next turn. SSH tools are shown only when enabled in Settings; adding exec, upload or write resets this conversation's SSH consent.",
+					text = s(
+						"This selection applies to the next turn. SSH tools are shown only when enabled in Settings; adding exec, upload or write resets this conversation's SSH consent.",
+						"该选择从下一轮生效。SSH 工具只在设置中启用后显示；增加 exec、upload 或 write 会重置本会话的 SSH 授权。",
+					),
 					fontSize = 12.sp,
 					color = Muted,
 					modifier = Modifier.padding(top = 8.dp),
@@ -3386,10 +3389,10 @@ private fun SshConsentWindow(
 					modifier = Modifier.padding(top = 8.dp),
 				)
 				Spacer(Modifier.height(14.dp))
-				SshDetail("TOOL", request.toolName)
-				SshDetail("HOST", request.host)
-				SshDetail("USER", request.username)
-				SshDetail("OPERATION", request.operation)
+				SshDetail(s("TOOL", "工具"), request.toolName)
+				SshDetail(s("HOST", "主机"), request.host)
+				SshDetail(s("USER", "用户"), request.username)
+				SshDetail(s("OPERATION", "操作"), request.operation)
 				Spacer(Modifier.weight(1f))
 				Text(
 					text = s("Allowing applies to this conversation. Later SSH calls will not ask again; revoke it in Settings → SSH.", "允许只作用于本会话。后续 SSH 调用不再询问；可在 设置 → SSH 中撤销。"),

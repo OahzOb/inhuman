@@ -58,7 +58,8 @@
 - 桌面新增中英文切换：Settings 顶部 `EN / 中文`，选择写进 DPAPI secrets，默认跟随系统语言；主壳、会话栏、composer、context bar、设置 tabs、审批/SSH/rewind/compaction/files/assistant 的可见标题和按钮已双语；provider/DB 的原始错误、部分技术状态仍是英文；
 - 桌面支持图片附件：ATTACH（`Ctrl+O`）或把 PNG/JPEG/GIF/BMP 拖进窗口；图片先复制进会话 workspace 的 `attachments/`，用 ImageIO 降采样/重编码到 workspace 读上限以内（白底 JPEG），原文件不移动；每次最多 4 张，已知 model 不支持 image input 时拒绝；user 消息存 `attachmentsJson`（与 Android 同 shape，额外 `name`），composer 和 transcript 显示缩略图；请求侧还原成 `ChatImage`；rewind 会把附件一起退回 composer；
 - 桌面 rewind 升级为多轮树：picker 列出活动路径上的每个 user 回合（附图片数、是否有 `start` checkpoint），可回退到任意一轮；该轮及其后所有轮被删除，workspace 恢复到该轮开始前的 checkpoint，文本和附件回到 composer；被回退的 `context_summaries` 边界会清掉；包含 `ssh_exec`/`ssh_upload`/`ssh_write_file` 的 suffix 直接拒绝，因为本地 snapshot 无法撤销远程写入；
-- 桌面端仍缺真实签名证书；完整 i18n（provider/DB 错误与少量技术状态）仍有英文残留。数据层、conversation rail、Markdown、DPAPI 密钥、真实 provider、工具与审批、SSH、assistant 编辑、Files 窗口、多轮 rewind、compaction、diagnostics、备份/恢复、托盘通知、快捷键、中英文主界面、图片附件/拖放和 MSI 已经就绪；
+- 最终验收（Round 8）：会话/搜索/固定/删除、assistant 与 provider 设置（DPAPI key）、Markdown/tools/approval/SSH consent/多轮 rewind/compaction、workspace 文件浏览/导入/导出/编辑/打开、图片附件/拖放、备份/恢复、diagnostics、中英文切换、托盘通知、快捷键、单实例和 MSI 均已落地；全量 513 tests / 75 suites / 0 failures；
+- 分发签名：构建链用 `.signing/inhuman-dev.pfx` 自签名并写入 MSI；`Get-AuthenticodeSignature` 在本机报 `UnknownError` 是因为该自签名根不在 Trusted Root，安装和启动正常。面向其他机器的正式分发需要替换为真实代码签名证书（外部材料）；这是发布运维项，不是代码功能缺口。
 - Linux Secret Service（libsecret）绑定，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
 - 桌面端的完整安全/通知/文件对话框/图片适配。
 
