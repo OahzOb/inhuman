@@ -422,6 +422,14 @@ WiX directory (`C:\android-toolchain\wix314` here); the Compose plugin then uses
 instead of trying to download WiX from GitHub. The MSI is per-user: it installs to
 `%LOCALAPPDATA%\inhuman` and the app keeps its database/workspaces in the sibling
 `%LOCALAPPDATA%\inhuman-data`, so uninstalling the app does not delete the data.
+It also carries `desktopApp/src/main/resources/icon.ico` and a single-instance
+file lock (`instance.lock` in the data directory).
+
+`tools/sign-msi.ps1 -Msi <file> -Pfx <pfx> -Password <password>` signs the built
+MSI; `-Thumbprint` works for a certificate already in `CurrentUser\My`. The
+checked-in workflow uses a self-signed development certificate under `.signing/`
+(not trusted by default, and gitignored); distributing to other machines needs a
+real code-signing certificate.
 
 Release builds sign from `keystore.properties` when present and fall back to the
 debug key otherwise. The keystore and properties are gitignored; losing them

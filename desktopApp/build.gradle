@@ -71,10 +71,11 @@ compose.desktop {
 			)
 			packageName = 'inhuman'
 			packageVersion = '0.2.0'
-			description = 'inhuman desktop spike'
+			description = 'inhuman desktop'
 			vendor = 'inhuman'
 
 			windows {
+				iconFile.set(project.file('src/main/resources/icon.ico'))
 				// The first MSI built as a per-machine package and could not be
 				// installed by the account that owns the app's data: msiexec
 				// returned 1925, "sufficient privileges ... for all users".

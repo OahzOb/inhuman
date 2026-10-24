@@ -114,11 +114,23 @@ private fun StoredLine.toLine() = Line(
 )
 
 fun main() {
-	val store = DesktopStore.open()
+	val dataDir = DesktopStore.defaultDataDir()
+	val single = SingleInstance.acquire(dataDir)
+	if (single == null) {
+		javax.swing.JOptionPane.showMessageDialog(
+			null,
+			"inhuman is already running for this profile.",
+			"inhuman",
+			javax.swing.JOptionPane.INFORMATION_MESSAGE,
+		)
+		return
+	}
+	val store = DesktopStore.open(dataDir)
 	application {
 		Window(
 			onCloseRequest = {
 				store.close()
+				single.close()
 				exitApplication()
 			},
 			title = "inhuman · desktop",

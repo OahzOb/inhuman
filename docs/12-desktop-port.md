@@ -45,12 +45,12 @@
 
 - 桌面回合接上了工具循环：按会话的 `toolsJson` 过滤 `FileTools` 和 `read_time`，`ChatEngine` 驱动，assistant `tool_calls` 与每个 tool result 分轮写入同一张 `messages` 表；下一轮从数据库重建 wire history，缺失的结果补 `[interrupted]`。默认策略 `Free`；策略 `Ask` 会弹出审批窗（`Allow once` / `Deny`），拒绝写成 `[declined]` 并结束回合；路径级规则尚未参与判定，SSH/web 工具尚未接入。Demo 的 `write_file`/`delete_file` 已跑通，窗口里显示成工具调用行和结果卡；`DesktopChatTest` 还验证了工具回合之后的下一轮历史可重放，以及 Ask 的允许/拒绝两条路径；
 - 桌面设置窗现在是三个 tab：**Providers**（DPAPI key）、**Model**（provider 的 `/models` 列表，选中后写入当前会话的 `model`，下次发送生效）、**Approvals**（每个非远程工具的 `Free`/`Ask`/`Deny` 全局规则，下一回合生效）。没有 key 时 Model 页提示先保存 key；窗口内已验证 tab 切换、规则写入和状态行，模型写入由 `DesktopStoreTest` 覆盖；
-- Windows x64 安装包已打通：Temurin 21（带 `jpackage`）+ WiX 3.14（`WIX_PATH`）打出 `inhuman-0.2.0.msi`，**per-user** 安装到 `%LOCALAPPDATA%\inhuman`，快捷方式在开始菜单和桌面；数据与安装目录分离到 `%LOCALAPPDATA%\inhuman-data`（第一版把两者放在同一目录，卸载会连数据库一起删掉，已修正）。安装、启动、Markdown 和真实数据库都已在安装版验证。签名尚未接，需要证书；
+- Windows x64 安装包已打通：Temurin 21（带 `jpackage`）+ WiX 3.14（`WIX_PATH`）打出 `inhuman-0.2.0.msi`，**per-user** 安装到 `%LOCALAPPDATA%\inhuman`，快捷方式在开始菜单和桌面；数据与安装目录分离到 `%LOCALAPPDATA%\inhuman-data`（第一版把两者放在同一目录，卸载会连数据库一起删掉，已修正）。安装、启动、Markdown 和真实数据库都已在安装版验证。安装包有应用图标，第二次启动由文件锁挡住并提示 already running；MSI 用自签名开发证书签过（信任该证书时 `Get-AuthenticodeSignature` 为 `Valid`），对外分发仍需要真实证书；
 - 桌面端仍缺 assistant 编辑、工作区/文件屏、路径级审批规则、SSH consent、snapshot/compaction、通知/文件对话框/图片适配。数据层、conversation rail、Markdown、DPAPI 密钥、真实 provider、文件工具与工具级审批窗已经就绪；
 - Linux Secret Service（libsecret）绑定，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
 - 桌面端的完整安全/通知/文件对话框/图片适配。
 
-当前全量测试为 **493 tests / 70 suites / 0 failures / 3 skipped**。
+当前全量测试为 **494 tests / 71 suites / 0 failures / 3 skipped**。
 
 ### 为什么不是“所有 UI 也共用一套”
 
@@ -83,7 +83,7 @@
 | `:core:common` | 3 | 303 | **0** | 已是普通 JVM，直接复用 |
 | **合计** | **110** | **33,366** | 76 个 | |
 
-测试侧还有 67 个文件、约 8,243 行；当前全量 493 tests / 70 suites。
+测试侧还有 67 个文件、约 8,243 行；当前全量 494 tests / 71 suites。
 
 这个分布说明：**领域层和 UI 层是分开的，Android 绑定集中在 data 和 app 的薄层**。这是移植能成立的前提。
 
@@ -211,7 +211,7 @@ Android 有 app sandbox + scoped storage；Windows 进程以当前用户权限�
 4. Workspaces / Files 两个屏（浏览、导入、导出、编辑、下载 URL）；
 5. Rewind/checkpoints、context gauge、compaction；
 6. 备份/恢复、通知/托盘、文件对话框/拖放/快捷键；
-7. MSI（自带 JRE 21+）、签名、单实例。（MSI 已可打并验证 per-user 安装；签名和单实例未做）
+7. MSI（自带 JRE 21+）、签名、单实例。（per-user MSI、图标、单实例已做；签名脚本已接，真实证书待提供）
 
 下面 Phase 0 的第 4 项（libsecret）和第 6 项（Linux 包）在 Windows-only 目标下暂缓，其余保留；Phase 1/2 的 Linux 部分同样暂缓。
 

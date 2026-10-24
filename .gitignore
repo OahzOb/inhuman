@@ -12,6 +12,9 @@ build/
 # repository; losing them means no future update can be installed over this one.
 keystore/
 keystore.properties
+# Desktop code-signing material: PFX and password. A self-signed development
+# certificate may live here, but a real one must never be committed.
+.signing/
 
 # The SDK location, which differs per machine.
 local.properties
