@@ -1,5 +1,6 @@
 package com.inhuman.desktop
 
+import com.inhuman.core.ai.ChatImage
 import com.inhuman.core.ai.ChatMessage
 import com.inhuman.core.ai.ChatProvider
 import com.inhuman.core.ai.Role
@@ -109,6 +110,7 @@ class DesktopChat(
 		userText: String,
 		provider: ChatProvider,
 		model: String,
+		attachments: List<DesktopAttachment> = emptyList(),
 		approve: (suspend (ApprovalRequest) -> Boolean)? = null,
 		onEvent: (Event) -> Unit,
 	): String? {
@@ -118,10 +120,15 @@ class DesktopChat(
 		val parentId = store.lastMessageId(conversationId)
 		val firstMessage = parentId == null
 
-		val userLine = store.appendUser(conversationId, userText, parentId)
+		val userLine = store.appendUser(
+			conversationId = conversationId,
+			text = userText,
+			parentId = parentId,
+			attachments = attachments,
+		)
 		onEvent(Event.UserMessage(userLine))
 		if (firstMessage) {
-			store.autoTitle(conversationId, userText)
+			store.autoTitle(conversationId, userText.ifBlank { "Image" })
 		}
 		// The checkpoint is keyed by the user message id and taken before any
 		// tool runs. A failure only makes this turn unrewindable.
@@ -311,7 +318,7 @@ class DesktopChat(
 			engine.run(
 				EngineTurn(
 					model = model,
-					messages = history(agent),
+					messages = history(agent, workspace),
 					tools = tools,
 					maxRounds = DEFAULT_TOOL_ROUNDS,
 					maxCalls = DEFAULT_TOOL_CALLS,
@@ -440,7 +447,10 @@ class DesktopChat(
 	 * produce one, so missing results are closed here rather than left for the
 	 * next turn to discover.
 	 */
-	private suspend fun history(agent: AgentEntity?): List<ChatMessage> {
+	private suspend fun history(
+		agent: AgentEntity?,
+		workspace: com.inhuman.core.files.SessionWorkspace,
+	): List<ChatMessage> {
 		val out = mutableListOf<ChatMessage>()
 		val messages = store.messages(conversationId)
 		val summary = store.contextSummary(conversationId)
@@ -465,7 +475,30 @@ class DesktopChat(
 		while (index < messages.size) {
 			val message = messages[index]
 			when (message.role) {
-				"user" -> out += ChatMessage(Role.User, message.content)
+				"user" -> {
+					val images = DesktopAttachmentCodec.decode(message.attachmentsJson)
+						.mapNotNull { attachment ->
+							val file = when (
+								val resolved = workspace.resolve(attachment.relativePath)
+							) {
+								is com.inhuman.core.files.SessionWorkspace.Resolution.Ok ->
+									resolved.file
+								is com.inhuman.core.files.SessionWorkspace.Resolution.Rejected ->
+									return@mapNotNull null
+							}
+							if (!file.isFile || file.length() > workspace.limits.maxReadBytes) {
+								return@mapNotNull null
+							}
+							runCatching {
+								ChatImage(attachment.mimeType, file.readBytes())
+							}.getOrNull()
+						}
+					out += ChatMessage(
+						Role.User,
+						message.content.ifBlank { if (images.isNotEmpty()) " " else "" },
+						images = images,
+					)
+				}
 				"assistant" -> {
 					val calls = ToolCallsColumn.decode(message.toolCallsJson)
 						.mapNotNull { call ->

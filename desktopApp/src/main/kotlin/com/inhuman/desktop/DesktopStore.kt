@@ -48,6 +48,7 @@ data class StoredLine(
 	val toolCalls: List<StoredToolCall> = emptyList(),
 	val toolName: String? = null,
 	val isError: Boolean = false,
+	val attachments: List<DesktopAttachment> = emptyList(),
 ) {
 	val fromUser: Boolean get() = role == "user"
 }
@@ -115,6 +116,7 @@ class DesktopStore private constructor(
 	/** The outcome of removing the newest turn. */
 	data class RewindOutcome(
 		val userText: String? = null,
+		val attachments: List<DesktopAttachment> = emptyList(),
 		val error: String? = null,
 	)
 
@@ -272,6 +274,7 @@ class DesktopStore private constructor(
 				toolCalls = ToolCallsColumn.decode(message.toolCallsJson),
 				toolName = message.toolName,
 				isError = message.error != null,
+				attachments = DesktopAttachmentCodec.decode(message.attachmentsJson),
 			)
 		}
 
@@ -292,6 +295,69 @@ class DesktopStore private constructor(
 
 	suspend fun contextSummary(conversationId: String): ContextSummaryEntity? =
 		conversations.contextSummary(conversationId)
+
+	/**
+	 * Whether the model selected for this conversation advertises image input.
+	 *
+	 * Null means "not known": no model list could be loaded. The UI stays
+	 * permissive for null (the provider will answer definitively) but refuses a
+	 * known text-only model before importing bytes that could never be sent.
+	 */
+	suspend fun supportsVision(assistant: AgentEntity?, conversationId: String): Boolean? {
+		val resolved = resolve(assistant, conversationId)
+		if (resolved.provider is DemoProvider) return true
+		if (resolved.error != null) return null
+		val conversation = conversation(conversationId)?.entity
+		val effective = conversation?.agentId?.let { agents.byId(it) } ?: assistant
+		val providerId = effective?.providerId ?: conversation?.providerId ?: ProviderIds.DEEPSEEK
+		val models = runCatching { agents.models(providerId).getOrNull() }.getOrNull() ?: return null
+		return models.firstOrNull { it.id == resolved.model }?.supportsVision
+	}
+
+	/**
+	 * Copy a selected image into the conversation workspace and return its
+	 * stored descriptor. The original file is never moved or referenced.
+	 */
+	suspend fun importAttachment(conversationId: String, source: File): DesktopAttachment =
+		withContext(Dispatchers.IO) {			val conversation = conversation(conversationId)?.entity
+				?: error("The conversation no longer exists.")
+			val workspace = workspace(conversation)
+			val prepared = DesktopImages.prepare(source, workspace.limits.maxReadBytes)
+			val relative = "attachments/${UUID.randomUUID()}.jpg"
+			val target = when (val resolved = workspace.resolve(relative)) {
+				is SessionWorkspace.Resolution.Ok -> resolved.file
+				is SessionWorkspace.Resolution.Rejected -> error(resolved.reason)
+			}
+			val refusal = workspace.quotaRefusal(
+				stagingBytes = 0,
+				stagingFiles = 0,
+				replacedBytes = 0,
+				addsFiles = 1,
+				newBytes = prepared.bytes.size.toLong(),
+			)
+			if (refusal != null) error(refusal)
+			target.parentFile?.mkdirs()
+			target.writeBytes(prepared.bytes)
+			DesktopAttachment(
+				relativePath = workspace.relativize(target),
+				mimeType = prepared.mimeType,
+				sizeBytes = prepared.bytes.size.toLong(),
+				displayName = source.name,
+			)
+		}
+
+	suspend fun readAttachment(
+		conversationId: String,
+		attachment: DesktopAttachment,
+	): ByteArray? = withContext(Dispatchers.IO) {
+		val workspace = workspaceFor(conversationId) ?: return@withContext null
+		val file = when (val resolved = workspace.resolve(attachment.relativePath)) {
+			is SessionWorkspace.Resolution.Ok -> resolved.file
+			is SessionWorkspace.Resolution.Rejected -> return@withContext null
+		}
+		if (!file.isFile || file.length() > workspace.limits.maxReadBytes) return@withContext null
+		runCatching { file.readBytes() }.getOrNull()
+	}
 
 	suspend fun clearContextSummary(conversationId: String) {
 		conversations.clearContextSummary(conversationId)
@@ -459,7 +525,10 @@ class DesktopStore private constructor(
 		}
 		conversations.deleteSubtree(user.id, user.parentId, conversationId)
 		withContext(Dispatchers.IO) { SnapshotStore.deleteTurn(paths.rollbackDir(conversationId), user.id) }
-		return RewindOutcome(userText = user.content)
+		return RewindOutcome(
+			userText = user.content,
+			attachments = DesktopAttachmentCodec.decode(user.attachmentsJson),
+		)
 	}
 
 	suspend fun policies(conversationId: String, agentId: String?): PolicySet =
@@ -537,7 +606,12 @@ class DesktopStore private constructor(
 		PolicyRepository(db).setGlobalRule(toolName, policy)
 	}
 
-	suspend fun appendUser(conversationId: String, text: String, parentId: String?): StoredLine {
+	suspend fun appendUser(
+		conversationId: String,
+		text: String,
+		parentId: String?,
+		attachments: List<DesktopAttachment> = emptyList(),
+	): StoredLine {
 		val message = MessageEntity(
 			id = UUID.randomUUID().toString(),
 			conversationId = conversationId,
@@ -545,9 +619,16 @@ class DesktopStore private constructor(
 			role = "user",
 			content = text,
 			createdAt = System.currentTimeMillis(),
+			attachmentsJson = DesktopAttachmentCodec.encode(attachments),
 		)
 		conversations.appendMessage(message, parentId)
-		return StoredLine(message.id, role = "user", text = text, reasoning = "")
+		return StoredLine(
+			message.id,
+			role = "user",
+			text = text,
+			reasoning = "",
+			attachments = attachments,
+		)
 	}
 
 	suspend fun appendAssistant(

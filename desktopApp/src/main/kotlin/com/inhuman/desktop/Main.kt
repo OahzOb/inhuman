@@ -1,5 +1,6 @@
 package com.inhuman.desktop
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -13,12 +14,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -39,20 +42,25 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -73,6 +81,14 @@ import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.db.StoredToolCall
 import com.inhuman.core.data.db.ToolsColumn
+import java.awt.datatransfer.DataFlavor
+import java.awt.dnd.DnDConstants
+import java.awt.dnd.DropTarget
+import java.awt.dnd.DropTargetDragEvent
+import java.awt.dnd.DropTargetDropEvent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.jetbrains.skia.Image as SkiaImage
 import com.inhuman.core.files.SessionWorkspace
 import com.inhuman.desktop.backup.DesktopBackup
 import com.mikepenz.markdown.m3.Markdown
@@ -87,6 +103,7 @@ import kotlinx.coroutines.launch
 import java.awt.Desktop
 import java.io.File
 import javax.swing.JFileChooser
+import javax.swing.filechooser.FileNameExtensionFilter
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -118,6 +135,7 @@ private data class Line(
 	val toolCalls: List<StoredToolCall> = emptyList(),
 	val toolName: String? = null,
 	val isError: Boolean = false,
+	val attachments: List<DesktopAttachment> = emptyList(),
 )
 
 private fun StoredLine.toLine() = Line(
@@ -132,6 +150,7 @@ private fun StoredLine.toLine() = Line(
 	toolCalls = toolCalls,
 	toolName = toolName,
 	isError = isError,
+	attachments = attachments,
 )
 
 /** One entry in the conversation's workspace, as the Files window lists it. */
@@ -183,6 +202,44 @@ fun main() {
 				language = code
 				store.setLanguage(code)
 			}
+			var dropHandler by remember { mutableStateOf<((List<File>) -> Unit)?>(null) }
+			// AWT owns the native drop target; Compose has no portable file-drop
+			// modifier on desktop. The handler is registered by DesktopSpike once
+			// its attachment function exists, so a drop uses the same import path
+			// as the file picker.
+			DisposableEffect(Unit) {
+				val target = object : DropTarget() {
+					override fun dragEnter(dtde: DropTargetDragEvent) {
+						if (dtde.transferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
+							dtde.acceptDrag(DnDConstants.ACTION_COPY)
+						} else {
+							dtde.rejectDrag()
+						}
+					}
+
+					override fun dragOver(dtde: DropTargetDragEvent) {
+						if (dtde.transferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
+							dtde.acceptDrag(DnDConstants.ACTION_COPY)
+						} else {
+							dtde.rejectDrag()
+						}
+					}
+
+					@Suppress("UNCHECKED_CAST")
+					override fun drop(dtde: DropTargetDropEvent) {
+						runCatching {
+							dtde.acceptDrop(DnDConstants.ACTION_COPY)
+							val files = dtde.transferable
+								.getTransferData(DataFlavor.javaFileListFlavor) as List<File>
+							dropHandler?.invoke(files)
+							dtde.dropComplete(true)
+						}.onFailure { dtde.dropComplete(false) }
+					}
+				}
+				val previous = window.dropTarget
+				window.dropTarget = target
+				onDispose { window.dropTarget = previous }
+			}
 			var tray by remember { mutableStateOf<DesktopTray?>(null) }
 			DisposableEffect(Unit) {
 				val created = DesktopTray(
@@ -214,6 +271,7 @@ fun main() {
 						onReplyReady = {
 							if (window.isMinimized || !window.isActive) tray?.notifyReply()
 						},
+						onDropReady = { dropHandler = it },
 					)
 				}
 			}
@@ -222,7 +280,11 @@ fun main() {
 }
 
 @Composable
-private fun DesktopSpike(store: DesktopStore, onReplyReady: () -> Unit = {}) {
+private fun DesktopSpike(
+	store: DesktopStore,
+	onReplyReady: () -> Unit = {},
+	onDropReady: ((List<File>) -> Unit) -> Unit = {},
+) {
 	val lines = remember { mutableStateListOf<Line>() }
 	val scope = rememberCoroutineScope()
 	val listState = rememberLazyListState()
@@ -261,6 +323,9 @@ private fun DesktopSpike(store: DesktopStore, onReplyReady: () -> Unit = {}) {
 	var compactionActive by remember { mutableStateOf(false) }
 	var compactBusy by remember { mutableStateOf(false) }
 	var showCompact by remember { mutableStateOf(false) }
+	var pendingAttachments by remember { mutableStateOf<List<DesktopAttachment>>(emptyList()) }
+	var attachError by remember { mutableStateOf<String?>(null) }
+	var attaching by remember { mutableStateOf(false) }
 	var reasoning by remember { mutableStateOf("") }
 	var answer by remember { mutableStateOf("") }
 	var loaded by remember { mutableStateOf(false) }
@@ -293,7 +358,81 @@ private fun DesktopSpike(store: DesktopStore, onReplyReady: () -> Unit = {}) {
 	fun select(id: String) {
 		if (streaming || id == selectedId) return
 		selectedId = id
+		pendingAttachments = emptyList()
+		attachError = null
 	}
+
+	val language = LocalDesktopLanguage.current
+	fun l(english: String, chinese: String): String = if (language == "zh") chinese else english
+
+	/**
+	 * Copy images into the conversation workspace.
+	 *
+	 * The picker and the drop target share this path. Four images at a time is
+	 * the same ceiling the mobile composer uses; every image is re-encoded to
+	 * fit the workspace read limit before it becomes a pending attachment.
+	 */
+	fun attachImages(files: List<File>) {
+		val id = selectedId ?: return
+		if (streaming) return
+		val room = (4 - pendingAttachments.size).coerceAtLeast(0)
+		if (room == 0) {
+			attachError = l("At most four images per message.", "每条消息最多四张图片。")
+			return
+		}
+		val chosen = files
+			.filter { it.isFile && it.extension.lowercase() in setOf("png", "jpg", "jpeg", "gif", "bmp") }
+			.take(room)
+		if (chosen.isEmpty()) {
+			attachError = l("Choose a PNG, JPEG, GIF or BMP image.", "请选择 PNG、JPEG、GIF 或 BMP 图片。")
+			return
+		}
+		scope.launch {
+			attaching = true
+			attachError = null
+			val vision = runCatching { store.supportsVision(assistant, id) }.getOrNull()
+			if (vision == false) {
+				attachError = l(
+					"The selected model does not accept image input.",
+					"当前模型不接受图片输入。",
+				)
+				attaching = false
+				return@launch
+			}
+			for (file in chosen) {
+				runCatching { store.importAttachment(id, file) }
+					.onSuccess { pendingAttachments = pendingAttachments + it }
+					.onFailure {
+						attachError = l(
+							"Could not attach ${file.name}: ${it.message}",
+							"无法附加 ${file.name}：${it.message}",
+						)
+					}
+			}
+			attaching = false
+		}
+	}
+
+	fun chooseImages() {
+		val chooser = JFileChooser().apply {
+			isMultiSelectionEnabled = true
+			fileFilter = FileNameExtensionFilter(
+				"Images (PNG, JPEG, GIF, BMP)",
+				"png",
+				"jpg",
+				"jpeg",
+				"gif",
+				"bmp",
+			)
+		}
+		if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+			attachImages(chooser.selectedFiles.toList())
+		}
+	}
+
+	// Dropping image files onto the window is the same path as the picker; the
+	// window installs the AWT target and calls back through this registration.
+	LaunchedEffect(Unit) { onDropReady(::attachImages) }
 
 	LaunchedEffect(query) {
 		val text = query.trim()
@@ -331,8 +470,11 @@ private fun DesktopSpike(store: DesktopStore, onReplyReady: () -> Unit = {}) {
 	fun send() {
 		val conversationId = selectedId ?: return
 		val text = input.trim()
-		if (text.isEmpty() || streaming || !loaded) return
+		if ((text.isEmpty() && pendingAttachments.isEmpty()) || streaming || !loaded) return
+		val sendingAttachments = pendingAttachments
 		input = ""
+		pendingAttachments = emptyList()
+		attachError = null
 		reasoning = ""
 		answer = ""
 		error = null
@@ -365,6 +507,7 @@ private fun DesktopSpike(store: DesktopStore, onReplyReady: () -> Unit = {}) {
 					userText = text,
 					provider = resolved.provider,
 					model = resolved.model,
+					attachments = sendingAttachments,
 					approve = { request ->
 						val answer = CompletableDeferred<Boolean>()
 						pendingApproval = request
@@ -470,6 +613,11 @@ private fun DesktopSpike(store: DesktopStore, onReplyReady: () -> Unit = {}) {
 						true
 					}
 
+					event.isCtrlPressed && event.key == Key.O -> {
+						chooseImages()
+						true
+					}
+
 					event.key == Key.Escape && streaming -> {
 						stop()
 						true
@@ -522,11 +670,15 @@ private fun DesktopSpike(store: DesktopStore, onReplyReady: () -> Unit = {}) {
 						modifier = Modifier.fillMaxSize().padding(horizontal = 36.dp, vertical = 24.dp),
 						verticalArrangement = Arrangement.spacedBy(18.dp),
 					) {
-						items(lines) { line -> TranscriptLine(line) }
+						items(lines) { line ->
+							TranscriptLine(line, store, selectedId.orEmpty())
+						}
 						if (streaming && (answer.isNotBlank() || reasoning.isNotBlank())) {
 							item {
 								TranscriptLine(
 									Line(Role.Assistant, answer, reasoning),
+									store,
+									selectedId.orEmpty(),
 									cursor = true,
 								)
 							}
@@ -568,6 +720,13 @@ private fun DesktopSpike(store: DesktopStore, onReplyReady: () -> Unit = {}) {
 				onInput = { input = it },
 				streaming = streaming,
 				ready = loaded && selectedId != null,
+				store = store,
+				conversationId = selectedId,
+				attachments = pendingAttachments,
+				attaching = attaching,
+				attachError = attachError,
+				onAttach = ::chooseImages,
+				onRemove = { pendingAttachments = pendingAttachments - it },
 				onSend = ::send,
 				onStop = ::stop,
 			)
@@ -621,6 +780,7 @@ private fun DesktopSpike(store: DesktopStore, onReplyReady: () -> Unit = {}) {
 							lines.clear()
 							lines.addAll(store.load(id).map { it.toLine() })
 							input = outcome.userText.orEmpty()
+							pendingAttachments = outcome.attachments
 							conversations = store.list()
 							error = null
 						}
@@ -1043,7 +1203,12 @@ private fun EmptyState() {
 }
 
 @Composable
-private fun TranscriptLine(line: Line, cursor: Boolean = false) {
+private fun TranscriptLine(
+	line: Line,
+	store: DesktopStore,
+	conversationId: String,
+	cursor: Boolean = false,
+) {
 	Column(modifier = Modifier.fillMaxWidth()) {
 		if (line.role == Role.User) {
 			Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -1052,13 +1217,25 @@ private fun TranscriptLine(line: Line, cursor: Boolean = false) {
 					shape = RoundedCornerShape(10.dp),
 					modifier = Modifier.width(540.dp),
 				) {
-					Text(
-						text = line.text,
-						modifier = Modifier.padding(14.dp),
-						color = Paper,
-						fontSize = 15.sp,
-						lineHeight = 23.sp,
-					)
+					Column(modifier = Modifier.padding(14.dp)) {
+						if (line.text.isNotBlank()) {
+							Text(
+								text = line.text,
+								color = Paper,
+								fontSize = 15.sp,
+								lineHeight = 23.sp,
+							)
+						}
+						if (line.attachments.isNotEmpty() && conversationId.isNotBlank()) {
+							AttachmentStrip(
+								store = store,
+								conversationId = conversationId,
+								attachments = line.attachments,
+								removable = false,
+								onRemove = {},
+							)
+						}
+					}
 				}
 			}
 		} else if (line.role == Role.Tool) {
@@ -1193,11 +1370,101 @@ private fun ToolCallList(calls: List<StoredToolCall>) {
 }
 
 @Composable
+private fun AttachmentStrip(
+	store: DesktopStore,
+	conversationId: String,
+	attachments: List<DesktopAttachment>,
+	removable: Boolean,
+	onRemove: (DesktopAttachment) -> Unit,
+) {
+	Row(
+		modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+		horizontalArrangement = Arrangement.spacedBy(8.dp),
+	) {
+		attachments.forEach { attachment ->
+			AttachmentThumb(
+				store = store,
+				conversationId = conversationId,
+				attachment = attachment,
+				removable = removable,
+				onRemove = onRemove,
+			)
+		}
+	}
+}
+
+@Composable
+private fun AttachmentThumb(
+	store: DesktopStore,
+	conversationId: String,
+	attachment: DesktopAttachment,
+	removable: Boolean,
+	onRemove: (DesktopAttachment) -> Unit,
+) {
+	val bitmap by produceState<ImageBitmap?>(null, conversationId, attachment.relativePath) {
+		value = withContext(Dispatchers.IO) {
+			store.readAttachment(conversationId, attachment)?.let { bytes ->
+				runCatching {
+					SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap()
+				}.getOrNull()
+			}
+		}
+	}
+	Box(
+		modifier = Modifier
+			.size(64.dp)
+			.clip(RoundedCornerShape(6.dp))
+			.background(Color(0xFF2A241F)),
+		contentAlignment = Alignment.Center,
+	) {
+		val image = bitmap
+		if (image != null) {
+			Image(
+				bitmap = image,
+				contentDescription = attachment.displayName,
+				modifier = Modifier.fillMaxSize(),
+				contentScale = ContentScale.Crop,
+			)
+		} else {
+			Text(
+				text = attachment.displayName.take(18),
+				fontSize = 8.sp,
+				color = Muted,
+				maxLines = 2,
+				overflow = TextOverflow.Ellipsis,
+				modifier = Modifier.padding(4.dp),
+			)
+		}
+		if (removable) {
+			Box(
+				modifier = Modifier
+					.align(Alignment.TopEnd)
+					.padding(2.dp)
+					.size(16.dp)
+					.clip(CircleShape)
+					.background(Color(0xCC22140E))
+					.clickable { onRemove(attachment) },
+				contentAlignment = Alignment.Center,
+			) {
+				Text("×", color = Paper, fontSize = 10.sp)
+			}
+		}
+	}
+}
+
+@Composable
 private fun Composer(
 	input: String,
 	onInput: (String) -> Unit,
 	streaming: Boolean,
 	ready: Boolean,
+	store: DesktopStore,
+	conversationId: String?,
+	attachments: List<DesktopAttachment>,
+	attaching: Boolean,
+	attachError: String?,
+	onAttach: () -> Unit,
+	onRemove: (DesktopAttachment) -> Unit,
 	onSend: () -> Unit,
 	onStop: () -> Unit,
 ) {
@@ -1207,6 +1474,15 @@ private fun Composer(
 			.background(GraphiteRaised)
 			.padding(horizontal = 36.dp, vertical = 16.dp),
 	) {
+		if (attachments.isNotEmpty() && conversationId != null) {
+			AttachmentStrip(
+				store = store,
+				conversationId = conversationId,
+				attachments = attachments,
+				removable = true,
+				onRemove = onRemove,
+			)
+		}
 		OutlinedTextField(
 			value = input,
 			onValueChange = onInput,
@@ -1218,6 +1494,14 @@ private fun Composer(
 			keyboardActions = KeyboardActions(onSend = { onSend() }),
 			shape = RoundedCornerShape(8.dp),
 		)
+		attachError?.let { message ->
+			Text(
+				text = message,
+				color = Color(0xFFFF8A7A),
+				fontSize = 10.sp,
+				modifier = Modifier.padding(top = 4.dp),
+			)
+		}
 		Row(
 			modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
 			verticalAlignment = Alignment.CenterVertically,
@@ -1229,6 +1513,14 @@ private fun Composer(
 				fontFamily = FontFamily.Monospace,
 			)
 			Spacer(Modifier.weight(1f))
+			Text(
+				text = if (attaching) s("ATTACHING…", "附加中…") else s("ATTACH", "附加"),
+				fontFamily = FontFamily.Monospace,
+				fontSize = 10.sp,
+				color = if (attaching || streaming) Muted else Signal,
+				modifier = Modifier.clickable(enabled = !attaching && !streaming) { onAttach() },
+			)
+			Spacer(Modifier.width(16.dp))
 			if (streaming) {
 				Button(
 					onClick = onStop,
@@ -1243,7 +1535,7 @@ private fun Composer(
 			} else {
 				Button(
 					onClick = onSend,
-					enabled = input.isNotBlank() && ready,
+					enabled = (input.isNotBlank() || attachments.isNotEmpty()) && ready,
 					colors = ButtonDefaults.buttonColors(
 						containerColor = Signal,
 						contentColor = Color(0xFF22140E),
