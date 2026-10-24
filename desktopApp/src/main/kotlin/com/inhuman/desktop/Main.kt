@@ -2,6 +2,7 @@ package com.inhuman.desktop
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,7 +43,15 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -213,6 +222,9 @@ private fun DesktopSpike(store: DesktopStore, onReplyReady: () -> Unit = {}) {
 			},
 		)
 	}
+	val rootFocus = remember { FocusRequester() }
+	val searchFocus = remember { FocusRequester() }
+	LaunchedEffect(Unit) { rootFocus.requestFocus() }
 	var conversations by remember { mutableStateOf<List<ConversationSummary>>(emptyList()) }
 	var selectedId by remember { mutableStateOf<String?>(null) }
 	var query by remember { mutableStateOf("") }
@@ -418,10 +430,48 @@ private fun DesktopSpike(store: DesktopStore, onReplyReady: () -> Unit = {}) {
 	val selectedTitle = conversations.firstOrNull { it.id == selectedId }?.title
 		?: "New conversation"
 
-	Row(modifier = Modifier.fillMaxSize().background(Graphite)) {
+	Row(
+		modifier = Modifier
+			.fillMaxSize()
+			.background(Graphite)
+			.focusRequester(rootFocus)
+			.focusable()
+			.onPreviewKeyEvent { event ->
+				if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+				when {
+					event.isCtrlPressed && event.key == Key.N -> {
+						newConversation()
+						true
+					}
+
+					event.isCtrlPressed && event.key == Key.Enter -> {
+						send()
+						true
+					}
+
+					event.isCtrlPressed && event.key == Key.F -> {
+						searchFocus.requestFocus()
+						true
+					}
+
+					event.isCtrlPressed && event.key == Key.Comma -> {
+						showSettings = true
+						true
+					}
+
+					event.key == Key.Escape && streaming -> {
+						stop()
+						true
+					}
+
+					else -> false
+				}
+			},
+	) {
 		Sidebar(
 			conversations = conversations,
 			selectedId = selectedId,
+			searchFocus = searchFocus,
 			busy = streaming,
 			query = query,
 			matches = matches,
@@ -658,6 +708,7 @@ private fun DesktopSpike(store: DesktopStore, onReplyReady: () -> Unit = {}) {
 private fun Sidebar(
 	conversations: List<ConversationSummary>,
 	selectedId: String?,
+	searchFocus: FocusRequester,
 	busy: Boolean,
 	query: String,
 	matches: List<ConversationMatch>,
@@ -696,7 +747,7 @@ private fun Sidebar(
 			singleLine = true,
 			textStyle = TextStyle(fontSize = 12.sp, color = Paper),
 			shape = RoundedCornerShape(6.dp),
-			modifier = Modifier.fillMaxWidth(),
+			modifier = Modifier.fillMaxWidth().focusRequester(searchFocus),
 		)
 		Spacer(Modifier.height(16.dp))
 		Row(verticalAlignment = Alignment.CenterVertically) {
