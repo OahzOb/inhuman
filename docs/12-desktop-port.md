@@ -44,11 +44,12 @@
 仍未完成（下一步，不要误认为 spike 已完成）：
 
 - 桌面回合接上了工具循环：按会话的 `toolsJson` 过滤 `FileTools` 和 `read_time`，`ChatEngine` 驱动，assistant `tool_calls` 与每个 tool result 分轮写入同一张 `messages` 表；下一轮从数据库重建 wire history，缺失的结果补 `[interrupted]`。默认策略 `Free`；策略 `Ask` 会弹出审批窗（`Allow once` / `Deny`），拒绝写成 `[declined]` 并结束回合；路径级规则尚未参与判定，SSH/web 工具尚未接入。Demo 的 `write_file`/`delete_file` 已跑通，窗口里显示成工具调用行和结果卡；`DesktopChatTest` 还验证了工具回合之后的下一轮历史可重放，以及 Ask 的允许/拒绝两条路径；
-- 桌面端仍缺 assistant 编辑、模型选择、工作区/文件屏、路径级审批规则、SSH consent、snapshot/compaction、通知/文件对话框/图片适配。数据层、conversation rail、Markdown、DPAPI 密钥、真实 provider、文件工具与工具体级审批窗已经就绪；
+- 桌面设置窗现在是三个 tab：**Providers**（DPAPI key）、**Model**（provider 的 `/models` 列表，选中后写入当前会话的 `model`，下次发送生效）、**Approvals**（每个非远程工具的 `Free`/`Ask`/`Deny` 全局规则，下一回合生效）。没有 key 时 Model 页提示先保存 key；窗口内已验证 tab 切换、规则写入和状态行，模型写入由 `DesktopStoreTest` 覆盖；
+- 桌面端仍缺 assistant 编辑、工作区/文件屏、路径级审批规则、SSH consent、snapshot/compaction、通知/文件对话框/图片适配。数据层、conversation rail、Markdown、DPAPI 密钥、真实 provider、文件工具与工具级审批窗已经就绪；
 - Linux Secret Service（libsecret）绑定，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
 - 桌面端的完整安全/通知/文件对话框/图片适配。
 
-当前全量测试为 **492 tests / 70 suites / 0 failures / 3 skipped**。
+当前全量测试为 **493 tests / 70 suites / 0 failures / 3 skipped**。
 
 ### 为什么不是“所有 UI 也共用一套”
 
@@ -81,7 +82,7 @@
 | `:core:common` | 3 | 303 | **0** | 已是普通 JVM，直接复用 |
 | **合计** | **110** | **33,366** | 76 个 | |
 
-测试侧还有 67 个文件、约 8,243 行；当前全量 492 tests / 70 suites。
+测试侧还有 67 个文件、约 8,243 行；当前全量 493 tests / 70 suites。
 
 这个分布说明：**领域层和 UI 层是分开的，Android 绑定集中在 data 和 app 的薄层**。这是移植能成立的前提。
 

@@ -51,7 +51,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.rememberDialogState
+import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.ai.Role
+import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.db.StoredToolCall
 import com.mikepenz.markdown.m3.Markdown
@@ -224,7 +227,7 @@ private fun DesktopSpike(store: DesktopStore) {
 		streaming = true
 		turnJob = scope.launch {
 			try {
-				val resolved = store.resolve(assistant)
+				val resolved = store.resolve(assistant, conversationId)
 				if (resolved.error != null) {
 					error = resolved.error
 					return@launch
@@ -378,7 +381,11 @@ private fun DesktopSpike(store: DesktopStore) {
 	}
 
 	if (showSettings) {
-		SettingsWindow(store = store, onClose = { showSettings = false })
+		SettingsWindow(
+			store = store,
+			conversationId = selectedId,
+			onClose = { showSettings = false },
+		)
 	}
 
 	pendingApproval?.let { request ->
@@ -915,19 +922,38 @@ private fun Composer(
 }
 
 @Composable
-private fun SettingsWindow(store: DesktopStore, onClose: () -> Unit) {
+private fun SettingsWindow(
+	store: DesktopStore,
+	conversationId: String?,
+	onClose: () -> Unit,
+) {
 	val scope = rememberCoroutineScope()
+	var tab by remember { mutableStateOf(SettingsTab.Providers) }
 	var providers by remember { mutableStateOf<List<ProviderProfileEntity>>(emptyList()) }
 	var selected by remember { mutableStateOf<ProviderProfileEntity?>(null) }
 	var keyStatus by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
 	var keyInput by remember { mutableStateOf("") }
 	var status by remember { mutableStateOf<String?>(null) }
 	var saving by remember { mutableStateOf(false) }
+	var models by remember { mutableStateOf<List<RemoteModel>>(emptyList()) }
+	var modelsLoading by remember { mutableStateOf(false) }
+	var currentModel by remember { mutableStateOf<String?>(null) }
+	var policies by remember { mutableStateOf<Map<String, ToolPolicy>>(emptyMap()) }
 
 	LaunchedEffect(Unit) {
 		providers = store.providers()
 		keyStatus = providers.associate { it.id to store.hasProviderKey(it.id) }
 		selected = providers.firstOrNull()
+		currentModel = conversationId?.let { store.conversation(it)?.entity?.model }
+		policies = store.globalRules()
+	}
+
+	LaunchedEffect(tab, selected?.id, keyStatus[selected?.id]) {
+		val profile = selected ?: return@LaunchedEffect
+		if (tab != SettingsTab.Model || keyStatus[profile.id] != true) return@LaunchedEffect
+		modelsLoading = true
+		models = store.models(profile.id)
+		modelsLoading = false
 	}
 
 	fun refreshKeyStatus() {
@@ -936,145 +962,335 @@ private fun SettingsWindow(store: DesktopStore, onClose: () -> Unit) {
 		}
 	}
 
+	fun setPolicy(name: String, policy: ToolPolicy) {
+		scope.launch {
+			store.setGlobalRule(name, policy)
+			policies = store.globalRules()
+			status = "$name: ${policy.name.lowercase()}."
+		}
+	}
+
 	DialogWindow(
 		onCloseRequest = onClose,
 		title = "inhuman · settings",
-		state = rememberDialogState(width = 560.dp, height = 470.dp),
+		state = rememberDialogState(width = 600.dp, height = 560.dp),
 	) {
 		MaterialTheme(colorScheme = DesktopColors) {
 			Column(
 				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(28.dp),
 			) {
 				Text(
-					text = "PROVIDERS",
+					text = "SETTINGS",
 					fontFamily = FontFamily.Monospace,
 					fontSize = 11.sp,
 					letterSpacing = 1.5.sp,
 					color = Signal,
 				)
-				Spacer(Modifier.height(8.dp))
-				Text(
-					"Keys are encrypted with Windows DPAPI. Without a key the assistant answers from the demo provider.",
-					fontSize = 12.sp,
-					color = Muted,
-				)
+				Spacer(Modifier.height(10.dp))
+				Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+					SettingsTab.entries.forEach { entry ->
+						Text(
+							text = entry.label,
+							fontFamily = FontFamily.Monospace,
+							fontSize = 10.sp,
+							letterSpacing = 1.sp,
+							color = if (tab == entry) Signal else Muted,
+							modifier = Modifier.clickable {
+								tab = entry
+								status = null
+							},
+						)
+					}
+				}
 				Spacer(Modifier.height(16.dp))
-				LazyColumn(modifier = Modifier.weight(1f)) {
-					items(providers, key = { it.id }) { profile ->
-						val isSelected = profile.id == selected?.id
-						val hasKey = keyStatus[profile.id] == true
-						Column(
-							modifier = Modifier
-								.fillMaxWidth()
-								.background(
-									if (isSelected) Color(0xFF26211D) else Color.Transparent,
-									RoundedCornerShape(6.dp),
-								)
-								.clickable {
-									selected = profile
-									keyInput = ""
-									status = null
-								}
-								.padding(12.dp),
-						) {
-							Text(profile.name, color = Paper, fontSize = 14.sp)
+				Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+					when (tab) {
+						SettingsTab.Providers -> Column(Modifier.fillMaxSize()) {
 							Text(
-								profile.baseUrl,
+								"Keys are encrypted with Windows DPAPI. Without a key the assistant answers from the demo provider.",
+								fontSize = 12.sp,
+								color = Muted,
+							)
+							Spacer(Modifier.height(12.dp))
+							LazyColumn(modifier = Modifier.weight(1f)) {
+								items(providers, key = { it.id }) { profile ->
+									val isSelected = profile.id == selected?.id
+									val hasKey = keyStatus[profile.id] == true
+									Column(
+										modifier = Modifier
+											.fillMaxWidth()
+											.background(
+												if (isSelected) Color(0xFF26211D) else Color.Transparent,
+												RoundedCornerShape(6.dp),
+											)
+											.clickable {
+												selected = profile
+												keyInput = ""
+												status = null
+											}
+											.padding(12.dp),
+									) {
+										Text(profile.name, color = Paper, fontSize = 14.sp)
+										Text(
+											profile.baseUrl,
+											fontFamily = FontFamily.Monospace,
+											fontSize = 10.sp,
+											color = Muted,
+											modifier = Modifier.padding(top = 2.dp),
+										)
+										Text(
+											if (hasKey) "KEY SAVED" else "NO KEY",
+											fontFamily = FontFamily.Monospace,
+											fontSize = 9.sp,
+											color = if (hasKey) Signal else Muted,
+											modifier = Modifier.padding(top = 4.dp),
+										)
+									}
+								}
+							}
+							selected?.let { profile ->
+								Spacer(Modifier.height(12.dp))
+								OutlinedTextField(
+									value = keyInput,
+									onValueChange = { keyInput = it },
+									label = {
+										Text(
+											if (keyStatus[profile.id] == true) {
+												"New key (blank keeps the saved one)"
+											} else {
+												"API key"
+											},
+										)
+									},
+									visualTransformation = PasswordVisualTransformation(),
+									singleLine = true,
+									modifier = Modifier.fillMaxWidth(),
+								)
+								Row(
+									modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+									verticalAlignment = Alignment.CenterVertically,
+								) {
+									Button(
+										onClick = {
+											scope.launch {
+												saving = true
+												status = null
+												val value = keyInput.ifBlank { null }
+												val ok = store.saveProviderKey(profile.id, value)
+												status = when {
+													!ok -> "That provider no longer exists."
+													value == null -> "Nothing changed."
+													else -> "Key saved."
+												}
+												keyInput = ""
+												saving = false
+												refreshKeyStatus()
+											}
+										},
+										enabled = !saving,
+										colors = ButtonDefaults.buttonColors(
+											containerColor = Signal,
+											contentColor = Color(0xFF22140E),
+										),
+										shape = RoundedCornerShape(6.dp),
+									) {
+										Text("Save key")
+									}
+									Spacer(Modifier.width(14.dp))
+									Text(
+										text = "Remove key",
+										color = Muted,
+										fontSize = 12.sp,
+										modifier = Modifier.clickable {
+											scope.launch {
+												store.saveProviderKey(profile.id, "")
+												status = "Key removed; replies use the demo provider."
+												refreshKeyStatus()
+											}
+										},
+									)
+								}
+							}
+						}
+
+						SettingsTab.Model -> Column(Modifier.fillMaxSize()) {
+							Text(
+								"Choose the model for this conversation. A blank choice uses the provider's first model.",
+								fontSize = 12.sp,
+								color = Muted,
+							)
+							Spacer(Modifier.height(10.dp))
+							Text(
+								text = "CURRENT · ${currentModel ?: "provider default"}",
 								fontFamily = FontFamily.Monospace,
 								fontSize = 10.sp,
-								color = Muted,
-								modifier = Modifier.padding(top = 2.dp),
+								color = Signal,
 							)
+							Spacer(Modifier.height(10.dp))
+							val profile = selected
+							if (profile == null || keyStatus[profile.id] != true) {
+								Text(
+									"Save a provider key on the Providers tab first.",
+									fontSize = 12.sp,
+									color = Muted,
+								)
+							} else {
+								Row(verticalAlignment = Alignment.CenterVertically) {
+									Text(
+										text = "MODELS",
+										fontFamily = FontFamily.Monospace,
+										fontSize = 10.sp,
+										color = Muted,
+									)
+									Spacer(Modifier.weight(1f))
+									Text(
+										text = if (modelsLoading) "loading…" else "Refresh",
+										fontFamily = FontFamily.Monospace,
+										fontSize = 10.sp,
+										color = Signal,
+										modifier = Modifier.clickable(enabled = !modelsLoading) {
+											scope.launch {
+												modelsLoading = true
+												models = store.models(profile.id, force = true)
+												modelsLoading = false
+											}
+										},
+									)
+								}
+								Spacer(Modifier.height(6.dp))
+								LazyColumn(modifier = Modifier.weight(1f)) {
+									items(models, key = { it.id }) { model ->
+										val inUse = currentModel == model.id
+										Column(
+											modifier = Modifier
+												.fillMaxWidth()
+												.background(
+													if (inUse) Color(0xFF26211D) else Color.Transparent,
+													RoundedCornerShape(6.dp),
+												)
+												.clickable {
+													scope.launch {
+														conversationId?.let {
+															store.setConversationModel(it, model.id)
+															currentModel = model.id
+															status = "Model set for this conversation."
+														}
+													}
+												}
+												.padding(10.dp),
+										) {
+											Text(
+												text = model.displayName ?: model.id,
+												fontSize = 13.sp,
+												color = Paper,
+											)
+											Text(
+												text = model.id,
+												fontFamily = FontFamily.Monospace,
+												fontSize = 10.sp,
+												color = Muted,
+												modifier = Modifier.padding(top = 2.dp),
+											)
+										}
+									}
+									if (models.isEmpty() && !modelsLoading) {
+										item {
+											Text(
+												"No models returned. Check the key and endpoint.",
+												fontSize = 12.sp,
+												color = Muted,
+												modifier = Modifier.padding(10.dp),
+											)
+										}
+									}
+								}
+							}
+						}
+
+						SettingsTab.Approvals -> Column(Modifier.fillMaxSize()) {
 							Text(
-								if (hasKey) "KEY SAVED" else "NO KEY",
-								fontFamily = FontFamily.Monospace,
-								fontSize = 9.sp,
-								color = if (hasKey) Signal else Muted,
-								modifier = Modifier.padding(top = 4.dp),
+								"Default is no prompt. Ask shows the approval window before a call; Deny refuses it. Changes apply to the next turn.",
+								fontSize = 12.sp,
+								color = Muted,
 							)
+							Spacer(Modifier.height(10.dp))
+							LazyColumn(modifier = Modifier.weight(1f)) {
+								items(ToolCatalog.all.filter { !it.remote }, key = { it.name }) { entry ->
+									val policy = policies[entry.name] ?: ToolPolicy.Free
+									Row(
+										modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
+										verticalAlignment = Alignment.CenterVertically,
+									) {
+										Column(modifier = Modifier.weight(1f)) {
+											Text(entry.name, fontSize = 13.sp, color = Paper)
+											Text(
+												entry.blurb,
+												fontSize = 10.sp,
+												color = Muted,
+												maxLines = 1,
+												overflow = TextOverflow.Ellipsis,
+											)
+										}
+										Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+											PolicyChoice("FREE", policy == ToolPolicy.Free) {
+												setPolicy(entry.name, ToolPolicy.Free)
+											}
+											PolicyChoice("ASK", policy == ToolPolicy.Ask) {
+												setPolicy(entry.name, ToolPolicy.Ask)
+											}
+											PolicyChoice("DENY", policy == ToolPolicy.Deny) {
+												setPolicy(entry.name, ToolPolicy.Deny)
+											}
+										}
+									}
+								}
+							}
 						}
 					}
 				}
-				selected?.let { profile ->
-					Spacer(Modifier.height(12.dp))
-					OutlinedTextField(
-						value = keyInput,
-						onValueChange = { keyInput = it },
-						label = {
-							Text(
-								if (keyStatus[profile.id] == true) {
-									"New key (blank keeps the saved one)"
-								} else {
-									"API key"
-								},
-							)
-						},
-						visualTransformation = PasswordVisualTransformation(),
-						singleLine = true,
-						modifier = Modifier.fillMaxWidth(),
-					)
-					Row(
-						modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-						verticalAlignment = Alignment.CenterVertically,
-					) {
-						Button(
-							onClick = {
-								scope.launch {
-									saving = true
-									status = null
-									val value = keyInput.ifBlank { null }
-									val ok = store.saveProviderKey(profile.id, value)
-									status = when {
-										!ok -> "That provider no longer exists."
-										value == null -> "Nothing changed."
-										else -> "Key saved."
-									}
-									keyInput = ""
-									saving = false
-									refreshKeyStatus()
-								}
-							},
-							enabled = !saving,
-							colors = ButtonDefaults.buttonColors(
-								containerColor = Signal,
-								contentColor = Color(0xFF22140E),
-							),
-							shape = RoundedCornerShape(6.dp),
-						) {
-							Text("Save key")
-						}
-						Spacer(Modifier.width(14.dp))
-						Text(
-							text = "Remove key",
-							color = Muted,
-							fontSize = 12.sp,
-							modifier = Modifier.clickable {
-								scope.launch {
-									store.saveProviderKey(profile.id, "")
-									status = "Key removed; replies use the demo provider."
-									refreshKeyStatus()
-								}
-							},
-						)
-						Spacer(Modifier.weight(1f))
-						Text(
-							text = "Done",
-							color = Paper,
-							fontSize = 13.sp,
-							modifier = Modifier.clickable { onClose() },
-						)
-					}
+				Row(
+					modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+					verticalAlignment = Alignment.CenterVertically,
+				) {
 					status?.let {
-						Text(
-							text = it,
-							color = Muted,
-							fontSize = 12.sp,
-							modifier = Modifier.padding(top = 8.dp),
-						)
+						Text(it, fontSize = 11.sp, color = Muted)
 					}
+					Spacer(Modifier.weight(1f))
+					Text(
+						text = "Done",
+						color = Paper,
+						fontSize = 13.sp,
+						modifier = Modifier.clickable { onClose() },
+					)
 				}
 			}
 		}
+	}
+}
+
+private enum class SettingsTab(val label: String) {
+	Providers("PROVIDERS"),
+	Model("MODEL"),
+	Approvals("APPROVALS"),
+}
+
+@Composable
+private fun PolicyChoice(label: String, selected: Boolean, onClick: () -> Unit) {
+	Box(
+		modifier = Modifier
+			.background(
+				if (selected) Signal else Color.Transparent,
+				RoundedCornerShape(4.dp),
+			)
+			.clickable(onClick = onClick)
+			.padding(horizontal = 6.dp, vertical = 3.dp),
+	) {
+		Text(
+			text = label,
+			fontFamily = FontFamily.Monospace,
+			fontSize = 9.sp,
+			color = if (selected) Color(0xFF22140E) else Muted,
+		)
 	}
 }
 

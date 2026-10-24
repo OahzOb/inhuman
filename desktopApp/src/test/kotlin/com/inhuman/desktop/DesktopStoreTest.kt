@@ -108,4 +108,19 @@ class DesktopStoreTest {
 			store.close()
 		}
 	}
+
+	@Test
+	fun `a conversation model is stored on the conversation`() = runBlocking {
+		val store = DesktopStore.open(tmp.newFolder("desktop-model"))
+		try {
+			val conversation = store.create("Model")
+			store.setConversationModel(conversation.id, "deepseek-reasoner")
+			assertEquals(
+				"deepseek-reasoner",
+				store.conversation(conversation.id)?.entity?.model,
+			)
+		} finally {
+			store.close()
+		}
+	}
 }

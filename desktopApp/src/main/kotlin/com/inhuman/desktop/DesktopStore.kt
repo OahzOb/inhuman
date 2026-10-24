@@ -3,6 +3,7 @@ package com.inhuman.desktop
 import androidx.room.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.inhuman.core.ai.ChatProvider
+import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.ai.policy.PolicySet
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.provider.demo.DemoProvider
@@ -131,6 +132,14 @@ class DesktopStore private constructor(
 
 	suspend fun hasProviderKey(providerId: String): Boolean = agents.hasKey(providerId)
 
+	/** Cached or fetched model list; empty on a transport failure. */
+	suspend fun models(providerId: String, force: Boolean = false): List<RemoteModel> =
+		agents.models(providerId, force).getOrElse { emptyList() }
+
+	suspend fun setConversationModel(conversationId: String, model: String?) {
+		conversations.setModel(conversationId, model)
+	}
+
 	/**
 	 * Save a provider key and return whether the profile exists.
 	 *
@@ -155,14 +164,18 @@ class DesktopStore private constructor(
 	 * exists but whose model list will not answer is different, and is reported
 	 * so the composer can say why nothing is being sent.
 	 */
-	suspend fun resolve(assistant: AgentEntity?): ResolvedChat {
+	suspend fun resolve(assistant: AgentEntity?, conversationId: String? = null): ResolvedChat {
 		val providerId = assistant?.providerId ?: ProviderIds.DEEPSEEK
 		val profile = agents.provider(providerId)
 		val provider = profile?.let { agents.providerFromRow(it) }
 		if (provider == null) {
 			return ResolvedChat(DemoProvider(chunkDelayMillis = 8), "demo-model", "Demo")
 		}
-		val model = assistant?.model?.takeIf { it.isNotBlank() }
+		val conversationModel = conversationId
+			?.let { conversations.conversation(it)?.entity?.model }
+			?.takeIf { it.isNotBlank() }
+		val model = conversationModel
+			?: assistant?.model?.takeIf { it.isNotBlank() }
 			?: agents.models(providerId).getOrNull()?.firstOrNull()?.id
 		if (model == null) {
 			return ResolvedChat(
