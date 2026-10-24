@@ -20,6 +20,7 @@ import com.inhuman.core.data.db.ProviderIds
 import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.db.StoredToolCall
 import com.inhuman.core.data.db.ToolCallsColumn
+import com.inhuman.core.data.db.ToolsColumn
 import com.inhuman.core.files.SessionWorkspace
 import com.inhuman.desktop.secret.DpapiSecretStore
 import java.io.File
@@ -121,12 +122,48 @@ class DesktopStore private constructor(
 		conversations.delete(conversation.entity)
 	}
 
-	suspend fun create(title: String = "New conversation"): ConversationSummary =
-		summary(conversations.create(title = title))
+	suspend fun create(
+		title: String = "New conversation",
+		assistant: AgentEntity? = null,
+	): ConversationSummary {
+		val resolved = assistant ?: defaultAssistant()
+		return summary(conversations.create(title = title, agent = resolved))
+	}
 
 	suspend fun defaultAssistant(): AgentEntity? = agents.defaultAgent()
 
 	suspend fun assistants(): List<AgentEntity> = agents.all()
+
+	suspend fun assistant(id: String): AgentEntity? = agents.byId(id)
+
+	/**
+	 * Save an assistant, stamping the update time.
+	 *
+	 * A new assistant is the caller's draft with a fresh id; this is the only
+	 * writer, so a half-edited draft never reaches the database.
+	 */
+	suspend fun saveAssistant(agent: AgentEntity) {
+		agents.save(agent.copy(updatedAt = System.currentTimeMillis()))
+	}
+
+	suspend fun deleteAssistant(agent: AgentEntity) {
+		agents.delete(agent)
+	}
+
+	/** A draft with the default tool set; not persisted until saved. */
+	fun newAssistant(): AgentEntity = AgentEntity(
+		id = UUID.randomUUID().toString(),
+		name = "New assistant",
+		systemPrompt = "",
+		providerId = ProviderIds.DEEPSEEK,
+		model = null,
+		reasoningEffort = null,
+		thinking = false,
+		toolsJson = ToolsColumn.encode(AgentRepository.DEFAULT_NEW_AGENT_TOOLS),
+		createdAt = System.currentTimeMillis(),
+		updatedAt = System.currentTimeMillis(),
+		isDefault = false,
+	)
 
 	suspend fun providers(): List<ProviderProfileEntity> = agents.providers()
 
@@ -165,17 +202,17 @@ class DesktopStore private constructor(
 	 * so the composer can say why nothing is being sent.
 	 */
 	suspend fun resolve(assistant: AgentEntity?, conversationId: String? = null): ResolvedChat {
-		val providerId = assistant?.providerId ?: ProviderIds.DEEPSEEK
+		val conversation = conversationId?.let { conversations.conversation(it)?.entity }
+		val effective = conversation?.agentId?.let { agents.byId(it) } ?: assistant
+		val providerId = effective?.providerId ?: conversation?.providerId ?: ProviderIds.DEEPSEEK
 		val profile = agents.provider(providerId)
 		val provider = profile?.let { agents.providerFromRow(it) }
 		if (provider == null) {
 			return ResolvedChat(DemoProvider(chunkDelayMillis = 8), "demo-model", "Demo")
 		}
-		val conversationModel = conversationId
-			?.let { conversations.conversation(it)?.entity?.model }
-			?.takeIf { it.isNotBlank() }
+		val conversationModel = conversation?.model?.takeIf { it.isNotBlank() }
 		val model = conversationModel
-			?: assistant?.model?.takeIf { it.isNotBlank() }
+			?: effective?.model?.takeIf { it.isNotBlank() }
 			?: agents.models(providerId).getOrNull()?.firstOrNull()?.id
 		if (model == null) {
 			return ResolvedChat(
@@ -211,6 +248,10 @@ class DesktopStore private constructor(
 
 	fun workspace(conversation: ConversationEntity): SessionWorkspace =
 		conversations.workspace(conversation)
+
+	/** The current conversation's workspace, for the Files window. */
+	suspend fun workspaceFor(conversationId: String): SessionWorkspace? =
+		conversation(conversationId)?.let { workspace(it.entity) }
 
 	suspend fun policies(conversationId: String, agentId: String?): PolicySet =
 		PolicyRepository(db).forConversation(conversationId, agentId)

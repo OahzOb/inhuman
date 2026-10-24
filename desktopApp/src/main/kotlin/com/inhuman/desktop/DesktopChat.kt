@@ -84,6 +84,7 @@ class DesktopChat(
 	): String? {
 		val conversation = store.conversation(conversationId) ?: return "Conversation not found."
 		val entity = conversation.entity
+		val agent = entity.agentId?.let { store.assistant(it) } ?: assistant
 		val parentId = store.lastMessageId(conversationId)
 		val firstMessage = parentId == null
 
@@ -98,7 +99,7 @@ class DesktopChat(
 			onEvent(Event.Error(message))
 			return message
 		}
-		val selected = entity.tools ?: assistant?.tools
+		val selected = entity.tools ?: agent?.tools
 		val tools = (FileTools.all(workspace) + TimeTool())
 			.filter { ToolCatalog.permits(selected, it.name) }
 		val policies = store.policies(conversationId, entity.agentId)
@@ -158,12 +159,12 @@ class DesktopChat(
 			engine.run(
 				EngineTurn(
 					model = model,
-					messages = history(),
+					messages = history(agent),
 					tools = tools,
 					maxRounds = DEFAULT_TOOL_ROUNDS,
 					maxCalls = DEFAULT_TOOL_CALLS,
-					thinking = assistant?.thinking ?: false,
-					reasoningEffort = assistant?.reasoningEffort,
+					thinking = agent?.thinking ?: false,
+					reasoningEffort = agent?.reasoningEffort,
 					userId = conversationId,
 				),
 			).collect { event ->
@@ -287,9 +288,9 @@ class DesktopChat(
 	 * produce one, so missing results are closed here rather than left for the
 	 * next turn to discover.
 	 */
-	private suspend fun history(): List<ChatMessage> {
+	private suspend fun history(agent: AgentEntity?): List<ChatMessage> {
 		val out = mutableListOf<ChatMessage>()
-		assistant?.systemPrompt?.takeIf { it.isNotBlank() }?.let {
+		agent?.systemPrompt?.takeIf { it.isNotBlank() }?.let {
 			out += ChatMessage(Role.System, it)
 		}
 		val messages = store.messages(conversationId)

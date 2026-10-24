@@ -1,8 +1,16 @@
 package com.inhuman.desktop
 
+import com.inhuman.core.ai.ChatProvider
+import com.inhuman.core.ai.ChatRequest
+import com.inhuman.core.ai.FinishReason
+import com.inhuman.core.ai.RemoteModel
+import com.inhuman.core.ai.StreamChunk
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.provider.demo.DemoProvider
 import com.inhuman.core.data.db.ToolCallsColumn
+import com.inhuman.core.data.db.ToolsColumn
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -137,5 +145,52 @@ class DesktopChatTest {
 		} finally {
 			store.close()
 		}
+	}
+
+	@Test
+	fun `a turn uses the conversation's assistant not the caller's fallback`() = runBlocking {
+		val store = DesktopStore.open(tmp.newFolder("chat-agent"))
+		try {
+			val base = store.defaultAssistant()
+			assertNotNull(base)
+			val chosen = base!!.copy(
+				systemPrompt = "Be terse.",
+				thinking = true,
+				toolsJson = ToolsColumn.encode(listOf("read_file")),
+			)
+			store.saveAssistant(chosen)
+			val conversation = store.create("Custom", chosen)
+
+			val provider = RecordingProvider()
+			val failure = DesktopChat(store, conversation.id, null).send(
+				userText = "hello",
+				provider = provider,
+				model = "recording-model",
+			) {}
+
+			assertNull(failure)
+			val request = provider.request
+			assertNotNull(request)
+			assertEquals("Be terse.", request!!.messages.first().content)
+			assertEquals(listOf("read_file"), request.tools.map { it.name })
+			assertEquals(true, request.thinking)
+		} finally {
+			store.close()
+		}
+	}
+}
+
+private class RecordingProvider : ChatProvider {
+	override val id = "recording"
+	var request: ChatRequest? = null
+
+	override suspend fun listModels(): List<RemoteModel> = emptyList()
+
+	override fun stream(request: ChatRequest): Flow<StreamChunk> {
+		this.request = request
+		return flowOf(
+			StreamChunk.TextDelta("ok"),
+			StreamChunk.Finish(FinishReason.Stop),
+		)
 	}
 }

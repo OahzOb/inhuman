@@ -23,6 +23,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -55,8 +56,11 @@ import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.ai.Role
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.tools.ToolCatalog
+import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.db.StoredToolCall
+import com.inhuman.core.data.db.ToolsColumn
+import com.inhuman.core.files.SessionWorkspace
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
@@ -66,6 +70,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.awt.Desktop
+import java.io.File
+import javax.swing.JFileChooser
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -113,6 +120,23 @@ private fun StoredLine.toLine() = Line(
 	isError = isError,
 )
 
+/** One entry in the conversation's workspace, as the Files window lists it. */
+private data class WorkspaceEntry(
+	val path: String,
+	val name: String,
+	val directory: Boolean,
+	val size: Long,
+)
+
+private fun workspacePath(directory: String, name: String): String =
+	if (directory.isBlank()) name else "$directory/$name"
+
+private fun bytesLabel(bytes: Long): String = when {
+	bytes < 1024 -> "$bytes B"
+	bytes < 1024 * 1024 -> "%.1f KB".format(bytes / 1024.0)
+	else -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
+}
+
 fun main() {
 	val dataDir = DesktopStore.defaultDataDir()
 	val single = SingleInstance.acquire(dataDir)
@@ -157,6 +181,8 @@ private fun DesktopSpike(store: DesktopStore) {
 	var assistant by remember { mutableStateOf<com.inhuman.core.data.db.AgentEntity?>(null) }
 	var providerLabel by remember { mutableStateOf("Demo / demo-model") }
 	var showSettings by remember { mutableStateOf(false) }
+	var showAssistants by remember { mutableStateOf(false) }
+	var showFiles by remember { mutableStateOf(false) }
 	var pendingApproval by remember { mutableStateOf<DesktopChat.ApprovalRequest?>(null) }
 	var approvalAnswer by remember { mutableStateOf<CompletableDeferred<Boolean>?>(null) }
 	var error by remember { mutableStateOf<String?>(null) }
@@ -347,6 +373,8 @@ private fun DesktopSpike(store: DesktopStore) {
 			TopBar(
 				title = selectedTitle,
 				provider = providerLabel,
+				onFiles = { showFiles = true },
+				onAssistants = { showAssistants = true },
 				onSettings = { showSettings = true },
 			)
 			Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -397,6 +425,30 @@ private fun DesktopSpike(store: DesktopStore) {
 			store = store,
 			conversationId = selectedId,
 			onClose = { showSettings = false },
+		)
+	}
+
+	if (showAssistants) {
+		AssistantsWindow(
+			store = store,
+			onClose = { showAssistants = false },
+			onStartConversation = { agent ->
+				scope.launch {
+					store.saveAssistant(agent)
+					val created = store.create(assistant = agent)
+					conversations = store.list()
+					selectedId = created.id
+					showAssistants = false
+				}
+			},
+		)
+	}
+
+	if (showFiles) {
+		FilesWindow(
+			store = store,
+			conversationId = selectedId,
+			onClose = { showFiles = false },
 		)
 	}
 
@@ -652,7 +704,13 @@ private fun ConversationRow(
 }
 
 @Composable
-private fun TopBar(title: String, provider: String, onSettings: () -> Unit) {
+private fun TopBar(
+	title: String,
+	provider: String,
+	onFiles: () -> Unit,
+	onAssistants: () -> Unit,
+	onSettings: () -> Unit,
+) {
 	Column {
 		Row(
 			modifier = Modifier.fillMaxWidth().padding(horizontal = 36.dp, vertical = 18.dp),
@@ -667,6 +725,24 @@ private fun TopBar(title: String, provider: String, onSettings: () -> Unit) {
 					modifier = Modifier.padding(top = 2.dp),
 				)
 			}
+			Text(
+				text = "FILES",
+				fontFamily = FontFamily.Monospace,
+				fontSize = 10.sp,
+				letterSpacing = 1.sp,
+				color = Signal,
+				modifier = Modifier.clickable { onFiles() },
+			)
+			Spacer(Modifier.width(18.dp))
+			Text(
+				text = "ASSISTANTS",
+				fontFamily = FontFamily.Monospace,
+				fontSize = 10.sp,
+				letterSpacing = 1.sp,
+				color = Signal,
+				modifier = Modifier.clickable { onAssistants() },
+			)
+			Spacer(Modifier.width(18.dp))
 			Text(
 				text = "SETTINGS",
 				fontFamily = FontFamily.Monospace,
@@ -1508,6 +1584,705 @@ private fun DeleteWindow(
 					}
 				}
 			}
+		}
+	}
+}
+
+@Composable
+private fun AssistantsWindow(
+	store: DesktopStore,
+	onClose: () -> Unit,
+	onStartConversation: (AgentEntity) -> Unit,
+) {
+	val scope = rememberCoroutineScope()
+	var assistants by remember { mutableStateOf<List<AgentEntity>>(emptyList()) }
+	var providers by remember { mutableStateOf<List<ProviderProfileEntity>>(emptyList()) }
+	var draft by remember { mutableStateOf<AgentEntity?>(null) }
+	var status by remember { mutableStateOf<String?>(null) }
+	var providerMenu by remember { mutableStateOf(false) }
+
+	suspend fun reload(select: String? = null) {
+		assistants = store.assistants()
+		providers = store.providers()
+		draft = assistants.firstOrNull { it.id == select } ?: assistants.firstOrNull()
+	}
+
+	LaunchedEffect(Unit) { reload() }
+
+	DialogWindow(
+		onCloseRequest = onClose,
+		title = "inhuman · assistants",
+		state = rememberDialogState(width = 880.dp, height = 640.dp),
+	) {
+		MaterialTheme(colorScheme = DesktopColors) {
+			Row(
+				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(24.dp),
+			) {
+				Column(modifier = Modifier.width(230.dp).fillMaxHeight()) {
+					Text(
+						text = "ASSISTANTS",
+						fontFamily = FontFamily.Monospace,
+						fontSize = 11.sp,
+						letterSpacing = 1.5.sp,
+						color = Signal,
+					)
+					Spacer(Modifier.height(12.dp))
+					Text(
+						text = "+ NEW",
+						fontFamily = FontFamily.Monospace,
+						fontSize = 10.sp,
+						color = Signal,
+						modifier = Modifier.clickable {
+							draft = store.newAssistant()
+							status = null
+						},
+					)
+					Spacer(Modifier.height(10.dp))
+					LazyColumn(modifier = Modifier.weight(1f)) {
+						items(assistants, key = { it.id }) { agent ->
+							val selected = agent.id == draft?.id
+							Column(
+								modifier = Modifier
+									.fillMaxWidth()
+									.background(
+										if (selected) Color(0xFF26211D) else Color.Transparent,
+										RoundedCornerShape(6.dp),
+									)
+									.clickable {
+										draft = agent
+										status = null
+										providerMenu = false
+									}
+									.padding(10.dp),
+							) {
+								Text(
+									text = agent.name,
+									fontSize = 13.sp,
+									color = if (selected) Paper else Paper.copy(alpha = 0.82f),
+									maxLines = 1,
+									overflow = TextOverflow.Ellipsis,
+								)
+								Text(
+									text = if (agent.isDefault) "DEFAULT" else "ASSISTANT",
+									fontFamily = FontFamily.Monospace,
+									fontSize = 9.sp,
+									color = Muted,
+									modifier = Modifier.padding(top = 2.dp),
+								)
+							}
+						}
+					}
+					Spacer(Modifier.height(10.dp))
+					Text(
+						text = "Done",
+						color = Paper,
+						fontSize = 13.sp,
+						modifier = Modifier.clickable { onClose() },
+					)
+				}
+
+				Spacer(Modifier.width(24.dp))
+				Box(Modifier.width(1.dp).fillMaxHeight().background(Hairline))
+				Spacer(Modifier.width(24.dp))
+
+				draft?.let { agent ->
+					Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+						Column(
+							modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+						) {
+							Row(verticalAlignment = Alignment.CenterVertically) {
+								Text(
+									text = agent.name.ifBlank { "Untitled assistant" },
+									fontSize = 20.sp,
+									fontWeight = FontWeight.Light,
+									color = Paper,
+									modifier = Modifier.weight(1f),
+								)
+								if (agent.isDefault) {
+									Text(
+										text = "DEFAULT",
+										fontFamily = FontFamily.Monospace,
+										fontSize = 9.sp,
+										color = Signal,
+									)
+								}
+							}
+							Spacer(Modifier.height(12.dp))
+							OutlinedTextField(
+								value = agent.name,
+								onValueChange = { draft = agent.copy(name = it) },
+								label = { Text("Name") },
+								singleLine = true,
+								modifier = Modifier.fillMaxWidth(),
+							)
+							Spacer(Modifier.height(10.dp))
+							OutlinedTextField(
+								value = agent.systemPrompt,
+								onValueChange = { draft = agent.copy(systemPrompt = it) },
+								label = { Text("System prompt") },
+								minLines = 4,
+								maxLines = 7,
+								modifier = Modifier.fillMaxWidth(),
+							)
+							Spacer(Modifier.height(10.dp))
+							Box {
+								Text(
+									text = "PROVIDER · " + (
+										providers.firstOrNull { it.id == agent.providerId }?.name
+											?: agent.providerId
+										),
+									fontFamily = FontFamily.Monospace,
+									fontSize = 10.sp,
+									color = Signal,
+									modifier = Modifier
+										.clickable { providerMenu = true }
+										.padding(vertical = 6.dp),
+								)
+								DropdownMenu(
+									expanded = providerMenu,
+									onDismissRequest = { providerMenu = false },
+								) {
+									providers.forEach { profile ->
+										DropdownMenuItem(
+											text = { Text(profile.name) },
+											onClick = {
+												draft = agent.copy(
+													providerId = profile.id,
+													model = null,
+												)
+												providerMenu = false
+											},
+										)
+									}
+								}
+							}
+							OutlinedTextField(
+								value = agent.model.orEmpty(),
+								onValueChange = {
+									draft = agent.copy(model = it.takeIf { value -> value.isNotBlank() })
+								},
+								label = { Text("Model (blank = provider default)") },
+								singleLine = true,
+								modifier = Modifier.fillMaxWidth(),
+							)
+							Row(
+								modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+								verticalAlignment = Alignment.CenterVertically,
+							) {
+								Checkbox(
+									checked = agent.thinking,
+									onCheckedChange = { draft = agent.copy(thinking = it) },
+								)
+								Text("Thinking", fontSize = 12.sp, color = Paper)
+							}
+
+							Spacer(Modifier.height(6.dp))
+							Text(
+								text = "TOOLS",
+								fontFamily = FontFamily.Monospace,
+								fontSize = 10.sp,
+								letterSpacing = 1.sp,
+								color = Muted,
+							)
+							val selection = ToolsColumn.decode(agent.toolsJson)
+							val effective = selection
+								?: ToolCatalog.all.filter { !it.remote }.map { it.name }.toSet()
+							ToolCatalog.all.filter { !it.remote }.forEach { entry ->
+								Row(
+									modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+									verticalAlignment = Alignment.CenterVertically,
+								) {
+									Checkbox(
+										checked = effective.contains(entry.name),
+										onCheckedChange = { checked ->
+											val next = effective.toMutableSet()
+											if (checked) next += entry.name else next -= entry.name
+											draft = agent.copy(
+												toolsJson = ToolsColumn.encode(next.toList()),
+											)
+										},
+									)
+									Column(Modifier.weight(1f)) {
+										Text(entry.name, fontSize = 12.sp, color = Paper)
+										Text(
+											entry.blurb,
+											fontSize = 10.sp,
+											color = Muted,
+											maxLines = 1,
+											overflow = TextOverflow.Ellipsis,
+										)
+									}
+								}
+							}
+						}
+						Row(
+							modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+							verticalAlignment = Alignment.CenterVertically,
+						) {
+							Button(
+								onClick = {
+									scope.launch {
+										store.saveAssistant(agent)
+										reload(agent.id)
+										status = "Saved."
+									}
+								},
+								enabled = agent.name.isNotBlank(),
+								colors = ButtonDefaults.buttonColors(
+									containerColor = Signal,
+									contentColor = Color(0xFF22140E),
+								),
+								shape = RoundedCornerShape(6.dp),
+							) {
+								Text("Save")
+							}
+							Spacer(Modifier.width(12.dp))
+							if (!agent.isDefault) {
+								Text(
+									text = "Delete",
+									color = Color(0xFFFF8A7A),
+									fontSize = 12.sp,
+									modifier = Modifier.clickable {
+										scope.launch {
+											store.deleteAssistant(agent)
+											reload()
+											status = "Deleted."
+										}
+									},
+								)
+							}
+							Spacer(Modifier.weight(1f))
+							Text(
+								text = "New conversation",
+								color = Paper,
+								fontSize = 13.sp,
+								modifier = Modifier.clickable {
+									if (agent.name.isNotBlank()) onStartConversation(agent)
+								},
+							)
+						}
+						status?.let {
+							Text(
+								text = it,
+								fontSize = 11.sp,
+								color = Muted,
+								modifier = Modifier.padding(top = 8.dp),
+							)
+						}
+					}
+				} ?: Text(
+					text = "No assistants. Create one with + NEW.",
+					fontSize = 12.sp,
+					color = Muted,
+				)
+			}
+		}
+	}
+}
+
+@Composable
+private fun FilesWindow(
+	store: DesktopStore,
+	conversationId: String?,
+	onClose: () -> Unit,
+) {
+	val scope = rememberCoroutineScope()
+	var workspace by remember { mutableStateOf<SessionWorkspace?>(null) }
+	var directory by remember { mutableStateOf("") }
+	var entries by remember { mutableStateOf<List<WorkspaceEntry>>(emptyList()) }
+	var selected by remember { mutableStateOf<WorkspaceEntry?>(null) }
+	var editor by remember { mutableStateOf("") }
+	var original by remember { mutableStateOf("") }
+	var binary by remember { mutableStateOf(false) }
+	var status by remember { mutableStateOf<String?>(null) }
+	var loading by remember { mutableStateOf(true) }
+
+	fun refresh(ws: SessionWorkspace) {
+		val dir = if (directory.isBlank()) {
+			ws.rootPath()
+		} else {
+			when (val resolution = ws.resolve(directory)) {
+				is SessionWorkspace.Resolution.Ok -> resolution.file
+				is SessionWorkspace.Resolution.Rejected -> {
+					status = resolution.reason
+					return
+				}
+			}
+		}
+		entries = (dir.listFiles() ?: emptyArray()).map { file ->
+			WorkspaceEntry(
+				path = workspacePath(directory, file.name),
+				name = file.name,
+				directory = file.isDirectory,
+				size = if (file.isFile) file.length() else 0L,
+			)
+		}.sortedWith(compareBy({ !it.directory }, { it.name.lowercase() }))
+	}
+
+	fun select(ws: SessionWorkspace, entry: WorkspaceEntry) {
+		selected = entry
+		status = null
+		editor = ""
+		original = ""
+		binary = false
+		if (entry.directory) return
+		val file = when (val resolution = ws.resolve(entry.path)) {
+			is SessionWorkspace.Resolution.Ok -> resolution.file
+			is SessionWorkspace.Resolution.Rejected -> {
+				status = resolution.reason
+				return
+			}
+		}
+		if (file.length() > 512 * 1024) {
+			binary = true
+			status = "This file is too large to edit here; use Open or Export."
+			return
+		}
+		val bytes = runCatching { file.readBytes() }.getOrElse {
+			status = "Could not read the file: ${it.message}"
+			return
+		}
+		binary = bytes.take(2048).any { it == 0.toByte() }
+		if (!binary) {
+			editor = bytes.toString(Charsets.UTF_8)
+			original = editor
+		}
+	}
+
+	fun importFile(ws: SessionWorkspace) {
+		val chooser = JFileChooser()
+		if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) return
+		val source = chooser.selectedFile ?: return
+		val relative = workspacePath(directory, source.name)
+		val target = when (val resolution = ws.resolve(relative)) {
+			is SessionWorkspace.Resolution.Ok -> resolution.file
+			is SessionWorkspace.Resolution.Rejected -> {
+				status = resolution.reason
+				return
+			}
+		}
+		val exists = target.isFile
+		val refusal = ws.quotaRefusal(
+			stagingBytes = 0,
+			stagingFiles = 0,
+			replacedBytes = if (exists) target.length() else 0,
+			addsFiles = if (exists) 0 else 1,
+			newBytes = source.length(),
+		)
+		if (refusal != null) {
+			status = refusal
+			return
+		}
+		runCatching {
+			target.parentFile?.mkdirs()
+			source.copyTo(target, overwrite = true)
+		}.onSuccess {
+			status = "Imported ${source.name}."
+			refresh(ws)
+		}.onFailure {
+			status = "Import failed: ${it.message}"
+		}
+	}
+
+	fun exportFile(file: File, suggestedName: String) {
+		val chooser = JFileChooser().apply { selectedFile = File(suggestedName) }
+		if (chooser.showSaveDialog(null) != JFileChooser.APPROVE_OPTION) return
+		val target = chooser.selectedFile ?: return
+		runCatching { file.copyTo(target, overwrite = true) }
+			.onSuccess { status = "Exported to ${target.absolutePath}." }
+			.onFailure { status = "Export failed: ${it.message}" }
+	}
+
+	LaunchedEffect(conversationId) {
+		loading = true
+		val ws = conversationId?.let { store.workspaceFor(it) }
+		workspace = ws
+		if (ws == null) {
+			status = "Open a conversation before browsing its files."
+		} else {
+			refresh(ws)
+		}
+		loading = false
+	}
+
+	DialogWindow(
+		onCloseRequest = onClose,
+		title = "inhuman · files",
+		state = rememberDialogState(width = 980.dp, height = 660.dp),
+	) {
+		MaterialTheme(colorScheme = DesktopColors) {
+			Column(
+				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(20.dp),
+			) {
+				Row(verticalAlignment = Alignment.CenterVertically) {
+					Text(
+						text = "FILES",
+						fontFamily = FontFamily.Monospace,
+						fontSize = 11.sp,
+						letterSpacing = 1.5.sp,
+						color = Signal,
+					)
+					Spacer(Modifier.weight(1f))
+					Text(
+						text = "Done",
+						color = Paper,
+						fontSize = 13.sp,
+						modifier = Modifier.clickable { onClose() },
+					)
+				}
+				Spacer(Modifier.height(6.dp))
+				Text(
+					text = "PATH · /${directory}",
+					fontFamily = FontFamily.Monospace,
+					fontSize = 10.sp,
+					color = Muted,
+				)
+				Spacer(Modifier.height(10.dp))
+				Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+					Column(modifier = Modifier.width(360.dp).fillMaxHeight()) {
+						Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+							FileAction("UP") {
+								val ws = workspace ?: return@FileAction
+								val parent = directory.substringBeforeLast('/', "")
+								directory = parent
+								selected = null
+								refresh(ws)
+							}
+							FileAction("REFRESH") {
+								workspace?.let(::refresh)
+							}
+							FileAction("IMPORT") {
+								workspace?.let(::importFile)
+							}
+							FileAction("EXPORT") {
+								val entry = selected
+								val ws = workspace
+								if (entry != null && !entry.directory && ws != null) {
+									when (val resolution = ws.resolve(entry.path)) {
+										is SessionWorkspace.Resolution.Ok ->
+											exportFile(resolution.file, entry.name)
+										is SessionWorkspace.Resolution.Rejected ->
+											status = resolution.reason
+									}
+								}
+							}
+							FileAction("OPEN") {
+								val entry = selected
+								val ws = workspace
+								if (entry != null && !entry.directory && ws != null) {
+									when (val resolution = ws.resolve(entry.path)) {
+										is SessionWorkspace.Resolution.Ok ->
+											openExternally(resolution.file)
+										is SessionWorkspace.Resolution.Rejected ->
+											status = resolution.reason
+									}
+								}
+							}
+						}
+						Spacer(Modifier.height(8.dp))
+						if (loading) {
+							Text("Loading…", fontSize = 12.sp, color = Muted)
+						} else {
+							LazyColumn(modifier = Modifier.weight(1f)) {
+								items(entries, key = { it.path }) { entry ->
+									val ws = workspace
+									val isSelected = selected?.path == entry.path
+									Row(
+										modifier = Modifier
+											.fillMaxWidth()
+											.background(
+												if (isSelected) Color(0xFF26211D) else Color.Transparent,
+												RoundedCornerShape(5.dp),
+											)
+											.clickable {
+												if (entry.directory) {
+													directory = entry.path
+													selected = null
+													if (ws != null) refresh(ws)
+												} else if (ws != null) {
+													select(ws, entry)
+												}
+											}
+											.padding(horizontal = 8.dp, vertical = 6.dp),
+										verticalAlignment = Alignment.CenterVertically,
+									) {
+										Text(
+											text = if (entry.directory) "▸" else "·",
+											fontFamily = FontFamily.Monospace,
+											fontSize = 11.sp,
+											color = if (entry.directory) Signal else Muted,
+											modifier = Modifier.width(18.dp),
+										)
+										Column(Modifier.weight(1f)) {
+											Text(
+												text = entry.name,
+												fontSize = 12.sp,
+												color = Paper,
+												maxLines = 1,
+												overflow = TextOverflow.Ellipsis,
+											)
+											Text(
+												text = if (entry.directory) "folder" else bytesLabel(entry.size),
+												fontFamily = FontFamily.Monospace,
+												fontSize = 9.sp,
+												color = Muted,
+											)
+										}
+									}
+								}
+							}
+						}
+						status?.let {
+							Text(
+								text = it,
+								fontSize = 10.sp,
+								color = Muted,
+								modifier = Modifier.padding(top = 6.dp),
+							)
+						}
+					}
+
+					Spacer(Modifier.width(18.dp))
+					Box(Modifier.width(1.dp).fillMaxHeight().background(Hairline))
+					Spacer(Modifier.width(18.dp))
+
+					Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+						val entry = selected
+						if (entry == null) {
+							Text(
+								text = "Select a file to read, edit, open or export.",
+								fontSize = 12.sp,
+								color = Muted,
+							)
+						} else {
+							Text(
+								text = entry.name,
+								fontSize = 18.sp,
+								fontWeight = FontWeight.Light,
+								color = Paper,
+							)
+							Text(
+								text = if (entry.directory) {
+									"folder · /${entry.path}"
+								} else {
+									"${bytesLabel(entry.size)} · /${entry.path}"
+								},
+								fontFamily = FontFamily.Monospace,
+								fontSize = 10.sp,
+								color = Muted,
+								modifier = Modifier.padding(top = 2.dp),
+							)
+							Spacer(Modifier.height(10.dp))
+							if (entry.directory) {
+								Text(
+									text = "Open the folder from the list on the left.",
+									fontSize = 12.sp,
+									color = Muted,
+								)
+							} else {
+								OutlinedTextField(
+									value = editor,
+									onValueChange = { editor = it },
+									readOnly = binary,
+									textStyle = TextStyle(
+										fontFamily = FontFamily.Monospace,
+										fontSize = 12.sp,
+										color = Paper,
+									),
+									modifier = Modifier.weight(1f).fillMaxWidth(),
+								)
+								Row(
+									modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+									horizontalArrangement = Arrangement.spacedBy(18.dp),
+									verticalAlignment = Alignment.CenterVertically,
+								) {
+									Button(
+										onClick = {
+											val ws = workspace ?: return@Button
+											val file = (ws.resolve(entry.path) as? SessionWorkspace.Resolution.Ok)?.file
+												?: return@Button
+											val newBytes = editor.toByteArray(Charsets.UTF_8).size.toLong()
+											val refusal = ws.quotaRefusal(
+												stagingBytes = 0,
+												stagingFiles = 0,
+												replacedBytes = file.length(),
+												addsFiles = 0,
+												newBytes = newBytes,
+											)
+											if (refusal != null) {
+												status = refusal
+											} else {
+												runCatching { file.writeText(editor) }
+													.onSuccess {
+														original = editor
+														status = "Saved."
+														workspace?.let(::refresh)
+													}
+													.onFailure { status = "Save failed: ${it.message}" }
+											}
+										},
+										enabled = !binary && editor != original,
+										colors = ButtonDefaults.buttonColors(
+											containerColor = Signal,
+											contentColor = Color(0xFF22140E),
+										),
+										shape = RoundedCornerShape(6.dp),
+									) {
+										Text("Save")
+									}
+									Text(
+										text = "Open",
+										color = Signal,
+										fontSize = 12.sp,
+										modifier = Modifier.clickable {
+											val file = workspace?.resolve(entry.path)
+												?.let { it as? SessionWorkspace.Resolution.Ok }?.file
+											if (file != null) openExternally(file)
+										},
+									)
+									Text(
+										text = "Export",
+										color = Signal,
+										fontSize = 12.sp,
+										modifier = Modifier.clickable {
+											val file = workspace?.resolve(entry.path)
+												?.let { it as? SessionWorkspace.Resolution.Ok }?.file
+											if (file != null) exportFile(file, entry.name)
+										},
+									)
+								}
+								if (binary) {
+									Text(
+										text = "Binary or too-large file: editing is disabled. Open or Export it instead.",
+										fontSize = 11.sp,
+										color = Muted,
+										modifier = Modifier.padding(top = 6.dp),
+									)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun FileAction(label: String, onClick: () -> Unit) {
+	Text(
+		text = label,
+		fontFamily = FontFamily.Monospace,
+		fontSize = 10.sp,
+		color = Signal,
+		modifier = Modifier.clickable(onClick = onClick),
+	)
+}
+
+private fun openExternally(file: File) {
+	runCatching {
+		if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+			Desktop.getDesktop().open(file)
 		}
 	}
 }

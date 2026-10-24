@@ -1,6 +1,7 @@
 package com.inhuman.desktop
 
 import kotlinx.coroutines.runBlocking
+import com.inhuman.core.data.db.ToolsColumn
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -119,6 +120,33 @@ class DesktopStoreTest {
 				"deepseek-reasoner",
 				store.conversation(conversation.id)?.entity?.model,
 			)
+		} finally {
+			store.close()
+		}
+	}
+
+	@Test
+	fun `a conversation created with an assistant copies its settings`() = runBlocking {
+		val store = DesktopStore.open(tmp.newFolder("desktop-assistant"))
+		try {
+			val base = store.defaultAssistant()
+			assertNotNull(base)
+			val chosen = base!!.copy(
+				name = "Chosen assistant",
+				systemPrompt = "Be terse.",
+				model = "deepseek-chat",
+				thinking = true,
+				toolsJson = ToolsColumn.encode(listOf("read_file", "read_time")),
+			)
+			store.saveAssistant(chosen)
+
+			val conversation = store.create("With assistant", chosen)
+			val entity = store.conversation(conversation.id)?.entity
+			assertNotNull(entity)
+			assertEquals(chosen.id, entity!!.agentId)
+			assertEquals("deepseek-chat", entity.model)
+			assertEquals(chosen.toolsJson, entity.toolsJson)
+			assertTrue(entity.thinking)
 		} finally {
 			store.close()
 		}
