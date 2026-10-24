@@ -412,9 +412,16 @@ documents provider) needs a device; its list and current count are in
 
 The desktop app compiles to Java 17 but **runs and packages on Java 21+**: the
 Markdown renderer is Java 21 bytecode. Set `INHUMAN_DESKTOP_JAVA_HOME` to a
-JDK 21+ before `:desktopApp:run`, `createDistributable` or `packageMsi`; tests
-and compilation still use the Gradle JDK 17. A run without it fails at the first
-rendered reply, not at build time.
+**full** JDK 21+ with `jpackage` (Temurin 21 here; Android Studio's JBR has the
+runtime but no `jpackage`) before `:desktopApp:run`, `createDistributable` or
+`packageMsi`; tests and compilation still use the Gradle JDK 17. A run without it
+fails at the first rendered reply, not at build time.
+
+Building the MSI also needs WiX 3 (`candle.exe`/`light.exe`). Point `WIX_PATH` at the
+WiX directory (`C:\android-toolchain\wix314` here); the Compose plugin then uses it
+instead of trying to download WiX from GitHub. The MSI is per-user: it installs to
+`%LOCALAPPDATA%\inhuman` and the app keeps its database/workspaces in the sibling
+`%LOCALAPPDATA%\inhuman-data`, so uninstalling the app does not delete the data.
 
 Release builds sign from `keystore.properties` when present and fall back to the
 debug key otherwise. The keystore and properties are gitignored; losing them

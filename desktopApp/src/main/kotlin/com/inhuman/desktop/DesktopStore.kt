@@ -324,7 +324,14 @@ class DesktopStore private constructor(
 		)
 
 	companion object {
-		/** `%LOCALAPPDATA%\inhuman` on Windows, the XDG data directory elsewhere. */
+		/**
+		 * `%LOCALAPPDATA%\inhuman-data` on Windows, the XDG data directory elsewhere.
+		 *
+		 * Deliberately not `%LOCALAPPDATA%\inhuman`: jpackage's per-user MSI
+		 * installs the application into that directory, and putting the user's
+		 * database and workspaces beside `inhuman.exe` means an uninstall or a
+		 * repair can take the data with it.
+		 */
 		fun defaultDataDir(): File {
 			val os = System.getProperty("os.name").lowercase(Locale.ROOT)
 			val base = if (os.contains("windows")) {
@@ -333,7 +340,7 @@ class DesktopStore private constructor(
 				System.getenv("XDG_DATA_HOME")
 					?: File(System.getProperty("user.home"), ".local/share").absolutePath
 			}
-			return File(base, "inhuman").apply { mkdirs() }
+			return File(base, "inhuman-data").apply { mkdirs() }
 		}
 
 		fun open(dataDir: File = defaultDataDir()): DesktopStore {

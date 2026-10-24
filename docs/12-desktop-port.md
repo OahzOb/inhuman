@@ -45,6 +45,7 @@
 
 - 桌面回合接上了工具循环：按会话的 `toolsJson` 过滤 `FileTools` 和 `read_time`，`ChatEngine` 驱动，assistant `tool_calls` 与每个 tool result 分轮写入同一张 `messages` 表；下一轮从数据库重建 wire history，缺失的结果补 `[interrupted]`。默认策略 `Free`；策略 `Ask` 会弹出审批窗（`Allow once` / `Deny`），拒绝写成 `[declined]` 并结束回合；路径级规则尚未参与判定，SSH/web 工具尚未接入。Demo 的 `write_file`/`delete_file` 已跑通，窗口里显示成工具调用行和结果卡；`DesktopChatTest` 还验证了工具回合之后的下一轮历史可重放，以及 Ask 的允许/拒绝两条路径；
 - 桌面设置窗现在是三个 tab：**Providers**（DPAPI key）、**Model**（provider 的 `/models` 列表，选中后写入当前会话的 `model`，下次发送生效）、**Approvals**（每个非远程工具的 `Free`/`Ask`/`Deny` 全局规则，下一回合生效）。没有 key 时 Model 页提示先保存 key；窗口内已验证 tab 切换、规则写入和状态行，模型写入由 `DesktopStoreTest` 覆盖；
+- Windows x64 安装包已打通：Temurin 21（带 `jpackage`）+ WiX 3.14（`WIX_PATH`）打出 `inhuman-0.2.0.msi`，**per-user** 安装到 `%LOCALAPPDATA%\inhuman`，快捷方式在开始菜单和桌面；数据与安装目录分离到 `%LOCALAPPDATA%\inhuman-data`（第一版把两者放在同一目录，卸载会连数据库一起删掉，已修正）。安装、启动、Markdown 和真实数据库都已在安装版验证。签名尚未接，需要证书；
 - 桌面端仍缺 assistant 编辑、工作区/文件屏、路径级审批规则、SSH consent、snapshot/compaction、通知/文件对话框/图片适配。数据层、conversation rail、Markdown、DPAPI 密钥、真实 provider、文件工具与工具级审批窗已经就绪；
 - Linux Secret Service（libsecret）绑定，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
 - 桌面端的完整安全/通知/文件对话框/图片适配。
@@ -145,7 +146,7 @@ UI 不是“原样搬过去”：现有 tablet 双栏布局是一个很好的起
 
 这不是不可做，而是**触碰面广**：728 个 Compose import 里，只有将来决定共享 UI 时才会碰到 Android 部分。先用桌面聊天 + 设置两屏验证成本，再决定是否把 Android UI 也迁到 commonMain。
 
-**已解决：Markdown 渲染器的字节码。** Android 用的 `multiplatform-markdown-renderer-jvm:0.45.0` 是 class-file major **65（Java 21）**。桌面**编译**仍然是 target 17，但 `run` 和打包改用 **Java 21+** 运行时（本机用 Android Studio 的 JBR 25）：`desktopApp/build.gradle` 的 `javaHome` 读 `INHUMAN_DESKTOP_JAVA_HOME`，MSI 会把这个运行时一起打进去。窗口现在用同一个渲染器，已验证标题、粗体、列表；运行 `:desktopApp:run` 或打安装包时必须设置这个变量，否则会在第一条回复时抛 `UnsupportedClassVersionError`。这也是安装包必须自带 JRE、不能依赖用户机器上已有 Java 的原因。
+**已解决：Markdown 渲染器的字节码。** Android 用的 `multiplatform-markdown-renderer-jvm:0.45.0` 是 class-file major **65（Java 21）**。桌面**编译**仍然是 target 17，但 `run` 和打包改用 **Java 21+** 运行时（本机用 Temurin JDK 21，`C:\android-toolchain\jdk21`；Android Studio 的 JBR 25 不带 `jpackage`，只能运行、不能打包）：`desktopApp/build.gradle` 的 `javaHome` 读 `INHUMAN_DESKTOP_JAVA_HOME`，MSI 会把这个运行时一起打进去。窗口现在用同一个渲染器，已验证标题、粗体、列表；运行 `:desktopApp:run` 或打安装包时必须设置这个变量，否则会在第一条回复时抛 `UnsupportedClassVersionError`。这也是安装包必须自带 JRE、不能依赖用户机器上已有 Java 的原因。
 
 ### 4.2 Room / 数据层
 
@@ -210,7 +211,7 @@ Android 有 app sandbox + scoped storage；Windows 进程以当前用户权限�
 4. Workspaces / Files 两个屏（浏览、导入、导出、编辑、下载 URL）；
 5. Rewind/checkpoints、context gauge、compaction；
 6. 备份/恢复、通知/托盘、文件对话框/拖放/快捷键；
-7. MSI（自带 JRE 21+）、签名、单实例。
+7. MSI（自带 JRE 21+）、签名、单实例。（MSI 已可打并验证 per-user 安装；签名和单实例未做）
 
 下面 Phase 0 的第 4 项（libsecret）和第 6 项（Linux 包）在 Windows-only 目标下暂缓，其余保留；Phase 1/2 的 Linux 部分同样暂缓。
 

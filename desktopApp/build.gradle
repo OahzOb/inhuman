@@ -53,12 +53,12 @@ compose.desktop {
 		mainClass = 'com.inhuman.desktop.MainKt'
 
 		// The JVM the app is **run and packaged** with, not the Kotlin compile
-		// target (still 17): the Markdown renderer ships Java 21 bytecode, and
-		// Android Studio's JBR is the 25 runtime on this machine. A product
-		// build must set INHUMAN_DESKTOP_JAVA_HOME to a JDK 21+ so the MSI
-		// bundles that runtime; falling back to the Gradle JVM keeps
-		// `:desktopApp:test` working without the variable, and a run without it
-		// fails loudly at the first rendered reply rather than silently.
+		// target (still 17): the Markdown renderer ships Java 21 bytecode. This
+		// must be a full JDK 21+ with jpackage -- Android Studio's JBR has the
+		// runtime but not the packaging tool, and its bundled runtime is what
+		// the MSI ships. `INHUMAN_DESKTOP_JAVA_HOME` (Temurin 21 here) is
+		// required for `run`, `createDistributable` and `packageMsi`; falling
+		// back to the Gradle JVM keeps `:desktopApp:test` working without it.
 		javaHome = System.getenv('INHUMAN_DESKTOP_JAVA_HOME')
 			?: System.getProperty('java.home')
 
@@ -73,6 +73,22 @@ compose.desktop {
 			packageVersion = '0.2.0'
 			description = 'inhuman desktop spike'
 			vendor = 'inhuman'
+
+			windows {
+				// The first MSI built as a per-machine package and could not be
+				// installed by the account that owns the app's data: msiexec
+				// returned 1925, "sufficient privileges ... for all users".
+				// The app is a personal tool, so per-user is the honest shape --
+				// no UAC, and the install lands next to the user's data.
+				perUserInstall = true
+				menu = true
+				menuGroup = 'inhuman'
+				shortcut = true
+				dirChooser = true
+				// Stable across releases so an upgrade replaces the old version
+				// instead of installing a second copy.
+				upgradeUuid = 'f3b6f3c8-6f2a-4f4e-9d0b-5b4d7b1f2a63'
+			}
 		}
 	}
 }
