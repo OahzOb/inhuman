@@ -4,9 +4,6 @@ import com.inhuman.core.ai.ChatMessage
 import com.inhuman.core.ai.Role
 import com.inhuman.core.ai.tools.SshArguments
 import com.inhuman.core.common.diag.Diag
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
 
 /**
  * Put a tool result after every assistant `tool_calls` row on the wire.
@@ -58,28 +55,13 @@ internal fun closeDanglingCalls(
 }
 
 /**
- * Remove SSH credentials before the tool-call arguments are stored.
+ * Android's name for the shared SSH redaction.
  *
- * The user may legitimately paste a password or key into the conversation, and
- * it has to reach the model and the remote host. It does **not** have to become
- * a durable row: `toolCallsJson` is only a record of what was asked, and a
- * stored credential is a credential the user cannot revoke by rotating it at
- * the other end. The in-memory call keeps the real arguments for the turn; the
- * persisted form keeps host/port/user/command/identityFile and drops the three
- * secret fields.
- *
- * Returns `{}` if the arguments cannot be parsed rather than falling back to
- * the raw string, because the fallback is exactly where a secret would survive.
+ * The implementation lives on `SshArguments` so the desktop host, which writes
+ * the same `toolCallsJson` column through `ToolCallsColumn`, cannot drift from
+ * it. The in-memory call keeps the real arguments for the turn; the persisted
+ * form keeps host/port/user/command/identityFile and drops the three secret
+ * fields.
  */
-internal fun redactSshArguments(raw: String): String {
-	if (raw.isBlank()) return raw
-	return runCatching {
-		val normalized = SshArguments.normalize(Json.parseToJsonElement(raw).jsonObject)
-		val safe = normalized.toMutableMap()
-		safe.remove("password")
-		safe.remove("privateKey")
-		safe.remove("passphrase")
-		JsonObject(safe).toString()
-	}.getOrElse { "{}" }
-}
+internal fun redactSshArguments(raw: String): String = SshArguments.redact(raw)
 

@@ -42,11 +42,12 @@
 
 仍未完成（下一步，不要误认为 spike 已完成）：
 
-- 桌面端仍缺 assistant 编辑、模型选择、工作区/文件屏、工具调用与审批、SSH consent、snapshot/compaction、通知/文件对话框/图片适配。数据层、conversation rail、Markdown、DPAPI 密钥与真实 provider 已经就绪；
+- 桌面回合接上了工具循环：按会话的 `toolsJson` 过滤 `FileTools` 和 `read_time`，`ChatEngine` 驱动，assistant `tool_calls` 与每个 tool result 分轮写入同一张 `messages` 表；下一轮从数据库重建 wire history，缺失的结果补 `[interrupted]`。默认策略 `Free`，`Ask` 目前安全拒绝（桌面还没有审批窗），SSH/web 工具尚未接入。Demo 的 `write_file`/`delete_file` 已跑通，窗口里显示成工具调用行和结果卡；`DesktopChatTest` 还验证了工具回合之后的下一轮历史可重放；
+- 桌面端仍缺 assistant 编辑、模型选择、工作区/文件屏、审批窗、SSH consent、snapshot/compaction、通知/文件对话框/图片适配。数据层、conversation rail、Markdown、DPAPI 密钥、真实 provider 与文件工具已经就绪；
 - Linux Secret Service（libsecret）绑定，以及 Linux 包（AppImage/deb）在 Linux 上的启动验证；
 - 桌面端的完整安全/通知/文件对话框/图片适配。
 
-当前全量测试为 **485 tests / 68 suites / 0 failures / 3 skipped**。
+当前全量测试为 **489 tests / 70 suites / 0 failures / 3 skipped**。
 
 ### 为什么不是“所有 UI 也共用一套”
 
@@ -79,7 +80,7 @@
 | `:core:common` | 3 | 303 | **0** | 已是普通 JVM，直接复用 |
 | **合计** | **110** | **33,366** | 76 个 | |
 
-测试侧还有 67 个文件、约 8,243 行；当前全量 485 tests / 68 suites。
+测试侧还有 67 个文件、约 8,243 行；当前全量 489 tests / 70 suites。
 
 这个分布说明：**领域层和 UI 层是分开的，Android 绑定集中在 data 和 app 的薄层**。这是移植能成立的前提。
 

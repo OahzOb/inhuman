@@ -95,6 +95,31 @@ object SshArguments {
 		}
 	}
 
+	/**
+	 * Remove SSH credentials before the arguments are stored.
+	 *
+	 * The user may legitimately paste a password or a private key into the
+	 * conversation; it has to reach the model and the host. It does not have to
+	 * become a durable row, because a stored credential is one the user cannot
+	 * revoke by rotating it at the other end. The returned object keeps host,
+	 * port, user, command and `identityFile`, and drops only the three secret
+	 * fields.
+	 *
+	 * Returns `{}` when the input will not parse. Falling back to the raw string
+	 * is exactly where a secret would survive.
+	 */
+	fun redact(raw: String): String {
+		if (raw.isBlank()) return raw
+		return runCatching {
+			val normalized = normalize(Json.parseToJsonElement(raw).jsonObject)
+			val safe = normalized.toMutableMap()
+			safe.remove("password")
+			safe.remove("privateKey")
+			safe.remove("passphrase")
+			JsonObject(safe).toString()
+		}.getOrElse { "{}" }
+	}
+
 	fun parse(
 		toolName: String,
 		arguments: JsonObject,

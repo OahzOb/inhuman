@@ -42,25 +42,21 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.rememberDialogState
-import com.inhuman.core.ai.ChatMessage
 import com.inhuman.core.ai.Role
 import com.inhuman.core.data.db.ProviderProfileEntity
-import com.inhuman.core.engine.ChatEngine
-import com.inhuman.core.engine.EngineEvent
-import com.inhuman.core.engine.EngineTurn
+import com.inhuman.core.data.db.StoredToolCall
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.rememberMarkdownState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -85,7 +81,28 @@ private val DesktopColors = darkColorScheme(
 	error = Color(0xFFFF8A7A),
 )
 
-private data class Line(val role: Role, val text: String, val reasoning: String = "")
+private data class Line(
+	val role: Role,
+	val text: String,
+	val reasoning: String = "",
+	val toolCalls: List<StoredToolCall> = emptyList(),
+	val toolName: String? = null,
+	val isError: Boolean = false,
+)
+
+private fun StoredLine.toLine() = Line(
+	role = when (role) {
+		"user" -> Role.User
+		"tool" -> Role.Tool
+		"system" -> Role.System
+		else -> Role.Assistant
+	},
+	text = text,
+	reasoning = reasoning,
+	toolCalls = toolCalls,
+	toolName = toolName,
+	isError = isError,
+)
 
 fun main() {
 	val store = DesktopStore.open()
@@ -121,9 +138,6 @@ private fun DesktopSpike(store: DesktopStore) {
 	var turnJob by remember { mutableStateOf<Job?>(null) }
 	var reasoning by remember { mutableStateOf("") }
 	var answer by remember { mutableStateOf("") }
-	// The newest row in the persisted conversation; each new message hangs off
-	// it so the stored tree, not just the list on screen, is a transcript.
-	var lastId by remember { mutableStateOf<String?>(null) }
 	var loaded by remember { mutableStateOf(false) }
 
 	LaunchedEffect(Unit) {
@@ -144,18 +158,8 @@ private fun DesktopSpike(store: DesktopStore) {
 		val id = selectedId ?: return@LaunchedEffect
 		loaded = false
 		lines.clear()
-		lastId = null
 		val stored = store.load(id)
-		lines.addAll(
-			stored.map { message ->
-				Line(
-					role = if (message.fromUser) Role.User else Role.Assistant,
-					text = message.text,
-					reasoning = message.reasoning,
-				)
-			},
-		)
-		lastId = stored.lastOrNull()?.id
+		lines.addAll(stored.map { it.toLine() })
 		loaded = true
 	}
 
@@ -182,8 +186,6 @@ private fun DesktopSpike(store: DesktopStore) {
 		answer = ""
 		error = null
 		streaming = true
-		val parentId = lastId
-		val firstMessage = lines.isEmpty()
 		turnJob = scope.launch {
 			try {
 				val resolved = store.resolve(assistant)
@@ -193,54 +195,41 @@ private fun DesktopSpike(store: DesktopStore) {
 				}
 				providerLabel = "${resolved.label} / ${resolved.model}"
 
-				// Persist first: the request history below is built from `lines`,
-				// and a message that is on screen but not in the database would
-				// make the next launch a different conversation.
-				val user = store.appendUser(conversationId, text, parentId)
-				lastId = user.id
-				lines += Line(Role.User, user.text)
-				if (firstMessage) {
-					store.autoTitle(conversationId, text)
-					conversations = store.list()
-				}
-				val turn = EngineTurn(
+				val failure = DesktopChat(store, conversationId, assistant).send(
+					userText = text,
+					provider = resolved.provider,
 					model = resolved.model,
-					messages = lines
-						.filter { it.role == Role.User || it.role == Role.Assistant }
-						.map { ChatMessage(role = it.role, content = it.text) },
-					thinking = assistant?.thinking ?: false,
-					reasoningEffort = assistant?.reasoningEffort,
-					userId = conversationId,
-				)
-				try {
-					ChatEngine(resolved.provider).run(turn).collect { event ->
-						when (event) {
-							is EngineEvent.ReasoningDelta -> reasoning += event.text
-							is EngineEvent.TextDelta -> answer += event.text
-							is EngineEvent.Failed -> {
-								answer += "\n\n[stream failure] ${event.message}"
-							}
-							else -> Unit
+				) { event ->
+					when (event) {
+						is DesktopChat.Event.UserMessage -> {
+							lines += event.line.toLine()
+							scope.launch { conversations = store.list() }
 						}
-					}
-				} finally {
-					// Stop cancels this coroutine; the closing writes still have to
-					// happen, or the part already streamed is lost even though the
-					// provider was paid for it.
-					withContext(NonCancellable) {
-						if (answer.isNotBlank() || reasoning.isNotBlank()) {
-							val reply = store.appendAssistant(
-								conversationId = conversationId,
-								text = answer,
-								reasoning = reasoning,
-								parentId = lastId,
-							)
-							lastId = reply.id
-							lines += Line(Role.Assistant, answer, reasoning)
+
+						is DesktopChat.Event.AssistantStarted -> {
+							reasoning = ""
+							answer = ""
 						}
-						conversations = store.list()
+
+						is DesktopChat.Event.AssistantDelta -> {
+							if (event.reasoning) reasoning += event.text else answer += event.text
+						}
+
+						is DesktopChat.Event.AssistantFinished -> {
+							lines += event.line.toLine()
+							reasoning = ""
+							answer = ""
+							scope.launch { conversations = store.list() }
+						}
+
+						is DesktopChat.Event.ToolResult -> {
+							lines += event.line.toLine()
+						}
+
+						is DesktopChat.Event.Error -> error = event.message
 					}
 				}
+				failure?.let { error = it }
 			} catch (cancelled: CancellationException) {
 				throw cancelled
 			} catch (failure: Exception) {
@@ -512,6 +501,41 @@ private fun TranscriptLine(line: Line, cursor: Boolean = false) {
 					)
 				}
 			}
+		} else if (line.role == Role.Tool) {
+			Column(
+				modifier = Modifier
+					.fillMaxWidth()
+					.background(
+						if (line.isError) Color(0xFF2A1B18) else Color(0xFF1A1815),
+						RoundedCornerShape(6.dp),
+					)
+					.padding(12.dp),
+			) {
+				Row(verticalAlignment = Alignment.CenterVertically) {
+					Text(
+						text = (line.toolName ?: "tool").uppercase(),
+						fontFamily = FontFamily.Monospace,
+						fontSize = 9.sp,
+						letterSpacing = 1.sp,
+						color = if (line.isError) Color(0xFFFF8A7A) else Signal,
+					)
+					Spacer(Modifier.width(8.dp))
+					Text(
+						text = if (line.isError) "FAILED" else "RESULT",
+						fontFamily = FontFamily.Monospace,
+						fontSize = 9.sp,
+						color = Muted,
+					)
+				}
+				Text(
+					text = line.text.trim().ifBlank { "(empty)" },
+					fontFamily = FontFamily.Monospace,
+					fontSize = 12.sp,
+					lineHeight = 18.sp,
+					color = Paper,
+					modifier = Modifier.padding(top = 6.dp),
+				)
+			}
 		} else {
 			Text(
 				text = "ASSISTANT",
@@ -571,6 +595,37 @@ private fun TranscriptLine(line: Line, cursor: Boolean = false) {
 						quote = TextStyle(fontSize = 15.sp, lineHeight = 24.sp, color = Muted),
 					),
 					modifier = Modifier.padding(top = 6.dp),
+				)
+			}
+			if (line.toolCalls.isNotEmpty()) {
+				ToolCallList(line.toolCalls)
+			}
+		}
+	}
+}
+
+@Composable
+private fun ToolCallList(calls: List<StoredToolCall>) {
+	Column(
+		modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+		verticalArrangement = Arrangement.spacedBy(4.dp),
+	) {
+		calls.forEach { call ->
+			Row(verticalAlignment = Alignment.CenterVertically) {
+				Text(
+					text = "→ ${call.name ?: "tool"}",
+					fontFamily = FontFamily.Monospace,
+					fontSize = 10.sp,
+					color = Signal,
+				)
+				Spacer(Modifier.width(8.dp))
+				Text(
+					text = call.argumentsJson.replace('\n', ' ').take(160),
+					fontFamily = FontFamily.Monospace,
+					fontSize = 10.sp,
+					color = Muted,
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis,
 				)
 			}
 		}

@@ -3,15 +3,22 @@ package com.inhuman.desktop
 import androidx.room.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.inhuman.core.ai.ChatProvider
+import com.inhuman.core.ai.policy.PolicySet
 import com.inhuman.core.ai.provider.demo.DemoProvider
 import com.inhuman.core.data.AgentRepository
+import com.inhuman.core.data.Conversation
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.DataPaths
+import com.inhuman.core.data.PolicyRepository
 import com.inhuman.core.data.db.AgentEntity
+import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.InhumanDatabase
 import com.inhuman.core.data.db.MessageEntity
 import com.inhuman.core.data.db.ProviderIds
 import com.inhuman.core.data.db.ProviderProfileEntity
+import com.inhuman.core.data.db.StoredToolCall
+import com.inhuman.core.data.db.ToolCallsColumn
+import com.inhuman.core.files.SessionWorkspace
 import com.inhuman.desktop.secret.DpapiSecretStore
 import java.io.File
 import java.util.Locale
@@ -20,10 +27,16 @@ import java.util.UUID
 /** One row the window can draw. */
 data class StoredLine(
 	val id: String,
-	val fromUser: Boolean,
+	/** `user`, `assistant` or `tool`; the same names the schema stores. */
+	val role: String,
 	val text: String,
 	val reasoning: String,
-)
+	val toolCalls: List<StoredToolCall> = emptyList(),
+	val toolName: String? = null,
+	val isError: Boolean = false,
+) {
+	val fromUser: Boolean get() = role == "user"
+}
 
 /** A conversation as the rail shows it. */
 data class ConversationSummary(
@@ -123,16 +136,31 @@ class DesktopStore private constructor(
 	}
 
 	suspend fun load(conversationId: String): List<StoredLine> =
+		messages(conversationId).map { message ->
+			StoredLine(
+				id = message.id,
+				role = message.role,
+				text = message.content,
+				reasoning = message.reasoning.orEmpty(),
+				toolCalls = ToolCallsColumn.decode(message.toolCallsJson),
+				toolName = message.toolName,
+				isError = message.error != null,
+			)
+		}
+
+	suspend fun conversation(id: String): Conversation? = conversations.conversation(id)
+
+	suspend fun messages(conversationId: String): List<MessageEntity> =
 		conversations.conversation(conversationId)?.messages.orEmpty()
-			.filter { it.role == "user" || it.role == "assistant" }
-			.map { message ->
-				StoredLine(
-					id = message.id,
-					fromUser = message.role == "user",
-					text = message.content,
-					reasoning = message.reasoning.orEmpty(),
-				)
-			}
+
+	suspend fun lastMessageId(conversationId: String): String? =
+		messages(conversationId).lastOrNull()?.id
+
+	fun workspace(conversation: ConversationEntity): SessionWorkspace =
+		conversations.workspace(conversation)
+
+	suspend fun policies(conversationId: String, agentId: String?): PolicySet =
+		PolicyRepository(db).forConversation(conversationId, agentId)
 
 	suspend fun appendUser(conversationId: String, text: String, parentId: String?): StoredLine {
 		val message = MessageEntity(
@@ -144,7 +172,7 @@ class DesktopStore private constructor(
 			createdAt = System.currentTimeMillis(),
 		)
 		conversations.appendMessage(message, parentId)
-		return StoredLine(message.id, fromUser = true, text = text, reasoning = "")
+		return StoredLine(message.id, role = "user", text = text, reasoning = "")
 	}
 
 	suspend fun appendAssistant(
@@ -152,6 +180,13 @@ class DesktopStore private constructor(
 		text: String,
 		reasoning: String,
 		parentId: String?,
+		toolCalls: List<StoredToolCall> = emptyList(),
+		error: String? = null,
+		finishReason: String? = null,
+		promptTokens: Int? = null,
+		completionTokens: Int? = null,
+		cachedPromptTokens: Int? = null,
+		reasoningTokens: Int? = null,
 	): StoredLine {
 		val message = MessageEntity(
 			id = UUID.randomUUID().toString(),
@@ -160,10 +195,54 @@ class DesktopStore private constructor(
 			role = "assistant",
 			content = text,
 			reasoning = reasoning.takeIf { it.isNotBlank() },
+			error = error,
+			finishReason = finishReason,
+			promptTokens = promptTokens,
+			completionTokens = completionTokens,
+			cachedPromptTokens = cachedPromptTokens,
+			reasoningTokens = reasoningTokens,
 			createdAt = System.currentTimeMillis(),
+			toolCallsJson = toolCalls.takeIf { it.isNotEmpty() }?.let(ToolCallsColumn::encode),
 		)
 		conversations.appendMessage(message, parentId)
-		return StoredLine(message.id, fromUser = false, text = text, reasoning = reasoning)
+		return StoredLine(
+			id = message.id,
+			role = "assistant",
+			text = text,
+			reasoning = reasoning,
+			toolCalls = toolCalls,
+			isError = error != null,
+		)
+	}
+
+	suspend fun appendTool(
+		conversationId: String,
+		toolCallId: String?,
+		toolName: String?,
+		content: String,
+		isError: Boolean,
+		parentId: String?,
+	): StoredLine {
+		val message = MessageEntity(
+			id = UUID.randomUUID().toString(),
+			conversationId = conversationId,
+			parentId = parentId,
+			role = "tool",
+			content = content,
+			error = content.takeIf { isError },
+			createdAt = System.currentTimeMillis(),
+			toolCallId = toolCallId,
+			toolName = toolName,
+		)
+		conversations.appendMessage(message, parentId)
+		return StoredLine(
+			id = message.id,
+			role = "tool",
+			text = content,
+			reasoning = "",
+			toolName = toolName,
+			isError = isError,
+		)
 	}
 
 	/** Name the conversation from its first user message, as Android does. */
