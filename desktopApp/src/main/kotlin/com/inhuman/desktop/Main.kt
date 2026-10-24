@@ -1,6 +1,7 @@
 package com.inhuman.desktop
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -98,6 +99,8 @@ private fun DesktopSpike(store: DesktopStore) {
 	val provider = remember { DemoProvider(chunkDelayMillis = 8) }
 	val scope = rememberCoroutineScope()
 	val listState = rememberLazyListState()
+	var conversations by remember { mutableStateOf<List<ConversationSummary>>(emptyList()) }
+	var selectedId by remember { mutableStateOf<String?>(null) }
 	var input by remember { mutableStateOf("") }
 	var streaming by remember { mutableStateOf(false) }
 	var reasoning by remember { mutableStateOf("") }
@@ -108,9 +111,26 @@ private fun DesktopSpike(store: DesktopStore) {
 	var loaded by remember { mutableStateOf(false) }
 
 	LaunchedEffect(Unit) {
-		val stored = store.load()
+		var all = store.list()
+		if (all.isEmpty()) {
+			store.create()
+			all = store.list()
+		}
+		conversations = all
+		selectedId = all.firstOrNull()?.id
+	}
+
+	// Switching is a load, not a filter: the transcript is cleared before the
+	// read so a slow query cannot leave the previous conversation's text under
+	// the new title.
+	LaunchedEffect(selectedId) {
+		val id = selectedId ?: return@LaunchedEffect
+		loaded = false
+		lines.clear()
+		lastId = null
+		val stored = store.load(id)
 		lines.addAll(
-			stored.messages.map { message ->
+			stored.map { message ->
 				Line(
 					role = if (message.fromUser) Role.User else Role.Assistant,
 					text = message.text,
@@ -118,11 +138,26 @@ private fun DesktopSpike(store: DesktopStore) {
 				)
 			},
 		)
-		lastId = stored.messages.lastOrNull()?.id
+		lastId = stored.lastOrNull()?.id
 		loaded = true
 	}
 
+	fun select(id: String) {
+		if (streaming || id == selectedId) return
+		selectedId = id
+	}
+
+	fun newConversation() {
+		if (streaming) return
+		scope.launch {
+			val created = store.create()
+			conversations = store.list()
+			selectedId = created.id
+		}
+	}
+
 	fun send() {
+		val conversationId = selectedId ?: return
 		val text = input.trim()
 		if (text.isEmpty() || streaming || !loaded) return
 		input = ""
@@ -130,14 +165,19 @@ private fun DesktopSpike(store: DesktopStore) {
 		answer = ""
 		streaming = true
 		val parentId = lastId
+		val firstMessage = lines.isEmpty()
 		scope.launch {
 			try {
 				// Persist first: the request history below is built from `lines`,
 				// and a message that is on screen but not in the database would
 				// make the next launch a different conversation.
-				val user = store.appendUser(text, parentId)
+				val user = store.appendUser(conversationId, text, parentId)
 				lastId = user.id
 				lines += Line(Role.User, user.text)
+				if (firstMessage) {
+					store.autoTitle(conversationId, text)
+					conversations = store.list()
+				}
 				val turn = EngineTurn(
 					model = "demo-model",
 					messages = lines
@@ -158,10 +198,16 @@ private fun DesktopSpike(store: DesktopStore) {
 					}
 				} finally {
 					if (answer.isNotBlank() || reasoning.isNotBlank()) {
-						val reply = store.appendAssistant(answer, reasoning, lastId)
+						val reply = store.appendAssistant(
+							conversationId = conversationId,
+							text = answer,
+							reasoning = reasoning,
+							parentId = lastId,
+						)
 						lastId = reply.id
 						lines += Line(Role.Assistant, answer, reasoning)
 					}
+					conversations = store.list()
 				}
 			} finally {
 				// Also covers a failed insert: without this the composer would
@@ -177,10 +223,19 @@ private fun DesktopSpike(store: DesktopStore) {
 		if (lines.isNotEmpty()) listState.animateScrollToItem(lines.lastIndex)
 	}
 
+	val selectedTitle = conversations.firstOrNull { it.id == selectedId }?.title
+		?: "New conversation"
+
 	Row(modifier = Modifier.fillMaxSize().background(Graphite)) {
-		Sidebar()
+		Sidebar(
+			conversations = conversations,
+			selectedId = selectedId,
+			busy = streaming,
+			onSelect = ::select,
+			onNew = ::newConversation,
+		)
 		Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-			TopBar()
+			TopBar(selectedTitle)
 			Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
 				if (lines.isEmpty()) {
 					EmptyState()
@@ -206,6 +261,7 @@ private fun DesktopSpike(store: DesktopStore) {
 				input = input,
 				onInput = { input = it },
 				streaming = streaming,
+				ready = loaded && selectedId != null,
 				onSend = ::send,
 			)
 		}
@@ -213,7 +269,13 @@ private fun DesktopSpike(store: DesktopStore) {
 }
 
 @Composable
-private fun Sidebar() {
+private fun Sidebar(
+	conversations: List<ConversationSummary>,
+	selectedId: String?,
+	busy: Boolean,
+	onSelect: (String) -> Unit,
+	onNew: () -> Unit,
+) {
 	Column(
 		modifier = Modifier
 			.width(286.dp)
@@ -235,35 +297,65 @@ private fun Sidebar() {
 			modifier = Modifier.padding(top = 2.dp),
 		)
 		Spacer(Modifier.height(28.dp))
-		Text(
-			text = "DESKTOP SPIKE",
-			fontFamily = FontFamily.Monospace,
-			fontSize = 11.sp,
-			letterSpacing = 1.5.sp,
-			color = Signal,
-		)
+		Row(verticalAlignment = Alignment.CenterVertically) {
+			Text(
+				text = "CONVERSATIONS",
+				fontFamily = FontFamily.Monospace,
+				fontSize = 11.sp,
+				letterSpacing = 1.5.sp,
+				color = Signal,
+			)
+			Spacer(Modifier.weight(1f))
+			Text(
+				text = "+ NEW",
+				fontFamily = FontFamily.Monospace,
+				fontSize = 10.sp,
+				letterSpacing = 1.sp,
+				color = if (busy) Muted else Signal,
+				modifier = Modifier.clickable(enabled = !busy) { onNew() },
+			)
+		}
 		Spacer(Modifier.height(12.dp))
-		Surface(
-			color = Color(0xFF211D19),
-			shape = RoundedCornerShape(8.dp),
-			modifier = Modifier.fillMaxWidth(),
-		) {
-			Column(Modifier.padding(12.dp)) {
-				Text("新对话", color = Paper, fontWeight = FontWeight.Medium)
-				Text("Demo provider · no key", color = Muted, fontSize = 12.sp)
+		LazyColumn(modifier = Modifier.weight(1f)) {
+			items(conversations, key = { it.id }) { conversation ->
+				val selected = conversation.id == selectedId
+				Column(
+					modifier = Modifier
+						.fillMaxWidth()
+						.background(
+							if (selected) Color(0xFF26211D) else Color.Transparent,
+							RoundedCornerShape(6.dp),
+						)
+						.clickable(enabled = !busy) { onSelect(conversation.id) }
+						.padding(horizontal = 10.dp, vertical = 9.dp),
+				) {
+					Text(
+						text = conversation.title,
+						fontSize = 13.sp,
+						color = if (selected) Paper else Paper.copy(alpha = 0.82f),
+						maxLines = 1,
+					)
+					Text(
+						text = ageLabel(conversation.updatedAt),
+						fontFamily = FontFamily.Monospace,
+						fontSize = 10.sp,
+						color = Muted,
+						modifier = Modifier.padding(top = 2.dp),
+					)
+				}
 			}
 		}
-		Spacer(Modifier.weight(1f))
+		Spacer(Modifier.height(8.dp))
 		Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
 		Spacer(Modifier.height(14.dp))
 		Text(
-			text = "SHARED CORE",
+			text = "DATABASE",
 			fontFamily = FontFamily.Monospace,
 			fontSize = 10.sp,
 			color = Muted,
 		)
 		Text(
-			text = "core:ai · core:files · core:common",
+			text = "inhuman.db · core:db",
 			fontFamily = FontFamily.Monospace,
 			fontSize = 10.sp,
 			color = Muted,
@@ -273,16 +365,16 @@ private fun Sidebar() {
 }
 
 @Composable
-private fun TopBar() {
+private fun TopBar(title: String) {
 	Column {
 		Row(
 			modifier = Modifier.fillMaxWidth().padding(horizontal = 36.dp, vertical = 18.dp),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
 			Column(Modifier.weight(1f)) {
-				Text("新对话", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = Paper)
+				Text(title, fontSize = 18.sp, fontWeight = FontWeight.Medium, color = Paper, maxLines = 1)
 				Text(
-					"Demo / demo-model · 桌面端 spike",
+					"Demo / demo-model · 桌面端",
 					fontSize = 12.sp,
 					color = Muted,
 					modifier = Modifier.padding(top = 2.dp),
@@ -296,6 +388,16 @@ private fun TopBar() {
 			)
 		}
 		Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
+	}
+}
+
+private fun ageLabel(at: Long): String {
+	val minutes = ((System.currentTimeMillis() - at) / 60_000).coerceAtLeast(0)
+	return when {
+		minutes < 1 -> "just now"
+		minutes < 60 -> "${minutes}m ago"
+		minutes < 1_440 -> "${minutes / 60}h ago"
+		else -> "${minutes / 1_440}d ago"
 	}
 }
 
@@ -378,6 +480,7 @@ private fun Composer(
 	input: String,
 	onInput: (String) -> Unit,
 	streaming: Boolean,
+	ready: Boolean,
 	onSend: () -> Unit,
 ) {
 	Column(
@@ -410,7 +513,7 @@ private fun Composer(
 			Spacer(Modifier.weight(1f))
 			Button(
 				onClick = onSend,
-				enabled = input.isNotBlank() && !streaming,
+				enabled = input.isNotBlank() && !streaming && ready,
 				colors = ButtonDefaults.buttonColors(
 					containerColor = Signal,
 					contentColor = Color(0xFF22140E),

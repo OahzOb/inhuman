@@ -39,7 +39,7 @@ core/db                  Room schema + platform-free repositories       (plain J
 core/engine              the turn loop, shared with the desktop host (plain JVM)
 core/ai                  provider + streaming + tools                (plain JVM)
 core/files               the workspace sandbox and the 8 file tools  (plain JVM)
-desktopApp               the Compose Desktop chat, persisted through core:db
+desktopApp               Compose Desktop chat and conversation rail, persisted through core:db
 _research/               background investigations, kept as evidence — not compiled
 tools/                   PowerShell device-driving and verification scripts
 docs/                    this set
