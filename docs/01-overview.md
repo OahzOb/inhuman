@@ -2,9 +2,9 @@
 
 ## What the app is
 
-An Android LLM chat client where **every conversation owns a folder**, and the
-assistant can read and write files inside that folder — and nowhere else
-(`README.md:3`).
+An Android app and a Windows x64 desktop host where **every conversation owns a
+folder**, and the assistant can read and write files inside that folder — and
+nowhere else (`README.md:3`).
 
 The sandbox is the product. It is enforced by the interface rather than
 requested in a prompt: a tool never receives the workspace root and never builds
@@ -13,7 +13,8 @@ a path itself, so it has no vocabulary for a location outside the conversation
 `README.md:207-234`). Prompt-level confinement is not the mechanism here and
 should never be presented as one.
 
-One capability can leave the device: the SSH tools (`ssh_exec`, `ssh_upload`,
+One capability can leave the device: the seven SSH tools (`ssh_probe`,
+`ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`,
 `ssh_download`), which are **off by default** and require both the global
 Settings switch and a per-conversation acknowledgement. The app still has no host
 configuration and no credential store; the agent can only reach a machine whose
@@ -21,7 +22,8 @@ address and credentials the user supplies. With SSH off — the default — the
 paragraph above is true as written. See
 [03-ai-provider.md](03-ai-provider.md) and [08-port-philosophy.md](08-port-philosophy.md) §1.2.1.
 
-Single user, single device. DeepSeek is the seeded provider; additional
+Single user; the Android app and the Windows host read the same data model on
+their respective machines. DeepSeek is the seeded provider; additional
 OpenAI-compatible profiles can be configured per assistant. Open source under
 Apache-2.0 (`LICENSE`): the fence around a conversation is a security claim, and
 an unauditable one would be worth very little (`README.md:359-363`).
@@ -39,7 +41,7 @@ core/db                  Room schema + platform-free repositories       (plain J
 core/engine              the turn loop, shared with the desktop host (plain JVM)
 core/ai                  provider + streaming + tools                (plain JVM)
 core/files               the workspace sandbox and the 8 file tools  (plain JVM)
-desktopApp               Compose Desktop chat and conversation rail, persisted through core:db
+desktopApp               Windows x64 Compose Desktop host (same core + Room schema)
 _research/               background investigations, kept as evidence — not compiled
 tools/                   PowerShell device-driving and verification scripts
 docs/                    this set
@@ -51,6 +53,15 @@ streaming library, which is what keeps provider code testable on the JVM
 without a device. Dependencies run one way only — `app` depends on six of the
 seven `core` modules (`core:db` arrives through `core:data`'s API), and no
 `core` module depends on `app` or on another `core` module's UI.
+
+## Two hosts
+
+The Android app is the original product. The Windows x64 desktop host
+(`:desktopApp`) is functionally complete for the scope of this repository and
+shares the JVM core: the same Room schema, workspace sandbox, tool catalogue,
+turn loop, SSH transport, provider adapter and backup format. Its architecture,
+feature map, security invariants and build/sign commands are in
+[12-desktop.md](12-desktop.md). Linux is out of scope.
 
 ## What works today
 
@@ -131,9 +142,11 @@ incremental and is visible in `git log`.
 From `README.md:335-357`; these are decisions, not gaps. Do not "fix" them
 without a conversation:
 
-- **No Linux/PRoot environment.** Per-conversation files need no shell. PRoot
+- **No Linux/PRoot environment on Android.** Per-conversation files need no shell. PRoot
   also runs at the app's own UID, so "sandboxed" Linux code could read the
   conversation database and the stored API key.
+- **No Linux desktop build.** Windows x64 is the desktop target; Linux packaging
+  is not built or verified (see [12-desktop.md](12-desktop.md)).
 - **No LaTeX.** The obstacle is not the renderer's licence, which this file used
   to name: JLaTeXMath carries a linking exception that permits use here, and the
   app is Apache-2.0. The cost is the fonts it bundles — some GPLv2, some OFL,

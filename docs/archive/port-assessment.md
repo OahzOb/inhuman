@@ -1,5 +1,9 @@
 # 移植 DeepSeek Harness 到 Android：评估（第一部分：实测）
 
+> **Historical document.** Written before the desktop host existed. It is kept
+> for its measurements and rejected options, not as a description of the
+> current code. Current implementation: [../12-desktop.md](../12-desktop.md).
+
 状态：**进行中**。本文只写已经**在真实数据上量过**的部分。技术栈映射、Node 专有 API 的
 可移植性、以及代码执行沙箱的现状，由另两项调研补入第二部分——那些地方我还没有证据，不写。
 

@@ -24,7 +24,7 @@ Read the arrows as "must be able to compile against". `core:data`, `core:ai` and
 `core:files` each also depend on `core:common` directly, with `implementation`;
 the diagram leaves that leaf edge out rather than drawing three lines to the same
 node. `:core:common`, `:core:ai`, `:core:files`, `:core:db` and `:core:engine` are
-**plain Kotlin/JVM modules** now, not Android libraries: the desktop spike depends
+**plain Kotlin/JVM modules** now, not Android libraries: the desktop host depends
 on the same jars the Android app consumes. `:core:data` and `:core:design` remain
 Android-only. `:core:db` owns the Room entities, DAOs, database, migrations and
 the platform-free repositories; `:core:data` is the Android adapter around it
@@ -40,8 +40,9 @@ snapshots, compaction or consent; the host injects those through the hook. The
 desktop window and every Android provider turn use it, SSH included.
 `ChatViewModel.gateEngineCall` is where the Android host applies the SSH
 capability grant, the approval rules, the start checkpoint and argument
-normalisation; a missing provider or model is refused before the engine starts.
-There is no second turn loop.
+normalisation; `DesktopChat` does the equivalent for the desktop host. A missing
+provider or model is refused before the engine starts. There is no second turn
+loop.
 Three things about this graph are deliberate and are commented where they
 are declared:
 

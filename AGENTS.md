@@ -4,11 +4,11 @@ Notes for whoever picks this up next, human or agent. The README explains what
 the app is; this file explains how to change it without breaking what it
 already gets right.
 
-**Before reading the source, read `docs/`.** The twelve numbered files below —
-plus two port documents and an index, fifteen in all — describe what the code
-actually does, or for `08` and `port-design` what it is intended to become, with a
-`file:line` for every claim, so a session can start work without re-deriving the
-architecture from scratch:
+**Before reading the source, read `docs/`.** The twelve numbered files plus the
+index describe what the code actually does today, with a `file:line` for every
+claim, so a session can start work without re-deriving the architecture from
+scratch. `08-port-philosophy.md` records intent rather than implementation; the
+old feasibility studies are archived under `docs/archive/`.
 
 | File | Answers |
 | --- | --- |
@@ -19,12 +19,12 @@ architecture from scratch:
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
-| `docs/08-port-philosophy.md` | **Why** the runtime is being ported, which options the project refuses to have, how the seven design questions were answered, the paid-disclosure rule (§1.4), and the SSH exception (§1.2.1/§1.5) |
+| `docs/08-port-philosophy.md` | **Why** the runtime is ported, which options the project refuses to have, the seven design questions, the paid-disclosure rule (§1.4), and the SSH exception (§1.2.1/§1.5) |
 | `docs/09-approvals.md` | The approval model: why the default is no prompts at all, how per-tool, per-assistant and per-path rules compose, and what of it is built |
 | `docs/10-diagnostics.md` | The flight recorder: what is logged, what is deliberately not, where the file lives and how to share it |
 | `docs/11-conversation-tools.md` | The conversation-level tool sheet: who may change it, the assistant ceiling, when it applies, and why it is not a new SSH exception |
-| `docs/12-desktop-port.md` | The measured Windows/Linux desktop port assessment: what can be reused, what must be rebuilt, the shared-JVM/CMP/Room/DPAPI risks, and the 2-week spike |
-| `docs/port-assessment.md`, `docs/port-design.md` | The measured feasibility and the plan |
+| `docs/12-desktop.md` | **Windows x64 host**: architecture, feature map, security invariants, build/package/sign commands, verification and known limitations |
+| `docs/archive/` | Historical feasibility/design studies; not current documentation |
 
 `docs/07-gotchas.md` is the one to read before changing anything in a hurry.
 `docs/08-port-philosophy.md` is the one to read before proposing a new setting,
@@ -278,7 +278,7 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   No symlinks, ever, plus a real-path prefix check. On Windows that check must
   use `Path.toRealPath()` for existing components: `File.canonicalFile` does
   **not** resolve a junction, and `Files.isSymbolicLink` does not report one.
-  A junction escape was found by the desktop spike and is pinned by
+  A junction escape was found by the desktop host and is pinned by
   `SessionWorkspaceTest`.
 - **A failure chunk must be `trySend`-ed *before* `close()`.** A chunk sent
   after the channel closes is dropped and the collector sees a clean end, so
@@ -384,7 +384,9 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
 warning output is empty as well as the error output — this tree currently
 compiles clean, and that is worth keeping. `:core:common`, `:core:ai`,
 `:core:files`, `:core:db` and `:core:engine` are plain JVM modules now;
-`:desktopApp` is the Compose Desktop chat and consumes the same jars.
+`:desktopApp` is the full Compose Desktop Windows host and consumes the same
+jars; its build, packaging and verification details are in
+`docs/12-desktop.md`.
 `:core:db` owns the Room schema *and* the platform-free repositories
 (`ConversationRepository`, `AgentRepository`, `PolicyRepository`,
 `SnapshotStore`); `:core:data` is the Android adapter (Keystore `SecureStore`,
@@ -397,7 +399,7 @@ argument normalisation are injected through the engine's approval hook from
 `ChatViewModel.gateEngineCall`; a missing provider or model is refused before
 the engine starts. There is no second turn loop.
 
-Two tests are skipped by default, plus one opt-in live engine check.
+Three tests are skipped by default, all requiring external credentials:
 `DeepSeekWebLiveTest` talks to the real Search and Fetch APIs and needs a key (and
 spends money). `EngineLiveTest` makes one small real chat completion when
 `DEEPSEEK_LIVE_KEY` is set; it is skipped otherwise. `SshLiveProbeTest` lists
@@ -407,7 +409,7 @@ set; it never uploads, writes or runs an arbitrary remote command.
 `RealProviderProbeTest` runs only when the device already has a DeepSeek key; it
 makes one `/models` call and is a no-op otherwise. The `:core:data`
 instrumentation suite (migrations, workspace lifetime, provider profiles, the
-documents provider) needs a device; its list and current count are in
+documents provider) needs a device; its list is in
 `docs/README.md`.
 
 The desktop app compiles to Java 17 but **runs and packages on Java 21+**: the

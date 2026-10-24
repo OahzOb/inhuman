@@ -17,8 +17,8 @@ kotlin {
 }
 
 ksp {
-	// Disposable schema output for the spike-only minimal database. The real
-	// v13 export lives in :core:db/schemas.
+	// Room processor output only. The real v13 schema is exported by :core:db;
+	// this directory is not a second source of truth.
 	arg('room.schemaLocation', "$buildDir/room-schemas")
 }
 
@@ -63,12 +63,10 @@ compose.desktop {
 			?: System.getProperty('java.home')
 
 		nativeDistributions {
-			targetFormats(
-				TargetFormat.Msi,
-				TargetFormat.Deb,
-				TargetFormat.Rpm,
-				TargetFormat.AppImage,
-			)
+			// Windows x64 is the shipping desktop target. Linux packaging is out
+			// of scope; keeping the targets out of the build prevents a green
+			// task from looking like a verified Linux release.
+			targetFormats(TargetFormat.Msi)
 			packageName = 'inhuman'
 			packageVersion = '0.2.0'
 			description = 'inhuman desktop'

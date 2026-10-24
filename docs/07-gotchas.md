@@ -877,7 +877,7 @@ missing control was a composition decision no pure classifier could catch.
 prefixes. A Windows directory junction is neither: `Files.isSymbolicLink()` says
 false, and `File.canonicalFile` does not resolve a reparse point, so a junction
 inside the workspace pointing at `C:\...\outside` resolved as an ordinary
-directory. The desktop spike's `mklink /J` test failed with `Ok` for
+directory. The desktop host's `mklink /J` test failed with `Ok` for
 `junction/secret.txt`.
 
 The walk now calls `toRealPath()` on every existing component and compares it
@@ -964,8 +964,9 @@ staying as history.
 6. **Build scripts are Groovy, not Kotlin DSL.**
 7. **Symlink tests are vacuous where symlinks cannot be created**
    (`SessionWorkspaceTest.kt:151-154`, `:165-167`), and the Windows drive-letter
-   test is Windows-only green. The confinement guarantee effectively rests on
-   Linux CI.
+   test is Windows-only green. There is no CI in this repository: run the
+   Linux-only symlink tests and the Windows junction test locally, because each
+   environment skips the other's case.
 8. **Parse UI attributes, not quote characters.** uiautomator switches to single
    quotes when a value contains a double quote, which the delete dialog's title
    does. "The title did not change" was reported three times on the strength of a

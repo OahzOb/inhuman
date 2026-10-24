@@ -389,5 +389,5 @@ DSH 有 subagent、workflow（几十个子代理扇出）、并行工具调用�
 
 ## 4. 这份文档怎么用
 
-Q1–Q3 定了之后，[port-design.md](port-design.md) 的分层与阶段要跟着改——
+Q1–Q3 定了之后，[archive/port-design.md](archive/port-design.md) 的分层与阶段要跟着改——
 现在的 P0–P5 是在"没有理念约束"的前提下写的。**先答 Q1–Q3，再动代码。**

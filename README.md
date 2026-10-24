@@ -1,8 +1,12 @@
 # inhuman
 
-An Android LLM chat client where **every conversation works inside a workspace**,
-and the assistant can read and write files inside that workspace — and nowhere
-else, except for the opt-in SSH tools described below.
+An Android app and a Windows x64 desktop client where **every conversation works
+inside a workspace**, and the assistant can read and write files inside that
+workspace — and nowhere else, except for the opt-in SSH tools described below.
+
+Both hosts share the same JVM core, Room database schema, workspace layout, tool
+catalogue, turn loop, SSH transport and backup format. The Android app is the
+original product; the Windows client is the desktop host of the same runtime.
 
 A workspace is **temporary** by default: it is created with its first
 conversation and deleted with it. **Save as permanent** (or creating a workspace
@@ -58,6 +62,29 @@ follows the window's width **and** height, with an Auto/Compact/Comfortable
 override; Settings is folded by concern; tool rounds and total tool calls have
 separate global budgets; and every SSH tool is absent from every picker while its
 global switch is off.
+
+### Windows x64 desktop
+
+The desktop client is functionally complete for the scope in this repository.
+It provides the conversation rail (search/pin/rename/delete), assistants and
+provider settings with DPAPI-backed API keys, Markdown streaming, tools and
+approval, the seven SSH tools with per-conversation consent, multi-turn rewind,
+context gauge and compaction, workspace file browse/import/export/edit/open,
+image attachments and drag/drop, encrypted backup/restore, diagnostics, a
+Chinese/English switch, tray notifications and keyboard shortcuts.
+
+It ships as a per-user MSI with a bundled Java 21 runtime. The installer and
+data directory are deliberately separate:
+
+```
+%LOCALAPPDATA%\inhuman\        application and bundled runtime
+%LOCALAPPDATA%\inhuman-data\  inhuman.db, files/, secrets.bin, logs/
+```
+
+The current MSI is signed with the development certificate in `.signing/`; a
+public release still needs a trusted code-signing certificate. Full desktop
+documentation, commands and known limitations are in
+[docs/12-desktop.md](docs/12-desktop.md).
 
 **Demo mode exercises the tool loop, not just the stream.** With file tools
 switched on it creates a file and then deletes it, so the tool loop, the
@@ -303,12 +330,15 @@ double hyphen (which is easy to write when explaining a flag like
 ## Layout
 
 ```
-app/                 UI, theme application, entry point
+app/                 Android UI, theme application, entry point
 core/common/         platform-free shared code (the diagnostics facade)
-core/design/         colour, typography, theme
-core/data/           Room, Keystore-backed secrets, DocumentsProvider
-core/ai/             provider + streaming       (no Compose, no Activity)
+core/design/         colour, typography, theme (Android)
+core/data/           Android adapters: Keystore, Database.open, backup, DocumentsProvider
+core/db/             Room schema + platform-free repositories
+core/engine/         shared turn loop
+core/ai/             provider + streaming + tools       (no Compose, no Activity)
 core/files/          the workspace sandbox
+desktopApp/          Compose Desktop Windows host
 ```
 
 The rule the split exists to enforce: **a module with no Android UI must not
@@ -372,7 +402,12 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 .\gradlew.bat :desktopApp:run
 ```
 
-Or the whole loop — build, install to the emulator, launch, screenshot:
+The desktop host needs a **full JDK 21+ with `jpackage`** (not just a runtime)
+and WiX 3 for the MSI; see [docs/12-desktop.md](docs/12-desktop.md) for
+`INHUMAN_DESKTOP_JAVA_HOME`, `WIX_PATH`, packaging, signing and the Windows
+data layout.
+
+For the Android loop — build, install to the emulator, launch, screenshot:
 
 ```powershell
 .\tools\build-and-shot.ps1
@@ -413,9 +448,9 @@ false`); run lint separately when the network is available.
 Settings → **05 / Backup** writes one AES-256-GCM encrypted file of the
 database and every workspace file, using PBKDF2-HMAC-SHA256 (210,000 iterations).
 The passphrase is never stored and cannot be recovered. **API keys are not in the
-backup** — they are Keystore-backed and not portable. Rollback snapshots are also
-omitted; import clears them rather than offering a rewind to files that are not
-present.
+backup** — they are Keystore-backed on Android and DPAPI-backed on Windows, and
+not portable. Rollback snapshots are also omitted; import clears them rather than
+offering a rewind to files that are not present.
 
 Import decrypts and validates into a staging directory while the app runs, then
 asks for a restart. The swap happens in `InhumanApp.onCreate`, before Room opens,
@@ -450,10 +485,13 @@ which this setup does not use.
 
 ## Deliberate non-goals
 
-- **No Linux/PRoot environment.** The requirement is files in and out of a
-  per-conversation directory, which needs no shell. Skipping it also removes a
-  real security problem: PRoot runs at the app's own UID, so "sandboxed" Linux
+- **No Linux/PRoot environment on Android.** The requirement is files in and out
+  of a per-conversation directory, which needs no shell. Skipping it also removes
+  a real security problem: PRoot runs at the app's own UID, so "sandboxed" Linux
   code could read the conversation database and the stored API keys.
+- **No Linux desktop build in the current release.** Windows x64 is the desktop
+  target; Linux is not built or verified. See
+  [docs/12-desktop.md](docs/12-desktop.md).
 - **No LaTeX rendering.** Still true, but **not for the reason this file used to
   give.** It claimed the only viable Android library is GPLv2 and this app is
   not open source — that was wrong twice over: the app is going open source
