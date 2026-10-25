@@ -497,7 +497,6 @@ private fun CreateSheet(
 				) {
 					IconButton(
 						onClick = { choosingWorkspace = false },
-						modifier = Modifier.size(32.dp),
 					) {
 						Icon(
 							Icons.AutoMirrored.Filled.ArrowBack,
@@ -1225,7 +1224,7 @@ private fun ConversationRow(
 		}
 		if (!selecting) {
 			Box {
-				IconButton(onClick = { menu = true }, modifier = Modifier.size(36.dp)) {
+				IconButton(onClick = { menu = true }) {
 					Icon(
 						Icons.Filled.MoreVert,
 						contentDescription = stringResource(R.string.home_conversation_actions),

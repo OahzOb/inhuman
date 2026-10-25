@@ -264,7 +264,7 @@ private fun AgentRow(
 				)
 			}
 			onDelete?.let {
-				IconButton(onClick = it, modifier = Modifier.size(32.dp)) {
+				IconButton(onClick = it) {
 					Icon(
 						Icons.Filled.Delete,
 						contentDescription = stringResource(R.string.common_delete),

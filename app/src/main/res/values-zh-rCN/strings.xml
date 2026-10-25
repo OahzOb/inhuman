@@ -816,4 +816,5 @@
 	<string name="common_done">完成</string>
 	<string name="agents_prompt_import_action">导入</string>
 	<string name="agents_prompt_write_action">撰写</string>
-	<string name="agents_prompt_edit_action">编辑</string></resources>
+	<string name="agents_prompt_edit_action">编辑</string>	<string name="chat_branch_previous">上一个回复</string>
+	<string name="chat_branch_next">下一个回复</string></resources>

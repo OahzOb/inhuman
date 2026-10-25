@@ -24,6 +24,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -2501,6 +2503,8 @@ private fun BranchSwitcher(
 	enabled: Boolean,
 	modifier: Modifier = Modifier,
 ) {
+	val previousLabel = stringResource(R.string.chat_branch_previous)
+	val nextLabel = stringResource(R.string.chat_branch_next)
 	Row(
 		modifier = modifier,
 		verticalAlignment = Alignment.CenterVertically,
@@ -2509,7 +2513,6 @@ private fun BranchSwitcher(
 		IconButton(
 			onClick = { branches.previousId?.let(onSelect) },
 			enabled = enabled && branches.previousId != null,
-			modifier = Modifier.size(28.dp),
 		) {
 			Text(
 				text = "‹",
@@ -2518,6 +2521,11 @@ private fun BranchSwitcher(
 					MaterialTheme.colorScheme.onSurfaceVariant
 				} else {
 					MaterialTheme.colorScheme.outlineVariant
+				},
+				// The glyph is what a sighted user reads; a screen reader would
+				// announce "single left-pointing angle quotation mark".
+				modifier = Modifier.clearAndSetSemantics {
+					contentDescription = previousLabel
 				},
 			)
 		}
@@ -2531,7 +2539,6 @@ private fun BranchSwitcher(
 		IconButton(
 			onClick = { branches.nextId?.let(onSelect) },
 			enabled = enabled && branches.nextId != null,
-			modifier = Modifier.size(28.dp),
 		) {
 			Text(
 				text = "›",
@@ -2540,6 +2547,9 @@ private fun BranchSwitcher(
 					MaterialTheme.colorScheme.onSurfaceVariant
 				} else {
 					MaterialTheme.colorScheme.outlineVariant
+				},
+				modifier = Modifier.clearAndSetSemantics {
+					contentDescription = nextLabel
 				},
 			)
 		}
@@ -2806,7 +2816,6 @@ private fun MessageBubble(
 				Spacer(Modifier.weight(1f))
 				IconButton(
 					onClick = onShowTurnWire,
-					modifier = Modifier.size(32.dp),
 				) {
 					Icon(
 						imageVector = Icons.Outlined.DataObject,
@@ -3071,7 +3080,6 @@ private fun MessageBubble(
 				if (hasTextActions) {
 					IconButton(
 						onClick = { showSource = !showSource },
-						modifier = Modifier.size(32.dp),
 					) {
 						Icon(
 							imageVector = Icons.Outlined.Code,
@@ -3090,7 +3098,6 @@ private fun MessageBubble(
 					}
 					IconButton(
 						onClick = { copyReply(context, message.plainText) },
-						modifier = Modifier.size(32.dp),
 					) {
 						Icon(
 							imageVector = Icons.Outlined.ContentCopy,
@@ -3104,7 +3111,6 @@ private fun MessageBubble(
 				if (showBottomWire) {
 					IconButton(
 						onClick = onShowTurnWire,
-						modifier = Modifier.size(32.dp),
 					) {
 						Icon(
 							imageVector = Icons.Outlined.DataObject,
@@ -3118,7 +3124,6 @@ private fun MessageBubble(
 				if (showRewind) {
 					IconButton(
 						onClick = onShowRewind,
-						modifier = Modifier.size(32.dp),
 					) {
 						Icon(
 							imageVector = Icons.AutoMirrored.Outlined.Undo,

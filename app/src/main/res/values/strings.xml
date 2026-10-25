@@ -839,4 +839,5 @@
 	<string name="common_done">Done</string>
 	<string name="agents_prompt_import_action">Import</string>
 	<string name="agents_prompt_write_action">Write</string>
-	<string name="agents_prompt_edit_action">Edit</string></resources>
+	<string name="agents_prompt_edit_action">Edit</string>	<string name="chat_branch_previous">Previous reply</string>
+	<string name="chat_branch_next">Next reply</string></resources>

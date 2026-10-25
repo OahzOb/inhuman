@@ -434,7 +434,7 @@ private fun WireDialog(
 						) {
 							Text(if (raw) "Sheet" else "Raw JSON", style = MaterialTheme.typography.labelMedium)
 						}
-						IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
+						IconButton(onClick = onDismiss) {
 							Icon(
 								Icons.Filled.Close,
 								contentDescription = stringResource(R.string.wire_close_view),
