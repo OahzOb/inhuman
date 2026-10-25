@@ -12,7 +12,7 @@
 - `:desktopApp` 是 Windows 桌面宿主，使用 Compose Desktop；
 - `:core:ai`、`:core:common`、`:core:db`、`:core:engine`、`:core:files` 由两端共享。
 
-桌面端不是 APK 的包装层：它直接打开同一个 Room v13 数据库和同一套 workspace 布局，
+桌面端不是 APK 的包装层：它直接打开同一个 Room v14 数据库和同一套 workspace 布局，
 数据库迁移、assistant/provider 种子、工具目录、turn loop、SSH 传输和备份格式都来自
 共享模块。Android 仍然是手机上的主产品；桌面端覆盖同一套能力，并提供键盘、窗口、
 托盘和原生文件选择器。

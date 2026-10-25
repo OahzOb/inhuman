@@ -28,7 +28,7 @@ not; `AGENTS.md` states the non-negotiable working rules. These files explain
 | [01-overview.md](01-overview.md) | What this is, which module holds what, what the app does today, what is deliberately missing |
 | [02-architecture.md](02-architecture.md) | Module graph, dependency rule, start-up wiring, navigation, build toolchain, build/verify commands |
 | [03-ai-provider.md](03-ai-provider.md) | Provider interface and stream types, provider profiles, OpenAI-compatible adapter, SSE, demo mode, paid web tools, SSH tools and limits |
-| [04-data-persistence.md](04-data-persistence.md) | Room schema v13 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
+| [04-data-persistence.md](04-data-persistence.md) | Room schema v14 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | Turn lifecycle, tool execution, approval gate, cancellation, context gauge, Compose layout |
 | [07-gotchas.md](07-gotchas.md) | Load-bearing invariants, and mistakes that already cost someone a day |

@@ -822,20 +822,25 @@ class SettingsViewModel(
 			return
 		}
 
-		val now = System.currentTimeMillis()
-		val profile = ProviderProfileEntity(
-			id = draft.id,
-			name = cleanName,
-			kind = draft.kind,
-			baseUrl = baseUrl,
-			reasoningMode = draft.reasoningMode,
-			includeStreamUsage = draft.includeStreamUsage,
-			manualModels = draft.manualModels.trim(),
-			isBuiltIn = draft.isBuiltIn,
-			createdAt = now,
-			updatedAt = now,
-		)
 		viewModelScope.launch {
+			// Read the stored row first: the editor has no field for these, and
+			// building the entity from the draft alone reset `createdAt` on
+			// every save and would have dropped every model tag the same way.
+			val existing = agents.provider(draft.id)
+			val now = System.currentTimeMillis()
+			val profile = ProviderProfileEntity(
+				id = draft.id,
+				name = cleanName,
+				kind = draft.kind,
+				baseUrl = baseUrl,
+				reasoningMode = draft.reasoningMode,
+				includeStreamUsage = draft.includeStreamUsage,
+				manualModels = draft.manualModels.trim(),
+				modelTags = existing?.modelTags.orEmpty(),
+				isBuiltIn = draft.isBuiltIn,
+				createdAt = existing?.createdAt ?: now,
+				updatedAt = now,
+			)
 			agents.saveProvider(profile, draft.keyInput)
 			Diag.i("settings", "provider saved id=${Diag.shortId(profile.id)}")
 			_state.value = _state.value.copy(

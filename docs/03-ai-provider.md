@@ -535,6 +535,40 @@ text/tool SSE decoding, usage and the tool block index. `QwenTokenPlanLiveTest`
 verifies the real Qwen image and decision endpoints when its key is present.
 They are offline by default; no key is needed.
 
+## Not every listed model is a chat model
+
+A provider's `/models` is what the account can call, not what can answer a
+message. Qwen's list includes `wan2.7-image`; picking it as a conversation's
+model produced, in the transcript:
+
+```
+HTTP 400 Bad Request: {"code":"InvalidParameter","message":"Input should be
+'user': input.messages.0.role & Input should be a valid list:
+input.messages.0.content ..."}
+```
+
+Three things now exist because of that, and they are separate on purpose:
+
+1. **A guess** (`core/ai/.../model/ModelCapability.kt`). `ModelCapabilities.infer`
+   matches a short list of words in the id — image/video/speech — and calls
+   everything else text. The list is deliberately short: a false positive hides
+   a working model, a false negative only leaves a label off.
+2. **An override.** The guess is stored as nothing; a user's tag is stored in
+   `provider_profiles.modelTags` (`docs/04-data-persistence.md`) and **replaces**
+   the guess rather than adding to it, so an image model can be declared usable
+   as chat and an innocuous id can be declared not.
+3. **A sentence.** `ModelRejection.looksLikeModelRejection` recognises the family
+   of 400s that talk about messages, roles or content being invalid, and
+   `ChatViewModel.rejectionNote` appends one line saying the model may not be for
+   chatting. Every rule needs both a validation word and a message-shaped word,
+   because telling someone "this model is wrong" on an over-long prompt would be
+   worse than the raw error. A false negative leaves exactly what the app showed
+   before.
+
+The picker folds non-chat models behind a count (`Show N models not offered for
+chat`) instead of dropping them: the guess may be wrong, and the fold is where
+the tag editor is found. Both facts — that a model is folded, and that it can be
+retagged — come from `ModelCapabilities.isChatModel`.
 ## The model list is fetched, never hardcoded
 
 `DeepSeekModels` reads `GET /models` (`DeepSeekModels.kt:31-34`). The provider

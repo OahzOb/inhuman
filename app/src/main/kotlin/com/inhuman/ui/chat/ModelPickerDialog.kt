@@ -2,35 +2,45 @@ package com.inhuman.ui.chat
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.inhuman.R
+import com.inhuman.core.ai.model.ModelCapabilities
+import com.inhuman.core.ai.model.ModelCapability
+import com.inhuman.core.ai.model.ModelTagCodec
 import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.design.WorkbenchSwitch
+import com.inhuman.R
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -74,6 +84,19 @@ fun ModelPickerDialog(
 	var error by remember { mutableStateOf<String?>(null) }
 	var attempt by remember { mutableStateOf(0) }
 	val context = LocalContext.current
+	val scope = rememberCoroutineScope()
+
+	/**
+	 * Tags the user has given the current provider's models, by model id.
+	 *
+	 * Empty is "nothing tagged", which is what the guess in `ModelCapabilities`
+	 * is for; a tagged model replaces the guess.
+	 */
+	var tags by remember { mutableStateOf<Map<String, Set<ModelCapability>>>(emptyMap()) }
+	/** Whether the models that are not for chatting are expanded. Hidden by default. */
+	var showOtherModels by remember { mutableStateOf(false) }
+	/** The model whose tags are being edited, if any. */
+	var tagging by remember { mutableStateOf<RemoteModel?>(null) }
 
 	LaunchedEffect(attempt) {
 		providers = runCatching { chat.providerProfiles() }.getOrDefault(emptyList())
@@ -139,6 +162,20 @@ fun ModelPickerDialog(
 
 	val selected = models.firstOrNull { it.id == effectiveModel }
 	val levels = selected?.supportedEffortLevels.orEmpty()
+
+	// The stored tags belong to the provider, so they are re-read whenever the
+	// provider chips change as well as on open.
+	LaunchedEffect(providers, currentProviderId) {
+		tags = ModelTagCodec.decode(
+			providers.firstOrNull { it.id == currentProviderId }?.modelTags.orEmpty(),
+		)
+	}
+
+	fun capabilitiesOf(model: RemoteModel): Set<ModelCapability> =
+		ModelCapabilities.effective(model.id, tags[model.id])
+
+	val chatModels = models.filter { ModelCapabilities.isChatModel(capabilitiesOf(it)) }
+	val otherModels = models.filterNot { ModelCapabilities.isChatModel(capabilitiesOf(it)) }
 
 	AlertDialog(
 		onDismissRequest = onDismiss,
@@ -235,7 +272,9 @@ fun ModelPickerDialog(
 								color = MaterialTheme.colorScheme.onSurfaceVariant,
 							)
 						}
-						models.forEach { m ->
+						chatModels.forEach { m ->
+							val caps = capabilitiesOf(m)
+							val suffix = capabilitySuffix(caps)
 							ModelOption(
 								// The display name, not the id: "DeepSeek-V4.1-Flash"
 								// is what the provider calls it, and "deepseek-flash"
@@ -246,6 +285,7 @@ fun ModelPickerDialog(
 									m.contextWindow?.let { append("${it / 1024}K context") }
 									append(" · ")
 									append(if (m.supportsVision) "text and images" else "text only")
+									append(suffix)
 									m.defaultEffortLevel?.let { append(" · default effort $it") }
 								},
 								selected = currentModel == m.id,
@@ -253,7 +293,48 @@ fun ModelPickerDialog(
 									chat.setModel(m.id)
 									onDismiss()
 								},
+								onEditTags = { tagging = m },
 							)
+						}
+
+						// A provider's list is everything the account can call,
+						// not a list of chat models. The ones that are visibly
+						// something else are folded away rather than dropped: a
+						// wrong guess must not make a model unreachable, and the
+						// fold is where the tag editor is found.
+						if (otherModels.isNotEmpty()) {
+							TextButton(onClick = { showOtherModels = !showOtherModels }) {
+								Text(
+									stringResource(
+										if (showOtherModels) {
+											R.string.model_picker_hide_other
+										} else {
+											R.string.model_picker_show_other
+										},
+										otherModels.size,
+									),
+								)
+							}
+							Text(
+								text = stringResource(R.string.model_picker_other_hint),
+								style = MaterialTheme.typography.labelLarge,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+							)
+							if (showOtherModels) {
+								otherModels.forEach { m ->
+									val suffix = capabilitySuffix(capabilitiesOf(m))
+									ModelOption(
+										label = m.displayName?.takeIf { it.isNotBlank() } ?: m.id,
+										detail = stringResource(R.string.model_picker_not_chat) + suffix,
+										selected = currentModel == m.id,
+										onClick = {
+											chat.setModel(m.id)
+											onDismiss()
+										},
+										onEditTags = { tagging = m },
+									)
+								}
+							}
 						}
 					}
 
@@ -341,6 +422,30 @@ fun ModelPickerDialog(
 		titleContentColor = MaterialTheme.colorScheme.onSurface,
 		textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 	)
+
+	// Beside the picker rather than inside it: both are dialogs, and nesting one
+	// inside the other's content slot makes the second one size itself to the
+	// first.
+	tagging?.let { model ->
+		ModelTagDialog(
+			model = model,
+			current = capabilitiesOf(model),
+			onDismiss = { tagging = null },
+			onSave = { capabilities ->
+				tagging = null
+				scope.launch {
+					chat.setModelTags(currentProviderId, model.id, capabilities)
+					// A tag the user just set is shown immediately; the row it
+					// moves between (chat models vs the fold) follows from it.
+					tags = if (capabilities.isEmpty()) {
+						tags - model.id
+					} else {
+						tags + (model.id to capabilities)
+					}
+				}
+			},
+		)
+	}
 }
 
 @Composable
@@ -349,24 +454,121 @@ private fun ModelOption(
 	detail: String,
 	selected: Boolean,
 	onClick: () -> Unit,
+	onEditTags: (() -> Unit)? = null,
 ) {
-	FilterChip(
-		selected = selected,
-		onClick = onClick,
-		label = {
-			Column {
-				Text(label, style = MaterialTheme.typography.bodyLarge)
-				Text(
-					text = detail,
-					style = MaterialTheme.typography.labelLarge,
-					color = if (selected) {
-						MaterialTheme.colorScheme.onSecondaryContainer
-					} else {
-						MaterialTheme.colorScheme.onSurfaceVariant
-					},
+	Row(
+		modifier = Modifier.fillMaxWidth(),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(4.dp),
+	) {
+		FilterChip(
+			selected = selected,
+			onClick = onClick,
+			label = {
+				Column {
+					Text(label, style = MaterialTheme.typography.bodyLarge)
+					Text(
+						text = detail,
+						style = MaterialTheme.typography.labelLarge,
+						color = if (selected) {
+							MaterialTheme.colorScheme.onSecondaryContainer
+						} else {
+							MaterialTheme.colorScheme.onSurfaceVariant
+						},
+					)
+				}
+			},
+			modifier = Modifier.weight(1f),
+		)
+		onEditTags?.let { onEdit ->
+			IconButton(onClick = onEdit) {
+				Icon(
+					imageVector = Icons.AutoMirrored.Outlined.Label,
+					contentDescription = stringResource(R.string.model_picker_edit_tags),
+					tint = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier.size(18.dp),
 				)
 			}
+		}
+	}
+}
+
+/**
+ * The capability words for a model, as a suffix to its detail line.
+ *
+ * Empty for a plain text model: the common case is not worth a label, and a
+ * line of "· 文本" on every row is noise that makes the two rows which *are*
+ * something else harder to spot.
+ */
+@Composable
+private fun capabilitySuffix(capabilities: Set<ModelCapability>): String {
+	val extra = capabilities.filterNot { it == ModelCapability.Text }
+	if (extra.isEmpty()) return ""
+	// `map` is inline, so the composable call is allowed there; `joinToString`
+	// with a transform is not, which is why this is two steps.
+	val words = extra.map { stringResource(it.labelResource()) }
+	return " · " + words.joinToString(" · ")
+}
+
+private fun ModelCapability.labelResource(): Int = when (this) {
+	ModelCapability.Text -> R.string.model_capability_text
+	ModelCapability.Image -> R.string.model_capability_image
+	ModelCapability.Video -> R.string.model_capability_video
+	ModelCapability.Audio -> R.string.model_capability_audio
+	ModelCapability.Tools -> R.string.model_capability_tools
+}
+
+/**
+ * Which words apply to this model.
+ *
+ * A tick list rather than a dropdown because the tags compose (a model can do
+ * text and tools) and because the guess has to stay visible: the hint says that
+ * these replace it, so someone who untags everything knows they just told the
+ * app "no opinion".
+ */
+@Composable
+private fun ModelTagDialog(
+	model: RemoteModel,
+	current: Set<ModelCapability>,
+	onDismiss: () -> Unit,
+	onSave: (Set<ModelCapability>) -> Unit,
+) {
+	var draft by remember(model.id) { mutableStateOf(current) }
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text(model.displayName?.takeIf { it.isNotBlank() } ?: model.id) },
+		text = {
+			Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+				Text(
+					text = stringResource(R.string.model_picker_tag_hint),
+					style = MaterialTheme.typography.labelLarge,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				ModelCapability.entries.forEach { capability ->
+					val on = capability in draft
+					FilterChip(
+						selected = on,
+						onClick = {
+							draft = if (on) draft - capability else draft + capability
+						},
+						label = { Text(stringResource(capability.labelResource())) },
+					)
+				}
+			}
 		},
-		modifier = Modifier.fillMaxWidth(),
+		confirmButton = {
+			TextButton(onClick = { onSave(draft) }) { Text(stringResource(R.string.common_save)) }
+		},
+		dismissButton = {
+			Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+				TextButton(onClick = { onSave(emptySet()) }) {
+					Text(stringResource(R.string.model_picker_tag_clear))
+				}
+				TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
+			}
+		},
+		containerColor = MaterialTheme.colorScheme.surface,
+		titleContentColor = MaterialTheme.colorScheme.onSurface,
+		textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 	)
 }

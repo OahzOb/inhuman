@@ -20,10 +20,10 @@ Both hosts install the same `InhumanDatabase.MIGRATIONS` and
 `BundledSQLiteDriver`. The callback seeds the DeepSeek provider and the default
 assistant on create, so a desktop install is not a second, empty schema.
 
-## The schema, version 13
+## The schema, version 14
 
 `InhumanDatabase` (`core/db/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 13`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 14`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/db/schemas/` by KSP — configured in `core/db/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
@@ -34,6 +34,15 @@ Nine entities in four files: `ProviderProfileEntity`, `WorkspaceEntity`,
 `ContextSummaryEntity` in `db/Entities.kt`, plus the three approval-policy tables
 (`ApprovalDefaultEntity`, `AgentApprovalEntity`, `PathPolicyEntity`) in
 `db/PolicyEntities.kt`, added by migration 7→8.
+
+### `provider_profiles.modelTags` — added in 13→14
+
+`{"wan2.7-image":["image"]}`, one entry per model the user has labelled.
+`core/ai/.../model/ModelCapability.kt` (`ModelTagCodec`) is the only reader and
+writer. A model with no entry is *untagged*, and the picker guesses from the id
+(`ModelCapabilities.infer`); the column exists because that guess is sometimes
+wrong and the correction has to survive a release. The editor carries the value
+through every save, so renaming a provider does not wipe its labels.
 
 ### `context_summaries` — added in 12→13
 
@@ -233,7 +242,7 @@ the messages explicitly before the row **even though the FK cascades** — the
 comment says that keeps the behaviour obvious if the cascade is ever switched
 off (`:496-502`).
 
-## Migration history 1 → 12
+## Migration history 1 → 14
 
 All hand-written. There is **no `fallbackToDestructiveMigration` anywhere** and
 the reason is stated at `MIGRATION_1_2`: it would delete every conversation on
@@ -258,6 +267,8 @@ order below.
 | 9→10 | `messages` gains `changedFilesJson`, nullable: an old reply has no file list and must not claim one. |
 | 10→11 | `workspaces` created, one temporary row per existing conversation, and the unique `index_conversations_workspaceId` replaced by a non-unique one. No directory moves. `ownerConversationId` is the conversation id; the display name starts as its title. |
 | 11→12 | `provider_profiles` created and the built-in `deepseek` row seeded with `baseUrl = https://api.deepseek.com` and `reasoningMode = deepseek`; `agents.providerId` and `conversations.providerId` added with default `deepseek`. The legacy chat key slot is reused, so no key is copied and no key is lost. |
+| 12→13 | `context_summaries` created, empty: a derived projection, so an upgraded install starts with no compaction and the full transcript. |
+| 13→14 | `provider_profiles` gains `modelTags TEXT NOT NULL DEFAULT ''`, so an upgraded install has every model untagged and the picker falls back to the name-based guess. |
 
 The 7→8 comment records a product change that is *not* in the migration:
 deletion no longer asks for approval, and that lives in `DeleteFileTool`, not

@@ -2,6 +2,8 @@ package com.inhuman.core.data
 
 import com.inhuman.core.ai.ChatProvider
 import com.inhuman.core.ai.RemoteModel
+import com.inhuman.core.ai.model.ModelCapability
+import com.inhuman.core.ai.model.ModelTagCodec
 import com.inhuman.core.ai.provider.ProviderFactory
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.InhumanDatabase
@@ -117,6 +119,35 @@ class AgentRepository(
 			else secure.put(apiKeySlot(profile.id), apiKey.trim())
 		}
 		invalidateModels()
+	}
+
+	/**
+	 * Label one model for what it is, or clear the label.
+	 *
+	 * The label replaces the guess made from the model id (`ModelCapabilities`),
+	 * so this is the only way to fix a guess that is wrong -- and emptying the
+	 * set is a real answer, meaning "I looked, and it is nothing I have a word
+	 * for", which is stored as no entry at all.
+	 */
+	suspend fun setModelTags(
+		providerId: String,
+		modelId: String,
+		capabilities: Set<ModelCapability>,
+	) {
+		val profile = db.providers().byId(providerId) ?: return
+		val tags = ModelTagCodec.decode(profile.modelTags).toMutableMap()
+		if (capabilities.isEmpty()) tags.remove(modelId) else tags[modelId] = capabilities
+		db.providers().setModelTags(
+			id = providerId,
+			tags = ModelTagCodec.encode(tags),
+			now = System.currentTimeMillis(),
+		)
+	}
+
+	/** The tags stored for a profile, by model id. */
+	suspend fun modelTags(providerId: String): Map<String, Set<ModelCapability>> {
+		val profile = db.providers().byId(providerId) ?: return emptyMap()
+		return ModelTagCodec.decode(profile.modelTags)
 	}
 
 	suspend fun deleteProvider(id: String): Result<Unit> {

@@ -103,6 +103,8 @@ import com.inhuman.core.ai.tools.SearchProvider
 import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.SshExecTool
 import com.inhuman.ui.common.formatBytes
+import com.inhuman.core.ai.model.ModelCapability
+import com.inhuman.core.ai.model.ModelRejection
 import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.TimeTool
@@ -938,6 +940,24 @@ class ChatViewModel(
 
 	/** Profiles the conversation may switch to. */
 	suspend fun providerProfiles(): List<ProviderProfileEntity> = agents.providers()
+
+	/**
+	 * Label one model for what it is, or clear the label.
+	 *
+	 * The picker calls this when someone corrects a guess; the empty set means
+	 * "no label", which is not the same as "not a chat model".
+	 */
+	suspend fun setModelTags(
+		providerId: String,
+		modelId: String,
+		capabilities: Set<ModelCapability>,
+	) {
+		agents.setModelTags(providerId, modelId, capabilities)
+		Diag.i(
+			"models",
+			"tagged model=${Diag.shortId(modelId)} caps=${capabilities.joinToString(",") { it.key }}",
+		)
+	}
 
 	fun hasProviderKey(providerId: String): Boolean = agents.hasKey(providerId)
 
@@ -3015,7 +3035,7 @@ class ChatViewModel(
 							EngineFailure.ToolCallsSuppressed ->
 								context.getString(R.string.chat_error_text_only_tool_call)
 
-							EngineFailure.Provider -> event.message
+							EngineFailure.Provider -> event.message + rejectionNote(event.message)
 						}
 						failure = text
 						currentId?.let { id -> updateMessage(id) { it.copy(error = text) } }
@@ -3155,6 +3175,22 @@ class ChatViewModel(
 		}
 	}
 
+	/**
+	 * A sentence after a provider failure that looks like "this is not a chat
+	 * model".
+	 *
+	 * The raw 400 names `input.messages.0.role`, which is precise and useless:
+	 * nothing the user did is in it and nothing they can change is either. The
+	 * likely cause -- a generation model picked as the conversation's model --
+	 * has a fix in the app, so it is worth one sentence. The raw text stays
+	 * above it: a diagnosis that turns out to be wrong must not hide the fact.
+	 */
+	private fun rejectionNote(message: String): String =
+		if (ModelRejection.looksLikeModelRejection(message)) {
+			"\n\n" + context.getString(R.string.chat_error_not_a_chat_model)
+		} else {
+			""
+		}
 	/**
 	 * The one gate every tool call passes before the engine runs it.
 	 *

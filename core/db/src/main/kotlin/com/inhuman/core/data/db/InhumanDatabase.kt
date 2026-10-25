@@ -71,6 +71,17 @@ interface ProviderDao {
 	@Insert(onConflict = OnConflictStrategy.REPLACE)
 	suspend fun upsert(provider: ProviderProfileEntity)
 
+	/**
+	 * Replace one profile's model tags.
+	 *
+	 * A targeted UPDATE rather than a read-modify-upsert: the picker writes this
+	 * while a conversation may be running, and an upsert of a row read a moment
+	 * earlier would put back a stale `updatedAt` and any other field that had
+	 * changed in between.
+	 */
+	@Query("UPDATE provider_profiles SET modelTags = :tags, updatedAt = :now WHERE id = :id")
+	suspend fun setModelTags(id: String, tags: String, now: Long)
+
 	@Query("DELETE FROM provider_profiles WHERE id = :id")
 	suspend fun delete(id: String)
 
@@ -448,7 +459,7 @@ interface PolicyDao {
 	// guessing, which is how each was caught: the app crashed on launch with
 	// "Looks like you've changed schema but forgot to update the version number"
 	// instead of quietly losing conversations.
-	version = 13,
+	version = 14,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -464,7 +475,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 		const val NAME = "inhuman.db"
 
 		/** Mirrors the Room annotation; backups record it without reflection. */
-		const val VERSION = 13
+		const val VERSION = 14
 
 		/**
 		 * 1 -> 2: tool-call columns.
@@ -785,6 +796,21 @@ abstract class InhumanDatabase : RoomDatabase() {
 		}
 
 		/**
+		 * 13 -> 14: per-model tags.
+		 *
+		 * Additive and empty. An untagged model keeps reading as "not tagged",
+		 * which is what the inference in `ModelCapabilities` is for, so an upgrade
+		 * changes nothing until someone labels a model in the picker.
+		 */
+		val MIGRATION_13_14 = object : Migration(13, 14) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"ALTER TABLE provider_profiles ADD COLUMN modelTags TEXT NOT NULL DEFAULT ''",
+				)
+			}
+		}
+
+		/**
 		 * Every migration, in order.
 		 *
 		 * A host that builds the database itself must not copy this list. The
@@ -806,6 +832,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 			MIGRATION_10_11,
 			MIGRATION_11_12,
 			MIGRATION_12_13,
+			MIGRATION_13_14,
 		)
 
 		/**

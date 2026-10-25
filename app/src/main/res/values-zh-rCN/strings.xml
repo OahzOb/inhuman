@@ -2,12 +2,14 @@
 <resources>
 	<string name="app_name">inhuman</string>
 
+
 	<!-- Shared actions. -->
 	<string name="common_cancel">取消</string>
 	<string name="common_delete">删除</string>
 	<string name="common_dismiss">忽略</string>
 	<string name="common_save">保存</string>
 	<string name="common_name">名称</string>
+
 
 	<!-- Workspaces: the shared-folder list. -->
 	<string name="workspaces_title">工作区</string>
@@ -32,6 +34,7 @@
 	<plurals name="workspaces_conversation_count">
 		<item quantity="other">%d 个对话</item>
 	</plurals>
+
 
 	<!-- Workspaces: one permanent workspace. -->
 	<string name="workspace_fallback_title">工作区</string>
@@ -59,6 +62,7 @@
 	<plurals name="workspace_delete_body_files">
 		<item quantity="other">这会删除这个工作区及其中的 %d 个文件。此操作无法撤销。</item>
 	</plurals>
+
 
 	<!-- 首页：对话列表、页头与新建面板。 -->
 	<string name="common_create">新建</string>
@@ -140,6 +144,7 @@
 	<string name="home_delete_note">此操作无法撤销。</string>
 	<string name="home_delete_failed">删除这个对话失败，没有删掉任何东西。</string>
 
+
 	<!-- 设置：分区、服务商列表、网络密钥、运行时、上限、备份。 -->
 	<string name="common_back">返回</string>
 	<string name="settings_section_models">01 / 模型</string>
@@ -212,6 +217,7 @@
 	<string name="settings_layout_compact">紧凑：单列布局，间距更小</string>
 	<string name="settings_layout_comfortable">舒适：宽布局，边距更大</string>
 	<string name="settings_layout_body">自动会跟随当前窗口，包括旋转、分屏和折叠屏。紧凑会在平板上强制单列；舒适会保留宽布局。这是阅读偏好，不是屏幕比例选择器。</string>
+
 
 	<!-- 设置：对话框、服务商编辑器、诊断、审批行。 -->
 	<string name="settings_host_keys_title">已固定的主机密钥</string>
@@ -311,6 +317,7 @@
 	<string name="settings_collapse">收起 %1$s</string>
 	<string name="settings_expand">展开 %1$s</string>
 
+
 	<!-- 能力徽标与工具列表上方的提示。 -->
 	<string name="badge_paid">付费</string>
 	<string name="badge_remote">远程</string>
@@ -318,6 +325,7 @@
 	<string name="badge_no_rewind">不可回退</string>
 	<string name="notice_paid_tools">web_search 和 web_fetch 会调用设置中选定的搜索/抓取服务，这个服务按调用计费；其他工具不会调用付费服务。</string>
 	<string name="notice_remote_tools">SSH 工具可以读取、传输远端文件；只有显式选中 ssh_exec 才会执行命令。应用不配置主机，也不保存凭据，助手使用你提供的信息。远端的损坏可能无法撤销。使用前需要在设置中打开 SSH 开关，每个对话还要授权一次。</string>
+
 
 	<!-- 文件：对话工作区浏览器。 -->
 	<string name="files_title">文件</string>
@@ -359,6 +367,7 @@
 	<string name="files_open_with_chooser">打开方式</string>
 	<string name="files_no_app">没有可以打开这个文件的应用。</string>
 
+
 	<!-- 文件：从 URL 下载。 -->
 	<string name="download_title">从 URL 下载</string>
 	<string name="download_save_to">保存到</string>
@@ -382,6 +391,7 @@
 	<string name="download_failed">下载失败。</string>
 	<string name="download_cancelled">下载已取消。</string>
 	<string name="download_cannot_open_folder">无法打开所选文件夹。</string>
+
 
 	<!-- 助手：列表与编辑器。 -->
 	<string name="agents_new">新建助手</string>
@@ -450,6 +460,7 @@
 	<string name="agents_policy_hide">隐藏</string>
 	<string name="agents_prompt_file_type">请选择 .txt 或 .md 文件。</string>
 	<string name="agents_prompt_open_failed">无法打开这个文件。</string>
+
 
 	<!-- 聊天：记录、输入框、欢迎页与阻塞式对话框。 -->
 	<string name="chat_summarizing">正在压缩较早的回合…</string>
@@ -626,6 +637,7 @@
 	<string name="chat_clip_error">inhuman 错误详情</string>
 	<string name="chat_clip_reply">回复</string>
 
+
 	<!-- 聊天：由 ViewModel 生成的文案（阶段、回退标签）。 -->
 	<string name="chat_phase_approval">等待审批</string>
 	<string name="chat_phase_ssh">等待 SSH 授权</string>
@@ -643,11 +655,13 @@
 	<string name="chat_rewind_blocked_group_missing">这个工具组之后的快照缺失。</string>
 	<string name="chat_rewind_blocked_no_checkpoint">这一回合没有快照。</string>
 
+
 	<!-- 文件：由 ViewModel 生成的错误。 -->
 	<string name="files_error_workspace_missing">找不到工作区。</string>
 	<string name="files_error_not_editable">这个文件无法编辑。</string>
 	<string name="files_error_too_large">这个文件太大，无法在应用内编辑，请用其他应用打开。</string>
 	<string name="files_error_binary">这看起来是二进制文件，请用其他应用打开。</string>
+
 
 	<!-- 通知与前台服务。 -->
 	<string name="notif_channel_progress">助手回复</string>
@@ -667,6 +681,7 @@
 	<string name="notif_ready_body">回复已就绪。</string>
 	<string name="notif_replies_in_progress">%1$d 个回复进行中</string>
 	<string name="notif_replies_running">%1$d 个回复正在生成</string>
+
 
 	<!-- 设置：由 ViewModel 生成的状态与错误文案。 -->
 	<string name="settings_status_host_keys_forgotten">已忘记固定的主机密钥。下次连接这些主机时会重新固定。</string>
@@ -694,6 +709,7 @@
 	<string name="settings_error_import_failed">导入失败：%1$s</string>
 	<string name="settings_status_undo_staged">旧数据已暂存。重启应用即可撤销上次导入。</string>
 	<string name="settings_status_no_undo">没有可撤销的上次导入。</string>
+
 
 	<!-- 聊天：由 ViewModel 生成的错误文案。 -->
 	<string name="chat_error_no_vision">当前模型无法读取图片。请从标题栏选择支持图片的模型。</string>
@@ -744,6 +760,7 @@
 	<string name="chat_error_workspace_open_failed">无法打开这个对话的工作区，因此文件工具不可用：%1$s</string>
 	<string name="workspace_error_delete_conversations_first">这个工作区还有对话，请先删除它们。</string>
 
+
 	<!-- 聊天：上下文仪表、模型选择器和 JSON 面板。 -->
 	<string name="context_gauge_compact_again">再次压缩</string>
 	<string name="context_gauge_view_summary">查看摘要</string>
@@ -766,6 +783,7 @@
 		<item quantity="other">%1$d 轮 · 内容 · 推理 · tool_calls</item>
 	</plurals>
 
+
 	<!-- 聊天：用量行。 -->
 	<string name="usage_out">输出</string>
 	<string name="usage_in">输入</string>
@@ -781,6 +799,7 @@
 	<string name="usage_billed_full_rate">按原价计费</string>
 	<string name="usage_completion_tokens">输出 token</string>
 	<string name="usage_reasoning_tokens">推理 token</string>
+
 	<!-- 聊天菜单里的媒体操作与四个对话框。这些文案原来硬编码在 composable 里，
 	     于是中文界面下是四个英文菜单项，点开是四个英文对话框。 -->
 	<string name="chat_transcribe_audio_file">转写音频文件</string>
@@ -816,5 +835,22 @@
 	<string name="common_done">完成</string>
 	<string name="agents_prompt_import_action">导入</string>
 	<string name="agents_prompt_write_action">撰写</string>
-	<string name="agents_prompt_edit_action">编辑</string>	<string name="chat_branch_previous">上一个回复</string>
-	<string name="chat_branch_next">下一个回复</string></resources>
+	<string name="agents_prompt_edit_action">编辑</string>
+	<string name="chat_branch_previous">上一个回复</string>
+	<string name="chat_branch_next">下一个回复</string>
+	<!-- 模型能力：这个模型是干什么用的。按模型名推断，用户可以改——服务商的模型列表
+	     是"这个账号能调用的一切"，不是"能对话的模型"。 -->
+	<string name="model_capability_text">文本</string>
+	<string name="model_capability_image">图片</string>
+	<string name="model_capability_video">视频</string>
+	<string name="model_capability_audio">语音</string>
+	<string name="model_capability_tools">工具</string>
+	<string name="model_picker_not_chat">不是对话模型</string>
+	<string name="model_picker_show_other">显示 %1$d 个非对话模型</string>
+	<string name="model_picker_hide_other">收起这 %1$d 个非对话模型</string>
+	<string name="model_picker_other_hint">按名字看，它们是出图、出视频或语音模型，所以先收起来。点标签可以改。</string>
+	<string name="model_picker_edit_tags">编辑这个模型的标签</string>
+	<string name="model_picker_tag_hint">这些标签会覆盖按模型名推断的结果。没有“文本”的模型不会出现在对话模型列表里。</string>
+	<string name="model_picker_tag_clear">清除标签</string>
+	<string name="chat_error_not_a_chat_model">这个模型看起来不是用来对话的。可以在模型列表里更正它的标签，或换一个模型。</string>
+</resources>

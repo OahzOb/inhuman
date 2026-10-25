@@ -16,7 +16,7 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 
 /**
- * A real v12 -> v13 migration on the JVM.
+ * A real v12 -> current migration on the JVM.
  *
  * `MigrationTestHelper` is Android-test oriented, so this builds the v12 schema
  * from Room's own exported JSON (`core/db/schemas/.../12.json`), opens it with
@@ -32,32 +32,23 @@ class CurrentSchemaMigrationTest {
 	private val schemaFile = File("schemas/com.inhuman.core.data.db.InhumanDatabase/12.json")
 
 	@Test
-	fun `v12 database migrates to v13 and exposes context summaries`() = runBlocking {
+	fun `a v12 database migrates to the current schema`() = runBlocking {
 		assertTrue("missing exported v12 schema: ${schemaFile.absolutePath}", schemaFile.isFile)
 		val dbFile = tmp.newFile("v12.db")
 		createV12Database(dbFile)
 
 		val db = Room.databaseBuilder<InhumanDatabase>(dbFile.absolutePath)
 			.setDriver(BundledSQLiteDriver())
-			.addMigrations(
-				InhumanDatabase.MIGRATION_1_2,
-				InhumanDatabase.MIGRATION_2_3,
-				InhumanDatabase.MIGRATION_3_4,
-				InhumanDatabase.MIGRATION_4_5,
-				InhumanDatabase.MIGRATION_5_6,
-				InhumanDatabase.MIGRATION_6_7,
-				InhumanDatabase.MIGRATION_7_8,
-				InhumanDatabase.MIGRATION_8_9,
-				InhumanDatabase.MIGRATION_9_10,
-				InhumanDatabase.MIGRATION_10_11,
-				InhumanDatabase.MIGRATION_11_12,
-				InhumanDatabase.MIGRATION_12_13,
-			)
+			.addMigrations(*InhumanDatabase.MIGRATIONS)
+
 			.build()
 		try {
 			// This table only exists at v13; reading it also makes Room open the
 			// database and run the migration chain.
 			assertTrue(db.contextSummaries().all().isEmpty())
+			// v14 added `modelTags` to the provider row; reading it proves the
+			// column exists and that an upgrade defaults it to empty.
+			assertTrue(db.providers().all().all { it.modelTags.isEmpty() })
 		} finally {
 			db.close()
 		}

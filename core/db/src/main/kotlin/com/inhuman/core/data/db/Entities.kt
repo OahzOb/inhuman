@@ -59,6 +59,17 @@ data class ProviderProfileEntity(
 	/** One model id per line, for endpoints without a usable `/models`. */
 	@ColumnInfo(defaultValue = "")
 	val manualModels: String = "",
+
+	/**
+	 * Per-model tags as JSON: `{"wan2.7-image":["image"]}`.
+	 *
+	 * A provider's model list is everything the account can call, not a list of
+	 * chat models, and no field in `/models` says which is which. The app infers
+	 * a guess from the id; this column is where the user corrects it.
+	 * `ModelTagCodec` is the only reader and writer of the format.
+	 */
+	@ColumnInfo(defaultValue = "")
+	val modelTags: String = "",
 	/** The seeded DeepSeek profile cannot be deleted. */
 	val isBuiltIn: Boolean = false,
 	val createdAt: Long,

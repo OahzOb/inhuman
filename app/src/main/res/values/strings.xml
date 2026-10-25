@@ -2,12 +2,14 @@
 <resources>
 	<string name="app_name">inhuman</string>
 
+
 	<!-- Shared actions. -->
 	<string name="common_cancel">Cancel</string>
 	<string name="common_delete">Delete</string>
 	<string name="common_dismiss">Dismiss</string>
 	<string name="common_save">Save</string>
 	<string name="common_name">Name</string>
+
 
 	<!-- Workspaces: the shared-folder list. -->
 	<string name="workspaces_title">Workspaces</string>
@@ -36,6 +38,7 @@
 		<item quantity="one">%d conversation</item>
 		<item quantity="other">%d conversations</item>
 	</plurals>
+
 
 	<!-- Workspaces: one permanent workspace. -->
 	<string name="workspace_fallback_title">Workspace</string>
@@ -66,6 +69,7 @@
 		<item quantity="one">This deletes the workspace and its %d file. This cannot be undone.</item>
 		<item quantity="other">This deletes the workspace and its %d files. This cannot be undone.</item>
 	</plurals>
+
 
 	<!-- Home: the conversation list, its header and the create sheet. -->
 	<string name="common_create">Create</string>
@@ -154,6 +158,7 @@
 	<string name="home_delete_note">This cannot be undone.</string>
 	<string name="home_delete_failed">Could not delete this conversation. Nothing was removed.</string>
 
+
 	<!-- Settings: sections, provider list, web keys, runtime, limits, backup. -->
 	<string name="common_back">Back</string>
 	<string name="settings_section_models">01 / Models</string>
@@ -227,6 +232,7 @@
 	<string name="settings_layout_compact">Compact: single column, tighter spacing</string>
 	<string name="settings_layout_comfortable">Comfortable: wide shell and larger gutters</string>
 	<string name="settings_layout_body">Auto follows the current window, including rotation, split-screen and foldables. Compact forces one column on a tablet; Comfortable keeps the wide shell. This is a reading preference, not a screen-ratio selector.</string>
+
 
 	<!-- Settings: dialogs, provider editor, diagnostics, approval rows. -->
 	<string name="settings_host_keys_title">Pinned host keys</string>
@@ -329,6 +335,7 @@
 	<string name="settings_collapse">Collapse %1$s</string>
 	<string name="settings_expand">Expand %1$s</string>
 
+
 	<!-- Capability badges and the notices above a tool list. -->
 	<string name="badge_paid">PAID</string>
 	<string name="badge_remote">REMOTE</string>
@@ -336,6 +343,7 @@
 	<string name="badge_no_rewind">NO REWIND</string>
 	<string name="notice_paid_tools">web_search and web_fetch call the search/fetch service configured in Settings. They are billed per call by that provider; the other tools do not call a paid service.</string>
 	<string name="notice_remote_tools">The SSH tools can read and move files on another machine; commands run only if ssh_exec is selected. The app does not configure hosts or keep a credential store; the agent uses what you give it. Damage at the remote end can be irreversible. They also require the SSH tool switch in Settings and consent once per conversation.</string>
+
 
 	<!-- Files: the conversation workspace browser. -->
 	<string name="files_title">Files</string>
@@ -377,6 +385,7 @@
 	<string name="files_open_with_chooser">Open with</string>
 	<string name="files_no_app">No app can open this file.</string>
 
+
 	<!-- Files: download from a URL. -->
 	<string name="download_title">Download from a URL</string>
 	<string name="download_save_to">Save to</string>
@@ -400,6 +409,7 @@
 	<string name="download_failed">Download failed.</string>
 	<string name="download_cancelled">Download cancelled.</string>
 	<string name="download_cannot_open_folder">Could not open the chosen folder.</string>
+
 
 	<!-- Assistants: the list and the editor. -->
 	<string name="agents_new">New assistant</string>
@@ -468,6 +478,7 @@
 	<string name="agents_policy_hide">hide</string>
 	<string name="agents_prompt_file_type">Choose a .txt or .md file.</string>
 	<string name="agents_prompt_open_failed">Could not open the file.</string>
+
 
 	<!-- Chat: transcript, composer, welcome and the blocking dialogs. -->
 	<string name="chat_summarizing">Summarizing earlier turns…</string>
@@ -647,6 +658,7 @@
 	<string name="chat_clip_error">inhuman error</string>
 	<string name="chat_clip_reply">Reply</string>
 
+
 	<!-- Chat: text produced by the view model (phases, rewind labels). -->
 	<string name="chat_phase_approval">Waiting for approval</string>
 	<string name="chat_phase_ssh">Waiting for SSH consent</string>
@@ -664,11 +676,13 @@
 	<string name="chat_rewind_blocked_group_missing">The checkpoint after this tool group is missing.</string>
 	<string name="chat_rewind_blocked_no_checkpoint">No checkpoint exists for this turn.</string>
 
+
 	<!-- Files: errors produced by the view model. -->
 	<string name="files_error_workspace_missing">Workspace not found.</string>
 	<string name="files_error_not_editable">That file cannot be edited.</string>
 	<string name="files_error_too_large">This file is too large for the in-app editor. Open it with another app instead.</string>
 	<string name="files_error_binary">This looks like a binary file. Open it with another app instead.</string>
+
 
 	<!-- Notifications and the foreground service. -->
 	<string name="notif_channel_progress">Assistant replies</string>
@@ -688,6 +702,7 @@
 	<string name="notif_ready_body">The reply is ready.</string>
 	<string name="notif_replies_in_progress">%1$d replies in progress</string>
 	<string name="notif_replies_running">%1$d replies running</string>
+
 
 	<!-- Settings: status and error text produced by the view model. -->
 	<string name="settings_status_host_keys_forgotten">Pinned host keys forgotten. The next connection to each host will pin a new key.</string>
@@ -715,6 +730,7 @@
 	<string name="settings_error_import_failed">Import failed: %1$s</string>
 	<string name="settings_status_undo_staged">Previous data staged. Restart the app to undo the last import.</string>
 	<string name="settings_status_no_undo">No previous import is available to undo.</string>
+
 
 	<!-- Chat: error text produced by the view model. -->
 	<string name="chat_error_no_vision">The model in use cannot read images. Pick one that does, from the title bar.</string>
@@ -765,6 +781,7 @@
 	<string name="chat_error_workspace_open_failed">The workspace for this conversation could not be opened, so file tools are unavailable: %1$s</string>
 	<string name="workspace_error_delete_conversations_first">This workspace still has conversations. Delete them first.</string>
 
+
 	<!-- Chat: context gauge, model picker and the wire sheet. -->
 	<string name="context_gauge_compact_again">Compact again</string>
 	<string name="context_gauge_view_summary">View summary</string>
@@ -788,6 +805,7 @@
 		<item quantity="other">%1$d rounds · content · reasoning · tool_calls</item>
 	</plurals>
 
+
 	<!-- Chat: the usage line. -->
 	<string name="usage_out">out</string>
 	<string name="usage_in">in</string>
@@ -803,6 +821,7 @@
 	<string name="usage_billed_full_rate">billed at full rate</string>
 	<string name="usage_completion_tokens">completion tokens</string>
 	<string name="usage_reasoning_tokens">reasoning tokens</string>
+
 	<!-- The chat menu's media actions and their four dialogs. They were written
 	     in English inside the composables, so a Chinese UI offered four English
 	     menu items that opened four English dialogs. -->
@@ -839,5 +858,23 @@
 	<string name="common_done">Done</string>
 	<string name="agents_prompt_import_action">Import</string>
 	<string name="agents_prompt_write_action">Write</string>
-	<string name="agents_prompt_edit_action">Edit</string>	<string name="chat_branch_previous">Previous reply</string>
-	<string name="chat_branch_next">Next reply</string></resources>
+	<string name="agents_prompt_edit_action">Edit</string>
+	<string name="chat_branch_previous">Previous reply</string>
+	<string name="chat_branch_next">Next reply</string>
+	<!-- Model capabilities: what a model is for, inferred from its id and
+	     correctable by the user, because a provider's list is everything the
+	     account can call rather than a list of chat models. -->
+	<string name="model_capability_text">Text</string>
+	<string name="model_capability_image">Image</string>
+	<string name="model_capability_video">Video</string>
+	<string name="model_capability_audio">Audio</string>
+	<string name="model_capability_tools">Tools</string>
+	<string name="model_picker_not_chat">Not a chat model</string>
+	<string name="model_picker_show_other">Show %1$d model(s) not offered for chat</string>
+	<string name="model_picker_hide_other">Hide the %1$d model(s) not offered for chat</string>
+	<string name="model_picker_other_hint">Folded away because the name says they are for images, video or speech. Tap a label to correct one.</string>
+	<string name="model_picker_edit_tags">Edit model tags</string>
+	<string name="model_picker_tag_hint">These replace the guess made from the model name. A model without Text is folded out of the chat list.</string>
+	<string name="model_picker_tag_clear">Clear tags</string>
+	<string name="chat_error_not_a_chat_model">It looks like this model is not for chatting. You can correct its tag in the model list, or pick another model.</string>
+</resources>
