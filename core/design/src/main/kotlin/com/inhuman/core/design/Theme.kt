@@ -51,6 +51,10 @@ private val DarkScheme = darkColorScheme(
 	surfaceContainer = Ink850,
 	surfaceContainerHigh = Ink800,
 	surfaceContainerHighest = Ink700,
+	// A hairline colour, not a text colour: Ink700 on Ink850 is about 1.3:1.
+	// Secondary text and glyphs use `onSurfaceVariant` (Ink300, about 7:1).
+	// Nothing should hand `outline` to a `Text(color = ...)` -- an audit found
+	// twelve places that did, and placeholders at 1.3:1 read as disabled.
 	outline = Ink700,
 	outlineVariant = Ink700,
 	inverseSurface = Ink50,
@@ -92,6 +96,8 @@ private val LightScheme = lightColorScheme(
 	surfaceContainer = Paper200,
 	surfaceContainerHigh = Paper300,
 	surfaceContainerHighest = Paper300,
+	// Hairline only: Paper300 on Paper100 is about 1.3:1. `onSurfaceVariant` is
+	// the secondary text colour (see the note in the dark scheme).
 	outline = Paper300,
 	outlineVariant = Paper300,
 	inverseSurface = PaperInk,

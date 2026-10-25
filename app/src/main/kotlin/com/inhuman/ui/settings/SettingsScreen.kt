@@ -1023,7 +1023,7 @@ private fun ProviderRow(
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		StatusDot(
-			if (hasKey) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline,
+			if (hasKey) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant,
 			size = 7.dp,
 		)
 		Spacer(Modifier.width(12.dp))

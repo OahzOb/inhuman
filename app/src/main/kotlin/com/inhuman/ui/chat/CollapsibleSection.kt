@@ -159,7 +159,7 @@ fun CollapsibleSection(
 				Text(
 					text = it,
 					style = MaterialTheme.typography.labelLarge,
-					color = MaterialTheme.colorScheme.outline,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 			}
 		}

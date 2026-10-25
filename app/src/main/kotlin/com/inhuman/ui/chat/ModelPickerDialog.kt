@@ -206,7 +206,7 @@ fun ModelPickerDialog(
 					Text(
 						text = stringResource(R.string.model_picker_provider_hint),
 						style = MaterialTheme.typography.labelLarge,
-						color = MaterialTheme.colorScheme.outline,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
 					HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 				}
@@ -295,7 +295,7 @@ fun ModelPickerDialog(
 							Text(
 								text = "This model reports no effort levels, so the provider decides.",
 								style = MaterialTheme.typography.labelLarge,
-								color = MaterialTheme.colorScheme.outline,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
 							)
 						} else {
 							// Exactly what the model advertises, in its order.

@@ -122,7 +122,7 @@ fun LongTextField(
 				Text(
 					text = placeholder,
 					style = MaterialTheme.typography.bodyMedium,
-					color = MaterialTheme.colorScheme.outline,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 			} else {
 				Text(
@@ -157,14 +157,14 @@ fun LongTextField(
 					Text(
 						text = placeholder,
 						style = MaterialTheme.typography.bodyMedium,
-						color = MaterialTheme.colorScheme.outline,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
 				},
 			)
 			Text(
 				text = "${value.length} characters",
 				style = MaterialTheme.typography.labelLarge,
-				color = MaterialTheme.colorScheme.outline,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 		}
 	}

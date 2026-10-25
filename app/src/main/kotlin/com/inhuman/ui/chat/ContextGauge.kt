@@ -265,7 +265,7 @@ private fun Detail(text: String, faint: Boolean = false) {
 		text = text,
 		style = MaterialTheme.typography.labelMedium,
 		color = if (faint) {
-			MaterialTheme.colorScheme.outline
+			MaterialTheme.colorScheme.onSurfaceVariant
 		} else {
 			MaterialTheme.colorScheme.onSurfaceVariant
 		},

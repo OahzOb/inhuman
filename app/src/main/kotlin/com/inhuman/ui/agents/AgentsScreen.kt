@@ -448,7 +448,7 @@ private fun AgentEditor(
 			Text(
 				text = stringResource(R.string.agents_prompt_every_turn),
 				style = MaterialTheme.typography.labelLarge,
-				color = MaterialTheme.colorScheme.outline,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
 				modifier = Modifier.weight(1f),
 			)
 			// The full request, not just the prompt: the model, the thinking
@@ -534,7 +534,7 @@ private fun AgentEditor(
 			Text(
 				text = stringResource(R.string.agents_thinking_hint),
 				style = MaterialTheme.typography.labelLarge,
-				color = MaterialTheme.colorScheme.outline,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 		}
 		FlowRowCompat {
@@ -574,7 +574,7 @@ private fun AgentEditor(
 			Text(
 				text = stringResource(R.string.agents_no_effort),
 				style = MaterialTheme.typography.labelLarge,
-				color = MaterialTheme.colorScheme.outline,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 		}
 
@@ -632,13 +632,13 @@ private fun AgentEditor(
 			Text(
 				text = stringResource(R.string.agents_includes_future),
 				style = MaterialTheme.typography.labelLarge,
-				color = MaterialTheme.colorScheme.outline,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 			if (sshToolEnabled) {
 				Text(
 					text = stringResource(R.string.agents_ssh_excluded),
 					style = MaterialTheme.typography.labelLarge,
-					color = MaterialTheme.colorScheme.outline,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 			}
 		}
@@ -760,7 +760,7 @@ private fun AgentEditor(
 			Text(
 				text = stringResource(R.string.agents_help_body),
 				style = MaterialTheme.typography.labelLarge,
-				color = MaterialTheme.colorScheme.outline,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 		}
 	}
@@ -956,7 +956,7 @@ private fun PromptPreview(
 								color = if (available) {
 									MaterialTheme.colorScheme.onSurface
 								} else {
-									MaterialTheme.colorScheme.outline
+									MaterialTheme.colorScheme.onSurfaceVariant
 								},
 							)
 						}
@@ -967,7 +967,7 @@ private fun PromptPreview(
 					Text(
 						text = stringResource(R.string.agents_preview_includes_future),
 						style = MaterialTheme.typography.labelLarge,
-						color = MaterialTheme.colorScheme.outline,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
 				}
 			}
@@ -1017,7 +1017,7 @@ private fun AssistantRulesSection(
 		Text(
 			text = stringResource(R.string.agents_rules_body),
 			style = MaterialTheme.typography.labelLarge,
-			color = MaterialTheme.colorScheme.outline,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 
 		for (entry in ToolCatalog.visible(sshToolEnabled)) {

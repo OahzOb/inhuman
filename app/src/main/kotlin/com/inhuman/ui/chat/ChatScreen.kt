@@ -2563,7 +2563,7 @@ private fun ToolCallLine(call: ToolCallUi) {
 	}
 	val statusColor = when (call.state) {
 		ToolCallUi.State.Failed -> MaterialTheme.colorScheme.error
-		ToolCallUi.State.Declined -> MaterialTheme.colorScheme.outline
+		ToolCallUi.State.Declined -> MaterialTheme.colorScheme.onSurfaceVariant
 		else -> MaterialTheme.colorScheme.onSurfaceVariant
 	}
 
