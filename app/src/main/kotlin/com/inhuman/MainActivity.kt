@@ -426,6 +426,10 @@ private fun InhumanRoot(
 				},
 				onOpenSettings = { showSettings = true },
 				onOpenFiles = { showFiles = true },
+				onOpenConversation = { newId ->
+					openConversationId = newId
+					chatFocusMessageId = null
+				},
 				onDialogVisibilityChange = { chatDialogOpen = it },
 			)
 		}

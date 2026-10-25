@@ -383,7 +383,12 @@ fun ConversationsScreen(
 				}
 			},
 			confirmButton = {
-				TextButton(onClick = { viewModel.delete(conversation) }) {
+				TextButton(
+					// The dialog is still on screen while the delete runs, so
+					// the button has to stop accepting taps for it.
+					enabled = conversation.id !in state.deletingIds,
+					onClick = { viewModel.delete(conversation) },
+				) {
 					Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
 				}
 			},

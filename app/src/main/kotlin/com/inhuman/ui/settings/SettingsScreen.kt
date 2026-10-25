@@ -17,9 +17,12 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -53,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -72,7 +76,11 @@ import com.inhuman.core.design.SectionHeading
 import com.inhuman.core.design.StatusDot
 import com.inhuman.core.design.WorkbenchSwitch
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.core.ai.provider.KnownProvider
+import com.inhuman.core.ai.provider.ProviderCatalog
+import com.inhuman.core.ai.provider.ProviderFactory
 import com.inhuman.diagnostics.AppDiagnostics
+import com.inhuman.updates.UpdateInfo
 import com.inhuman.ui.chat.ProviderDraft
 import com.inhuman.ui.chat.SettingsViewModel
 import java.text.DateFormat
@@ -104,6 +112,7 @@ fun SettingsScreen(
 	var showUndoConfirm by remember { mutableStateOf(false) }
 	var backupPassphrase by remember { mutableStateOf("") }
 	var backupPassphraseConfirm by remember { mutableStateOf("") }
+	var showProviderPicker by remember { mutableStateOf(false) }
 
 	val exportLauncher = rememberLauncherForActivityResult(
 		ActivityResultContracts.CreateDocument("application/octet-stream"),
@@ -157,6 +166,10 @@ fun SettingsScreen(
 			modifier = Modifier
 				.fillMaxSize()
 				.padding(inner)
+				// Settings is edge-to-edge; adjustResize does not shrink it.
+				// Without this the IME covers the URL field at the bottom of
+				// Local (found on the phone, reproduced on the emulator).
+				.imePadding()
 				.verticalScroll(rememberScrollState())
 				.padding(horizontal = comfortableGutter(), vertical = 12.dp),
 			horizontalAlignment = Alignment.CenterHorizontally,
@@ -185,7 +198,7 @@ fun SettingsScreen(
 					)
 					Hairline()
 				}
-				TextButton(onClick = viewModel::addProvider) {
+				TextButton(onClick = { showProviderPicker = true }) {
 					Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
 					Spacer(Modifier.width(6.dp))
 					Text(stringResource(R.string.settings_add_provider), style = MaterialTheme.typography.labelLarge)
@@ -624,7 +637,35 @@ fun SettingsScreen(
 				title = stringResource(R.string.settings_diagnostics_title),
 				summary = stringResource(R.string.settings_diagnostics_summary),
 			) {
-				DiagnosticsSection()
+				DiagnosticsSection(
+					uploading = state.logUploading,
+					status = state.logUploadStatus,
+					statusIsError = state.logUploadStatusIsError,
+					onUploadLog = viewModel::uploadLog,
+				)
+			}
+
+			SettingsFold(
+				code = stringResource(R.string.settings_section_local),
+				title = stringResource(R.string.settings_local_title),
+				summary = stringResource(R.string.settings_local_summary),
+			) {
+				LocalNetworkSection(
+					serverUrl = state.localServerUrl,
+					currentVersionName = state.currentVersionName,
+					currentVersionCode = state.currentVersionCode,
+					checking = state.updateChecking,
+					downloading = state.updateDownloading,
+					progress = state.updateProgress,
+					info = state.updateInfo,
+					readyToInstall = state.updateReadyToInstall,
+					status = state.updateStatus,
+					statusIsError = state.updateStatusIsError,
+					onServerUrlChange = viewModel::onLocalServerUrlChange,
+					onCheck = viewModel::checkForUpdates,
+					onDownload = viewModel::downloadUpdate,
+					onInstall = viewModel::installUpdate,
+				)
 			}
 
 			SettingsFold(
@@ -886,6 +927,16 @@ fun SettingsScreen(
 		)
 	}
 
+	if (showProviderPicker) {
+		ProviderPickerDialog(
+			onPick = { provider ->
+				showProviderPicker = false
+				viewModel.addProvider(provider)
+			},
+			onDismiss = { showProviderPicker = false },
+		)
+	}
+
 	state.editingProvider?.let { draft ->
 		ProviderEditorDialog(
 			draft = draft,
@@ -899,6 +950,63 @@ fun SettingsScreen(
 }
 
 private enum class BackupMode { Export, Import }
+
+@Composable
+private fun ProviderPickerDialog(
+	onPick: (KnownProvider?) -> Unit,
+	onDismiss: () -> Unit,
+) {
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text(stringResource(R.string.settings_choose_provider)) },
+		text = {
+			LazyColumn(modifier = Modifier.heightIn(max = 480.dp)) {
+				item {
+					TextButton(
+						onClick = { onPick(null) },
+						modifier = Modifier.fillMaxWidth(),
+					) {
+						Column(modifier = Modifier.fillMaxWidth()) {
+							Text(
+								stringResource(R.string.settings_custom_provider),
+								style = MaterialTheme.typography.bodyLarge,
+							)
+							Text(
+								stringResource(R.string.settings_custom_provider_detail),
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+							)
+						}
+					}
+				}
+				items(ProviderCatalog.known, key = { it.id }) { provider ->
+					TextButton(
+						onClick = { onPick(provider) },
+						modifier = Modifier.fillMaxWidth(),
+					) {
+						Column(modifier = Modifier.fillMaxWidth()) {
+							Text(
+								provider.name,
+								style = MaterialTheme.typography.bodyLarge,
+							)
+							Text(
+								stringResource(R.string.settings_known_provider_detail),
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+							)
+						}
+					}
+				}
+			}
+		},
+		confirmButton = {},
+		dismissButton = {
+			TextButton(onClick = onDismiss) {
+				Text(stringResource(R.string.common_cancel))
+			}
+		},
+	)
+}
 
 @Composable
 private fun ProviderRow(
@@ -990,9 +1098,30 @@ private fun ProviderEditorDialog(
 					label = { Text(stringResource(R.string.common_name)) },
 					singleLine = true,
 				)
-				FlowRowCompat {
-					FilterChip(
-						selected = draft.kind == ProviderKinds.DEEPSEEK,
+				if (draft.isPreset) {
+					Text(
+						stringResource(R.string.settings_provider_preset_summary),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					Text(
+						stringResource(R.string.settings_provider_endpoint, draft.baseUrl),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					Text(
+						stringResource(R.string.settings_provider_login_note),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					TextButton(onClick = { onUpdate { it.copy(isPreset = false) } }) {
+						Text(stringResource(R.string.settings_provider_customize))
+					}
+				}
+				if (!draft.isPreset) {
+					FlowRowCompat {
+						FilterChip(
+							selected = draft.kind == ProviderKinds.DEEPSEEK,
 						onClick = {
 							onUpdate {
 								it.copy(
@@ -1005,7 +1134,8 @@ private fun ProviderEditorDialog(
 						label = { Text("DeepSeek") },
 					)
 					FilterChip(
-						selected = draft.kind == ProviderKinds.OPENAI_COMPATIBLE,
+						selected = draft.kind == ProviderKinds.OPENAI_COMPATIBLE ||
+							draft.kind == ProviderFactory.OPENAI_CHAT,
 						onClick = {
 							onUpdate {
 								it.copy(
@@ -1017,6 +1147,36 @@ private fun ProviderEditorDialog(
 						},
 						label = { Text("OpenAI-compatible") },
 					)
+					FilterChip(
+						selected = draft.kind == ProviderKinds.ANTHROPIC_MESSAGES,
+						onClick = {
+							onUpdate {
+								it.copy(
+									kind = ProviderKinds.ANTHROPIC_MESSAGES,
+									baseUrl = if (it.isNew) "https://api.anthropic.com" else it.baseUrl,
+									reasoningMode = ProviderReasoning.NONE,
+								)
+							}
+						},
+						label = { Text("Anthropic Messages") },
+					)
+					FilterChip(
+						selected = draft.kind == ProviderKinds.GOOGLE_GENERATIVE_AI,
+						onClick = {
+							onUpdate {
+								it.copy(
+									kind = ProviderKinds.GOOGLE_GENERATIVE_AI,
+									baseUrl = if (it.isNew) {
+										"https://generativelanguage.googleapis.com/v1beta"
+									} else {
+										it.baseUrl
+									},
+									reasoningMode = ProviderReasoning.NONE,
+								)
+							}
+						},
+						label = { Text("Google Gemini") },
+					)
 				}
 				OutlinedTextField(
 					value = draft.baseUrl,
@@ -1026,6 +1186,7 @@ private fun ProviderEditorDialog(
 					supportingText = { Text(stringResource(R.string.settings_base_url_support)) },
 					singleLine = true,
 				)
+				}
 				OutlinedTextField(
 					value = draft.keyInput,
 					onValueChange = { value ->
@@ -1045,47 +1206,61 @@ private fun ProviderEditorDialog(
 					style = MaterialTheme.typography.labelSmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
-				Text(stringResource(R.string.settings_reasoning_fields), style = MaterialTheme.typography.labelLarge)
-				FlowRowCompat {
-					FilterChip(
-						selected = draft.reasoningMode == ProviderReasoning.NONE,
-						onClick = { onUpdate { it.copy(reasoningMode = ProviderReasoning.NONE) } },
-						label = { Text(stringResource(R.string.settings_reasoning_none)) },
-					)
-					FilterChip(
-						selected = draft.reasoningMode == ProviderReasoning.EFFORT,
-						onClick = { onUpdate { it.copy(reasoningMode = ProviderReasoning.EFFORT) } },
-						label = { Text("reasoning_effort") },
-					)
-					FilterChip(
-						selected = draft.reasoningMode == ProviderReasoning.DEEPSEEK,
-						onClick = { onUpdate { it.copy(reasoningMode = ProviderReasoning.DEEPSEEK) } },
-						label = { Text("DeepSeek") },
-					)
-				}
-				Row(
-					modifier = Modifier.fillMaxWidth(),
-					horizontalArrangement = Arrangement.SpaceBetween,
-					verticalAlignment = Alignment.CenterVertically,
+				if (!draft.isPreset &&
+					(draft.kind == ProviderKinds.OPENAI_COMPATIBLE ||
+						draft.kind == ProviderKinds.DEEPSEEK ||
+						draft.kind == ProviderFactory.OPENAI_CHAT)
 				) {
-					Text(stringResource(R.string.settings_request_stream_usage), style = MaterialTheme.typography.bodyMedium)
-					WorkbenchSwitch(
-						checked = draft.includeStreamUsage,
-						onCheckedChange = { checked ->
-							onUpdate { it.copy(includeStreamUsage = checked) }
+					Text(
+						stringResource(R.string.settings_reasoning_fields),
+						style = MaterialTheme.typography.labelLarge,
+					)
+					FlowRowCompat {
+						FilterChip(
+							selected = draft.reasoningMode == ProviderReasoning.NONE,
+							onClick = { onUpdate { it.copy(reasoningMode = ProviderReasoning.NONE) } },
+							label = { Text(stringResource(R.string.settings_reasoning_none)) },
+						)
+						FilterChip(
+							selected = draft.reasoningMode == ProviderReasoning.EFFORT,
+							onClick = { onUpdate { it.copy(reasoningMode = ProviderReasoning.EFFORT) } },
+							label = { Text("reasoning_effort") },
+						)
+						FilterChip(
+							selected = draft.reasoningMode == ProviderReasoning.DEEPSEEK,
+							onClick = { onUpdate { it.copy(reasoningMode = ProviderReasoning.DEEPSEEK) } },
+							label = { Text("DeepSeek") },
+						)
+					}
+					Row(
+						modifier = Modifier.fillMaxWidth(),
+						horizontalArrangement = Arrangement.SpaceBetween,
+						verticalAlignment = Alignment.CenterVertically,
+					) {
+						Text(
+							stringResource(R.string.settings_request_stream_usage),
+							style = MaterialTheme.typography.bodyMedium,
+						)
+						WorkbenchSwitch(
+							checked = draft.includeStreamUsage,
+							onCheckedChange = { checked ->
+								onUpdate { it.copy(includeStreamUsage = checked) }
+							},
+						)
+					}
+				}
+				if (!draft.isPreset) {
+					OutlinedTextField(
+						value = draft.manualModels,
+						onValueChange = { value -> onUpdate { it.copy(manualModels = value) } },
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text(stringResource(R.string.settings_fallback_models)) },
+						supportingText = {
+							Text(stringResource(R.string.settings_fallback_models_support))
 						},
+						minLines = 2,
 					)
 				}
-				OutlinedTextField(
-					value = draft.manualModels,
-					onValueChange = { value -> onUpdate { it.copy(manualModels = value) } },
-					modifier = Modifier.fillMaxWidth(),
-					label = { Text(stringResource(R.string.settings_fallback_models)) },
-					supportingText = {
-						Text(stringResource(R.string.settings_fallback_models_support))
-					},
-					minLines = 2,
-				)
 				draft.status?.let { status ->
 					Text(
 						text = status,
@@ -1206,7 +1381,136 @@ private fun SettingsFold(
 }
 
 @Composable
-private fun DiagnosticsSection() {
+private fun LocalNetworkSection(
+	serverUrl: String,
+	currentVersionName: String,
+	currentVersionCode: Long,
+	checking: Boolean,
+	downloading: Boolean,
+	progress: Int?,
+	info: UpdateInfo?,
+	readyToInstall: Boolean,
+	status: String?,
+	statusIsError: Boolean,
+	onServerUrlChange: (String) -> Unit,
+	onCheck: () -> Unit,
+	onDownload: () -> Unit,
+	onInstall: () -> Unit,
+) {
+	val focus = LocalFocusManager.current
+	Column(
+		modifier = Modifier
+			.widthIn(max = Layout.ReadableMeasure)
+			.fillMaxWidth(),
+		verticalArrangement = Arrangement.spacedBy(8.dp),
+	) {
+		Text(
+			text = stringResource(R.string.settings_local_body),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		OutlinedTextField(
+			value = serverUrl,
+			onValueChange = onServerUrlChange,
+			label = { Text(stringResource(R.string.settings_local_url)) },
+			placeholder = { Text(stringResource(R.string.settings_local_url_hint)) },
+			singleLine = true,
+			modifier = Modifier.fillMaxWidth(),
+		)
+		Text(
+			text = stringResource(
+				R.string.settings_update_current,
+				currentVersionName,
+				currentVersionCode.toString(),
+			),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+
+		if (info != null) {
+			if (info.notes.isNotBlank()) {
+				Text(
+					text = stringResource(R.string.settings_update_notes),
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Text(
+					text = info.notes,
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+		}
+
+		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+			TextButton(
+				onClick = {
+					focus.clearFocus()
+					onCheck()
+				},
+				enabled = !checking && !downloading,
+			) {
+				Text(
+					if (checking) {
+						stringResource(R.string.settings_checking)
+					} else {
+						stringResource(R.string.settings_update_check)
+					},
+				)
+			}
+			if (info != null && !readyToInstall) {
+				Button(
+					onClick = {
+						focus.clearFocus()
+						onDownload()
+					},
+					enabled = !downloading,
+				) {
+					Text(
+						if (downloading) {
+							stringResource(
+								R.string.settings_update_downloading,
+								progress ?: 0,
+							)
+						} else {
+							stringResource(R.string.settings_update_download)
+						},
+					)
+				}
+			}
+			if (readyToInstall) {
+				Button(
+					onClick = {
+						focus.clearFocus()
+						onInstall()
+					},
+				) {
+					Text(stringResource(R.string.settings_update_install))
+				}
+			}
+		}
+
+		status?.let {
+			Text(
+				text = it,
+				style = MaterialTheme.typography.bodySmall,
+				color = if (statusIsError) {
+					MaterialTheme.colorScheme.error
+				} else {
+					MaterialTheme.colorScheme.primary
+				},
+			)
+		}
+	}
+}
+
+@Composable
+private fun DiagnosticsSection(
+	uploading: Boolean,
+	status: String?,
+	statusIsError: Boolean,
+	onUploadLog: () -> Unit,
+) {
 	val context = LocalContext.current
 	var bytes by remember { mutableStateOf(AppDiagnostics.sizeBytes()) }
 	var confirmingClear by remember { mutableStateOf(false) }
@@ -1247,11 +1551,34 @@ private fun DiagnosticsSection() {
 				Text(shareLog)
 			}
 			TextButton(
+				onClick = onUploadLog,
+				enabled = bytes > 0 && !uploading,
+			) {
+				Text(
+					if (uploading) {
+						stringResource(R.string.settings_log_uploading)
+					} else {
+						stringResource(R.string.settings_log_upload)
+					},
+				)
+			}
+			TextButton(
 				onClick = { confirmingClear = true },
 				enabled = bytes > 0,
 			) {
 				Text(stringResource(R.string.settings_clear))
 			}
+		}
+		status?.let {
+			Text(
+				text = it,
+				style = MaterialTheme.typography.bodySmall,
+				color = if (statusIsError) {
+					MaterialTheme.colorScheme.error
+				} else {
+					MaterialTheme.colorScheme.primary
+				},
+			)
 		}
 	}
 

@@ -7,7 +7,9 @@ import androidx.lifecycle.viewModelScope
 import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.common.diag.Diag
-import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
+import com.inhuman.core.ai.provider.KnownProvider
+import com.inhuman.core.ai.provider.ProviderCatalog
+import com.inhuman.core.ai.provider.ProviderFactory
 import com.inhuman.core.ai.ssh.SshLimits
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.BackupPreview
@@ -18,13 +20,31 @@ import com.inhuman.core.data.db.ProviderKinds
 import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.db.ProviderReasoning
 import com.inhuman.core.data.secret.SecureStore
+import com.inhuman.diagnostics.AppDiagnostics
+import com.inhuman.updates.UpdateInfo
+import com.inhuman.updates.UpdateInstaller
+import com.inhuman.updates.isNewerVersion
+import com.inhuman.updates.logUploadUrl
+import com.inhuman.updates.normalizeServerUrl
+import com.inhuman.updates.parseUpdateInfo
+import com.inhuman.updates.updateManifestUrl
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
+import java.net.ConnectException
+import java.net.SocketTimeoutException
 import java.net.URI
+import java.net.UnknownHostException
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 /** One host key the SSH client pinned on first use. */
 data class KnownHost(val host: String, val fingerprint: String)
@@ -42,6 +62,8 @@ data class ProviderDraft(
 	val manualModels: String,
 	val keyInput: String,
 	val hasKey: Boolean,
+	/** Known provider: endpoint/kind come from the catalog, so only the key is asked. */
+	val isPreset: Boolean = false,
 	val testing: Boolean = false,
 	val status: String? = null,
 	val statusIsError: Boolean = false,
@@ -113,6 +135,21 @@ data class SettingsUiState(
 	val knownHosts: List<KnownHost> = emptyList(),
 	/** Result of the last forget action, shown in the host-key dialog. */
 	val knownHostsStatus: String? = null,
+	/** LAN/Tailscale base URL used by both the updater and the log upload. */
+	val localServerUrl: String = "",
+	val currentVersionName: String = "",
+	val currentVersionCode: Long = 0,
+	val updateChecking: Boolean = false,
+	val updateDownloading: Boolean = false,
+	/** 0..100 while downloading, null otherwise. */
+	val updateProgress: Int? = null,
+	val updateInfo: UpdateInfo? = null,
+	val updateStatus: String? = null,
+	val updateStatusIsError: Boolean = false,
+	val updateReadyToInstall: Boolean = false,
+	val logUploading: Boolean = false,
+	val logUploadStatus: String? = null,
+	val logUploadStatusIsError: Boolean = false,
 )
 
 /**
@@ -141,7 +178,23 @@ class SettingsViewModel(
 	private var pendingImportUri: Uri? = null
 	private var pendingImportPassphrase: CharArray? = null
 
+	/**
+	 * Used only by the updater and the log upload. Both are explicit user
+	 * actions; neither is available to the agent and neither is retried in the
+	 * background.
+	 */
+	private val http = OkHttpClient.Builder()
+		.connectTimeout(8, TimeUnit.SECONDS)
+		.readTimeout(30, TimeUnit.SECONDS)
+		.build()
+
+	/** The verified download waiting for the Install button. */
+	private var downloadedApk: File? = null
+
 	init {
+		val packageInfo = runCatching {
+			context.packageManager.getPackageInfo(context.packageName, 0)
+		}.getOrNull()
 		_state.value = SettingsUiState(
 			demoMode = secure.get(SecureStore.KEY_DEMO_MODE) == "1",
 			toolRoundLimit = readToolRoundLimit(),
@@ -163,6 +216,9 @@ class SettingsViewModel(
 			hasWebDeepSeekKey = secure.hasUsable(SecureStore.KEY_WEB_DEEPSEEK_API_KEY),
 			hasWebExaKey = secure.hasUsable(SecureStore.KEY_WEB_EXA_API_KEY),
 			backupCanUndo = backup.hasUndo(),
+			localServerUrl = secure.get(SecureStore.KEY_LOCAL_SERVER_URL).orEmpty(),
+			currentVersionName = packageInfo?.versionName ?: "?",
+			currentVersionCode = packageInfo?.longVersionCode ?: 0L,
 		)
 		viewModelScope.launch {
 			agents.observeProviders().collect { list ->
@@ -220,6 +276,310 @@ class SettingsViewModel(
 				context.getString(R.string.settings_error_host_keys_failed)
 			},
 		)
+	}
+
+	// ## Local update / log server
+	//
+	// Both actions are explicit user gestures. There is no background polling
+	// and no automatic upload, and the agent has no path to either URL. The
+	// URL is kept in SecureStore for the same reason the other app-wide
+	// settings are: there is no second settings store, and the value is small.
+
+	fun onLocalServerUrlChange(value: String) {
+		_state.value = _state.value.copy(localServerUrl = value)
+	}
+
+	/**
+	 * The normalized base URL, persisted the first time an action uses it.
+	 *
+	 * Returning null means the field is not a usable URL. The caller decides
+	 * which status line to show.
+	 */
+	private fun requireServerUrl(): String? {
+		val normalized = normalizeServerUrl(_state.value.localServerUrl) ?: return null
+		// Write on every action, not only when the trailing slash changed. The
+		// previous version persisted only when normalization altered the text,
+		// so a perfectly typed URL was used for that check and then forgotten on
+		// the next process start.
+		secure.put(SecureStore.KEY_LOCAL_SERVER_URL, normalized)
+		if (normalized != _state.value.localServerUrl) {
+			_state.value = _state.value.copy(localServerUrl = normalized)
+		}
+		return normalized
+	}
+
+	fun checkForUpdates() {
+		if (_state.value.updateChecking) return
+		val base = requireServerUrl()
+		if (base == null) {
+			_state.value = _state.value.copy(
+				updateStatus = context.getString(R.string.settings_local_invalid),
+				updateStatusIsError = true,
+			)
+			return
+		}
+		Diag.i("update", "check requested current=${_state.value.currentVersionCode}")
+		_state.value = _state.value.copy(
+			updateChecking = true,
+			updateStatus = null,
+			updateStatusIsError = false,
+			updateInfo = null,
+			updateReadyToInstall = false,
+			updateProgress = null,
+		)
+		downloadedApk = null
+		viewModelScope.launch {
+			val result = withContext(Dispatchers.IO) { runCatching { fetchUpdate(base) } }
+			result.onSuccess { info ->
+				val newer = isNewerVersion(info.versionCode, _state.value.currentVersionCode)
+				Diag.i(
+					"update",
+					"check ok remote=${info.versionCode} current=${_state.value.currentVersionCode} newer=$newer",
+				)
+				_state.value = _state.value.copy(
+					updateChecking = false,
+					updateInfo = info.takeIf { newer },
+					updateStatus = if (newer) {
+						context.getString(R.string.settings_update_available, info.versionName)
+					} else {
+						context.getString(R.string.settings_update_uptodate)
+					},
+					updateStatusIsError = false,
+				)
+			}.onFailure { failure ->
+				Diag.w("update", "check failed ${failure::class.simpleName}")
+				_state.value = _state.value.copy(
+					updateChecking = false,
+					updateStatus = context.getString(
+						R.string.settings_update_failed,
+						networkFailureMessage(failure),
+					),
+					updateStatusIsError = true,
+				)
+			}
+		}
+	}
+
+	/**
+	 * A network failure as something a person can act on.
+	 *
+	 * `SocketTimeoutException` is what a stopped local server looked like from
+	 * the pad over Tailscale: the app waited the whole eight-second connect
+	 * timeout and then showed the exception class. The class stays in the
+	 * diagnostic line; the status line now says which thing to check.
+	 */
+	private fun networkFailureMessage(failure: Throwable): String = when (failure) {
+		is SocketTimeoutException -> context.getString(R.string.settings_update_timeout)
+		is ConnectException -> context.getString(R.string.settings_update_unreachable)
+		is UnknownHostException -> context.getString(R.string.settings_update_unreachable)
+		else -> failure.message ?: failure::class.simpleName ?: "unknown error"
+	}
+
+	private fun fetchUpdate(base: String): UpdateInfo {
+		val request = Request.Builder()
+			.url(updateManifestUrl(base))
+			.header("Accept", "application/json")
+			.build()
+		http.newCall(request).execute().use { response ->
+			if (!response.isSuccessful) error("HTTP ${response.code}")
+			val text = response.body.string()
+			return parseUpdateInfo(text, base) ?: error("invalid update.json")
+		}
+	}
+
+	fun downloadUpdate() {
+		val info = _state.value.updateInfo ?: return
+		if (_state.value.updateDownloading) return
+		Diag.i("update", "download requested version=${info.versionCode}")
+		_state.value = _state.value.copy(
+			updateDownloading = true,
+			updateProgress = 0,
+			updateStatus = context.getString(R.string.settings_update_downloading, 0),
+			updateStatusIsError = false,
+			updateReadyToInstall = false,
+		)
+		downloadedApk = null
+		viewModelScope.launch {
+			val result = withContext(Dispatchers.IO) { runCatching { download(info) } }
+			result.onSuccess { apk ->
+				downloadedApk = apk
+				_state.value = _state.value.copy(
+					updateDownloading = false,
+					updateProgress = 100,
+					updateReadyToInstall = true,
+					updateStatus = context.getString(R.string.settings_update_ready),
+					updateStatusIsError = false,
+				)
+			}.onFailure { failure ->
+				Diag.w("update", "download failed ${failure::class.simpleName}")
+				_state.value = _state.value.copy(
+					updateDownloading = false,
+					updateProgress = null,
+					updateReadyToInstall = false,
+					updateStatus = context.getString(
+						R.string.settings_update_failed,
+						networkFailureMessage(failure),
+					),
+					updateStatusIsError = true,
+				)
+			}
+		}
+	}
+
+	private fun download(info: UpdateInfo): File {
+		val dir = File(context.cacheDir, "updates").apply { mkdirs() }
+		dir.listFiles()?.forEach { runCatching { it.delete() } }
+		val target = File(dir, "inhuman-${info.versionCode}.apk")
+		val request = Request.Builder().url(info.apkUrl).build()
+		http.newCall(request).execute().use { response ->
+			if (!response.isSuccessful) error("HTTP ${response.code}")
+			val body = response.body
+			val total = body.contentLength()
+			body.byteStream().use { input ->
+				target.outputStream().use { output ->
+					val buffer = ByteArray(64 * 1024)
+					var written = 0L
+					var lastPercent = -1
+					while (true) {
+						val read = input.read(buffer)
+						if (read <= 0) break
+						output.write(buffer, 0, read)
+						written += read
+						if (total > 0) {
+							val percent = ((written * 100) / total).toInt().coerceIn(0, 100)
+							if (percent != lastPercent) {
+								lastPercent = percent
+								_state.value = _state.value.copy(
+									updateProgress = percent,
+									updateStatus = context.getString(
+										R.string.settings_update_downloading,
+										percent,
+									),
+								)
+							}
+						}
+					}
+				}
+			}
+		}
+		val actual = UpdateInstaller.sha256(target)
+		if (!actual.equals(info.sha256, ignoreCase = true)) {
+			target.delete()
+			error("SHA-256 mismatch")
+		}
+		val mismatch = UpdateInstaller.verify(context, target, info.versionCode)
+		if (mismatch != null) {
+			target.delete()
+			error(mismatch)
+		}
+		Diag.i("update", "download verified version=${info.versionCode} bytes=${target.length()}")
+		return target
+	}
+
+	fun installUpdate() {
+		val apk = downloadedApk ?: return
+		if (!UpdateInstaller.canInstall(context)) {
+			Diag.w("update", "install blocked: unknown sources disabled")
+			_state.value = _state.value.copy(
+				updateStatus = context.getString(R.string.settings_update_allow_install),
+				updateStatusIsError = true,
+			)
+			UpdateInstaller.openInstallPermission(context)
+			return
+		}
+		_state.value = _state.value.copy(
+			updateStatus = context.getString(R.string.settings_update_installing),
+			updateStatusIsError = false,
+		)
+		Diag.i("update", "install requested target=${_state.value.updateInfo?.versionCode}")
+		viewModelScope.launch {
+			// The PackageInstaller session copies the whole APK. Doing that on
+			// the main thread would freeze the settings screen for a release
+			// build of tens of megabytes.
+			val installed = withContext(Dispatchers.IO) {
+				UpdateInstaller.install(context, apk)
+			}
+			if (!installed) {
+				_state.value = _state.value.copy(
+					updateStatus = context.getString(
+						R.string.settings_update_failed,
+						"no package installer",
+					),
+					updateStatusIsError = true,
+				)
+			}
+		}
+	}
+
+	fun uploadLog() {
+		if (_state.value.logUploading) return
+		val base = requireServerUrl()
+		if (base == null) {
+			_state.value = _state.value.copy(
+				logUploadStatus = context.getString(R.string.settings_log_no_server),
+				logUploadStatusIsError = true,
+			)
+			return
+		}
+		if (AppDiagnostics.sizeBytes() <= 0) {
+			_state.value = _state.value.copy(
+				logUploadStatus = context.getString(R.string.settings_log_empty),
+				logUploadStatusIsError = true,
+			)
+			return
+		}
+		Diag.i("diag", "upload requested bytes=${AppDiagnostics.sizeBytes()}")
+		_state.value = _state.value.copy(
+			logUploading = true,
+			logUploadStatus = null,
+			logUploadStatusIsError = false,
+		)
+		viewModelScope.launch {
+			val result = withContext(Dispatchers.IO) {
+				runCatching {
+					val text = AppDiagnostics.readText()
+					if (text.isBlank()) error("log is empty")
+					postLog(base, text)
+				}
+			}
+			result.onSuccess { response ->
+				Diag.i("diag", "upload ok saved=$response")
+				_state.value = _state.value.copy(
+					logUploading = false,
+					logUploadStatus = context.getString(R.string.settings_log_uploaded, response),
+					logUploadStatusIsError = false,
+				)
+			}.onFailure { failure ->
+				Diag.w("diag", "upload failed ${failure::class.simpleName}")
+				_state.value = _state.value.copy(
+					logUploading = false,
+					logUploadStatus = context.getString(
+						R.string.settings_log_failed,
+						networkFailureMessage(failure),
+					),
+					logUploadStatusIsError = true,
+				)
+			}
+		}
+	}
+
+	private fun postLog(base: String, text: String): String {
+		val body = text.toRequestBody("text/plain; charset=utf-8".toMediaType())
+		val request = Request.Builder()
+			.url(logUploadUrl(base))
+			.post(body)
+			.header(
+				"X-Inhuman-Version",
+				"${_state.value.currentVersionName} (${_state.value.currentVersionCode})",
+			)
+			.build()
+		http.newCall(request).execute().use { response ->
+			val responseText = response.body.string()
+			if (!response.isSuccessful) {
+				error("HTTP ${response.code} ${responseText.take(200)}")
+			}
+			return responseText.ifBlank { "ok" }
+		}
 	}
 
 	private fun loadRules() {
@@ -387,12 +747,12 @@ class SettingsViewModel(
 
 	fun hasProviderKey(providerId: String): Boolean = agents.hasKey(providerId)
 
-	fun addProvider() {
+	fun addProvider(preset: KnownProvider? = null) {
 		val existing = _state.value.providers.map { it.name }.toSet()
-		var name = "OpenAI-compatible"
+		var name = preset?.name ?: "OpenAI-compatible"
 		var suffix = 2
 		while (name in existing) {
-			name = "OpenAI-compatible $suffix"
+			name = "${preset?.name ?: "OpenAI-compatible"} $suffix"
 			suffix += 1
 		}
 		_state.value = _state.value.copy(
@@ -401,19 +761,24 @@ class SettingsViewModel(
 				isNew = true,
 				isBuiltIn = false,
 				name = name,
-				kind = ProviderKinds.OPENAI_COMPATIBLE,
-				baseUrl = "https://api.openai.com/v1",
+				kind = preset?.kind ?: ProviderKinds.OPENAI_COMPATIBLE,
+				baseUrl = preset?.baseUrl ?: "https://api.openai.com/v1",
 				reasoningMode = ProviderReasoning.NONE,
 				includeStreamUsage = true,
-				manualModels = "",
+				manualModels = preset?.models?.joinToString("\n").orEmpty(),
 				keyInput = "",
 				hasKey = false,
+				isPreset = preset != null,
 			),
 		)
 	}
 
 	fun editProvider(profile: ProviderProfileEntity) {
 		val key = secure.get(agents.apiKeySlot(profile.id)).orEmpty()
+		val isPreset = ProviderCatalog.known.any {
+			it.kind == profile.kind &&
+				it.baseUrl.trimEnd('/') == profile.baseUrl.trimEnd('/')
+		}
 		_state.value = _state.value.copy(
 			editingProvider = ProviderDraft(
 				id = profile.id,
@@ -427,6 +792,7 @@ class SettingsViewModel(
 				manualModels = profile.manualModels,
 				keyInput = key,
 				hasKey = key.isNotBlank(),
+				isPreset = isPreset,
 			),
 		)
 	}
@@ -527,7 +893,8 @@ class SettingsViewModel(
 		}
 		viewModelScope.launch {
 			val result = runCatching {
-				DeepSeekProvider(
+				ProviderFactory.create(
+					kind = draft.kind,
 					apiKey = key,
 					baseUrl = draft.baseUrl.trim().trimEnd('/'),
 					id = draft.id,

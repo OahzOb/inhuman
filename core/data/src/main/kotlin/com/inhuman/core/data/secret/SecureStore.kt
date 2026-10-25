@@ -231,5 +231,14 @@ class SecureStore(
 		const val KEY_TOOL_ROUNDS = "tools.max_rounds"
 		const val KEY_TOOL_CALLS = "tools.max_calls"
 		const val KEY_LAYOUT_PREFERENCE = "layout.preference"
+
+		/**
+		 * Base URL for the user's LAN/Tailscale update and log server.
+		 *
+		 * Not a secret, but it is app-wide configuration and this is the only
+		 * settings store; giving one string its own storage would be worse than
+		 * the mild misnomer. The value is validated before every use.
+		 */
+		const val KEY_LOCAL_SERVER_URL = "local.server_url"
 	}
 }

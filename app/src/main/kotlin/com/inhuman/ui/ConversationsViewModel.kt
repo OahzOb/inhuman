@@ -58,6 +58,15 @@ data class ConversationsUiState(
 	 * longer exists.
 	 */
 	val deletePreviewCounts: Map<String, Int> = emptyMap(),
+	/**
+	 * Conversations whose delete is in flight.
+	 *
+	 * The row only leaves the list once the delete has succeeded, so a
+	 * confirmation is still on screen while the work runs. Without this, a
+	 * delete that failed (or merely took a moment) could be asked for again
+	 * from the same dialog.
+	 */
+	val deletingIds: Set<String> = emptySet(),
 )
 
 class ConversationsViewModel(
@@ -230,11 +239,36 @@ class ConversationsViewModel(
 	 * should recount rather than reuse a number that was true a minute ago.
 	 */
 	fun delete(conversation: ConversationEntity) {
+		// One attempt per conversation at a time. The row disappears from the
+		// list only when the delete succeeds, so the dialog is still open while
+		// it runs; a second tap used to start a second delete of the same id.
+		if (conversation.id in _state.value.deletingIds) return
 		Diag.i("conv", "delete id=${Diag.shortId(conversation.id)}")
-		_state.update { it.copy(deletePreviewCounts = emptyMap()) }
+		_state.update {
+			it.copy(
+				deletePreviewCounts = emptyMap(),
+				deletingIds = it.deletingIds + conversation.id,
+			)
+		}
 		viewModelScope.launch {
-			repository.delete(conversation)
-			Diag.i("conv", "deleted id=${Diag.shortId(conversation.id)}")
+			runCatching { repository.delete(conversation) }
+				.onSuccess {
+					Diag.i("conv", "deleted id=${Diag.shortId(conversation.id)}")
+				}
+				.onFailure { failure ->
+					// This used to throw inside the coroutine: the dialog stayed
+					// open forever and the user was told nothing. A delete that
+					// fails is a thing to report, not to crash on.
+					Diag.w(
+						"conv",
+						"delete failed id=${Diag.shortId(conversation.id)}",
+						failure,
+					)
+					_state.update {
+						it.copy(error = context.getString(R.string.home_delete_failed))
+					}
+				}
+			_state.update { it.copy(deletingIds = it.deletingIds - conversation.id) }
 		}
 	}
 

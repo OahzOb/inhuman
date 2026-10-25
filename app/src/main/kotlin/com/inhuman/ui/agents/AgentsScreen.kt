@@ -669,11 +669,13 @@ private fun AgentEditor(
 						role = Role.Checkbox,
 						onValueChange = {
 							// Toggling from "everything" has to mean something.
-							// It becomes the full list, so the next tap turns one
-							// thing off rather than silently turning everything
-							// else off.
-							val current = draft.tools ?: ToolCatalog.names
-								.filterNot { it == "ssh_exec" }
+							// It becomes the list of tools that was on screen,
+							// so the next tap turns one thing off rather than
+							// silently turning everything else off -- and so it
+							// does not silently switch on the remote tools that
+							// `null` deliberately refuses. See
+							// `ToolCatalog.everythingExplicit`.
+							val current = draft.tools ?: ToolCatalog.everythingExplicit()
 							val next = if (on) current - tool.name else current + tool.name
 							onChange { it.copy(tools = next) }
 						},
