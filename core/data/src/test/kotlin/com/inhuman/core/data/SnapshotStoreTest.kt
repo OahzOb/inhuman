@@ -70,6 +70,42 @@ class SnapshotStoreTest {
 	}
 
 	@Test
+	fun `a checkpoint with a missing blob leaves the workspace alone`() {
+		val root = tempDir("snapshot-ws")
+		val turns = tempDir("snapshot-turns")
+		val turn = SnapshotStore.turnDir(turns, "turn-1")
+		File(root, "a.txt").writeText("one")
+		assertTrue(SnapshotStore.capture(root, turn, SnapshotStore.START))
+
+		// What a half-deleted rollback directory looks like on disk.
+		File(turn, "blobs").listFiles().orEmpty().forEach { it.delete() }
+		File(root, "a.txt").writeText("edited after the checkpoint")
+
+		assertFalse(SnapshotStore.restore(root, turn, SnapshotStore.START))
+		// The bug this pins: restore used to empty the workspace before
+		// copying, so a failure left neither the checkpoint nor the work the
+		// user had when they asked to roll back.
+		assertEquals("edited after the checkpoint", File(root, "a.txt").readText())
+	}
+
+	@Test
+	fun `restore leaves no staging directory beside the workspace`() {
+		val root = tempDir("snapshot-ws")
+		val turns = tempDir("snapshot-turns")
+		val turn = SnapshotStore.turnDir(turns, "turn-1")
+		File(root, "a.txt").writeText("one")
+		assertTrue(SnapshotStore.capture(root, turn, SnapshotStore.START))
+		File(root, "a.txt").writeText("two")
+
+		assertTrue(SnapshotStore.restore(root, turn, SnapshotStore.START))
+		assertEquals("one", File(root, "a.txt").readText())
+
+		val leftovers = root.parentFile?.listFiles().orEmpty()
+			.filter { it.name.startsWith(".restore") }
+		assertTrue("left behind: ${leftovers.map { it.name }}", leftovers.isEmpty())
+	}
+
+	@Test
 	fun `stats count checkpointed turns and prune keeps the newest`() {
 		val root = tempDir("snapshot-ws")
 		val turns = tempDir("snapshot-turns")

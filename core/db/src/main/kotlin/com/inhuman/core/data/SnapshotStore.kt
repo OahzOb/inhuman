@@ -60,9 +60,9 @@ private const val MAX_RECORDED_CHANGES = 100
  * tool-result message id for the state after a completed tool group. A turn is
  * identified by the user message id, which is also its directory name.
  *
- * Symlinks are refused rather than followed. Restore validates every blob
- * before deleting the current workspace, so a missing blob leaves the
- * workspace alone rather than half-wiped.
+ * Symlinks are refused rather than followed. Restore builds the checkpoint
+ * beside the workspace and swaps it in, so a missing blob or a copy that fails
+ * halfway leaves the workspace alone rather than half-wiped.
  */
 object SnapshotStore {
 
@@ -163,34 +163,86 @@ object SnapshotStore {
 		}
 	}
 
-	/** Put the workspace back to [checkpointId]; no rows should be deleted first. */
+	/**
+	 * Put the workspace back to [checkpointId]; no rows should be deleted first.
+	 *
+	 * The restored tree is **built beside the workspace and swapped in**, not
+	 * copied into a workspace that has already been emptied.
+	 *
+	 * It used to do the latter. Every blob was checked first, but a copy that
+	 * failed halfway -- a disk that filled up, a blob removed between the check
+	 * and the read -- left the workspace holding the first half of the
+	 * checkpoint and none of the old files, while the call returned `false` as
+	 * if nothing had been touched. Rollback is what a user reaches for *after*
+	 * something has already gone wrong, so it is the last operation that may be
+	 * able to make it worse.
+	 *
+	 * A failed swap puts the old workspace back before returning.
+	 */
 	fun restore(workspaceRoot: File, turnDir: File, checkpointId: String): Boolean {
 		val destination = workspaceRoot.canonicalFile
 		val manifest = readManifest(turnDir, checkpointId) ?: return false
 		val blobs = File(turnDir, "blobs")
-		return runCatching {
-			// Validate the complete set before touching the workspace.
+		val parent = destination.parentFile ?: return false
+		// Beside the workspace, on the same file system, so the swap is a
+		// rename rather than a copy of the whole workspace twice.
+		val staging = File(parent, ".restore-${UUID.randomUUID()}")
+		val restored = runCatching {
+			// Validate every path and every blob before writing anything.
 			val entries = manifest.files.map { entry ->
-				val target = safeChild(destination, entry.path)
-					?: error("unsafe path in checkpoint")
+				safeChild(destination, entry.path) ?: error("unsafe path in checkpoint")
 				val blob = File(blobs, entry.hash)
 				if (!blob.isFile) error("missing blob ${entry.hash}")
-				target to blob
+				entry.path to blob
 			}
 			val dirs = manifest.dirs.map { rel ->
 				safeChild(destination, rel) ?: error("unsafe directory in checkpoint")
+				rel
 			}
-			destination.listFiles().orEmpty().forEach { it.deleteRecursively() }
-			dirs.sortedBy { it.path.length }.forEach { it.mkdirs() }
-			entries.forEach { (target, blob) ->
+			staging.deleteRecursively()
+			if (!staging.mkdirs()) error("could not create the restore staging directory")
+			dirs.sortedBy { it.length }.forEach { File(staging, it).mkdirs() }
+			entries.forEach { (path, blob) ->
+				val target = File(staging, path)
 				target.parentFile?.mkdirs()
 				blob.copyTo(target, overwrite = true)
 			}
+			swapIntoPlace(destination, staging)
 			true
 		}.getOrElse { failure ->
 			Diag.w("rollback", "checkpoint restore failed", failure)
 			false
 		}
+		// A successful swap renamed the staging directory away; this only
+		// removes what a failed build left behind.
+		runCatching { staging.deleteRecursively() }
+		return restored
+	}
+
+	/**
+	 * Replace [destination] with [staging], putting the old tree back if the
+	 * second rename fails.
+	 *
+	 * Two renames under the same parent, so the window in which the workspace
+	 * does not exist is as small as the platform allows -- and if the second
+	 * one fails, the workspace the user already had comes back rather than
+	 * disappearing because a restore was attempted.
+	 */
+	private fun swapIntoPlace(destination: File, staging: File) {
+		if (!destination.exists()) {
+			if (!staging.renameTo(destination)) {
+				error("could not put the restored workspace in place")
+			}
+			return
+		}
+		val parent = destination.parentFile ?: error("workspace has no parent directory")
+		val aside = File(parent, ".restore-old-${UUID.randomUUID()}")
+		if (!destination.renameTo(aside)) error("could not move the workspace aside")
+		if (!staging.renameTo(destination)) {
+			aside.renameTo(destination)
+			error("could not put the restored workspace in place")
+		}
+		runCatching { aside.deleteRecursively() }
 	}
 
 	fun diff(workspaceRoot: File, turnDir: File, checkpointId: String): List<WorkspaceChange> {
