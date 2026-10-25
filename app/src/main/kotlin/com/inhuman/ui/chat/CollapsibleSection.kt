@@ -121,7 +121,7 @@ fun CollapsibleSection(
 					vertical = Layout.Space.CollapsedPadding,
 				),
 			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(4.dp),
+			horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
 		) {
 			Icon(
 				imageVector = if (expanded) {

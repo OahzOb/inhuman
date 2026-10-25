@@ -200,7 +200,7 @@ fun WorkspaceDetailScreen(
 			) {
 				Column(
 					modifier = Modifier.padding(12.dp),
-					verticalArrangement = Arrangement.spacedBy(4.dp),
+					verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
 				) {
 					Row(verticalAlignment = Alignment.CenterVertically) {
 						Text(

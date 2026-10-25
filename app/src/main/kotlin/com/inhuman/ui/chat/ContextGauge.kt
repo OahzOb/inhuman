@@ -28,6 +28,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.inhuman.R
+import com.inhuman.core.design.Layout
 
 /**
  * How full the context window is, as a ring.
@@ -216,7 +217,7 @@ private fun ContextDetail(
 					"for requests. The transcript here is complete.",
 			)
 			Row(
-				horizontalArrangement = Arrangement.spacedBy(4.dp),
+				horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
 				verticalAlignment = Alignment.CenterVertically,
 			) {
 				onCompact?.let {

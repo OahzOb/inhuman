@@ -417,7 +417,7 @@ fun ConversationsScreen(
 						.fillMaxWidth()
 						.heightIn(max = 400.dp)
 						.verticalScroll(rememberScrollState()),
-					verticalArrangement = Arrangement.spacedBy(6.dp),
+					verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
 				) {
 					available.forEach { agent ->
 						Column(
@@ -488,7 +488,7 @@ private fun CreateSheet(
 				.widthIn(max = 640.dp)
 				.padding(horizontal = 24.dp)
 				.padding(bottom = 24.dp),
-			verticalArrangement = Arrangement.spacedBy(4.dp),
+			verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
 		) {
 			if (choosingWorkspace) {
 				Row(
@@ -1062,7 +1062,7 @@ private fun SearchResultRow(
 			.fillMaxWidth()
 			.clickable(onClick = onOpen)
 			.padding(vertical = 12.dp),
-		verticalArrangement = Arrangement.spacedBy(4.dp),
+		verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
 	) {
 		Row(verticalAlignment = Alignment.CenterVertically) {
 			Text(
@@ -1186,7 +1186,7 @@ private fun ConversationRow(
 		}
 		Column(
 			modifier = Modifier.weight(1f),
-			verticalArrangement = Arrangement.spacedBy(4.dp),
+			verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
 		) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
 				Text(
@@ -1358,7 +1358,7 @@ private fun EmptyState(
 				Text(stringResource(R.string.common_create), style = MaterialTheme.typography.labelLarge)
 			}
 		}
-		Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+		Row(horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed)) {
 			TextButton(onClick = onOpenWorkspaces) { Text(stringResource(R.string.workspaces_title)) }
 			TextButton(onClick = onOpenAssistants) { Text(stringResource(R.string.common_assistants)) }
 		}

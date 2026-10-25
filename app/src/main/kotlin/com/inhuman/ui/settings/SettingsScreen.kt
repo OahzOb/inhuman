@@ -197,7 +197,7 @@ fun SettingsScreen(
 				.verticalScroll(rememberScrollState())
 				.padding(horizontal = comfortableGutter(), vertical = 12.dp),
 			horizontalAlignment = Alignment.CenterHorizontally,
-			verticalArrangement = Arrangement.spacedBy(10.dp),
+			verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 		) {
 			Column(
 				modifier = Modifier
@@ -206,7 +206,7 @@ fun SettingsScreen(
 					// was inert and the field stretched across 1280dp.
 					.widthIn(max = Layout.ReadableMeasure)
 					.fillMaxWidth(),
-				verticalArrangement = Arrangement.spacedBy(10.dp),
+				verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 			) {
 				SectionHeading(
 					code = stringResource(R.string.settings_section_models),
@@ -369,7 +369,7 @@ fun SettingsScreen(
 					// above; the order is the whole difference.
 					.widthIn(max = Layout.ReadableMeasure)
 					.fillMaxWidth(),
-				verticalArrangement = Arrangement.spacedBy(4.dp),
+				verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
 			) {
 				Row(
 					modifier = Modifier.fillMaxWidth(),
@@ -414,7 +414,7 @@ fun SettingsScreen(
 				modifier = Modifier
 					.widthIn(max = Layout.ReadableMeasure)
 					.fillMaxWidth(),
-				verticalArrangement = Arrangement.spacedBy(4.dp),
+				verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
 			) {
 				Row(
 					modifier = Modifier.fillMaxWidth(),
@@ -730,7 +730,7 @@ fun SettingsScreen(
 			onDismissRequest = { showHostKeysDialog = false },
 			title = { Text(stringResource(R.string.settings_host_keys_title)) },
 			text = {
-				Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+				Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
 					Text(
 						stringResource(R.string.settings_host_keys_body),
 						style = MaterialTheme.typography.bodySmall,
@@ -796,7 +796,7 @@ fun SettingsScreen(
 				)
 			},
 			text = {
-				Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+				Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
 					Text(
 						text = if (mode == BackupMode.Export) {
 							stringResource(R.string.settings_export_passphrase_body)
@@ -1545,7 +1545,7 @@ private fun DiagnosticsSection(
 		modifier = Modifier
 			.widthIn(max = Layout.ReadableMeasure)
 			.fillMaxWidth(),
-		verticalArrangement = Arrangement.spacedBy(6.dp),
+		verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
 	) {
 		Text(
 			// The promise matters as much as the feature: this is the
@@ -1686,7 +1686,7 @@ private fun ApprovalRulesSection(
 		modifier = Modifier
 			.widthIn(max = Layout.ReadableMeasure)
 			.fillMaxWidth(),
-		verticalArrangement = Arrangement.spacedBy(6.dp),
+		verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
 	) {
 		Text(
 			text = if (sshToolEnabled) {
@@ -1734,10 +1734,10 @@ private fun ApprovalRuleRow(
 	policy: ToolPolicy,
 	onSelect: (ToolPolicy) -> Unit,
 ) {
-	Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+	Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed)) {
 		Row(
 			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(6.dp),
+			horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
 		) {
 			Text(
 				text = name,

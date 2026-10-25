@@ -484,7 +484,7 @@ private fun WireDialog(
 							.weight(1f)
 							.fillMaxWidth()
 							.verticalScroll(rememberScrollState()),
-						verticalArrangement = Arrangement.spacedBy(10.dp),
+						verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 					) {
 						if (request != null) {
 							Text(

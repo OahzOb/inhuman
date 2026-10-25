@@ -40,6 +40,7 @@ import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.design.WorkbenchSwitch
 import com.inhuman.R
+import com.inhuman.core.design.Layout
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -191,7 +192,7 @@ fun ModelPickerDialog(
 				if (loading) {
 					Row(
 						verticalAlignment = Alignment.CenterVertically,
-						horizontalArrangement = Arrangement.spacedBy(10.dp),
+						horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 					) {
 						CircularProgressIndicator(strokeWidth = 2.dp)
 						Text(
@@ -219,8 +220,8 @@ fun ModelPickerDialog(
 					)
 					androidx.compose.foundation.layout.FlowRow(
 						modifier = Modifier.fillMaxWidth(),
-						horizontalArrangement = Arrangement.spacedBy(6.dp),
-						verticalArrangement = Arrangement.spacedBy(6.dp),
+						horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
+						verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
 					) {
 						providers.forEach { provider ->
 							val hasKey = chat.hasProviderKey(provider.id)
@@ -249,7 +250,7 @@ fun ModelPickerDialog(
 				}
 
 				if (!loading) {
-					Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+					Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
 						ModelOption(
 							label = stringResource(R.string.model_picker_provider_default),
 							detail = stringResource(R.string.model_picker_provider_default_detail),
@@ -382,8 +383,8 @@ fun ModelPickerDialog(
 							// Exactly what the model advertises, in its order.
 							androidx.compose.foundation.layout.FlowRow(
 								modifier = Modifier.fillMaxWidth(),
-								horizontalArrangement = Arrangement.spacedBy(6.dp),
-								verticalArrangement = Arrangement.spacedBy(6.dp),
+								horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
+								verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
 							) {
 								FilterChip(
 									selected = currentEffort == null,
@@ -459,7 +460,7 @@ private fun ModelOption(
 	Row(
 		modifier = Modifier.fillMaxWidth(),
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(4.dp),
+		horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
 	) {
 		FilterChip(
 			selected = selected,
@@ -538,7 +539,7 @@ private fun ModelTagDialog(
 		onDismissRequest = onDismiss,
 		title = { Text(model.displayName?.takeIf { it.isNotBlank() } ?: model.id) },
 		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
 				Text(
 					text = stringResource(R.string.model_picker_tag_hint),
 					style = MaterialTheme.typography.labelLarge,
@@ -560,7 +561,7 @@ private fun ModelTagDialog(
 			TextButton(onClick = { onSave(draft) }) { Text(stringResource(R.string.common_save)) }
 		},
 		dismissButton = {
-			Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+			Row(horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed)) {
 				TextButton(onClick = { onSave(emptySet()) }) {
 					Text(stringResource(R.string.model_picker_tag_clear))
 				}

@@ -290,7 +290,7 @@ fun FilesScreen(
 							.widthIn(max = 640.dp)
 							.fillMaxWidth()
 							.padding(horizontal = comfortableGutter(), vertical = 32.dp),
-						verticalArrangement = Arrangement.spacedBy(10.dp),
+						verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 					) {
 						Eyebrow(stringResource(R.string.files_empty_eyebrow))
 						Text(
@@ -325,7 +325,7 @@ fun FilesScreen(
 						horizontal = comfortableGutter(),
 						vertical = 8.dp,
 					),
-					verticalArrangement = Arrangement.spacedBy(4.dp),
+					verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
 				) {
 					items(state.entries, key = { it.relativePath }) { entry ->
 						FileRow(
@@ -363,7 +363,7 @@ fun FilesScreen(
 			text = {
 				Column {
 					Row(
-						horizontalArrangement = Arrangement.spacedBy(4.dp),
+						horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
 						verticalAlignment = Alignment.CenterVertically,
 					) {
 						if (preview.editable) {

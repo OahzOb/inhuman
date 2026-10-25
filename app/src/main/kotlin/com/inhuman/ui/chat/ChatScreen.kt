@@ -550,7 +550,7 @@ fun ChatScreen(
 							)
 							Row(
 								verticalAlignment = Alignment.CenterVertically,
-								horizontalArrangement = Arrangement.spacedBy(6.dp),
+								horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
 							) {
 								StatusDot(MaterialTheme.colorScheme.primary, size = 5.dp)
 								Text(
@@ -1305,7 +1305,7 @@ fun ChatScreen(
 							TextButton(onClick = viewModel::clearError) { Text(stringResource(R.string.chat_dismiss)) }
 						}
 						Row(
-							horizontalArrangement = Arrangement.spacedBy(4.dp),
+							horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
 							verticalAlignment = Alignment.CenterVertically,
 						) {
 							when (errorAction) {
@@ -1433,7 +1433,7 @@ fun ChatScreen(
 					if (audioBusy) {
 						Row(
 							verticalAlignment = Alignment.CenterVertically,
-							horizontalArrangement = Arrangement.spacedBy(10.dp),
+							horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 						) {
 							CircularProgressIndicator(strokeWidth = 2.dp)
 							Text(stringResource(R.string.chat_transcribing))
@@ -1518,7 +1518,7 @@ fun ChatScreen(
 				Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
 					Text(pending.summary, style = MaterialTheme.typography.bodyLarge)
 					ToolCatalog.all.firstOrNull { it.name == pending.call.displayName }?.let { entry ->
-						Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+						Row(horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
 							if (entry.paid) PaidBadge()
 							if (entry.remote) RemoteBadge()
 							if (entry.mutates) RewindBadge(canRewind = entry.reversible)
@@ -1753,7 +1753,7 @@ fun ChatScreen(
 			onDismissRequest = { showSnapshotDialog = false },
 			title = { Text(stringResource(R.string.chat_snapshots)) },
 			text = {
-				Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+				Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
 					Text(
 						if (snapshotStats.turns == 0) {
 							stringResource(R.string.chat_snapshots_empty)
@@ -1776,7 +1776,7 @@ fun ChatScreen(
 							modifier = Modifier
 								.heightIn(max = 240.dp)
 								.verticalScroll(rememberScrollState()),
-							verticalArrangement = Arrangement.spacedBy(6.dp),
+							verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
 						) {
 							snapshotTurns.forEachIndexed { index, turn ->
 								Column {
@@ -1801,7 +1801,7 @@ fun ChatScreen(
 							}
 						}
 					}
-					Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+					Row(horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed)) {
 						listOf(1, 3, 5, 10).forEach { turns ->
 							TextButton(
 								onClick = { viewModel.setSnapshotRetention(turns) },
@@ -1851,7 +1851,7 @@ fun ChatScreen(
 			onDismissRequest = { showToolLimitDialog = false },
 			title = { Text(stringResource(R.string.chat_tool_rounds)) },
 			text = {
-				Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+				Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
 					Text(
 						text = stringResource(R.string.chat_tool_limit_body),
 					)
@@ -1861,7 +1861,7 @@ fun ChatScreen(
 						color = MaterialTheme.colorScheme.primary,
 					)
 					listOf(4, 8, 16, 24, 32, 64).chunked(3).forEach { row ->
-						Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+						Row(horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed)) {
 							row.forEach { rounds ->
 								TextButton(
 									onClick = {
@@ -2140,7 +2140,7 @@ private fun RewindDialog(
 		onDismissRequest = onDismiss,
 		title = { Text(stringResource(R.string.chat_rewind)) },
 		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
 				Text(
 					text = stringResource(R.string.chat_rewind_picker_body),
 					style = MaterialTheme.typography.bodySmall,
@@ -2790,7 +2790,7 @@ private fun MessageBubble(
 				RoundedCornerShape(4.dp),
 			),
 		horizontalAlignment = alignment,
-		verticalArrangement = Arrangement.spacedBy(6.dp),
+		verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
 	) {
 		Row(
 			modifier = Modifier.fillMaxWidth(),
@@ -3221,7 +3221,7 @@ private fun Composer(
 				modifier = Modifier
 					.fillMaxWidth()
 					.padding(horizontal = comfortableGutter(), vertical = 4.dp),
-				horizontalArrangement = Arrangement.spacedBy(6.dp),
+				horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
 			) {
 				attachments.forEach { attachment ->
 					Row(
@@ -3418,7 +3418,7 @@ private fun ConversationToolsDialog(
 								.padding(start = 2.dp, top = 1.dp),
 						) {
 							Row(
-								horizontalArrangement = Arrangement.spacedBy(6.dp),
+								horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
 								verticalAlignment = Alignment.CenterVertically,
 							) {
 								Text(
@@ -3516,7 +3516,7 @@ private fun GenerateImageDialog(
 		onDismissRequest = { if (!generating) onDismiss() },
 		title = { Text(stringResource(R.string.chat_generate_image_title)) },
 		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
 				OutlinedTextField(
 					value = prompt,
 					onValueChange = { prompt = it },
@@ -3536,7 +3536,7 @@ private fun GenerateImageDialog(
 				if (generating) {
 					Row(
 						verticalAlignment = Alignment.CenterVertically,
-						horizontalArrangement = Arrangement.spacedBy(10.dp),
+						horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 					) {
 						CircularProgressIndicator(strokeWidth = 2.dp)
 						Text(stringResource(R.string.chat_generating))
@@ -3614,7 +3614,7 @@ private fun DecisionDialog(
 		onDismissRequest = { if (!running) onDismiss() },
 		title = { Text(stringResource(R.string.chat_decision)) },
 		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
 				Text(
 					stringResource(R.string.chat_decision_presets),
 					style = MaterialTheme.typography.labelLarge,
@@ -3647,7 +3647,7 @@ private fun DecisionDialog(
 				if (running) {
 					Row(
 						verticalAlignment = Alignment.CenterVertically,
-						horizontalArrangement = Arrangement.spacedBy(10.dp),
+						horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 					) {
 						CircularProgressIndicator(strokeWidth = 2.dp)
 						Text(stringResource(R.string.chat_deciding))
@@ -3722,7 +3722,7 @@ private fun SpeechDialog(
 		onDismissRequest = { if (!running) onDismiss() },
 		title = { Text(stringResource(R.string.chat_tts_title)) },
 		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
 				OutlinedTextField(
 					value = text,
 					onValueChange = { text = it },
@@ -3734,7 +3734,7 @@ private fun SpeechDialog(
 				if (running) {
 					Row(
 						verticalAlignment = Alignment.CenterVertically,
-						horizontalArrangement = Arrangement.spacedBy(10.dp),
+						horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 					) {
 						CircularProgressIndicator(strokeWidth = 2.dp)
 						Text(stringResource(R.string.chat_synthesizing))
@@ -3826,7 +3826,7 @@ private fun VideoDialog(
 		onDismissRequest = onDismiss,
 		title = { Text(stringResource(R.string.chat_generate_video)) },
 		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
 				OutlinedTextField(
 					value = prompt,
 					onValueChange = { prompt = it },
@@ -3864,7 +3864,7 @@ private fun VideoDialog(
 				status?.let {
 					Row(
 						verticalAlignment = Alignment.CenterVertically,
-						horizontalArrangement = Arrangement.spacedBy(10.dp),
+						horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 					) {
 						CircularProgressIndicator(strokeWidth = 2.dp)
 						Text(stringResource(R.string.chat_video_task, it))

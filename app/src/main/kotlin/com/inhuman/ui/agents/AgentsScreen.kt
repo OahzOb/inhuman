@@ -724,7 +724,7 @@ private fun AgentEditor(
 				Column(modifier = Modifier.weight(1f)) {
 					Row(
 						verticalAlignment = Alignment.CenterVertically,
-						horizontalArrangement = Arrangement.spacedBy(6.dp),
+						horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
 					) {
 						Text(
 							text = tool.name,
@@ -812,7 +812,7 @@ private fun AgentEditor(
 				) { Text(stringResource(R.string.agents_replace)) }
 			},
 			dismissButton = {
-				Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+				Row(horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed)) {
 					TextButton(
 						onClick = {
 							val current = draft.systemPrompt.trimEnd()
@@ -1021,7 +1021,7 @@ private fun AssistantRulesSection(
 	sshToolEnabled: Boolean,
 	onSelect: (String, ToolPolicy) -> Unit,
 ) {
-	Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+	Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
 		SectionLabel(stringResource(R.string.agents_rules_title))
 		Text(
 			text = stringResource(R.string.agents_rules_body),
@@ -1033,7 +1033,7 @@ private fun AssistantRulesSection(
 			val current = rules[entry.name] ?: ToolPolicy.Free
 			Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
 				Row(
-					horizontalArrangement = Arrangement.spacedBy(6.dp),
+					horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
 					verticalAlignment = Alignment.CenterVertically,
 				) {
 					Text(
@@ -1045,7 +1045,7 @@ private fun AssistantRulesSection(
 					if (entry.remote) RemoteBadge()
 					if (entry.mutates) RewindBadge(canRewind = entry.reversible)
 				}
-				Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+				Row(horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
 					for (option in ToolPolicy.entries) {
 						ChoiceChip(
 							label = option.shortLabel(),

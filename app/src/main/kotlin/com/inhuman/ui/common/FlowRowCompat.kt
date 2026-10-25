@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.inhuman.core.design.Layout
 
 /**
  * A wrapping row for choice chips.
@@ -17,8 +18,8 @@ import androidx.compose.ui.unit.dp
 fun FlowRowCompat(content: @Composable () -> Unit) {
 	FlowRow(
 		modifier = Modifier.fillMaxWidth(),
-		horizontalArrangement = Arrangement.spacedBy(6.dp),
-		verticalArrangement = Arrangement.spacedBy(6.dp),
+		horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
+		verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
 	) {
 		content()
 	}

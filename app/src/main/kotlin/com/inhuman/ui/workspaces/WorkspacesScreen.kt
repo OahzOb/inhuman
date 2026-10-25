@@ -150,7 +150,7 @@ fun WorkspacesScreen(
 			modifier = Modifier
 				.fillMaxSize()
 				.padding(inner),
-			verticalArrangement = Arrangement.spacedBy(10.dp),
+			verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 		) {
 			state.error?.let { message ->
 				Row(
@@ -200,7 +200,7 @@ fun WorkspacesScreen(
 						.widthIn(max = Layout.ReadableMeasure)
 						.fillMaxWidth()
 						.padding(horizontal = comfortableGutter()),
-					verticalArrangement = Arrangement.spacedBy(4.dp),
+					verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
 				) {
 					items(state.workspaces, key = { it.workspace.id }) { row ->
 						WorkspaceListRow(
