@@ -3,47 +3,89 @@ package com.inhuman.ui.chat
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.R
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.TurnNotifications
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.TurnStatus
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.ChatMessage
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.ChatProvider
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.ChatRequest
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.FinishReason
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.RemoteModel
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.Role
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.StreamChunk
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.Tool
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.ToolSpec
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.policy.PolicySet
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.capability.ProviderCapabilities
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.capability.ProviderCapability
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.provider.demo.DemoProvider
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.provider.qwen.QwenTokenPlanClient
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.common.diag.Diag
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.engine.ChatEngine
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.engine.EngineDecision
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.engine.EngineEvent
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.engine.EngineFailure
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.engine.EngineToolCall
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.engine.EngineTurn
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.engine.EngineUsage
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.AgentRepository
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.Branches
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.ConversationRepository
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.SnapshotStore
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.SnapshotStats
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.SnapshotTurn
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.WorkspaceChange
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.db.AgentEntity
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.db.ConversationEntity
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.db.Database
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.db.MessageEntity
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.db.ProviderProfileEntity
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.db.ToolsColumn
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.secret.SecureStore
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.files.SessionWorkspace
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.files.WorkspaceTransfer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -52,24 +94,43 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.FetchProvider
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.QwenDecisionTool
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.SearchProvider
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.SshExecTool
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.ToolCatalog
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.TimeTool
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.WebFetchTool
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.WebSearchTool
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.ssh.SshFileTransport
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.ssh.SshLimits
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.ssh.SshTransport
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.SshArguments
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.SshDownloadTool
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.SshListTool
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.SshProbeTool
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.SshReadFileTool
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.SshUploadTool
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.SshWriteFileTool
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.files.tools.FileTools
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -90,7 +151,6 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import java.io.ByteArrayInputStream
-import java.util.Locale
 import java.util.UUID
 
 /**
@@ -1149,8 +1209,8 @@ class ChatViewModel(
 							it.copy(
 								error = context.getString(
 									R.string.chat_error_image_too_large,
-									mib(imageLimit),
-									mib(outcome.bytes),
+									formatBytes(imageLimit),
+									formatBytes(outcome.bytes),
 								),
 							)
 						}
@@ -4211,9 +4271,6 @@ class ChatViewModel(
 		const val STREAM_PUBLISH_INTERVAL_MS = 40L
 	}
 }
-
-private fun mib(bytes: Long): String =
-	String.format(Locale.US, "%.1f MiB", bytes / (1024.0 * 1024.0))
 
 private fun roleFromWire(value: String): Role = when (value) {
 	"system" -> Role.System

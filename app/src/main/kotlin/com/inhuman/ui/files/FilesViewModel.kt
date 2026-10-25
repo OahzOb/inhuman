@@ -4,11 +4,17 @@ import android.content.Context
 import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.R
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.common.diag.Diag
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.ConversationRepository
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.files.SessionWorkspace
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.files.WorkspaceTransfer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,7 +52,7 @@ data class FileEntryUi(
 			isDirectory -> ""
 			sizeBytes < 1024 -> "$sizeBytes B"
 			sizeBytes < 1024 * 1024 -> "${sizeBytes / 1024} KB"
-			else -> String.format("%.1f MB", sizeBytes / 1024.0 / 1024.0)
+			else -> formatBytes(sizeBytes)
 		}
 
 	val readableDate: String
@@ -515,8 +521,8 @@ class FilesViewModel(
 		if (contentLength != null && contentLength > free) {
 			return@withContext Result.failure(
 				IOException(
-					"The download is ${humanBytes(contentLength)}, but the workspace has only " +
-						"${humanBytes(free)} free. Choose a folder instead, or make room.",
+					"The download is ${formatBytes(contentLength)}, but the workspace has only " +
+						"${formatBytes(free)} free. Choose a folder instead, or make room.",
 				),
 			)
 		}
@@ -559,12 +565,6 @@ class FilesViewModel(
 
 	fun suggestedName(relativePath: String): String =
 		relativePath.substringAfterLast('/').ifBlank { "file" }
-
-	private fun humanBytes(bytes: Long): String = when {
-		bytes < 1024 -> "$bytes B"
-		bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-		else -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0)
-	}
 
 	private fun mimeTypeOf(file: File): String {
 		if (file.isDirectory) return "vnd.android.document/directory"

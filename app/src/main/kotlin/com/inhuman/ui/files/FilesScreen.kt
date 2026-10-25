@@ -77,15 +77,25 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.R
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.design.Eyebrow
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.design.Hairline
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.design.Layout
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.design.WorkbenchGrid
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.ui.chat.MarkdownText
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.ui.common.WorkbenchBackButton
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.ui.common.openWorkspaceInFiles
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -224,8 +234,8 @@ fun FilesScreen(
 									R.string.files_quota,
 									state.fileCount,
 									state.maxFiles,
-									human(state.usedBytes),
-									human(state.totalBytes),
+									formatBytes(state.usedBytes),
+									formatBytes(state.totalBytes),
 								),
 								style = MaterialTheme.typography.labelSmall,
 								color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -648,7 +658,7 @@ private fun DownloadDialog(
 							status = context.getString(
 								R.string.download_saved_workspace,
 								saved.relativePath,
-								human(saved.bytes),
+								formatBytes(saved.bytes),
 							)
 						}.onFailure { failure ->
 							error = failure.message ?: downloadFailed
@@ -681,7 +691,7 @@ private fun DownloadDialog(
 							status = context.getString(
 								R.string.download_saved_folder,
 								displayName,
-								human(savedBytes),
+								formatBytes(savedBytes),
 								folderLabel ?: chosenFolder,
 							)
 						} catch (failure: Exception) {
@@ -784,7 +794,7 @@ private fun DownloadDialog(
 				val size = total
 				if (size != null) {
 					Text(
-						stringResource(R.string.download_size, human(size)),
+						stringResource(R.string.download_size, formatBytes(size)),
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
@@ -802,11 +812,11 @@ private fun DownloadDialog(
 						if (knownTotal != null) {
 							stringResource(
 								R.string.download_progress,
-								human(progress),
-								human(knownTotal),
+								formatBytes(progress),
+								formatBytes(knownTotal),
 							)
 						} else {
-							stringResource(R.string.download_progress_no_total, human(progress))
+							stringResource(R.string.download_progress_no_total, formatBytes(progress))
 						},
 						style = MaterialTheme.typography.bodySmall,
 					)
@@ -1163,12 +1173,6 @@ private fun ToolPolicy.label(): String = when (this) {
 	ToolPolicy.Ask -> stringResource(R.string.files_policy_ask)
 	ToolPolicy.Deny -> stringResource(R.string.files_policy_deny)
 	ToolPolicy.Blind -> stringResource(R.string.files_policy_blind)
-}
-
-private fun human(bytes: Long): String = when {
-	bytes < 1024 -> "$bytes B"
-	bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-	else -> String.format("%.1f MB", bytes / 1024.0 / 1024.0)
 }
 
 private fun queryDisplayName(context: android.content.Context, uri: android.net.Uri): String? =

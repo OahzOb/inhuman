@@ -63,31 +63,55 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.R
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.tools.ToolCatalog
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.common.diag.Diag
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.db.ProviderKinds
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.db.ProviderReasoning
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.design.Eyebrow
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.design.Hairline
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.design.Layout
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.design.SectionHeading
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.design.StatusDot
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.design.WorkbenchSwitch
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.provider.KnownProvider
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.provider.ProviderCatalog
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.provider.ProviderFactory
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.diagnostics.AppDiagnostics
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.updates.UpdateInfo
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.ui.chat.ProviderDraft
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.ui.chat.SettingsViewModel
 import java.text.DateFormat
 import java.util.Date
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.ui.common.FlowRowCompat
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.ui.common.toolBlurb
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.ui.common.PaidBadge
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.ui.common.PaidToolsNotice
 
 /**
@@ -1632,7 +1656,7 @@ private fun formatLogSize(bytes: Long): String = when {
 	bytes <= 0L -> stringResource(R.string.settings_no_log)
 	bytes < 1024L -> "$bytes B"
 	bytes < 1024L * 1024L -> "${bytes / 1024L} KB"
-	else -> "${bytes / (1024L * 1024L)} MB"
+	else -> formatBytes(bytes)
 }
 
 /**

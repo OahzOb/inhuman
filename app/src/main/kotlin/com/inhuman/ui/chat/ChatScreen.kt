@@ -128,6 +128,7 @@ import com.inhuman.core.design.StatusDot
 import com.inhuman.core.design.WideDialog
 import com.inhuman.core.design.WorkbenchGrid
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.RemoteBadge
 import com.inhuman.ui.common.RewindBadge
@@ -767,7 +768,7 @@ fun ChatScreen(
 													R.plurals.chat_snapshot_menu,
 													snapshotStats.turns,
 													snapshotStats.turns,
-													humanSize(snapshotStats.bytes),
+													formatBytes(snapshotStats.bytes),
 												),
 												style = MaterialTheme.typography.bodySmall,
 												color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1761,7 +1762,7 @@ fun ChatScreen(
 								R.plurals.chat_snapshots_stored,
 								snapshotStats.turns,
 								snapshotStats.turns,
-								humanSize(snapshotStats.bytes),
+								formatBytes(snapshotStats.bytes),
 							)
 						},
 					)
@@ -1792,7 +1793,7 @@ fun ChatScreen(
 									)
 									Text(
 										text = "${formatSnapshotTime(turn.createdAt)} · " +
-											humanSize(turn.bytes),
+											formatBytes(turn.bytes),
 										style = MaterialTheme.typography.bodySmall,
 										color = MaterialTheme.colorScheme.onSurfaceVariant,
 									)
@@ -3233,7 +3234,7 @@ private fun Composer(
 						verticalAlignment = Alignment.CenterVertically,
 					) {
 						Text(
-							text = "${attachment.displayName}  ${humanSize(attachment.sizeBytes)}",
+							text = "${attachment.displayName}  ${formatBytes(attachment.sizeBytes)}",
 							style = MaterialTheme.typography.labelLarge,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 							maxLines = 1,
@@ -3336,12 +3337,6 @@ private fun Composer(
 		}
 		}
 	}
-}
-
-/** Sizes as a person reads them, not as a byte count. */
-private fun humanSize(bytes: Long): String = when {	bytes < 1024 -> "$bytes B"
-	bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-	else -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0)
 }
 
 /** Locale-aware timestamp for one retained snapshot turn. */

@@ -54,12 +54,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.R
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.db.AgentEntity
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.db.ConversationEntity
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.design.Layout
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.ui.common.WorkbenchBackButton
+import com.inhuman.ui.common.formatBytes
 import com.inhuman.ui.common.openWorkspaceInFiles
 import java.text.DateFormat
 import java.util.Date
@@ -177,7 +184,7 @@ fun WorkspaceDetailScreen(
 						R.plurals.workspace_usage,
 						state.usage.files,
 						state.usage.files,
-						humanBytes(state.usage.bytes),
+						formatBytes(state.usage.bytes),
 					),
 					style = MaterialTheme.typography.bodyMedium,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -408,8 +415,3 @@ private fun AgentChoiceRow(agent: AgentEntity, onClick: () -> Unit) {
 	}
 }
 
-private fun humanBytes(bytes: Long): String = when {
-	bytes < 1024 -> "$bytes B"
-	bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-	else -> String.format("%.1f MB", bytes / 1024.0 / 1024.0)
-}
