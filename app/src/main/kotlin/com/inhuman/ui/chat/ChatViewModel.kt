@@ -17,7 +17,10 @@ import com.inhuman.core.ai.Tool
 import com.inhuman.core.ai.ToolSpec
 import com.inhuman.core.ai.policy.PolicySet
 import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.core.ai.capability.ProviderCapabilities
+import com.inhuman.core.ai.capability.ProviderCapability
 import com.inhuman.core.ai.provider.demo.DemoProvider
+import com.inhuman.core.ai.provider.qwen.QwenTokenPlanClient
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.engine.ChatEngine
 import com.inhuman.core.engine.EngineDecision
@@ -37,17 +40,20 @@ import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.MessageEntity
+import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.db.ToolsColumn
 import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.core.files.SessionWorkspace
 import com.inhuman.core.files.WorkspaceTransfer
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import com.inhuman.core.ai.tools.FetchProvider
+import com.inhuman.core.ai.tools.QwenDecisionTool
 import com.inhuman.core.ai.tools.SearchProvider
 import com.inhuman.core.ai.tools.SshExecTool
 import com.inhuman.core.ai.tools.ToolCatalog
@@ -235,7 +241,23 @@ class ChatViewModel(
 	/** The provider profile this conversation copied at creation. */
 	private var providerId: String = com.inhuman.core.data.db.ProviderIds.DEEPSEEK
 	private var providerName: String = "DeepSeek"
+	private var providerKind: String? = null
+	private var providerBaseUrl: String? = null
+	private var workspaceId: String? = null
+
+	/**
+	 * The assistant's model, but only while the conversation is still on the
+	 * assistant's provider.
+	 *
+	 * After a provider switch this must be null: the assistant's model id
+	 * belongs to the old provider, and sending it to the new one fails with a
+	 * model-not-found error that names nothing the user did.
+	 */
+	private val agentModelForProvider: String?
+		get() = agent?.model?.takeIf { agent?.providerId == providerId }
 	private var streamJob: Job? = null
+	@Volatile
+	private var userStopped = false
 	private var sshAllowed: Boolean = false
 
 	/** The user message that anchors the in-flight turn's rollback snapshot. */
@@ -297,15 +319,21 @@ class ChatViewModel(
 				?: agents.byId(Database.DEFAULT_AGENT_ID)
 			providerId = c?.providerId ?: agent?.providerId
 				?: com.inhuman.core.data.db.ProviderIds.DEEPSEEK
-			providerName = runCatching { agents.provider(providerId)?.name }
-				.getOrNull() ?: "Provider"
-			model = c?.model ?: agent?.model
-			reasoningEffort = c?.reasoningEffort ?: agent?.reasoningEffort
-			thinking = c?.thinking ?: agent?.thinking ?: false
+			val profile = runCatching { agents.provider(providerId) }.getOrNull()
+			providerName = profile?.name ?: "Provider"
+			providerKind = profile?.kind
+			providerBaseUrl = profile?.baseUrl
+			workspaceId = c?.workspaceId
+			val agentOwnsProvider = agent?.providerId == providerId
+			model = c?.model ?: if (agentOwnsProvider) agent?.model else null
+			reasoningEffort = c?.reasoningEffort
+				?: if (agentOwnsProvider) agent?.reasoningEffort else null
+			thinking = c?.thinking ?: if (agentOwnsProvider) agent?.thinking ?: false else false
 
 			refreshConfiguration()
 			reload()
 			publishModelState()
+			resumePendingVideo()
 			Diag.i(
 				"chat",
 				"open conv=${Diag.shortId(conversationId)} " +
@@ -354,7 +382,9 @@ class ChatViewModel(
 		//
 		// The API's own default is the honest fallback when the list has not
 		// arrived: it is what the provider will use if nothing else is chosen.
-		val id = model ?: agent?.model ?: fetched?.firstOrNull()?.id ?: "default"
+		val agentOwnsProvider = agent?.providerId == providerId
+		val agentModel = if (agentOwnsProvider) agent?.model else null
+		val id = model ?: agentModel ?: fetched?.firstOrNull()?.id ?: "default"
 
 		// The entry for the model that will actually be sent: capabilities are
 		// per model, and looking them up by the choice rather than the resolved
@@ -372,7 +402,7 @@ class ChatViewModel(
 
 		if (fetched != null) {
 			val label = fetchedModel?.displayName?.takeIf { it.isNotBlank() }
-				?: if (model == null && agent?.model == null) "${id} (default)" else id
+				?: if (model == null && agentModel == null) "${id} (default)" else id
 
 			_state.update {
 				it.copy(
@@ -489,6 +519,433 @@ class ChatViewModel(
 	/** The models already held in memory, without making a request. */
 	suspend fun cachedModels(): List<RemoteModel> =
 		agents.cachedModelList(providerId).orEmpty()
+
+	/**
+	 * Run the preset decision questions against a piece of text.
+	 *
+	 * The panel deliberately asks a small, fixed set first: a free-form question
+	 * builder is a separate UI, and the useful first test is whether the typed
+	 * model answers one ticket the way the API documentation says it will.
+	 */
+	suspend fun decide(text: String): Result<JsonObject> = runCatching {
+		val profile = agents.provider(providerId) ?: error("provider is not available")
+		if (!ProviderCapabilities.supports(profile.kind, ProviderCapability.Decision)) {
+			error("${profile.name} does not support decision models")
+		}
+		val key = secure.get(agents.apiKeySlot(providerId))
+			?.takeIf { it.isNotBlank() }
+			?: error("Add an API key for ${profile.name} first")
+		val questions = buildJsonObject {
+			put(
+				"department",
+				buildJsonObject {
+					put("type", "choice")
+					put("instructions", "Which team should handle this?")
+					put(
+						"criteria",
+						buildJsonObject {
+							put("billing", "Payments, invoices, refunds")
+							put("technical", "Bugs, outages, integrations")
+							put("other", "Anything else")
+						},
+					)
+				},
+			)
+			put(
+				"urgent",
+				buildJsonObject {
+					put("type", "noul")
+					put("instructions", "Does this need immediate attention?")
+				},
+			)
+			put(
+				"severity",
+				buildJsonObject {
+					put("type", "score")
+					put("instructions", "How severe is this?")
+					put(
+						"criteria",
+						kotlinx.serialization.json.buildJsonArray {
+							add(kotlinx.serialization.json.JsonPrimitive("Minor"))
+							add(kotlinx.serialization.json.JsonPrimitive("Degraded"))
+							add(kotlinx.serialization.json.JsonPrimitive("Core unavailable"))
+							add(kotlinx.serialization.json.JsonPrimitive("Business or safety impact"))
+						},
+					)
+				},
+			)
+		}
+		withContext(Dispatchers.IO) {
+			QwenTokenPlanClient(key, profile.baseUrl).decide(
+				state = buildJsonObject { put("content", text) },
+				questions = questions,
+			)
+		}.also {
+			Diag.i("qwen", "decision conv=${Diag.shortId(conversationId)}")
+		}
+	}
+
+	/** Run caller-supplied questions; the JSON is the typed question map. */
+	suspend fun decideCustom(text: String, questionsJson: String): Result<JsonObject> = runCatching {
+		val profile = agents.provider(providerId) ?: error("provider is not available")
+		if (!ProviderCapabilities.supports(profile.kind, ProviderCapability.Decision)) {
+			error("${profile.name} does not support decision models")
+		}
+		val key = secure.get(agents.apiKeySlot(providerId))
+			?.takeIf { it.isNotBlank() }
+			?: error("Add an API key for ${profile.name} first")
+		val questions = kotlinx.serialization.json.Json
+			.parseToJsonElement(questionsJson)
+			.jsonObject
+		withContext(Dispatchers.IO) {
+			QwenTokenPlanClient(key, profile.baseUrl).decide(
+				state = buildJsonObject { put("content", text) },
+				questions = questions,
+			)
+		}
+	}
+
+	data class GeneratedAudio(
+		val relativePath: String,
+		val bytes: Int,
+		val mimeType: String,
+	)
+
+	/**
+	 * Submit a video task and poll it in the view-model scope.
+	 *
+	 * The progress lives in [ChatUiState] rather than the dialog, so closing the
+	 * dialog does not cancel a task the user already paid for. It does not yet
+	 * survive process death; the Room job table is the next step.
+	 */
+	fun startVideo(
+		prompt: String,
+		resolution: String = "720P",
+		ratio: String = "16:9",
+		duration: Int = 5,
+	) {
+		if (_state.value.videoStatus != null) return
+		_state.update {
+			it.copy(videoStatus = "Submitting…", videoPath = null, videoError = null)
+		}
+		viewModelScope.launch {
+			try {
+				val entity = conversation ?: error("conversation is not ready")
+				val profile = agents.provider(providerId) ?: error("provider is not available")
+				if (!ProviderCapabilities.supports(profile.kind, ProviderCapability.Video)) {
+					error("${profile.name} does not support video generation")
+				}
+				val key = secure.get(agents.apiKeySlot(providerId))
+					?.takeIf { it.isNotBlank() }
+					?: error("Add an API key for ${profile.name} first")
+				val workspace = repository.workspace(entity)
+				val client = QwenTokenPlanClient(key, profile.baseUrl)
+				val taskId = client.submitVideo(
+					prompt = prompt,
+					resolution = resolution,
+					ratio = ratio,
+					duration = duration,
+				)
+				secure.put(VIDEO_JOB_KEY, "$conversationId|$taskId")
+				val path = pollVideo(client, workspace, taskId)
+				secure.remove(VIDEO_JOB_KEY)
+				_state.update {
+					it.copy(videoStatus = null, videoPath = path)
+				}
+			} catch (failure: Exception) {
+				Diag.w("qwen", "video failed: ${failure.message}")
+				_state.update {
+					it.copy(
+						videoStatus = null,
+						videoError = failure.message ?: "video generation failed",
+					)
+				}
+			}
+		}
+	}
+
+	private suspend fun pollVideo(
+		client: QwenTokenPlanClient,
+		workspace: SessionWorkspace,
+		taskId: String,
+	): String {
+		repeat(60) {
+			val task = client.videoTask(taskId)
+			_state.update { state -> state.copy(videoStatus = task.status) }
+			when (task.status) {
+				"SUCCEEDED" -> {
+					val url = task.videoUrl ?: error("task succeeded without a video URL")
+					val bytes = client.downloadVideo(url)
+					val path = "generated/video-${System.currentTimeMillis()}.mp4"
+					val resolution = workspace.resolve(path)
+					if (resolution !is SessionWorkspace.Resolution.Ok) {
+						error("workspace refused the generated video path")
+					}
+					workspace.quotaRefusal(
+						stagingBytes = 0,
+						stagingFiles = 0,
+						replacedBytes = 0,
+						addsFiles = 1,
+						newBytes = bytes.size.toLong(),
+					)?.let { error(it) }
+					resolution.file.parentFile?.mkdirs()
+					resolution.file.writeBytes(bytes)
+					Diag.i("qwen", "video path=$path bytes=${bytes.size}")
+					return path
+				}
+				"FAILED", "CANCELED" -> {
+					error(task.message ?: "video task ${task.status.lowercase()}")
+				}
+			}
+			delay(15_000)
+		}
+		error("video task timed out")
+	}
+
+	/** Resume a video task that was submitted before the process died. */
+	private fun resumePendingVideo() {
+		val raw = secure.get(VIDEO_JOB_KEY) ?: return
+		val conversationIdPart = raw.substringBefore('|')
+		val taskId = raw.substringAfter('|', "").takeIf { it.isNotBlank() } ?: return
+		if (conversationIdPart != conversationId) return
+		viewModelScope.launch {
+			_state.update { it.copy(videoStatus = "Resuming…", videoError = null) }
+			try {
+				val entity = conversation ?: error("conversation is not ready")
+				val profile = agents.provider(providerId) ?: error("provider is not available")
+				val key = secure.get(agents.apiKeySlot(providerId))
+					?.takeIf { it.isNotBlank() }
+					?: error("Add an API key for ${profile.name} first")
+				val workspace = repository.workspace(entity)
+				val path = pollVideo(QwenTokenPlanClient(key, profile.baseUrl), workspace, taskId)
+				secure.remove(VIDEO_JOB_KEY)
+				_state.update { it.copy(videoStatus = null, videoPath = path) }
+			} catch (failure: Exception) {
+				_state.update {
+					it.copy(
+						videoStatus = null,
+						videoError = failure.message ?: "video resume failed",
+					)
+				}
+			}
+		}
+	}
+
+	/** Import an audio file into the workspace, then transcribe it. */
+	suspend fun transcribeAudioFile(
+		displayName: String,
+		open: () -> java.io.InputStream,
+	): Result<String> = runCatching {
+		val entity = conversation ?: error("conversation is not ready")
+		val workspace = repository.workspace(entity)
+		val transfer = WorkspaceTransfer(workspace)
+		val outcome = withContext(Dispatchers.IO) {
+			transfer.import("attachments/" + transfer.uniqueName(displayName), open = open)
+		}
+		val path = when (outcome) {
+			is WorkspaceTransfer.Outcome.Ok -> outcome.relativePath
+			is WorkspaceTransfer.Outcome.Failed -> error(outcome.reason)
+		}
+		transcribe(path).getOrThrow()
+	}
+
+	/** Transcribe an audio file already inside this conversation's workspace. */
+	suspend fun transcribe(relativePath: String): Result<String> = runCatching {
+		val entity = conversation ?: error("conversation is not ready")
+		val profile = agents.provider(providerId) ?: error("provider is not available")
+		if (!ProviderCapabilities.supports(profile.kind, ProviderCapability.Speech)) {
+			error("${profile.name} does not support speech")
+		}
+		val key = secure.get(agents.apiKeySlot(providerId))
+			?.takeIf { it.isNotBlank() }
+			?: error("Add an API key for ${profile.name} first")
+		val workspace = repository.workspace(entity)
+		val resolution = workspace.resolve(relativePath)
+		if (resolution !is SessionWorkspace.Resolution.Ok) error("file not found: $relativePath")
+		val file = resolution.file
+		if (!file.isFile) error("not a file: $relativePath")
+		val format = file.extension.lowercase().takeIf { it in setOf("mp3", "wav", "opus") }
+			?: error("unsupported audio format: .${file.extension}")
+		val mime = when (format) {
+			"mp3" -> "audio/mpeg"
+			"wav" -> "audio/wav"
+			else -> "audio/opus"
+		}
+		withContext(Dispatchers.IO) {
+			QwenTokenPlanClient(key, profile.baseUrl)
+				.transcribe(file.readBytes(), format = format, mimeType = mime)
+				.text
+		}
+	}
+
+	/** Synthesize text and save the audio in the conversation workspace. */
+	suspend fun synthesize(text: String): Result<GeneratedAudio> = runCatching {
+		val entity = conversation ?: error("conversation is not ready")
+		val profile = agents.provider(providerId) ?: error("provider is not available")
+		if (!ProviderCapabilities.supports(profile.kind, ProviderCapability.Speech)) {
+			error("${profile.name} does not support speech")
+		}
+		val key = secure.get(agents.apiKeySlot(providerId))
+			?.takeIf { it.isNotBlank() }
+			?: error("Add an API key for ${profile.name} first")
+		val workspace = repository.workspace(entity)
+		val result = withContext(Dispatchers.IO) {
+			QwenTokenPlanClient(key, profile.baseUrl).synthesize(text)
+		}
+		val path = "generated/audio-${System.currentTimeMillis()}.mp3"
+		val resolution = workspace.resolve(path)
+		if (resolution !is SessionWorkspace.Resolution.Ok) {
+			error("workspace refused the generated audio path")
+		}
+		workspace.quotaRefusal(
+			stagingBytes = 0,
+			stagingFiles = 0,
+			replacedBytes = 0,
+			addsFiles = 1,
+			newBytes = result.bytes.size.toLong(),
+		)?.let { error(it) }
+		resolution.file.parentFile?.mkdirs()
+		resolution.file.writeBytes(result.bytes)
+		Diag.i("qwen", "speech path=$path bytes=${result.bytes.size}")
+		GeneratedAudio(path, result.bytes.size, result.mimeType)
+	}
+
+	data class GeneratedImage(
+		val relativePath: String,
+		val bytes: Int,
+		val model: String,
+		val mimeType: String,
+	)
+
+	/**
+	 * Generate one image through the current provider and save it in the
+	 * conversation workspace.
+	 *
+	 * The provider returns a URL that expires, so the bytes are downloaded here
+	 * and the URL never reaches the transcript. This is deliberately a
+	 * conversation action, not a general file download: it writes only through
+	 * `SessionWorkspace.resolve` and honours the same quota as every other file.
+	 */
+	suspend fun generateImage(prompt: String, size: String = "1024*1024"): Result<GeneratedImage> =
+		runCatching {
+			val entity = conversation ?: error("conversation is not ready")
+			val profile = agents.provider(providerId) ?: error("provider is not available")
+			if (!ProviderCapabilities.supports(profile.kind, ProviderCapability.Image)) {
+				error("${profile.name} does not support image generation")
+			}
+			val key = secure.get(agents.apiKeySlot(providerId))
+				?.takeIf { it.isNotBlank() }
+				?: error("Add an API key for ${profile.name} first")
+			val workspace = repository.workspace(entity)
+			val result = withContext(Dispatchers.IO) {
+				QwenTokenPlanClient(key, profile.baseUrl).generateImage(prompt, size = size)
+			}
+			val extension = if (result.mimeType.contains("webp")) "webp" else "png"
+			val relativePath = "generated/image-${System.currentTimeMillis()}.$extension"
+			val resolution = workspace.resolve(relativePath)
+			if (resolution !is SessionWorkspace.Resolution.Ok) {
+				error("workspace refused the generated image path")
+			}
+			workspace.quotaRefusal(
+				stagingBytes = 0,
+				stagingFiles = 0,
+				replacedBytes = 0,
+				addsFiles = 1,
+				newBytes = result.bytes.size.toLong(),
+			)?.let { error(it) }
+			resolution.file.parentFile?.mkdirs()
+			resolution.file.writeBytes(result.bytes)
+			// Stage it on the composer when the active model can see images;
+			// otherwise leave the file in the workspace so it is not lost.
+			if (_state.value.modelSupportsVision) {
+				_state.update {
+					it.copy(
+						pendingAttachments = it.pendingAttachments + PendingAttachment(
+							relativePath = relativePath,
+							mimeType = result.mimeType,
+							sizeBytes = result.bytes.size.toLong(),
+						),
+					)
+				}
+			}
+			Diag.i(
+				"qwen",
+				"image generated conv=${Diag.shortId(conversationId)} " +
+					"path=$relativePath bytes=${result.bytes.size} model=${result.model}",
+			)
+			GeneratedImage(relativePath, result.bytes.size, result.model, result.mimeType)
+		}
+
+	/** Profiles the conversation may switch to. */
+	suspend fun providerProfiles(): List<ProviderProfileEntity> = agents.providers()
+
+	fun hasProviderKey(providerId: String): Boolean = agents.hasKey(providerId)
+
+	/**
+	 * Re-point this conversation at another provider profile.
+	 *
+	 * The model, effort and thinking choice are cleared because they belong to
+	 * the old provider/model. The assistant's model is only used as a fallback
+	 * while the conversation is still on the assistant's provider; after a
+	 * switch, resolving a null model through the agent would send an id the new
+	 * provider does not know.
+	 */
+	fun setProvider(providerId: String) {
+		if (providerId == this.providerId) return
+		if (_state.value.isStreaming) {
+			_state.update { it.copy(error = context.getString(R.string.chat_error_provider_streaming)) }
+			return
+		}
+		viewModelScope.launch {
+			val profile = agents.provider(providerId)
+			if (profile == null) {
+				_state.update { it.copy(error = context.getString(R.string.chat_error_provider_missing)) }
+				return@launch
+			}
+			val switched = runCatching { repository.setProvider(conversationId, providerId) }
+			if (switched.isFailure) {
+				_state.update { state ->
+					state.copy(
+						error = switched.exceptionOrNull()?.message ?: "Could not switch provider",
+					)
+				}
+				return@launch
+			}
+			this@ChatViewModel.providerId = providerId
+			providerName = profile.name
+			providerKind = profile.kind
+			providerBaseUrl = profile.baseUrl
+			model = null
+			reasoningEffort = null
+			thinking = false
+			contextWindow = null
+			conversation = conversation?.copy(
+				providerId = providerId,
+				model = null,
+				reasoningEffort = null,
+				thinking = false,
+			)
+			_state.update {
+				it.copy(
+					providerId = providerId,
+					providerName = providerName,
+					model = null,
+					effectiveModel = null,
+					modelLabel = "",
+					modelSupportsVision = false,
+					reasoningEffort = null,
+					thinking = false,
+					error = null,
+				)
+			}
+			Diag.i(
+				"config",
+				"provider conv=${Diag.shortId(conversationId)} -> $providerId",
+			)
+			refreshConfiguration()
+			publishModelState()
+		}
+	}
 
 	/**
 	 * Switch the model for this conversation only.
@@ -1027,7 +1484,7 @@ class ChatViewModel(
 			return null
 		}
 		val provider = agents.provider(providerId)?.let { agents.providerFromRow(it) }
-		val summaryModel = model ?: agent?.model
+		val summaryModel = model ?: agentModelForProvider
 			?: agents.models(providerId).getOrNull()?.firstOrNull()?.id
 		if (provider == null || summaryModel == null) {
 			_state.update {
@@ -1112,6 +1569,7 @@ class ChatViewModel(
 			Diag.d("turn", "regenerate ignored: streaming")
 			return
 		}
+		userStopped = false
 
 		val visible = _state.value.messages
 		val lastReply = visible.lastOrNull { !it.fromUser && !it.isToolResult }
@@ -1599,6 +2057,77 @@ class ChatViewModel(
 	}
 
 	/**
+	 * Start another conversation beside this one.
+	 *
+	 * A permanent workspace is shared: "a new conversation in this workspace"
+	 * is what a permanent workspace is for. A temporary one belongs to exactly
+	 * one conversation, so the new conversation gets its own.
+	 *
+	 * [onResult] receives the new id, or null when creation failed; the error is
+	 * already in [state] for the screen's usual banner. It is a callback rather
+	 * than a state field because navigation belongs to the host, and a field
+	 * would have to be cleared by whoever consumed it.
+	 */
+	fun createNewConversation(onResult: (String?) -> Unit) {
+		viewModelScope.launch {
+			val current = conversation ?: runCatching {
+				repository.conversation(conversationId)?.entity
+			}.getOrNull()
+			if (current == null) {
+				_state.update {
+					it.copy(
+						error = context.getString(
+							R.string.chat_new_conversation_failed,
+							"conversation not loaded",
+						),
+					)
+				}
+				onResult(null)
+				return@launch
+			}
+
+			val shareWorkspace = runCatching {
+				repository.workspaceRecord(current.workspaceId)?.isPermanent
+			}.getOrNull() ?: _state.value.workspaceIsPermanent
+			val assistant = runCatching {
+				agent
+					?: current.agentId?.let { agents.byId(it) }
+					?: agents.byId(Database.DEFAULT_AGENT_ID)
+			}.getOrNull()
+
+			runCatching {
+				repository.create(
+					title = context.getString(R.string.chat_title_fallback),
+					agent = assistant,
+					workspaceId = if (shareWorkspace) current.workspaceId else null,
+				)
+			}.onSuccess { created ->
+				Diag.i(
+					"chat",
+					"new conversation from ${Diag.shortId(conversationId)} " +
+						"to ${Diag.shortId(created.id)} permanent=$shareWorkspace",
+				)
+				onResult(created.id)
+			}.onFailure { failure ->
+				Diag.w(
+					"chat",
+					"new conversation failed conv=${Diag.shortId(conversationId)}",
+					failure,
+				)
+				_state.update {
+					it.copy(
+						error = context.getString(
+							R.string.chat_new_conversation_failed,
+							failure.message ?: failure::class.simpleName ?: "unknown error",
+						),
+					)
+				}
+				onResult(null)
+			}
+		}
+	}
+
+	/**
 	 * Keep this conversation's workspace after the conversation is deleted.
 	 *
 	 * Only the workspace row changes; the directory is already where it will
@@ -1662,6 +2191,7 @@ class ChatViewModel(
 			it.copy(
 				demoMode = demo,
 				configured = demo || hasKey,
+				providerId = providerId,
 				providerName = providerName,
 				toolRoundLimit = toolRoundLimit(),
 				toolCallLimit = toolCallLimit(),
@@ -1677,6 +2207,8 @@ class ChatViewModel(
 	fun clearError() = _state.update { it.copy(error = null) }
 
 	fun stop() {
+		if (!_state.value.isStreaming) return
+		userStopped = true
 		Diag.i("turn", "stop requested streaming=${_state.value.isStreaming}")
 		streamJob?.cancel()
 		streamJob = null
@@ -1727,6 +2259,7 @@ class ChatViewModel(
 			)
 			return
 		}
+		userStopped = false
 
 		val demo = demoEnabled()
 		if (!demo && !agents.hasKey(providerId)) {
@@ -1827,7 +2360,7 @@ class ChatViewModel(
 				}
 				return@launch
 			}
-			val turnModel = model ?: agent?.model
+			val turnModel = model ?: agentModelForProvider
 				?: agents.models(providerId).getOrNull()?.firstOrNull()?.id
 			if (turnModel == null) {
 				_state.update { it.copy(error = context.getString(R.string.chat_error_choose_model, providerName)) }
@@ -2101,7 +2634,7 @@ class ChatViewModel(
 			}
 			return
 		}
-		val turnModel = model ?: agent?.model
+		val turnModel = model ?: agentModelForProvider
 			?: if (demo) {
 				demoModelsIfEnabled(true)?.firstOrNull()?.id
 			} else {
@@ -2443,80 +2976,120 @@ class ChatViewModel(
 		} finally {
 			val id = currentId
 			if (id != null) {
-				publish(force = true)
-				var wroteRow = false
-				if (!currentPersisted) {
-					val text = currentText.toString()
-					val reasoning = currentReasoning.toString()
-					val calls = currentCalls.values.toList()
-					val usage = currentUsage?.toUi(firstTokenAt, startedAt)
-					val hasPayload = text.isNotEmpty() || reasoning.isNotEmpty() || calls.isNotEmpty()
-					withContext(NonCancellable) {
-						when {
-							hasPayload -> {
-								repository.appendMessage(
-									MessageEntity(
-										id = id,
-										conversationId = conversationId,
-										parentId = currentParent,
-										role = "assistant",
-										content = text,
-										reasoning = reasoning.takeIf { it.isNotBlank() },
-										model = model,
-										finishReason = lastFinish?.describe(),
-										// A stopped turn says so rather than
-										// looking like an answer that just ended.
-										error = failure ?: STOPPED_MESSAGE,
-										createdAt = System.currentTimeMillis(),
-										promptTokens = usage?.promptTokens,
-										completionTokens = usage?.completionTokens,
-										cachedPromptTokens = usage?.cachedPromptTokens,
-										reasoningTokens = usage?.reasoningTokens,
-										timeToFirstTokenMs = usage?.timeToFirstTokenMs,
-										generationMs = usage?.generationMs,
-										toolCallsJson = calls.takeIf { it.isNotEmpty() }
-											?.let(::encodeCalls),
-									),
-									currentParent,
-								)
-								wroteRow = true
-							}
+				// This runs in a finally block, so it must not throw: an
+				// exception between these writes skipped both the row's
+				// isStreaming = false and the global one below, and the
+				// composer stayed disabled until the screen was recreated.
+				// The failure still reaches the diagnostics.
+				runCatching {
+					publish(force = true)
+					var wroteRow = false
+					if (!currentPersisted) {
+						val text = currentText.toString()
+						val reasoning = currentReasoning.toString()
+						val calls = currentCalls.values.toList()
+						val usage = currentUsage?.toUi(firstTokenAt, startedAt)
+						val hasPayload = text.isNotEmpty() || reasoning.isNotEmpty() || calls.isNotEmpty()
+						withContext(NonCancellable) {
+							when {
+								hasPayload -> {
+									repository.appendMessage(
+										MessageEntity(
+											id = id,
+											conversationId = conversationId,
+											parentId = currentParent,
+											role = "assistant",
+											content = text,
+											reasoning = reasoning.takeIf { it.isNotBlank() },
+											model = model,
+											finishReason = lastFinish?.describe(),
+											// A stopped turn says so rather than
+											// looking like an answer that just ended.
+											error = failure ?: STOPPED_MESSAGE,
+											createdAt = System.currentTimeMillis(),
+											promptTokens = usage?.promptTokens,
+											completionTokens = usage?.completionTokens,
+											cachedPromptTokens = usage?.cachedPromptTokens,
+											reasoningTokens = usage?.reasoningTokens,
+											timeToFirstTokenMs = usage?.timeToFirstTokenMs,
+											generationMs = usage?.generationMs,
+											toolCallsJson = calls.takeIf { it.isNotEmpty() }
+												?.let(::encodeCalls),
+										),
+										currentParent,
+									)
+									wroteRow = true
+								}
 
-							failure != null -> {
-								// A first request that failed before producing a
-								// token still gets a row. Otherwise the question
-								// stays with no answer and no record that one was
-								// attempted.
-								repository.appendMessage(
-									MessageEntity(
-										id = id,
-										conversationId = conversationId,
-										parentId = currentParent,
-										role = "assistant",
-										content = "",
-										model = model,
-										error = failure,
-										createdAt = System.currentTimeMillis(),
-									),
-									currentParent,
-								)
-								wroteRow = true
-							}
+								failure != null -> {
+									// A first request that failed before producing a
+									// token still gets a row. Otherwise the question
+									// stays with no answer and no record that one was
+									// attempted.
+									repository.appendMessage(
+										MessageEntity(
+											id = id,
+											conversationId = conversationId,
+											parentId = currentParent,
+											role = "assistant",
+											content = "",
+											model = model,
+											error = failure,
+											createdAt = System.currentTimeMillis(),
+										),
+										currentParent,
+									)
+									wroteRow = true
+								}
 
-							else -> {
-								// Nothing arrived and nothing failed: there is no
-								// row to keep, only the placeholder to remove.
-								_state.update { s ->
-									s.copy(messages = s.messages.filterNot { it.id == id })
+								userStopped -> {
+									// Stopped before the first token: keep an empty
+									// row too, because it is what carries the Retry
+									// control next to "Stopped". Removing the placeholder
+									// made a deliberate stop unrecoverable without
+									// retyping the message.
+									repository.appendMessage(
+										MessageEntity(
+											id = id,
+											conversationId = conversationId,
+											parentId = currentParent,
+											role = "assistant",
+											content = "",
+											model = model,
+											error = STOPPED_MESSAGE,
+											createdAt = System.currentTimeMillis(),
+										),
+										currentParent,
+									)
+									wroteRow = true
+								}
+
+								else -> {
+									// Nothing arrived and nothing failed: there is no
+									// row to keep, only the placeholder to remove.
+									_state.update { s ->
+										s.copy(messages = s.messages.filterNot { it.id == id })
+									}
 								}
 							}
 						}
+						currentPersisted = true
 					}
-					currentPersisted = true
+					replyDeltas.remove(id)?.close()
+					updateMessage(id) {
+						it.copy(
+							isStreaming = false,
+							error = it.error ?: failure ?: if (userStopped) STOPPED_MESSAGE else null,
+						)
+					}
+					if (wroteRow) refreshContext()
+				}.onFailure { closing ->
+					Diag.e("chat", "closing the turn failed", closing)
+					// The stream channel belongs to the turn, not to the write
+					// that failed: close it rather than leak it.
+					runCatching { replyDeltas.remove(id)?.close() }
+					updateMessage(id) { it.copy(isStreaming = false) }
 				}
-				replyDeltas.remove(id)?.close()
-				updateMessage(id) { it.copy(isStreaming = false, error = it.error ?: failure) }
-				if (wroteRow) refreshContext()
 			}
 			_state.update { it.copy(isStreaming = false) }
 		}
@@ -2885,6 +3458,50 @@ class ChatViewModel(
 			// that it cannot use it, and it says so.
 			searchProvider()?.let { add(WebSearchTool(it)) }
 			fetchProvider()?.let { add(WebFetchTool(it)) }
+			// A decision model is capability-specific: a chat-only provider must
+			// not get a tool that always fails, and a missing key means the call
+			// cannot be answered either.
+			ProviderCapabilities.of(providerKind.orEmpty())
+				.takeIf { ProviderCapability.Decision in it }
+				?.let {
+					val key = secure.get(agents.apiKeySlot(providerId))
+					val base = providerBaseUrl
+					if (!key.isNullOrBlank() && base != null) {
+						add(QwenDecisionTool(QwenTokenPlanClient(key, base)))
+					}
+				}
+			ProviderCapabilities.of(providerKind.orEmpty())
+				.takeIf { ProviderCapability.Image in it }
+				?.let {
+					val key = secure.get(agents.apiKeySlot(providerId))
+					val base = providerBaseUrl
+					if (!key.isNullOrBlank() && base != null && workspace != null) {
+						add(QwenImageTool(QwenTokenPlanClient(key, base), workspace))
+					}
+				}
+			ProviderCapabilities.of(providerKind.orEmpty())
+				.takeIf { ProviderCapability.Video in it }
+				?.let {
+					val key = secure.get(agents.apiKeySlot(providerId))
+					val base = providerBaseUrl
+					if (!key.isNullOrBlank() && base != null) {
+						val client = QwenTokenPlanClient(key, base)
+						add(QwenVideoTool(client))
+						if (workspace != null) add(QwenVideoStatusTool(client, workspace))
+					}
+				}
+			ProviderCapabilities.of(providerKind.orEmpty())
+				.takeIf { ProviderCapability.Speech in it }
+				?.let {
+					val key = secure.get(agents.apiKeySlot(providerId))
+					val base = providerBaseUrl
+					if (!key.isNullOrBlank() && base != null && workspace != null) {
+						add(QwenSpeechTool(QwenTokenPlanClient(key, base), workspace))
+					}
+					if (!key.isNullOrBlank() && base != null && workspace != null) {
+						add(QwenTranscribeTool(QwenTokenPlanClient(key, base), workspace))
+					}
+				}
 			// SSH is opt-in twice: the global setting and the assistant's
 			// explicit tool selection. `selected == null` means "all tools" for
 			// historical assistants, so it must NOT be read as consent to SSH.
@@ -3468,6 +4085,7 @@ class ChatViewModel(
 
 	companion object {
 		const val INTERRUPTED_MARKER = "[interrupted]"
+		private const val VIDEO_JOB_KEY = "qwen.video.pending"
 
 		/** A key file larger than this is not a key; do not read it into memory. */
 		private const val MAX_SSH_IDENTITY_BYTES = 512 * 1024

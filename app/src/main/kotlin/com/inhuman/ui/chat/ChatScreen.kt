@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DataObject
 import androidx.compose.material.icons.outlined.Code
@@ -35,6 +36,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -54,10 +56,16 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.List
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.List
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -68,6 +76,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -76,6 +85,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -89,11 +99,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.R
 import com.inhuman.core.ai.tools.ToolCatalog
@@ -107,12 +122,14 @@ import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.MetaLine
 import com.inhuman.core.design.StatusDot
+import com.inhuman.core.design.WideDialog
 import com.inhuman.core.design.WorkbenchGrid
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.RemoteBadge
 import com.inhuman.ui.common.RewindBadge
 import com.inhuman.ui.common.toolBlurb
+import com.inhuman.ui.common.openWorkspaceFile
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -138,6 +155,8 @@ fun ChatScreen(
 	onBack: () -> Unit,
 	onOpenSettings: () -> Unit,
 	onOpenFiles: () -> Unit = {},
+	/** Open another conversation, created beside this one. */
+	onOpenConversation: (String) -> Unit = {},
 	/** Raised while a dialog is up, so system Back closes it rather than leaving. */
 	onDialogVisibilityChange: (Boolean) -> Unit = {},
 ) {
@@ -163,6 +182,12 @@ fun ChatScreen(
 	val displayTitle = title.ifBlank { defaultTitle }
 	val displayModel = modelLabel.ifBlank { defaultModel }
 	val providerName by viewModel.state.map { it.providerName }.collectAsStateWithLifecycle(defaultProvider)
+	val currentProviderId by viewModel.state
+		.map { it.providerId }
+		.collectAsStateWithLifecycle("deepseek")
+	val videoStatus by viewModel.state.map { it.videoStatus }.collectAsStateWithLifecycle(null)
+	val videoPath by viewModel.state.map { it.videoPath }.collectAsStateWithLifecycle(null)
+	val videoError by viewModel.state.map { it.videoError }.collectAsStateWithLifecycle(null)
 	val thinking by viewModel.state.map { it.thinking }.collectAsStateWithLifecycle(false)
 	val reasoningEffort by viewModel.state
 		.map { it.reasoningEffort }
@@ -193,13 +218,29 @@ fun ChatScreen(
 	var showContextDetail by remember { mutableStateOf(false) }
 	// A search hit stays highlighted long enough to be found by eye. The id is
 	// local so a later recomposition does not need to keep the search route.
-	var highlightedMessageId by remember(focusMessageId) { mutableStateOf(focusMessageId) }
+	// Deliberately not keyed on `focusMessageId`: consuming the focus sets that
+	// argument back to null, and a keyed `remember` would recreate this state
+	// as null and erase the highlight the moment it was applied.
+	var highlightedMessageId by remember { mutableStateOf<String?>(null) }
+	// One timer for every way a message can be revealed: a global search hit,
+	// a turn jump, or an in-conversation match. The scroll effects set the id;
+	// this effect owns how long the highlight lives. Keeping the delay out of
+	// the scroll effects means a message arriving during the delay cannot
+	// cancel the clear and leave a row highlighted forever.
+	LaunchedEffect(highlightedMessageId) {
+		val id = highlightedMessageId ?: return@LaunchedEffect
+		delay(2400)
+		if (highlightedMessageId == id) highlightedMessageId = null
+	}
 
 	// Named `ctx`, not `context`: the bare name collides with the Kotlin
 	// stdlib's `context(...)` at every call site that has a lambda in scope, and
 	// the compiler then reports "function invocation expected" rather than
 	// anything about naming. The same trap caught the documents provider.
 	val ctx = LocalContext.current
+	var audioBusy by remember { mutableStateOf(false) }
+	var audioTranscript by remember { mutableStateOf<String?>(null) }
+	var audioError by remember { mutableStateOf<String?>(null) }
 
 	// The image picker. ACTION_OPEN_DOCUMENT like the file browser's import,
 	// and for the same reasons: a real filename and a grant that survives long
@@ -213,6 +254,26 @@ fun ChatScreen(
 			viewModel.attachImage(name, mime) {
 				ctx.contentResolver.openInputStream(uri)
 					?: error("could not open the selected image")
+			}
+		}
+	}
+	val audioImporter = rememberLauncherForActivityResult(
+		ActivityResultContracts.OpenDocument(),
+	) { uri ->
+		if (uri != null) {
+			val name = queryImageName(ctx, uri)
+			audioBusy = true
+			audioTranscript = null
+			audioError = null
+			scope.launch {
+				viewModel.transcribeAudioFile(name) {
+					ctx.contentResolver.openInputStream(uri)
+						?: error("could not open the selected audio")
+				}.fold(
+					onSuccess = { audioTranscript = it },
+					onFailure = { audioError = it.message ?: "Transcription failed" },
+				)
+				audioBusy = false
 			}
 		}
 	}
@@ -287,10 +348,27 @@ fun ChatScreen(
 		.map { it.pendingSshConsent }
 		.collectAsStateWithLifecycle(null)
 	val workspaceName by viewModel.state.map { it.workspaceName }.collectAsStateWithLifecycle("")
+	val workspaceId by viewModel.state.map { it.workspaceId }.collectAsStateWithLifecycle(null)
 	val workspaceIsPermanent by viewModel.state
 		.map { it.workspaceIsPermanent }
 		.collectAsStateWithLifecycle(false)
 	var showChatMenu by remember { mutableStateOf(false) }
+	var showGenerateImage by remember { mutableStateOf(false) }
+	var showDecision by remember { mutableStateOf(false) }
+	var showSpeech by remember { mutableStateOf(false) }
+	var showVideo by remember { mutableStateOf(false) }
+	// In-conversation search is a full-screen dialog, not an inline bar. An
+	// inline bar plus the IME left no transcript on a 640x360 landscape phone;
+	// the dialog owns its own window and its own inset handling instead.
+	var searchOpen by remember { mutableStateOf(false) }
+	var searchQuery by remember { mutableStateOf("") }
+	var jumpToMessageId by remember { mutableStateOf<String?>(null) }
+	var showTurnPicker by remember { mutableStateOf(false) }
+	var creatingConversation by remember { mutableStateOf(false) }
+	fun closeSearch() {
+		searchOpen = false
+		searchQuery = ""
+	}
 	var rollbackTarget by remember { mutableStateOf<ChatMessageUi?>(null) }
 	var rollbackFiles by remember { mutableStateOf<List<WorkspaceChange>>(emptyList()) }
 	var showRewindDialog by remember { mutableStateOf(false) }
@@ -317,11 +395,11 @@ fun ChatScreen(
 	// Reported upward so the app's single Back handler knows a dialog is up.
 	// Both this and the approval gate are transient questions that Back should
 	// answer by dismissing, not by navigating away from.
-	val anyDialogOpen = showModelPicker || pendingApproval != null ||
+	val anyDialogOpen = searchOpen || showModelPicker || pendingApproval != null ||
 		pendingSshConsent != null || rollbackTarget != null || showRewindDialog ||
 		showCompactPreview || showCompactionSummary ||
 		showSnapshotDialog || showToolLimitDialog || showRenameDialog || showWireDialog ||
-		turnWireMessages != null || showToolsDialog
+		turnWireMessages != null || showToolsDialog || showTurnPicker
 			|| showSaveWorkspaceDialog
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
@@ -508,17 +586,34 @@ fun ChatScreen(
 						}
 					},
 					actions = {
-						IconButton(onClick = onOpenFiles) {
+						IconButton(
+							onClick = {
+								if (searchOpen) closeSearch() else searchOpen = true
+							},
+						) {
 							Icon(
-								Icons.Outlined.FolderOpen,
-								contentDescription = stringResource(R.string.files_title),
+								Icons.Outlined.Search,
+								contentDescription = stringResource(
+									if (searchOpen) R.string.chat_search_close else R.string.chat_search,
+								),
 								modifier = Modifier.size(20.dp),
 							)
 						}
-						IconButton(onClick = onOpenSettings) {
+						IconButton(
+							onClick = {
+								if (!creatingConversation) {
+									creatingConversation = true
+									viewModel.createNewConversation { id ->
+										creatingConversation = false
+										if (id != null) onOpenConversation(id)
+									}
+								}
+							},
+							enabled = !creatingConversation,
+						) {
 							Icon(
-								Icons.Outlined.Key,
-								contentDescription = stringResource(R.string.chat_provider_keys),
+								Icons.Outlined.Add,
+								contentDescription = stringResource(R.string.chat_new_conversation),
 								modifier = Modifier.size(20.dp),
 							)
 						}
@@ -534,6 +629,104 @@ fun ChatScreen(
 								expanded = showChatMenu,
 								onDismissRequest = { showChatMenu = false },
 							) {
+								DropdownMenuItem(
+									text = { Text("Transcribe audio file") },
+									leadingIcon = {
+										Icon(
+											Icons.Outlined.PlayArrow,
+											contentDescription = null,
+											modifier = Modifier.size(18.dp),
+										)
+									},
+									onClick = {
+										showChatMenu = false
+										audioImporter.launch(arrayOf("audio/*"))
+									},
+								)
+								DropdownMenuItem(
+									text = { Text("Text to speech") },
+									leadingIcon = {
+										Icon(
+											Icons.Outlined.PlayArrow,
+											contentDescription = null,
+											modifier = Modifier.size(18.dp),
+										)
+									},
+									onClick = {
+										showChatMenu = false
+										showSpeech = true
+									},
+								)
+								DropdownMenuItem(
+									text = { Text("Generate video") },
+									leadingIcon = {
+										Icon(
+											Icons.Outlined.PlayArrow,
+											contentDescription = null,
+											modifier = Modifier.size(18.dp),
+										)
+									},
+									onClick = {
+										showChatMenu = false
+										showVideo = true
+									},
+								)
+								DropdownMenuItem(
+									text = { Text("Decision") },
+									leadingIcon = {
+										Icon(
+											Icons.Outlined.DataObject,
+											contentDescription = null,
+											modifier = Modifier.size(18.dp),
+										)
+									},
+									onClick = {
+										showChatMenu = false
+										showDecision = true
+									},
+								)
+								DropdownMenuItem(
+									text = { Text(stringResource(R.string.chat_generate_image)) },
+									leadingIcon = {
+										Icon(
+											Icons.Outlined.Image,
+											contentDescription = null,
+											modifier = Modifier.size(18.dp),
+										)
+									},
+									onClick = {
+										showChatMenu = false
+										showGenerateImage = true
+									},
+								)
+								DropdownMenuItem(
+									text = { Text(stringResource(R.string.files_title)) },
+									leadingIcon = {
+										Icon(
+											Icons.Outlined.FolderOpen,
+											contentDescription = null,
+											modifier = Modifier.size(18.dp),
+										)
+									},
+									onClick = {
+										showChatMenu = false
+										onOpenFiles()
+									},
+								)
+								DropdownMenuItem(
+									text = { Text(stringResource(R.string.chat_provider_keys)) },
+									leadingIcon = {
+										Icon(
+											Icons.Outlined.Key,
+											contentDescription = null,
+											modifier = Modifier.size(18.dp),
+										)
+									},
+									onClick = {
+										showChatMenu = false
+										onOpenSettings()
+									},
+								)
 								DropdownMenuItem(
 									text = {
 										Column {
@@ -716,9 +909,67 @@ fun ChatScreen(
 			// list the transcript renders, so a footer cannot describe a turn
 			// that is no longer on the active path.
 			val turns = remember(messages) { turnSummariesOf(messages) }
-			// Reveal a message opened from search. Wait for the list to measure
-			// before asking for an index; on a cold open `totalItemsCount` is 0
-			// for a frame, and `scrollToItem` would silently do nothing.
+			// The user rows are the navigation targets. They are a separate
+			// grouping from `turns`: a jump lands on the question, not on the
+			// footer of the answer it produced.
+			val userTurns = remember(messages) { userTurnsOf(messages) }
+			// The two banners above the transcript occupy list items of their
+			// own; every index taken from `messages` has to add them back.
+			val leadingItems = (if (compaction != null) 1 else 0) + (if (isCompacting) 1 else 0)
+			val currentTurnIndex by remember(userTurns, leadingItems) {
+				derivedStateOf {
+					if (userTurns.isEmpty()) {
+						0
+					} else {
+						val firstMessageIndex =
+							(listState.firstVisibleItemIndex - leadingItems).coerceAtLeast(0)
+						userTurns
+							.indexOfLast { it.messageIndex <= firstMessageIndex }
+							.coerceAtLeast(0)
+					}
+				}
+			}
+			// Search is computed only while the dialog is open. Doing it on every
+			// streamed token would walk the whole transcript several times a
+			// second for a field the user is not using.
+			val searchMatches = remember(messages, searchQuery, searchOpen) {
+				if (searchOpen) searchConversation(messages, searchQuery) else emptyList()
+			}
+			// Reveal a message opened from search, a turn jump, or a match.
+			// Wait for the list to measure before asking for an index; on a cold
+			// open `totalItemsCount` is 0 for a frame, and `scrollToItem` would
+			// silently do nothing.
+			LaunchedEffect(jumpToMessageId, messages.size) {
+				val targetId = jumpToMessageId ?: return@LaunchedEffect
+				if (messages.isEmpty()) return@LaunchedEffect
+				val index = messages.indexOfFirst { it.id == targetId }
+				if (index < 0) {
+					jumpToMessageId = null
+					return@LaunchedEffect
+				}
+				var attempts = 0
+				while (listState.layoutInfo.totalItemsCount == 0 && attempts++ < 40) {
+					delay(50)
+				}
+				if (listState.layoutInfo.totalItemsCount > index + leadingItems) {
+					// An older message is a deliberate move away from the
+					// newest reply; do not let the follow observer pull it
+					// back to the bottom.
+					followLatest = false
+					programmaticScroll = true
+					try {
+						listState.scrollToItem(index + leadingItems)
+					} finally {
+						programmaticScroll = false
+					}
+					highlightedMessageId = targetId
+					jumpToMessageId = null
+				}
+			}
+			// Reveal a message opened from the home screen's global search or a
+			// notification. Kept separate from the local jump above because this
+			// one has to report consumption to its owner, while a local jump is
+			// finished when it clears itself.
 			LaunchedEffect(focusMessageId, messages.size) {
 				val targetId = focusMessageId ?: return@LaunchedEffect
 				// The transcript starts empty while Room loads. Do not consume the
@@ -734,21 +985,15 @@ fun ChatScreen(
 				while (listState.layoutInfo.totalItemsCount == 0 && attempts++ < 40) {
 					delay(50)
 				}
-				val leading = (if (compaction != null) 1 else 0) + (if (isCompacting) 1 else 0)
-				if (listState.layoutInfo.totalItemsCount > index + leading) {
-					// Searching an older message is a deliberate move away from
-					// the newest reply; do not let the follow observer pull it
-					// back to the bottom.
+				if (listState.layoutInfo.totalItemsCount > index + leadingItems) {
 					followLatest = false
 					programmaticScroll = true
 					try {
-						listState.scrollToItem(index + leading)
+						listState.scrollToItem(index + leadingItems)
 					} finally {
 						programmaticScroll = false
 					}
 					highlightedMessageId = targetId
-					delay(2400)
-					highlightedMessageId = null
 					onFocusConsumed()
 				}
 			}
@@ -758,6 +1003,46 @@ fun ChatScreen(
 			val usage by viewModel.state
 				.map { ContextUsage(it.context.usedTokens, it.context.contextWindow) }
 				.collectAsStateWithLifecycle(ContextUsage(null, null))
+
+			// The turn index doubles as the jump control. It is a strip above
+			// the transcript rather than an overlay: a chip pinned over the
+			// top-right corner would sit on the first user bubble, which is
+			// exactly where the right-aligned bubbles are.
+			if (userTurns.size > 1 && !searchOpen) {
+				Box(
+					modifier = Modifier.fillMaxWidth(),
+					contentAlignment = Alignment.Center,
+				) {
+					Box(
+						modifier = Modifier
+							.widthIn(max = Layout.ChatMeasure)
+							.fillMaxWidth(),
+					) {
+						AssistChip(
+							onClick = { showTurnPicker = true },
+							label = {
+								Text(
+									stringResource(
+										R.string.chat_turn_position,
+										currentTurnIndex + 1,
+										userTurns.size,
+									),
+								)
+							},
+							leadingIcon = {
+								Icon(
+									Icons.AutoMirrored.Outlined.List,
+									contentDescription = null,
+									modifier = Modifier.size(16.dp),
+								)
+							},
+							modifier = Modifier
+								.align(Alignment.CenterEnd)
+								.padding(end = comfortableGutter(), bottom = 4.dp),
+						)
+					}
+				}
+			}
 
 			Box(
 				modifier = Modifier.weight(1f),
@@ -863,6 +1148,7 @@ fun ChatScreen(
 								}
 								showRewindDialog = true
 							},
+							onRetry = viewModel::retryLastTurn,
 							// Both ids go up: the alternative being switched to is
 							// not on the active path, so the view model cannot find
 							// its parent by searching the transcript.
@@ -879,7 +1165,7 @@ fun ChatScreen(
 				// viewport between automatic scrolls, so `atBottom` alternates and
 				// the button flickered on every token. `followLatest` is the
 				// intent; it stays true across content growth.
-				if (!followLatest && messages.isNotEmpty()) {
+				if (!followLatest && messages.isNotEmpty() && !searchOpen) {
 					FilledIconButton(
 						onClick = {
 							followLatest = true
@@ -914,6 +1200,73 @@ fun ChatScreen(
 						)
 					}
 				}
+			}
+
+			if (showTurnPicker) {
+				WideDialog(
+					onDismissRequest = { showTurnPicker = false },
+					title = stringResource(R.string.chat_turns),
+					dismissLabel = stringResource(R.string.chat_close),
+					maxBodyHeight = 420.dp,
+				) {
+					userTurns.forEachIndexed { index, turn ->
+						val current = index == currentTurnIndex
+						Row(
+							modifier = Modifier
+								.fillMaxWidth()
+								.background(
+									if (current) {
+										MaterialTheme.colorScheme.surfaceVariant
+									} else {
+										MaterialTheme.colorScheme.surface
+									},
+								)
+								.clickable {
+									showTurnPicker = false
+									jumpToMessageId = turn.messageId
+								}
+								.padding(horizontal = 4.dp, vertical = 9.dp),
+							verticalAlignment = Alignment.Top,
+						) {
+							Text(
+								text = "${index + 1}",
+								style = MaterialTheme.typography.labelMedium,
+								fontFamily = FontFamily.Monospace,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+								modifier = Modifier.width(30.dp),
+							)
+							Column(modifier = Modifier.weight(1f)) {
+								Text(
+									text = turn.preview.ifBlank {
+										stringResource(R.string.chat_turn_label, index + 1)
+									},
+									style = MaterialTheme.typography.bodyMedium,
+									maxLines = 2,
+									overflow = TextOverflow.Ellipsis,
+								)
+								Text(
+									text = stringResource(R.string.chat_turn_label, index + 1),
+									style = MaterialTheme.typography.labelSmall,
+									color = MaterialTheme.colorScheme.onSurfaceVariant,
+								)
+							}
+						}
+						if (index != userTurns.lastIndex) Hairline()
+					}
+				}
+			}
+
+			if (searchOpen) {
+				ChatSearchDialog(
+					query = searchQuery,
+					onQueryChange = { searchQuery = it },
+					matches = searchMatches,
+					onSelect = { match ->
+						closeSearch()
+						jumpToMessageId = match.messageId
+					},
+					onDismiss = { closeSearch() },
+				)
 			}
 
 			// The bottom strip, centred on the same measure as the bubbles
@@ -995,7 +1348,12 @@ fun ChatScreen(
 					}
 				}
 
-				Composer(
+				// Search replaces the composer rather than sitting above it.
+				// With the IME open a two-row search bar, the turn strip, the
+				// composer and the keyboard left no transcript on a 731dp-tall
+				// phone; the matches were searchable and invisible.
+				if (!searchOpen) {
+					Composer(
 					value = input,
 					onValueChange = viewModel::onInputChange,
 					onSend = {
@@ -1040,7 +1398,8 @@ fun ChatScreen(
 					modifier = Modifier
 						.widthIn(max = Layout.ChatMeasure)
 						.fillMaxWidth(),
-				)
+					)
+				}
 			}
 		}
 	}
@@ -1057,10 +1416,85 @@ fun ChatScreen(
 		ModelPickerDialog(
 			chat = viewModel,
 			currentModel = chosenModel,
+			currentProviderId = currentProviderId,
 			effectiveModel = resolvedModel,
 			currentEffort = reasoningEffort,
 			currentThinking = thinking,
 			onDismiss = { showModelPicker = false },
+		)
+	}
+
+	if (audioBusy || audioTranscript != null || audioError != null) {
+		AlertDialog(
+			onDismissRequest = {
+				if (!audioBusy) {
+					audioTranscript = null
+					audioError = null
+				}
+			},
+			title = { Text("Transcription") },
+			text = {
+				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+					if (audioBusy) {
+						Row(
+							verticalAlignment = Alignment.CenterVertically,
+							horizontalArrangement = Arrangement.spacedBy(10.dp),
+						) {
+							CircularProgressIndicator(strokeWidth = 2.dp)
+							Text("Transcribing…")
+						}
+					}
+					audioTranscript?.let { Text(it) }
+					audioError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+				}
+			},
+			confirmButton = {
+				TextButton(
+					enabled = !audioBusy,
+					onClick = {
+						audioTranscript = null
+						audioError = null
+					},
+				) { Text(stringResource(R.string.common_cancel)) }
+			},
+		)
+	}
+
+	if (showVideo) {
+		VideoDialog(
+			workspaceId = workspaceId,
+			status = videoStatus,
+			path = videoPath,
+			error = videoError,
+			onStart = { prompt, resolution, ratio, duration ->
+				viewModel.startVideo(prompt, resolution, ratio, duration)
+			},
+			onDismiss = { showVideo = false },
+		)
+	}
+
+	if (showSpeech) {
+		SpeechDialog(
+			workspaceId = workspaceId,
+			onSpeak = { text -> viewModel.synthesize(text) },
+			onTranscribe = { path -> viewModel.transcribe(path) },
+			onDismiss = { showSpeech = false },
+		)
+	}
+
+	if (showDecision) {
+		DecisionDialog(
+			onDecide = { text -> viewModel.decide(text) },
+			onDecideCustom = { text, questions -> viewModel.decideCustom(text, questions) },
+			onDismiss = { showDecision = false },
+		)
+	}
+
+	if (showGenerateImage) {
+		GenerateImageDialog(
+			workspaceId = workspaceId,
+			onGenerate = { prompt, size -> viewModel.generateImage(prompt, size) },
+			onDismiss = { showGenerateImage = false },
 		)
 	}
 
@@ -1073,7 +1507,16 @@ fun ChatScreen(
 	// name and JSON arguments would be technically complete and practically
 	// useless -- the point of the gate is that someone reads it before saying
 	// yes, and nobody reads `{"path":"a.txt"}` carefully.
-	pendingApproval?.let { pending ->		AlertDialog(
+	pendingApproval?.let { pending ->
+		// The details are model-written JSON and can be arbitrarily long: a
+		// `write_file` call carries a whole file in `content`. Left unbounded
+		// they pushed the two buttons off the screen, so the one dialog where
+		// reading carefully is the whole point became the one where "Allow"
+		// could not be reached. Bounded and scrolled instead, with the bound
+		// tied to the window so a landscape phone does not spend its entire
+		// height on the arguments.
+		val detailsLimit = (currentWindowFrame().heightDp * 0.4f).dp
+		AlertDialog(
 			onDismissRequest = viewModel::declinePendingCall,
 			title = { Text(stringResource(R.string.chat_allow_title)) },
 			text = {
@@ -1094,11 +1537,13 @@ fun ChatScreen(
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 							modifier = Modifier
 								.fillMaxWidth()
+								.heightIn(max = detailsLimit)
 								.background(
 									MaterialTheme.colorScheme.surfaceVariant,
 									RoundedCornerShape(8.dp),
 								)
-								.padding(10.dp),
+								.padding(10.dp)
+								.verticalScroll(rememberScrollState()),
 						)
 					}
 				}
@@ -1537,6 +1982,145 @@ fun ChatScreen(
 			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 	}
+}
+
+/**
+ * Full-screen in-conversation search.
+ *
+ * A dialog rather than a row inside the chat column: with the IME open, an
+ * inline bar plus the transcript header and composer left no messages visible
+ * on a 640×360 landscape phone. Owning the window also gives the results the
+ * whole screen, so a hit can be read before it is opened.
+ */
+@Composable
+private fun ChatSearchDialog(
+	query: String,
+	onQueryChange: (String) -> Unit,
+	matches: List<ChatSearchMatch>,
+	onSelect: (ChatSearchMatch) -> Unit,
+	onDismiss: () -> Unit,
+) {
+	val focusRequester = remember { FocusRequester() }
+	val keyboard = LocalSoftwareKeyboardController.current
+	val resultListState = rememberLazyListState()
+	LaunchedEffect(Unit) {
+		// The dialog's window is attached after the first composition; a frame
+		// of delay keeps requestFocus from racing that attachment. A failed
+		// request is not fatal: the field is still tappable.
+		delay(50)
+		runCatching { focusRequester.requestFocus() }
+	}
+	// A new query replaces the result set; the previous scroll position would
+	// otherwise leave the list halfway down the new (usually shorter) results.
+	LaunchedEffect(query) {
+		if (matches.isNotEmpty()) resultListState.scrollToItem(0)
+	}
+
+	Dialog(
+		onDismissRequest = onDismiss,
+		properties = DialogProperties(usePlatformDefaultWidth = false),
+	) {
+		Surface(
+			modifier = Modifier.fillMaxSize(),
+			color = MaterialTheme.colorScheme.background,
+		) {
+			Box(
+				modifier = Modifier
+					.fillMaxSize()
+					.imePadding(),
+				contentAlignment = Alignment.TopCenter,
+			) {
+				Column(
+					modifier = Modifier
+						.widthIn(max = Layout.ChatMeasure)
+						.fillMaxWidth()
+						.fillMaxHeight(),
+				) {
+				Row(
+					modifier = Modifier
+						.fillMaxWidth()
+						.padding(horizontal = 16.dp, vertical = 8.dp),
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					OutlinedTextField(
+						value = query,
+						onValueChange = onQueryChange,
+						modifier = Modifier
+							.weight(1f)
+							.focusRequester(focusRequester),
+						singleLine = true,
+						placeholder = { Text(stringResource(R.string.chat_search_placeholder)) },
+						leadingIcon = {
+							Icon(
+								Icons.Outlined.Search,
+								contentDescription = null,
+								modifier = Modifier.size(18.dp),
+							)
+						},
+						trailingIcon = {
+							if (query.isNotEmpty()) {
+								IconButton(onClick = { onQueryChange("") }) {
+									Icon(
+										Icons.Filled.Close,
+										contentDescription = stringResource(R.string.chat_search_clear),
+										modifier = Modifier.size(18.dp),
+									)
+								}
+							}
+						},
+						keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+						keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+					)
+					TextButton(onClick = onDismiss) { Text(stringResource(R.string.chat_close)) }
+				}
+
+				if (query.isNotBlank()) {
+					Text(
+						text = if (matches.isEmpty()) {
+							stringResource(R.string.chat_search_no_results)
+						} else {
+							stringResource(R.string.chat_search_matches, matches.size)
+						},
+						style = MaterialTheme.typography.labelSmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+					)
+					Hairline()
+				}
+
+				LazyColumn(state = resultListState, modifier = Modifier.weight(1f)) {
+					items(matches, key = { it.messageId }) { match ->
+						Row(
+							modifier = Modifier
+								.fillMaxWidth()
+								.clickable { onSelect(match) }
+								.padding(horizontal = 16.dp, vertical = 10.dp),
+							verticalAlignment = Alignment.Top,
+						) {
+							Text(
+								text = stringResource(
+									if (match.fromUser) R.string.chat_you else R.string.home_role_assistant,
+								).uppercase(),
+								style = MaterialTheme.typography.labelSmall,
+								fontFamily = FontFamily.Monospace,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+								modifier = Modifier.width(84.dp),
+							)
+							Text(
+								text = match.snippet,
+								style = MaterialTheme.typography.bodyMedium,
+								maxLines = 3,
+								overflow = TextOverflow.Ellipsis,
+								modifier = Modifier.weight(1f),
+							)
+						}
+						Hairline()
+					}
+				}
+			}
+		}
+	}
+}
 }
 
 /**
@@ -2122,6 +2706,7 @@ private fun MessageBubble(
 	isTurnEnd: Boolean,
 	onShowTurnWire: () -> Unit,
 	onShowRewind: () -> Unit,
+	onRetry: () -> Unit,
 	onSelectBranch: (String?, String) -> Unit,
 ) {
 	val alignment = if (message.fromUser) Alignment.End else Alignment.Start
@@ -2428,12 +3013,24 @@ private fun MessageBubble(
 		}
 
 		message.error?.let {
-			Text(
-				text = it,
-				style = MaterialTheme.typography.bodyMedium,
-				color = MaterialTheme.colorScheme.error,
+			Row(
 				modifier = Modifier.padding(top = 4.dp),
-			)
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				Text(
+					text = it,
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.error,
+					modifier = Modifier.weight(1f),
+				)
+				// Stop is deliberate, not a failure; keep the retry next to the
+				// stopped answer instead of making the user retype the message.
+				if (message.error == ChatViewModel.STOPPED_MESSAGE && isLatestAssistant) {
+					TextButton(onClick = onRetry) {
+						Text(stringResource(R.string.chat_retry))
+					}
+				}
+			}
 		}
 
 		// Token accounting for the whole turn, once, at its end. The per-message
@@ -2908,3 +3505,406 @@ private fun queryImageName(context: android.content.Context, uri: android.net.Ur
 			if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
 		}
 	}.getOrNull()?.takeIf { it.isNotBlank() } ?: "image"
+
+@Composable
+private fun GenerateImageDialog(
+	workspaceId: String?,
+	onGenerate: suspend (String, String) -> Result<ChatViewModel.GeneratedImage>,
+	onDismiss: () -> Unit,
+) {
+	val scope = rememberCoroutineScope()
+	val context = LocalContext.current
+	var prompt by remember { mutableStateOf("") }
+	var size by remember { mutableStateOf("1024*1024") }
+	var generating by remember { mutableStateOf(false) }
+	var saved by remember { mutableStateOf<String?>(null) }
+	var error by remember { mutableStateOf<String?>(null) }
+
+	AlertDialog(
+		onDismissRequest = { if (!generating) onDismiss() },
+		title = { Text(stringResource(R.string.chat_generate_image_title)) },
+		text = {
+			Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+				OutlinedTextField(
+					value = prompt,
+					onValueChange = { prompt = it },
+					modifier = Modifier.fillMaxWidth(),
+					label = { Text(stringResource(R.string.chat_image_prompt)) },
+					minLines = 3,
+					enabled = !generating,
+				)
+				OutlinedTextField(
+					value = size,
+					onValueChange = { size = it },
+					modifier = Modifier.fillMaxWidth(),
+					label = { Text(stringResource(R.string.chat_image_size)) },
+					singleLine = true,
+					enabled = !generating,
+				)
+				if (generating) {
+					Row(
+						verticalAlignment = Alignment.CenterVertically,
+						horizontalArrangement = Arrangement.spacedBy(10.dp),
+					) {
+						CircularProgressIndicator(strokeWidth = 2.dp)
+						Text(stringResource(R.string.chat_generating))
+					}
+				}
+				saved?.let { path ->
+					Text(stringResource(R.string.chat_image_saved, path))
+					workspaceId?.let { id ->
+						TextButton(
+							onClick = {
+								openWorkspaceFile(context, id, path, "image/png")
+							},
+						) { Text("Open") }
+					}
+				}
+				error?.let {
+					Text(it, color = MaterialTheme.colorScheme.error)
+				}
+			}
+		},
+		confirmButton = {
+			TextButton(
+				enabled = prompt.isNotBlank() && !generating,
+				onClick = {
+					generating = true
+					error = null
+					saved = null
+					scope.launch {
+						onGenerate(prompt.trim(), size.trim()).fold(
+							onSuccess = { result ->
+								saved = result.relativePath
+								generating = false
+							},
+							onFailure = {
+								error = it.message ?: "Image generation failed"
+								generating = false
+							},
+						)
+					}
+				},
+			) {
+				Text(stringResource(R.string.common_generate))
+			}
+		},
+		dismissButton = {
+			TextButton(onClick = onDismiss, enabled = !generating) {
+				Text(stringResource(R.string.common_cancel))
+			}
+		},
+	)
+}
+
+@Composable
+private fun DecisionDialog(
+	onDecide: suspend (String) -> Result<kotlinx.serialization.json.JsonObject>,
+	onDecideCustom: suspend (String, String) -> Result<kotlinx.serialization.json.JsonObject>,
+	onDismiss: () -> Unit,
+) {
+	val scope = rememberCoroutineScope()
+	var stateText by remember { mutableStateOf("") }
+	var custom by remember { mutableStateOf(false) }
+	var questionsJson by remember {
+		mutableStateOf(
+			"""{"urgent":{"type":"noul","instructions":"Does this need immediate attention?"}}""",
+		)
+	}
+	var running by remember { mutableStateOf(false) }
+	var resultText by remember { mutableStateOf<String?>(null) }
+	var error by remember { mutableStateOf<String?>(null) }
+
+	AlertDialog(
+		onDismissRequest = { if (!running) onDismiss() },
+		title = { Text("Decision") },
+		text = {
+			Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+				Text(
+					"Preset questions: department, urgent, severity.",
+					style = MaterialTheme.typography.labelLarge,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				FilterChip(
+					selected = custom,
+					onClick = { custom = !custom },
+					label = { Text("Custom questions (JSON)") },
+					enabled = !running,
+				)
+				if (custom) {
+					OutlinedTextField(
+						value = questionsJson,
+						onValueChange = { questionsJson = it },
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text("questions object") },
+						minLines = 5,
+						enabled = !running,
+					)
+				}
+				OutlinedTextField(
+					value = stateText,
+					onValueChange = { stateText = it },
+					modifier = Modifier.fillMaxWidth(),
+					label = { Text("State / ticket text") },
+					minLines = 4,
+					enabled = !running,
+				)
+				if (running) {
+					Row(
+						verticalAlignment = Alignment.CenterVertically,
+						horizontalArrangement = Arrangement.spacedBy(10.dp),
+					) {
+						CircularProgressIndicator(strokeWidth = 2.dp)
+						Text("Deciding…")
+					}
+				}
+				resultText?.let {
+					Text(
+						it,
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
+				error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+			}
+		},
+		confirmButton = {
+			TextButton(
+				enabled = stateText.isNotBlank() && !running,
+				onClick = {
+					running = true
+					error = null
+					resultText = null
+					scope.launch {
+						val result = if (custom) {
+							onDecideCustom(stateText.trim(), questionsJson)
+						} else {
+							onDecide(stateText.trim())
+						}
+						result.fold(
+							onSuccess = {
+								resultText = it.toString()
+								running = false
+							},
+							onFailure = {
+								error = it.message ?: "Decision failed"
+								running = false
+							},
+						)
+					}
+				},
+			) {
+				Text("Decide")
+			}
+		},
+		dismissButton = {
+			TextButton(onClick = onDismiss, enabled = !running) {
+				Text(stringResource(R.string.common_cancel))
+			}
+		},
+	)
+}
+
+@Composable
+private fun SpeechDialog(
+	workspaceId: String?,
+	onSpeak: suspend (String) -> Result<ChatViewModel.GeneratedAudio>,
+	onTranscribe: suspend (String) -> Result<String>,
+	onDismiss: () -> Unit,
+) {
+	val scope = rememberCoroutineScope()
+	val context = LocalContext.current
+	var text by remember { mutableStateOf("") }
+	var running by remember { mutableStateOf(false) }
+	var saved by remember { mutableStateOf<String?>(null) }
+	var transcript by remember { mutableStateOf<String?>(null) }
+	var error by remember { mutableStateOf<String?>(null) }
+
+	AlertDialog(
+		onDismissRequest = { if (!running) onDismiss() },
+		title = { Text("Text to speech") },
+		text = {
+			Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+				OutlinedTextField(
+					value = text,
+					onValueChange = { text = it },
+					modifier = Modifier.fillMaxWidth(),
+					label = { Text("Text to speak") },
+					minLines = 4,
+					enabled = !running,
+				)
+				if (running) {
+					Row(
+						verticalAlignment = Alignment.CenterVertically,
+						horizontalArrangement = Arrangement.spacedBy(10.dp),
+					) {
+						CircularProgressIndicator(strokeWidth = 2.dp)
+						Text("Synthesizing…")
+					}
+				}
+				saved?.let { path ->
+					Text("Saved to $path")
+					workspaceId?.let { id ->
+						TextButton(
+							onClick = {
+								openWorkspaceFile(context, id, path, "audio/mpeg")
+							},
+						) { Text("Play") }
+					}
+					TextButton(
+						enabled = !running,
+						onClick = {
+							running = true
+							error = null
+							transcript = null
+							scope.launch {
+								onTranscribe(path).fold(
+									onSuccess = {
+										transcript = it
+										running = false
+									},
+									onFailure = {
+										error = it.message ?: "Transcription failed"
+										running = false
+									},
+								)
+							}
+						},
+					) { Text("Transcribe") }
+				}
+				transcript?.let { Text(it) }
+				error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+			}
+		},
+		confirmButton = {
+			TextButton(
+				enabled = text.isNotBlank() && !running,
+				onClick = {
+					running = true
+					error = null
+					saved = null
+					scope.launch {
+						onSpeak(text.trim()).fold(
+							onSuccess = {
+								saved = it.relativePath
+								running = false
+							},
+							onFailure = {
+								error = it.message ?: "Speech failed"
+								running = false
+							},
+						)
+					}
+				},
+			) {
+				Text("Speak")
+			}
+		},
+		dismissButton = {
+			TextButton(onClick = onDismiss, enabled = !running) {
+				Text(stringResource(R.string.common_cancel))
+			}
+		},
+	)
+}
+
+@Composable
+private fun VideoDialog(
+	workspaceId: String?,
+	status: String?,
+	path: String?,
+	error: String?,
+	onStart: (String, String, String, Int) -> Unit,
+	onDismiss: () -> Unit,
+) {
+	val context = LocalContext.current
+	var prompt by remember { mutableStateOf("") }
+	var resolution by remember { mutableStateOf("720P") }
+	var ratio by remember { mutableStateOf("16:9") }
+	var duration by remember { mutableStateOf("5") }
+	val running = status != null
+
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text("Generate video") },
+		text = {
+			Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+				OutlinedTextField(
+					value = prompt,
+					onValueChange = { prompt = it },
+					modifier = Modifier.fillMaxWidth(),
+					label = { Text("What should the video show?") },
+					minLines = 3,
+					enabled = !running,
+				)
+				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+					OutlinedTextField(
+						value = resolution,
+						onValueChange = { resolution = it },
+						modifier = Modifier.weight(1f),
+						label = { Text("Resolution") },
+						singleLine = true,
+						enabled = !running,
+					)
+					OutlinedTextField(
+						value = ratio,
+						onValueChange = { ratio = it },
+						modifier = Modifier.weight(1f),
+						label = { Text("Ratio") },
+						singleLine = true,
+						enabled = !running,
+					)
+				}
+				OutlinedTextField(
+					value = duration,
+					onValueChange = { duration = it.filter(Char::isDigit) },
+					modifier = Modifier.fillMaxWidth(),
+					label = { Text("Seconds (2–30)") },
+					singleLine = true,
+					enabled = !running,
+				)
+				status?.let {
+					Row(
+						verticalAlignment = Alignment.CenterVertically,
+						horizontalArrangement = Arrangement.spacedBy(10.dp),
+					) {
+						CircularProgressIndicator(strokeWidth = 2.dp)
+						Text("Video task: $it")
+					}
+				}
+				path?.let { savedPath ->
+					Text("Saved to $savedPath")
+					workspaceId?.let { id ->
+						TextButton(
+							onClick = {
+								openWorkspaceFile(context, id, savedPath, "video/mp4")
+							},
+						) { Text("Play") }
+					}
+				}
+				error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+			}
+		},
+		confirmButton = {
+			TextButton(
+				enabled = prompt.isNotBlank() && !running,
+				onClick = {
+					onStart(
+						prompt.trim(),
+						resolution.trim(),
+						ratio.trim(),
+						duration.toIntOrNull()?.coerceIn(2, 30) ?: 5,
+					)
+				},
+			) {
+				Text("Generate")
+			}
+		},
+		dismissButton = {
+			TextButton(onClick = onDismiss) {
+				Text(stringResource(R.string.common_cancel))
+			}
+		},
+	)
+}
+

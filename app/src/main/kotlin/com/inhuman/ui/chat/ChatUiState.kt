@@ -110,6 +110,7 @@ fun chatErrorAction(message: String?): ChatErrorAction? {
 		"http 504",
 		"timeout",
 		"timed out",
+		"no response",
 		"network",
 		"connect",
 		"stream",
@@ -131,7 +132,10 @@ fun chatErrorAction(message: String?): ChatErrorAction? {
 data class ChatUiState(
 	val title: String = "",
 	val providerName: String = "DeepSeek",
+	/** The conversation's current provider profile; switching is explicit. */
+	val providerId: String = "deepseek",
 	val workspaceName: String = "",
+	val workspaceId: String? = null,
 	val workspaceIsPermanent: Boolean = false,
 	val workspaceConversationCount: Int = 1,
 	val messages: List<ChatMessageUi> = emptyList(),
@@ -218,6 +222,10 @@ data class ChatUiState(
 	 * guard has to be here.
 	 */
 	val modelSupportsVision: Boolean = false,
+	/** Video generation is async; these fields keep its progress across dialog dismissal. */
+	val videoStatus: String? = null,
+	val videoPath: String? = null,
+	val videoError: String? = null,
 	/**
 	 * How full the model's context window is.
 	 *

@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.inhuman.R
 import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.common.diag.Diag
+import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.design.WorkbenchSwitch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -61,16 +62,22 @@ import kotlinx.coroutines.withTimeoutOrNull
 fun ModelPickerDialog(
 	chat: ChatViewModel,
 	currentModel: String?,
+	currentProviderId: String,
 	effectiveModel: String?,
 	currentEffort: String?,
 	currentThinking: Boolean,
 	onDismiss: () -> Unit,
 ) {
 	var models by remember { mutableStateOf<List<RemoteModel>>(emptyList()) }
+	var providers by remember { mutableStateOf<List<ProviderProfileEntity>>(emptyList()) }
 	var loading by remember { mutableStateOf(true) }
 	var error by remember { mutableStateOf<String?>(null) }
 	var attempt by remember { mutableStateOf(0) }
 	val context = LocalContext.current
+
+	LaunchedEffect(attempt) {
+		providers = runCatching { chat.providerProfiles() }.getOrDefault(emptyList())
+	}
 
 	// Reloaded every time the dialog opens rather than cached in the screen:
 	// this is the moment the information is wanted, and a list fetched an hour
@@ -80,7 +87,7 @@ fun ModelPickerDialog(
 	// conversation resolves its model, so the common case has a list before the
 	// dialog is drawn; the refetch updates it without making a slow network
 	// look like a broken picker. The spinner is only for a genuinely cold list.
-	LaunchedEffect(attempt) {
+	LaunchedEffect(attempt, currentProviderId) {
 		loading = true
 		error = null
 		Diag.d("models", "dialog open; reading cache")
@@ -167,11 +174,48 @@ fun ModelPickerDialog(
 					TextButton(onClick = { attempt++ }) { Text(stringResource(R.string.chat_retry)) }
 				}
 
+				if (providers.isNotEmpty()) {
+					Text(
+						text = stringResource(R.string.model_picker_provider),
+						style = MaterialTheme.typography.labelLarge,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					androidx.compose.foundation.layout.FlowRow(
+						modifier = Modifier.fillMaxWidth(),
+						horizontalArrangement = Arrangement.spacedBy(6.dp),
+						verticalArrangement = Arrangement.spacedBy(6.dp),
+					) {
+						providers.forEach { provider ->
+							val hasKey = chat.hasProviderKey(provider.id)
+							FilterChip(
+								selected = currentProviderId == provider.id,
+								onClick = { chat.setProvider(provider.id) },
+								label = {
+									Text(
+										if (hasKey) {
+											provider.name
+										} else {
+											provider.name + " · " +
+												stringResource(R.string.model_picker_provider_no_key)
+										},
+									)
+								},
+							)
+						}
+					}
+					Text(
+						text = stringResource(R.string.model_picker_provider_hint),
+						style = MaterialTheme.typography.labelLarge,
+						color = MaterialTheme.colorScheme.outline,
+					)
+					HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+				}
+
 				if (!loading) {
 					Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
 						ModelOption(
-							label = "Assistant's default",
-							detail = "Whatever the assistant was set up with.",
+							label = "Provider default",
+							detail = "The first model this provider lists.",
 							selected = currentModel == null,
 							onClick = {
 								chat.setModel(null)

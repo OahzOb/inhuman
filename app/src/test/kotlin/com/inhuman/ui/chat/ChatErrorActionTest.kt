@@ -44,6 +44,14 @@ class ChatErrorActionTest {
 	}
 
 	@Test
+	fun aHeaderTimeoutOffersRetry() {
+		assertEquals(
+			ChatErrorAction.Retry,
+			chatErrorAction("No response headers within 90s"),
+		)
+	}
+
+	@Test
 	fun ordinaryUiErrorsGetNoAction() {
 		assertNull(chatErrorAction("The model in use cannot read images."))
 		assertNull(chatErrorAction("There are not enough earlier complete turns to compact."))
