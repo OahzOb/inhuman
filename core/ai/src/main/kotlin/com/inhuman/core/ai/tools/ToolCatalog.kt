@@ -93,6 +93,18 @@ object ToolCatalog {
 			paid = true,
 		),
 		Entry(
+			"decide",
+			"Classify or score a state with a typed decision model",
+			mutates = false,
+			paid = true,
+		),
+		Entry(
+			"transcribe",
+			"Transcribe an audio file from the workspace",
+			mutates = false,
+			paid = true,
+		),
+		Entry(
 			"ssh_probe",
 			"Snapshot a remote Linux machine",
 			mutates = false,
@@ -140,6 +152,29 @@ object ToolCatalog {
 			mutates = true,
 			reversible = true,
 			remote = true,
+		),
+		Entry(
+			"generate_image",
+			"Generate an image and save it in the workspace",
+			mutates = true,
+			paid = true,
+		),
+		Entry(
+			"generate_video",
+			"Start an async video generation task",
+			mutates = true,
+			paid = true,
+		),
+		Entry(
+			"video_status",
+			"Check a video task and save it when finished",
+			mutates = true,
+		),
+		Entry(
+			"speak",
+			"Convert text to an audio file in the workspace",
+			mutates = true,
+			paid = true,
 		),
 		Entry("write_file", "Create or replace a file", mutates = true),
 		Entry("append_file", "Add to the end of a file", mutates = true),
@@ -211,4 +246,23 @@ object ToolCatalog {
 	 * "everything" meant when it was chosen.
 	 */
 	fun allSelection(): List<String>? = null
+
+	/**
+	 * "Everything" written out as a list, for the moment someone turns one
+	 * tool off in the picker.
+	 *
+	 * The stored value has to change on the first toggle -- `null` means
+	 * everything, so it cannot express "everything except one" -- and the list
+	 * it becomes has to mean what was on screen. That is every tool that is
+	 * not remote.
+	 *
+	 * It used to be `names - "ssh_exec"`, and that was a silent grant of the
+	 * other six remote tools: `permits` treats a remote name in the selection
+	 * as consent, so unticking an unrelated box (or ticking any one SSH tool)
+	 * put `ssh_probe`, `ssh_upload` and the rest into the saved list. The
+	 * picker showed them checked, the user had never chosen them, and
+	 * `docs/08-port-philosophy.md` §1.2.1 says remote capability may not be
+	 * switched on as a side effect of "select all".
+	 */
+	fun everythingExplicit(): List<String> = visible(includeSsh = false).map { it.name }
 }

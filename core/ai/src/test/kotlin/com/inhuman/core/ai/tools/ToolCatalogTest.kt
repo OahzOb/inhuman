@@ -130,6 +130,30 @@ class ToolCatalogTest {
 	}
 
 	@Test
+	fun `everything explicit leaves every remote tool out`() {
+		// The picker materialises "everything" the first time a box is toggled,
+		// because null cannot express "everything except one". What comes back
+		// must still be what was on screen: `null` refuses remote tools, so the
+		// list must too, or unticking one unrelated box would grant SSH.
+		//
+		// This is the bug this test exists for: the list used to be
+		// `names - "ssh_exec"`, which left the other six remote names in it, and
+		// `permits` reads a remote name in a selection as consent.
+		val explicit = ToolCatalog.everythingExplicit()
+		val remote = ToolCatalog.all.filter { it.remote }.map { it.name }
+
+		assertTrue("expected several remote tools", remote.size >= 3)
+		remote.forEach { name ->
+			assertFalse("$name must not be materialised", name in explicit)
+			assertFalse("$name must stay refused", ToolCatalog.permits(explicit, name))
+		}
+		ToolCatalog.all.filterNot { it.remote }.forEach { entry ->
+			assertTrue("${entry.name} must survive", entry.name in explicit)
+		}
+		assertEquals(ToolCatalog.all.count { !it.remote }, explicit.size)
+	}
+
+	@Test
 	fun `reads are listed before writes`() {
 		// Order is what makes the list scannable. The check is loose on purpose:
 		// it asserts that no mutating tool appears before a read-only one, not
@@ -147,8 +171,9 @@ class ToolCatalogTest {
 		val mutating = ToolCatalog.all.filter { it.mutates }.map { it.name }.toSet()
 		assertEquals(
 			setOf(
-				"write_file", "append_file", "create_directory", "move_file",
-				"delete_file", "ssh_exec", "ssh_upload", "ssh_write_file", "ssh_download",
+				"generate_image", "generate_video", "video_status", "speak", "write_file",
+				"append_file", "create_directory", "move_file", "delete_file", "ssh_exec",
+				"ssh_upload", "ssh_write_file", "ssh_download",
 			),
 			mutating,
 		)
@@ -182,7 +207,13 @@ class ToolCatalogTest {
 		// The marker is a cost warning, not a capability one: these tools are
 		// read-only but they spend money at DeepSeek on every successful call.
 		val paid = ToolCatalog.all.filter { it.paid }.map { it.name }.toSet()
-		assertEquals(setOf("web_search", "web_fetch"), paid)
+		assertEquals(
+			setOf(
+				"web_search", "web_fetch", "decide", "transcribe", "generate_image",
+				"generate_video", "speak",
+			),
+			paid,
+		)
 		assertFalse(ToolCatalog.all.first { it.name == "web_fetch" }.mutates)
 	}
 }
