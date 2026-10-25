@@ -19,6 +19,10 @@ object ProviderIds {
 object ProviderKinds {
 	const val DEEPSEEK = "deepseek"
 	const val OPENAI_COMPATIBLE = "openai-compatible"
+	/** Anthropic Messages wire API (`/v1/messages`, `x-api-key`). */
+	const val ANTHROPIC_MESSAGES = "anthropic-messages"
+	/** Google Generative AI wire API (`generateContent` / `streamGenerateContent`). */
+	const val GOOGLE_GENERATIVE_AI = "google-generative-ai"
 }
 
 object ProviderReasoning {

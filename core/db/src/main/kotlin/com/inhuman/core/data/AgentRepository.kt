@@ -2,7 +2,7 @@ package com.inhuman.core.data
 
 import com.inhuman.core.ai.ChatProvider
 import com.inhuman.core.ai.RemoteModel
-import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
+import com.inhuman.core.ai.provider.ProviderFactory
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.InhumanDatabase
 import com.inhuman.core.data.db.ProviderIds
@@ -141,7 +141,8 @@ class AgentRepository(
 
 	suspend fun providerFromRow(profile: ProviderProfileEntity): ChatProvider? {
 		val key = secure.get(apiKeySlot(profile.id))?.takeIf { it.isNotBlank() } ?: return null
-		return DeepSeekProvider(
+		return ProviderFactory.create(
+			kind = profile.kind,
 			apiKey = key,
 			baseUrl = profile.baseUrl.trimEnd('/'),
 			id = profile.id,

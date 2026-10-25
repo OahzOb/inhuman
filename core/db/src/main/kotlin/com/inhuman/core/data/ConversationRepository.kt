@@ -335,6 +335,9 @@ class ConversationRepository(
 
 	suspend fun setModel(id: String, model: String?) = db.conversations().setModel(id, model)
 
+	suspend fun setProvider(id: String, providerId: String) =
+		db.conversations().setProvider(id, providerId)
+
 	suspend fun setReasoning(id: String, effort: String?, thinking: Boolean) =
 		db.conversations().setReasoning(id, effort, thinking)
 

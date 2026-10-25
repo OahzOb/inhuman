@@ -172,6 +172,20 @@ interface ConversationDao {
 	suspend fun setModel(id: String, model: String?)
 
 	/**
+	 * Re-point a conversation at another provider profile.
+	 *
+	 * The model, effort and thinking flag are cleared in the same statement:
+	 * they are provider/model-specific choices, and keeping a model id that the
+	 * new provider does not offer would leave the conversation pointing at a
+	 * model that does not exist. The user re-picks after the switch.
+	 */
+	@Query(
+		"UPDATE conversations SET providerId = :providerId, model = NULL, " +
+			"reasoningEffort = NULL, thinking = 0 WHERE id = :id",
+	)
+	suspend fun setProvider(id: String, providerId: String)
+
+	/**
 	 * Set the reasoning controls together.
 	 *
 	 * One statement rather than two because they are only meaningful as a pair:

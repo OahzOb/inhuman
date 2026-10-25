@@ -98,6 +98,21 @@ class ConversationRepositoryTest {
 		assertTrue(repository.conversation(conversation.id)?.messages.orEmpty().isEmpty())
 	}
 
+	@Test
+	fun `switching provider clears the model and reasoning choices`() = runBlocking {
+		val conversation = repository.create(title = "Switch")
+		repository.setModel(conversation.id, "old-provider-model")
+		repository.setReasoning(conversation.id, "high", thinking = true)
+
+		repository.setProvider(conversation.id, "another-provider")
+
+		val row = db.conversations().byId(conversation.id)
+		assertEquals("another-provider", row?.providerId)
+		assertNull(row?.model)
+		assertNull(row?.reasoningEffort)
+		assertFalse(row?.thinking ?: true)
+	}
+
 	private fun message(
 		id: String,
 		conversationId: String,

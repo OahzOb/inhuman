@@ -8,8 +8,10 @@ import com.inhuman.core.ai.stream.SseParser
 import com.inhuman.core.common.diag.Diag
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
@@ -243,7 +245,19 @@ class DeepSeekProvider(
 			Diag.d("http", "collector closed; cancelling call")
 			call.cancel()
 		}
-	}.flowOn(Dispatchers.IO)
+	}
+		// `trySend` is the only option in OkHttp's callbacks: they run on a
+		// blocking dispatcher thread, not in a coroutine, so there is no `send`
+		// and no backpressure. The default 64-slot buffer then made `trySend`
+		// fail on a fast stream -- or on a collector busy with a tool call --
+		// and the chunk was **dropped**. The reply arrived with holes in it and
+		// nothing anywhere said a token had been lost.
+		//
+		// Fusing the buffer to unlimited is what makes `trySend` lossless here.
+		// The memory ceiling is one reply's worth of text, small next to the
+		// request that produced it.
+		.buffer(Channel.UNLIMITED)
+		.flowOn(Dispatchers.IO)
 
 	companion object {
 		const val DEFAULT_BASE_URL = "https://api.deepseek.com"
@@ -279,6 +293,10 @@ class DeepSeekProvider(
 		 */
 		val shared: OkHttpClient by lazy {
 			OkHttpClient.Builder()
+				// Headers normally arrive in milliseconds; the long read timeout
+				// is for the body after them. Without this a silent connection
+				// held the spinner until the app was restarted.
+				.addInterceptor(HeaderTimeoutInterceptor())
 				// Long read timeout on purpose. DeepSeek documents that the
 				// server closes the connection if inference has not begun within
 				// 10 minutes, and reasoning models routinely take a long time
