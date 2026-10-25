@@ -74,23 +74,68 @@ class TurnSummaryTest {
 
 	@Test
 	fun `a turn is keyed by its last assistant and carries every row`() {
-		val turns = turnSummariesOf(
-			listOf(
-				user("u1"),
-				assistant("a1", UsageUi(promptTokens = 10, completionTokens = 5), streaming = false),
-				tool("t1"),
-				assistant("a2", UsageUi(promptTokens = 20, completionTokens = 7)),
-			),
+		val transcript = listOf(
+			user("u1"),
+			assistant("a1", UsageUi(promptTokens = 10, completionTokens = 5), streaming = false),
+			tool("t1"),
+			assistant("a2", UsageUi(promptTokens = 20, completionTokens = 7)),
 		)
+		val turns = turnSummariesOf(transcript)
 
 		val turn = turns["a2"]!!
-		assertEquals(listOf("u1", "a1", "t1", "a2"), turn.messages.map { it.id })
-		assertEquals(listOf("a1", "a2"), turn.assistantMessages.map { it.id })
+		assertEquals(listOf("u1", "a1", "t1", "a2"), turn.messagesIn(transcript).map { it.id })
 		val usage = turn.usage!!
 		assertEquals(30, usage.promptTokens)
 		assertEquals(12, usage.completionTokens)
 		assertTrue(turn.complete)
 		assertNull(turns["a1"])
+	}
+
+	@Test
+	fun `the range covers exactly the rows of the turn`() {
+		// The summary used to carry copies of these rows; it carries indices
+		// now, and the wire inspector slices the transcript with them. An
+		// off-by-one here shows the inspector the previous turn's last row.
+		val transcript = listOf(
+			user("u1"),
+			assistant("a1"),
+			user("u2"),
+			assistant("a2"),
+			tool("t2"),
+		)
+		val turns = turnSummariesOf(transcript)
+
+		val first = turns["a1"]!!
+		assertEquals(0, first.start)
+		assertEquals(1, first.end)
+		assertEquals(listOf("u1", "a1"), first.messagesIn(transcript).map { it.id })
+
+		val second = turns["a2"]!!
+		assertEquals(2, second.start)
+		assertEquals(4, second.end)
+		assertEquals(listOf("u2", "a2", "t2"), second.messagesIn(transcript).map { it.id })
+	}
+
+	@Test
+	fun `a transcript that begins mid-turn is still one turn`() {
+		// A compacted history can start at an assistant row. The range has to
+		// start at 0 rather than at the first user message, or that turn loses
+		// its footer and the inspector loses its first row.
+		val transcript = listOf(assistant("a1"), tool("t1"), assistant("a2"))
+		val turns = turnSummariesOf(transcript)
+
+		assertEquals(0, turns["a2"]!!.start)
+		assertEquals(2, turns["a2"]!!.end)
+	}
+
+	@Test
+	fun `slicing is safe against a shorter transcript`() {
+		// Not a state the app reaches today: a summary is always read with the
+		// list it was built from. The clamp exists so a mistake here cannot
+		// throw inside a dialog, which is how a crash becomes a mystery.
+		val long = listOf(user("u1"), assistant("a1"), tool("t1"))
+		val turn = turnSummariesOf(long)["a1"]!!
+		assertEquals(listOf("u1", "a1"), turn.messagesIn(long.take(2)).map { it.id })
 	}
 
 	@Test

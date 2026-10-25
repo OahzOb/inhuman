@@ -1153,7 +1153,9 @@ fun ChatScreen(
 							turnUsage = turn?.usage,
 							isTurnEnd = turn?.complete == true,
 							onShowTurnWire = {
-								turn?.let { turnWireMessages = it.messages }
+								// Sliced here, from the transcript this row came
+								// from: the summary carries indices, not a copy.
+								turn?.let { turnWireMessages = it.messagesIn(messages) }
 							},
 							onShowRewind = {
 								val target = messages.lastOrNull {

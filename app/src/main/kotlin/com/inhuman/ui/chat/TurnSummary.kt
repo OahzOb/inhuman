@@ -8,6 +8,18 @@ package com.inhuman.ui.chat
  * usage repeated after every tool round: a five-round turn showed five
  * `tok/s · out · in · cache` lines and five wire buttons, which is a dashboard
  * in the middle of a conversation. The numbers belong once, at the end.
+ *
+ * ## Why this holds indices rather than rows
+ *
+ * It used to hold `messages: List<ChatMessageUi>` and
+ * `assistantMessages: List<ChatMessageUi>`, both rebuilt on every publish -- and
+ * a publish happens up to every 40 ms while a reply streams. Two list copies per
+ * turn per tick is pure garbage: the rows are already in the transcript, in
+ * order, and a turn is a contiguous run of them.
+ *
+ * Storing the range is also what makes memoisation *sound* later: a summary that
+ * points at indices stays true for a changed transcript as long as the turn
+ * boundaries did not move, which a summary holding copies would not.
  */
 internal data class TurnSummary(
 	/**
@@ -19,10 +31,10 @@ internal data class TurnSummary(
 	 * before the footer is composed).
 	 */
 	val endId: String,
-	/** Every row of the turn, for the combined wire inspector. */
-	val messages: List<ChatMessageUi>,
-	/** Assistant rows only, in order; the usage sum is built from these. */
-	val assistantMessages: List<ChatMessageUi>,
+	/** Index of the turn's first row in the transcript, inclusive. */
+	val start: Int,
+	/** Index of the turn's last row in the transcript, inclusive. */
+	val end: Int,
 	val usage: UsageUi?,
 	/**
 	 * True once the turn has finished producing.
@@ -33,7 +45,17 @@ internal data class TurnSummary(
 	 * streaming **and** nothing (a tool result, a placeholder) follows it.
 	 */
 	val complete: Boolean,
-)
+) {
+	/**
+	 * The rows of this turn, cut from the transcript the range was measured on.
+	 *
+	 * Copied rather than returned as a `subList` view: the caller hands this to
+	 * a dialog that outlives the recomposition, and a view into a list that a
+	 * stream is replacing is a moving target.
+	 */
+	fun messagesIn(transcript: List<ChatMessageUi>): List<ChatMessageUi> =
+		transcript.subList(start, (end + 1).coerceAtMost(transcript.size)).toList()
+}
 
 /**
  * Group [messages] into turns and attach the footer data to each end id.
@@ -43,31 +65,40 @@ internal data class TurnSummary(
  */
 internal fun turnSummariesOf(messages: List<ChatMessageUi>): Map<String, TurnSummary> {
 	val out = LinkedHashMap<String, TurnSummary>()
-	var current = mutableListOf<ChatMessageUi>()
+	var start = 0
 
-	fun close() {
-		if (current.isEmpty()) return
-		val assistants = current.filter { !it.fromUser && !it.isToolResult }
-		val end = assistants.lastOrNull()
+	fun close(endExclusive: Int) {
+		if (endExclusive <= start) return
+		var lastAssistant: ChatMessageUi? = null
+		val usages = ArrayList<UsageUi>(2)
+		for (index in start until endExclusive) {
+			val message = messages[index]
+			if (message.fromUser || message.isToolResult) continue
+			lastAssistant = message
+			message.usage?.let { usages += it }
+		}
+		val end = lastAssistant
 		if (end != null) {
 			out[end.id] = TurnSummary(
 				endId = end.id,
-				messages = current.toList(),
-				assistantMessages = assistants,
-				usage = aggregateUsage(assistants.mapNotNull { it.usage }),
+				start = start,
+				end = endExclusive - 1,
+				usage = aggregateUsage(usages),
+				// Complete when the final assistant is settled *and* it is the
+				// last row: a tool result after it means the turn is still
+				// going, which is the case `isStreaming` alone got wrong.
 				complete = !end.isStreaming &&
 					!end.hasUnsettledCalls() &&
-					current.lastOrNull()?.id == end.id,
+					messages[endExclusive - 1].id == end.id,
 			)
 		}
-		current = mutableListOf()
+		start = endExclusive
 	}
 
-	messages.forEach { message ->
-		if (message.fromUser && current.isNotEmpty()) close()
-		current += message
+	messages.forEachIndexed { index, message ->
+		if (message.fromUser && index > start) close(index)
 	}
-	close()
+	close(messages.size)
 	return out
 }
 
