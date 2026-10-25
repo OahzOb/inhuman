@@ -194,6 +194,9 @@ fun ChatScreen(
 	// is read inside the list's own lambda. What is left reading at the top is
 	// the handful of values the chrome genuinely depends on.
 	val defaultTitle = stringResource(R.string.chat_title_fallback)
+	// Read here rather than at the call site: the audio launcher's failure path
+	// runs inside a `launch`, where `stringResource` is not available.
+	val transcriptionFailedText = stringResource(R.string.chat_transcription_failed)
 	val defaultModel = stringResource(R.string.chat_model_fallback)
 	val defaultProvider = stringResource(R.string.chat_provider_fallback)
 	val title by fieldOf(viewModel.state, defaultTitle) { it.title }
@@ -282,7 +285,7 @@ fun ChatScreen(
 						?: error("could not open the selected audio")
 				}.fold(
 					onSuccess = { audioTranscript = it },
-					onFailure = { audioError = it.message ?: "Transcription failed" },
+					onFailure = { audioError = it.message ?: transcriptionFailedText },
 				)
 				audioBusy = false
 			}
@@ -619,7 +622,7 @@ fun ChatScreen(
 								onDismissRequest = { showChatMenu = false },
 							) {
 								DropdownMenuItem(
-									text = { Text("Transcribe audio file") },
+									text = { Text(stringResource(R.string.chat_transcribe_audio_file)) },
 									leadingIcon = {
 										Icon(
 											Icons.Outlined.PlayArrow,
@@ -633,7 +636,7 @@ fun ChatScreen(
 									},
 								)
 								DropdownMenuItem(
-									text = { Text("Text to speech") },
+									text = { Text(stringResource(R.string.chat_text_to_speech)) },
 									leadingIcon = {
 										Icon(
 											Icons.Outlined.PlayArrow,
@@ -647,7 +650,7 @@ fun ChatScreen(
 									},
 								)
 								DropdownMenuItem(
-									text = { Text("Generate video") },
+									text = { Text(stringResource(R.string.chat_generate_video)) },
 									leadingIcon = {
 										Icon(
 											Icons.Outlined.PlayArrow,
@@ -661,7 +664,7 @@ fun ChatScreen(
 									},
 								)
 								DropdownMenuItem(
-									text = { Text("Decision") },
+									text = { Text(stringResource(R.string.chat_decision)) },
 									leadingIcon = {
 										Icon(
 											Icons.Outlined.DataObject,
@@ -1421,7 +1424,7 @@ fun ChatScreen(
 					audioError = null
 				}
 			},
-			title = { Text("Transcription") },
+			title = { Text(stringResource(R.string.chat_transcription_title)) },
 			text = {
 				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 					if (audioBusy) {
@@ -1430,7 +1433,7 @@ fun ChatScreen(
 							horizontalArrangement = Arrangement.spacedBy(10.dp),
 						) {
 							CircularProgressIndicator(strokeWidth = 2.dp)
-							Text("Transcribing…")
+							Text(stringResource(R.string.chat_transcribing))
 						}
 					}
 					audioTranscript?.let { Text(it) }
@@ -3546,7 +3549,7 @@ private fun GenerateImageDialog(
 							onClick = {
 								openWorkspaceFile(context, id, path, "image/png")
 							},
-						) { Text("Open") }
+						) { Text(stringResource(R.string.chat_open)) }
 					}
 				}
 				error?.let {
@@ -3592,6 +3595,9 @@ private fun DecisionDialog(
 	onDecideCustom: suspend (String, String) -> Result<kotlinx.serialization.json.JsonObject>,
 	onDismiss: () -> Unit,
 ) {
+	// Hoisted out of the click handler: `stringResource` is @Composable, and the
+	// failure text is assembled inside a `launch` where that is not available.
+	val decisionFailed = stringResource(R.string.chat_decision_failed)
 	val scope = rememberCoroutineScope()
 	var stateText by remember { mutableStateOf("") }
 	var custom by remember { mutableStateOf(false) }
@@ -3606,18 +3612,18 @@ private fun DecisionDialog(
 
 	AlertDialog(
 		onDismissRequest = { if (!running) onDismiss() },
-		title = { Text("Decision") },
+		title = { Text(stringResource(R.string.chat_decision)) },
 		text = {
 			Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
 				Text(
-					"Preset questions: department, urgent, severity.",
+					stringResource(R.string.chat_decision_presets),
 					style = MaterialTheme.typography.labelLarge,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 				FilterChip(
 					selected = custom,
 					onClick = { custom = !custom },
-					label = { Text("Custom questions (JSON)") },
+					label = { Text(stringResource(R.string.chat_decision_custom_questions)) },
 					enabled = !running,
 				)
 				if (custom) {
@@ -3625,7 +3631,7 @@ private fun DecisionDialog(
 						value = questionsJson,
 						onValueChange = { questionsJson = it },
 						modifier = Modifier.fillMaxWidth(),
-						label = { Text("questions object") },
+						label = { Text(stringResource(R.string.chat_decision_questions_object)) },
 						minLines = 5,
 						enabled = !running,
 					)
@@ -3634,7 +3640,7 @@ private fun DecisionDialog(
 					value = stateText,
 					onValueChange = { stateText = it },
 					modifier = Modifier.fillMaxWidth(),
-					label = { Text("State / ticket text") },
+					label = { Text(stringResource(R.string.chat_decision_state)) },
 					minLines = 4,
 					enabled = !running,
 				)
@@ -3644,7 +3650,7 @@ private fun DecisionDialog(
 						horizontalArrangement = Arrangement.spacedBy(10.dp),
 					) {
 						CircularProgressIndicator(strokeWidth = 2.dp)
-						Text("Deciding…")
+						Text(stringResource(R.string.chat_deciding))
 					}
 				}
 				resultText?.let {
@@ -3676,14 +3682,14 @@ private fun DecisionDialog(
 								running = false
 							},
 							onFailure = {
-								error = it.message ?: "Decision failed"
+								error = it.message ?: decisionFailed
 								running = false
 							},
 						)
 					}
 				},
 			) {
-				Text("Decide")
+				Text(stringResource(R.string.chat_decide))
 			}
 		},
 		dismissButton = {
@@ -3701,6 +3707,9 @@ private fun SpeechDialog(
 	onTranscribe: suspend (String) -> Result<String>,
 	onDismiss: () -> Unit,
 ) {
+	// As in DecisionDialog: these fallbacks are used inside `launch` blocks.
+	val speechFailed = stringResource(R.string.chat_speech_failed)
+	val transcriptionFailed = stringResource(R.string.chat_transcription_failed)
 	val scope = rememberCoroutineScope()
 	val context = LocalContext.current
 	var text by remember { mutableStateOf("") }
@@ -3711,14 +3720,14 @@ private fun SpeechDialog(
 
 	AlertDialog(
 		onDismissRequest = { if (!running) onDismiss() },
-		title = { Text("Text to speech") },
+		title = { Text(stringResource(R.string.chat_tts_title)) },
 		text = {
 			Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
 				OutlinedTextField(
 					value = text,
 					onValueChange = { text = it },
 					modifier = Modifier.fillMaxWidth(),
-					label = { Text("Text to speak") },
+					label = { Text(stringResource(R.string.chat_tts_text)) },
 					minLines = 4,
 					enabled = !running,
 				)
@@ -3728,17 +3737,17 @@ private fun SpeechDialog(
 						horizontalArrangement = Arrangement.spacedBy(10.dp),
 					) {
 						CircularProgressIndicator(strokeWidth = 2.dp)
-						Text("Synthesizing…")
+						Text(stringResource(R.string.chat_synthesizing))
 					}
 				}
 				saved?.let { path ->
-					Text("Saved to $path")
+					Text(stringResource(R.string.chat_saved_to, path))
 					workspaceId?.let { id ->
 						TextButton(
 							onClick = {
 								openWorkspaceFile(context, id, path, "audio/mpeg")
 							},
-						) { Text("Play") }
+						) { Text(stringResource(R.string.chat_play)) }
 					}
 					TextButton(
 						enabled = !running,
@@ -3753,13 +3762,13 @@ private fun SpeechDialog(
 										running = false
 									},
 									onFailure = {
-										error = it.message ?: "Transcription failed"
+										error = it.message ?: transcriptionFailed
 										running = false
 									},
 								)
 							}
 						},
-					) { Text("Transcribe") }
+					) { Text(stringResource(R.string.chat_transcribe)) }
 				}
 				transcript?.let { Text(it) }
 				error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -3779,14 +3788,14 @@ private fun SpeechDialog(
 								running = false
 							},
 							onFailure = {
-								error = it.message ?: "Speech failed"
+								error = it.message ?: speechFailed
 								running = false
 							},
 						)
 					}
 				},
 			) {
-				Text("Speak")
+				Text(stringResource(R.string.chat_speak))
 			}
 		},
 		dismissButton = {
@@ -3815,14 +3824,14 @@ private fun VideoDialog(
 
 	AlertDialog(
 		onDismissRequest = onDismiss,
-		title = { Text("Generate video") },
+		title = { Text(stringResource(R.string.chat_generate_video)) },
 		text = {
 			Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
 				OutlinedTextField(
 					value = prompt,
 					onValueChange = { prompt = it },
 					modifier = Modifier.fillMaxWidth(),
-					label = { Text("What should the video show?") },
+					label = { Text(stringResource(R.string.chat_video_prompt)) },
 					minLines = 3,
 					enabled = !running,
 				)
@@ -3831,7 +3840,7 @@ private fun VideoDialog(
 						value = resolution,
 						onValueChange = { resolution = it },
 						modifier = Modifier.weight(1f),
-						label = { Text("Resolution") },
+						label = { Text(stringResource(R.string.chat_video_resolution)) },
 						singleLine = true,
 						enabled = !running,
 					)
@@ -3839,7 +3848,7 @@ private fun VideoDialog(
 						value = ratio,
 						onValueChange = { ratio = it },
 						modifier = Modifier.weight(1f),
-						label = { Text("Ratio") },
+						label = { Text(stringResource(R.string.chat_video_ratio)) },
 						singleLine = true,
 						enabled = !running,
 					)
@@ -3848,7 +3857,7 @@ private fun VideoDialog(
 					value = duration,
 					onValueChange = { duration = it.filter(Char::isDigit) },
 					modifier = Modifier.fillMaxWidth(),
-					label = { Text("Seconds (2–30)") },
+					label = { Text(stringResource(R.string.chat_video_seconds)) },
 					singleLine = true,
 					enabled = !running,
 				)
@@ -3858,17 +3867,17 @@ private fun VideoDialog(
 						horizontalArrangement = Arrangement.spacedBy(10.dp),
 					) {
 						CircularProgressIndicator(strokeWidth = 2.dp)
-						Text("Video task: $it")
+						Text(stringResource(R.string.chat_video_task, it))
 					}
 				}
 				path?.let { savedPath ->
-					Text("Saved to $savedPath")
+					Text(stringResource(R.string.chat_saved_to, savedPath))
 					workspaceId?.let { id ->
 						TextButton(
 							onClick = {
 								openWorkspaceFile(context, id, savedPath, "video/mp4")
 							},
-						) { Text("Play") }
+						) { Text(stringResource(R.string.chat_play)) }
 					}
 				}
 				error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -3886,7 +3895,7 @@ private fun VideoDialog(
 					)
 				},
 			) {
-				Text("Generate")
+				Text(stringResource(R.string.common_generate))
 			}
 		},
 		dismissButton = {

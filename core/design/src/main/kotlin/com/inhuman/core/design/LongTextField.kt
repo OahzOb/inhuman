@@ -32,6 +32,22 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
+ * The words on the buttons around the field.
+ *
+ * `:core:design` has no string resources; shared components take their text
+ * from the caller, as `WideDialog`'s labels already do. These used to be
+ * literals inside the composable, so a Chinese UI showed "Import", "Write" and
+ * "Done" beside a translated label.
+ */
+data class LongTextFieldLabels(
+	val importAction: String,
+	val writeAction: String,
+	val editAction: String,
+	val doneAction: String,
+	val cancelAction: String,
+)
+
+/**
  * A long piece of text, previewed in a form and edited in a dialog.
  *
  * ## Why not just a taller text field
@@ -65,6 +81,7 @@ fun LongTextField(
 	onValueChange: (String) -> Unit,
 	label: String,
 	dialogTitle: String,
+	labels: LongTextFieldLabels,
 	placeholder: String = "",
 	previewLines: Int = 4,
 	/** Applied to the editing field, so a monospace prompt edits as monospace. */
@@ -90,12 +107,12 @@ fun LongTextField(
 			Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
 				if (onImport != null) {
 					TextButton(onClick = onImport) {
-						Text("Import", style = MaterialTheme.typography.labelLarge)
+						Text(labels.importAction, style = MaterialTheme.typography.labelLarge)
 					}
 				}
 				TextButton(onClick = { editing = true }) {
 					Text(
-						text = if (value.isBlank()) "Write" else "Edit",
+						text = if (value.isBlank()) labels.writeAction else labels.editAction,
 						style = MaterialTheme.typography.labelLarge,
 					)
 				}
@@ -140,7 +157,8 @@ fun LongTextField(
 		WideDialog(
 			onDismissRequest = { editing = false },
 			title = dialogTitle,
-			confirmLabel = "Done",
+			confirmLabel = labels.doneAction,
+			dismissLabel = labels.cancelAction,
 			onConfirm = { editing = false },
 			// The body is the field itself, so the dialog's own scroll would be
 			// a second scroll over the same text.

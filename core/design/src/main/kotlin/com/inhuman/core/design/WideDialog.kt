@@ -59,7 +59,15 @@ fun WideDialog(
 	confirmLabel: String? = null,
 	onConfirm: (() -> Unit)? = null,
 	confirmEnabled: Boolean = true,
-	dismissLabel: String = "Cancel",
+	/**
+	 * The dismiss button's word, supplied by the caller.
+	 *
+	 * It used to default to the literal "Cancel", which is what a Chinese UI
+	 * showed at the foot of the assistant editor while everything above it was
+	 * translated. This module has no resources, so the label has to come from
+	 * the screen that knows the user's language.
+	 */
+	dismissLabel: String,
 	contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
 	/**
 	 * How tall the scrolling body may get before it scrolls.

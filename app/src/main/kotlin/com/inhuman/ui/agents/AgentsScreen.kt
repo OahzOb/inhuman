@@ -38,6 +38,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.inhuman.core.design.LongTextField
+import com.inhuman.core.design.LongTextFieldLabels
 import com.inhuman.core.design.WideDialog
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -374,6 +375,7 @@ private fun AgentEditor(
 			if (draft.isNew) R.string.agents_new_title else R.string.agents_edit_title,
 		),
 		confirmLabel = stringResource(R.string.common_save),
+		dismissLabel = stringResource(R.string.common_cancel),
 		onConfirm = onSave,
 		confirmEnabled = draft.canSave,
 	) {
@@ -397,6 +399,13 @@ private fun AgentEditor(
 			onValueChange = { v -> onChange { it.copy(systemPrompt = v) } },
 			label = stringResource(R.string.agents_system_prompt),
 			dialogTitle = stringResource(R.string.agents_system_prompt),
+			labels = LongTextFieldLabels(
+				importAction = stringResource(R.string.agents_prompt_import_action),
+				writeAction = stringResource(R.string.agents_prompt_write_action),
+				editAction = stringResource(R.string.agents_prompt_edit_action),
+				doneAction = stringResource(R.string.common_done),
+				cancelAction = stringResource(R.string.common_cancel),
+			),
 			placeholder = stringResource(R.string.agents_system_prompt_hint),
 			previewLines = 4,
 			textStyle = MaterialTheme.typography.bodyMedium.copy(

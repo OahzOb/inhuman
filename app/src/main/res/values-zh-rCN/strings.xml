@@ -781,4 +781,39 @@
 	<string name="usage_billed_full_rate">按原价计费</string>
 	<string name="usage_completion_tokens">输出 token</string>
 	<string name="usage_reasoning_tokens">推理 token</string>
-</resources>
+	<!-- 聊天菜单里的媒体操作与四个对话框。这些文案原来硬编码在 composable 里，
+	     于是中文界面下是四个英文菜单项，点开是四个英文对话框。 -->
+	<string name="chat_transcribe_audio_file">转写音频文件</string>
+	<string name="chat_text_to_speech">文字转语音</string>
+	<string name="chat_generate_video">生成视频</string>
+	<string name="chat_decision">决策</string>
+	<string name="chat_transcription_title">转写</string>
+	<string name="chat_transcribing">正在转写…</string>
+	<string name="chat_transcription_failed">转写失败</string>
+	<string name="chat_decision_presets">预设问题：department、urgent、severity。</string>
+	<string name="chat_decision_custom_questions">自定义问题（JSON）</string>
+	<string name="chat_decision_questions_object">questions 对象</string>
+	<string name="chat_decision_state">状态或工单内容</string>
+	<string name="chat_deciding">正在决策…</string>
+	<string name="chat_decide">开始决策</string>
+	<string name="chat_decision_failed">决策失败</string>
+	<string name="chat_tts_title">文字转语音</string>
+	<string name="chat_tts_text">要朗读的文字</string>
+	<string name="chat_synthesizing">正在合成…</string>
+	<string name="chat_speech_failed">语音合成失败</string>
+	<string name="chat_transcribe">转写</string>
+	<string name="chat_speak">朗读</string>
+	<string name="chat_saved_to">已保存到 %1$s</string>
+	<string name="chat_play">播放</string>
+	<string name="chat_open">打开</string>
+	<string name="chat_video_prompt">视频要展示什么？</string>
+	<string name="chat_video_resolution">分辨率</string>
+	<string name="chat_video_ratio">画面比例</string>
+	<string name="chat_video_seconds">时长（2–30 秒）</string>
+	<string name="chat_video_task">视频任务：%1$s</string>
+	<string name="model_picker_provider_default">服务默认</string>
+	<string name="model_picker_provider_default_detail">这个服务列出的第一个模型。</string>
+	<string name="common_done">完成</string>
+	<string name="agents_prompt_import_action">导入</string>
+	<string name="agents_prompt_write_action">撰写</string>
+	<string name="agents_prompt_edit_action">编辑</string></resources>

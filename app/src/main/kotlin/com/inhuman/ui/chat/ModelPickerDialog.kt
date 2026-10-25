@@ -214,8 +214,8 @@ fun ModelPickerDialog(
 				if (!loading) {
 					Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
 						ModelOption(
-							label = "Provider default",
-							detail = "The first model this provider lists.",
+							label = stringResource(R.string.model_picker_provider_default),
+							detail = stringResource(R.string.model_picker_provider_default_detail),
 							selected = currentModel == null,
 							onClick = {
 								chat.setModel(null)

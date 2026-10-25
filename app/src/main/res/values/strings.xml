@@ -803,4 +803,40 @@
 	<string name="usage_billed_full_rate">billed at full rate</string>
 	<string name="usage_completion_tokens">completion tokens</string>
 	<string name="usage_reasoning_tokens">reasoning tokens</string>
-</resources>
+	<!-- The chat menu's media actions and their four dialogs. They were written
+	     in English inside the composables, so a Chinese UI offered four English
+	     menu items that opened four English dialogs. -->
+	<string name="chat_transcribe_audio_file">Transcribe audio file</string>
+	<string name="chat_text_to_speech">Text to speech</string>
+	<string name="chat_generate_video">Generate video</string>
+	<string name="chat_decision">Decision</string>
+	<string name="chat_transcription_title">Transcription</string>
+	<string name="chat_transcribing">Transcribing…</string>
+	<string name="chat_transcription_failed">Transcription failed</string>
+	<string name="chat_decision_presets">Preset questions: department, urgent, severity.</string>
+	<string name="chat_decision_custom_questions">Custom questions (JSON)</string>
+	<string name="chat_decision_questions_object">questions object</string>
+	<string name="chat_decision_state">State or ticket text</string>
+	<string name="chat_deciding">Deciding…</string>
+	<string name="chat_decide">Decide</string>
+	<string name="chat_decision_failed">Decision failed</string>
+	<string name="chat_tts_title">Text to speech</string>
+	<string name="chat_tts_text">Text to speak</string>
+	<string name="chat_synthesizing">Synthesizing…</string>
+	<string name="chat_speech_failed">Speech failed</string>
+	<string name="chat_transcribe">Transcribe</string>
+	<string name="chat_speak">Speak</string>
+	<string name="chat_saved_to">Saved to %1$s</string>
+	<string name="chat_play">Play</string>
+	<string name="chat_open">Open</string>
+	<string name="chat_video_prompt">What should the video show?</string>
+	<string name="chat_video_resolution">Resolution</string>
+	<string name="chat_video_ratio">Ratio</string>
+	<string name="chat_video_seconds">Seconds (2–30)</string>
+	<string name="chat_video_task">Video task: %1$s</string>
+	<string name="model_picker_provider_default">Provider default</string>
+	<string name="model_picker_provider_default_detail">The first model this provider lists.</string>
+	<string name="common_done">Done</string>
+	<string name="agents_prompt_import_action">Import</string>
+	<string name="agents_prompt_write_action">Write</string>
+	<string name="agents_prompt_edit_action">Edit</string></resources>
