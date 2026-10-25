@@ -91,6 +91,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -131,12 +132,30 @@ import com.inhuman.ui.common.RewindBadge
 import com.inhuman.ui.common.toolBlurb
 import com.inhuman.ui.common.openWorkspaceFile
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
+
+/**
+ * One field of the chat state, as `State`, with the mapping built once.
+ *
+ * `collectAsStateWithLifecycle` keys its producer on the flow instance, so the
+ * inline `viewModel.state.map { ... }` this file used to have created a new
+ * flow -- and started a new collector -- on every recomposition of the screen:
+ * once per keystroke in the composer, once per field the chrome reads. Forty
+ * of them is not free, and none of it bought anything, because every selector
+ * here is a pure field read that never changes.
+ */
+@Composable
+private fun <S, T> fieldOf(
+	source: Flow<S>,
+	fallback: T,
+	select: (S) -> T,
+): State<T> = remember(source) { source.map(select) }.collectAsStateWithLifecycle(fallback)
 
 /**
  * One conversation.
@@ -177,37 +196,29 @@ fun ChatScreen(
 	val defaultTitle = stringResource(R.string.chat_title_fallback)
 	val defaultModel = stringResource(R.string.chat_model_fallback)
 	val defaultProvider = stringResource(R.string.chat_provider_fallback)
-	val title by viewModel.state.map { it.title }.collectAsStateWithLifecycle(defaultTitle)
-	val modelLabel by viewModel.state.map { it.modelLabel }.collectAsStateWithLifecycle(defaultModel)
+	val title by fieldOf(viewModel.state, defaultTitle) { it.title }
+	val modelLabel by fieldOf(viewModel.state, defaultModel) { it.modelLabel }
 	val displayTitle = title.ifBlank { defaultTitle }
 	val displayModel = modelLabel.ifBlank { defaultModel }
-	val providerName by viewModel.state.map { it.providerName }.collectAsStateWithLifecycle(defaultProvider)
-	val currentProviderId by viewModel.state
-		.map { it.providerId }
-		.collectAsStateWithLifecycle("deepseek")
-	val videoStatus by viewModel.state.map { it.videoStatus }.collectAsStateWithLifecycle(null)
-	val videoPath by viewModel.state.map { it.videoPath }.collectAsStateWithLifecycle(null)
-	val videoError by viewModel.state.map { it.videoError }.collectAsStateWithLifecycle(null)
-	val thinking by viewModel.state.map { it.thinking }.collectAsStateWithLifecycle(false)
-	val reasoningEffort by viewModel.state
-		.map { it.reasoningEffort }
-		.collectAsStateWithLifecycle<String?>(null)
-	val error by viewModel.state.map { it.error }.collectAsStateWithLifecycle(null)
-	val errorAction by viewModel.state.map { it.errorAction }.collectAsStateWithLifecycle(null)
-	val pendingApproval by viewModel.state.map { it.pendingApproval }.collectAsStateWithLifecycle(null)
+	val providerName by fieldOf(viewModel.state, defaultProvider) { it.providerName }
+	val currentProviderId by fieldOf(viewModel.state, "deepseek") { it.providerId }
+	val videoStatus by fieldOf(viewModel.state, null) { it.videoStatus }
+	val videoPath by fieldOf(viewModel.state, null) { it.videoPath }
+	val videoError by fieldOf(viewModel.state, null) { it.videoError }
+	val thinking by fieldOf(viewModel.state, false) { it.thinking }
+	val reasoningEffort by fieldOf(viewModel.state, null) { it.reasoningEffort }
+	val error by fieldOf(viewModel.state, null) { it.error }
+	val errorAction by fieldOf(viewModel.state, null) { it.errorAction }
+	val pendingApproval by fieldOf(viewModel.state, null) { it.pendingApproval }
 
 	// The composer's own inputs. Separate reads for the same reason as the rest:
 	// typing changes one of these and must not invalidate the transcript, and a
 	// streamed token changes `isStreaming` at the start and end of a turn
 	// without touching the text in the field.
-	val input by viewModel.state.map { it.input }.collectAsStateWithLifecycle("")
-	val configured by viewModel.state.map { it.configured }.collectAsStateWithLifecycle(false)
-	val pendingAttachments by viewModel.state
-		.map { it.pendingAttachments }
-		.collectAsStateWithLifecycle(emptyList())
-	val modelSupportsVision by viewModel.state
-		.map { it.modelSupportsVision }
-		.collectAsStateWithLifecycle(false)
+	val input by fieldOf(viewModel.state, "") { it.input }
+	val configured by fieldOf(viewModel.state, false) { it.configured }
+	val pendingAttachments by fieldOf(viewModel.state, emptyList()) { it.pendingAttachments }
+	val modelSupportsVision by fieldOf(viewModel.state, false) { it.modelSupportsVision }
 
 	val listState = rememberLazyListState()
 	val scope = rememberCoroutineScope()
@@ -294,8 +305,8 @@ fun ChatScreen(
 	// lambda keeps the invalidation inside the list, which is where the change
 	// is, and leaves the chrome alone. Compose tracks reads rather than fields,
 	// so this is the whole of the fix.
-	val lastMessageId by viewModel.state.map { it.messages.lastOrNull()?.id }.collectAsStateWithLifecycle(null)
-	val isStreaming by viewModel.state.map { it.isStreaming }.collectAsStateWithLifecycle(false)
+	val lastMessageId by fieldOf(viewModel.state, null) { it.messages.lastOrNull()?.id }
+	val isStreaming by fieldOf(viewModel.state, false) { it.isStreaming }
 	// The foreground service can keep working without this grant; asking for it
 	// is about making the ongoing notice visible, not about correctness.
 	LaunchedEffect(isStreaming) {
@@ -308,50 +319,28 @@ fun ChatScreen(
 			notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
 		}
 	}
-	val sshAllowed by viewModel.state.map { it.sshAllowed }.collectAsStateWithLifecycle(false)
-	val sshToolEnabled by viewModel.state.map { it.sshToolEnabled }.collectAsStateWithLifecycle(false)
-	val agentTools by viewModel.state.map { it.agentTools }.collectAsStateWithLifecycle(null)
-	val conversationTools by viewModel.state.map { it.conversationTools }.collectAsStateWithLifecycle(null)
-	val toolsKnown by viewModel.state.map { it.toolsKnown }.collectAsStateWithLifecycle(false)
+	val sshAllowed by fieldOf(viewModel.state, false) { it.sshAllowed }
+	val sshToolEnabled by fieldOf(viewModel.state, false) { it.sshToolEnabled }
+	val agentTools by fieldOf(viewModel.state, null) { it.agentTools }
+	val conversationTools by fieldOf(viewModel.state, null) { it.conversationTools }
+	val toolsKnown by fieldOf(viewModel.state, false) { it.toolsKnown }
 	val toolPlan = remember(agentTools, conversationTools, sshToolEnabled) {
 		conversationToolPlan(sshToolEnabled, agentTools, conversationTools)
 	}
-	val rollbackAvailable by viewModel.state
-		.map { it.rollbackAvailable }
-		.collectAsStateWithLifecycle(false)
-	val rollbackBlockedReason by viewModel.state
-		.map { it.rollbackBlockedReason }
-		.collectAsStateWithLifecycle(null)
-	val regenerationPoints by viewModel.state
-		.map { it.regenerationPoints }
-		.collectAsStateWithLifecycle(emptyList())
-	val compaction by viewModel.state
-		.map { it.compaction }
-		.collectAsStateWithLifecycle(null)
-	val isCompacting by viewModel.state
-		.map { it.isCompacting }
-		.collectAsStateWithLifecycle(false)
-	val snapshotStats by viewModel.state
-		.map { it.snapshotStats }
-		.collectAsStateWithLifecycle(SnapshotStats(0, 0))
-	val snapshotRetention by viewModel.state
-		.map { it.snapshotRetention }
-		.collectAsStateWithLifecycle(3)
-	val snapshotTurns by viewModel.state
-		.map { it.snapshotTurns }
-		.collectAsStateWithLifecycle(emptyList<SnapshotTurn>())
+	val rollbackAvailable by fieldOf(viewModel.state, false) { it.rollbackAvailable }
+	val rollbackBlockedReason by fieldOf(viewModel.state, null) { it.rollbackBlockedReason }
+	val regenerationPoints by fieldOf(viewModel.state, emptyList()) { it.regenerationPoints }
+	val compaction by fieldOf(viewModel.state, null) { it.compaction }
+	val isCompacting by fieldOf(viewModel.state, false) { it.isCompacting }
+	val snapshotStats by fieldOf(viewModel.state, SnapshotStats(0, 0)) { it.snapshotStats }
+	val snapshotRetention by fieldOf(viewModel.state, 3) { it.snapshotRetention }
+	val snapshotTurns by fieldOf(viewModel.state, emptyList<SnapshotTurn>()) { it.snapshotTurns }
 	val wire by viewModel.wire.collectAsStateWithLifecycle(null)
-	val toolRoundLimit by viewModel.state
-		.map { it.toolRoundLimit }
-		.collectAsStateWithLifecycle(8)
-	val pendingSshConsent by viewModel.state
-		.map { it.pendingSshConsent }
-		.collectAsStateWithLifecycle(null)
-	val workspaceName by viewModel.state.map { it.workspaceName }.collectAsStateWithLifecycle("")
-	val workspaceId by viewModel.state.map { it.workspaceId }.collectAsStateWithLifecycle(null)
-	val workspaceIsPermanent by viewModel.state
-		.map { it.workspaceIsPermanent }
-		.collectAsStateWithLifecycle(false)
+	val toolRoundLimit by fieldOf(viewModel.state, 8) { it.toolRoundLimit }
+	val pendingSshConsent by fieldOf(viewModel.state, null) { it.pendingSshConsent }
+	val workspaceName by fieldOf(viewModel.state, "") { it.workspaceName }
+	val workspaceId by fieldOf(viewModel.state, null) { it.workspaceId }
+	val workspaceIsPermanent by fieldOf(viewModel.state, false) { it.workspaceIsPermanent }
 	var showChatMenu by remember { mutableStateOf(false) }
 	var showGenerateImage by remember { mutableStateOf(false) }
 	var showDecision by remember { mutableStateOf(false) }
@@ -904,7 +893,7 @@ fun ChatScreen(
 			// Read inside this lambda, so a new message or a streamed token
 			// invalidates the list rather than the whole screen. See the note
 			// above the state reads.
-			val messages by viewModel.state.map { it.messages }.collectAsStateWithLifecycle(emptyList())
+			val messages by fieldOf(viewModel.state, emptyList()) { it.messages }
 			// Turn boundaries and their summed usage. Computed from the same
 			// list the transcript renders, so a footer cannot describe a turn
 			// that is no longer on the active path.
@@ -1000,9 +989,9 @@ fun ChatScreen(
 			// Structured so Compose can skip it: two stable fields beat a
 			// `ContextUsage` read through a state object that changes for
 			// unrelated reasons.
-			val usage by viewModel.state
-				.map { ContextUsage(it.context.usedTokens, it.context.contextWindow) }
-				.collectAsStateWithLifecycle(ContextUsage(null, null))
+			val usage by fieldOf(viewModel.state, ContextUsage(null, null)) {
+				ContextUsage(it.context.usedTokens, it.context.contextWindow)
+			}
 
 			// The turn index doubles as the jump control. It is a strip above
 			// the transcript rather than an overlay: a chip pinned over the
@@ -1410,8 +1399,8 @@ fun ChatScreen(
 	// looked at occasionally and matters constantly, and a bar with Files, Key
 	// and Model in it is a bar with no room for the conversation's name.
 	if (showModelPicker) {
-		val chosenModel by viewModel.state.map { it.model }.collectAsStateWithLifecycle(null)
-		val resolvedModel by viewModel.state.map { it.effectiveModel }.collectAsStateWithLifecycle(null)
+		val chosenModel by fieldOf(viewModel.state, null) { it.model }
+		val resolvedModel by fieldOf(viewModel.state, null) { it.effectiveModel }
 
 		ModelPickerDialog(
 			chat = viewModel,
