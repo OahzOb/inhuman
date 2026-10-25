@@ -420,6 +420,13 @@ gesture/fling ends at the bottom, never because a fast fling passed through the
 bottom for a frame. A `programmaticScroll` flag keeps the app's own scroll from
 being mistaken for a user gesture.
 
+**Only a vertical drag counts** (`detachesFollow`, `ChatScreen.kt`). A code
+block wider than the screen scrolls sideways; that drag reaches the parent
+connection with `y == 0`, and before the check it turned following off and put
+"jump to latest" over a transcript that had not moved. Found by swiping a long
+fence on the 360dp emulator, which is also why the predicate is a pure function
+with its own test (`FollowScrollTest`): the bug leaves no mark in a screenshot.
+
 One stable layout observer replaces the old effect keyed on message count, text
 length, last-item height and offset. Those geometry keys changed *because of*
 the programmatic scroll, cancelling and restarting the effect — the visible
@@ -951,6 +958,7 @@ it; the sandbox's no-network rule applies to code the model writes), and
 | `ImageSizingTest` / `ImagePreprocessorTest` | Fitting a 4032×3024 photo into 1568×1176, never upscaling a small image, and choosing a power-of-two sample size, on the JVM; then the same decode/scale/encode on a device, including the 1 MiB ceiling and transparent-PNG-to-WebP. This is the phone-side image pipeline that replaced accepting a 4 MiB file and silently dropping it at send. |
 | `SnapshotStoreTest` | `start` and a later tool checkpoint restore their own file versions; added/deleted/modified paths are diffed by content; a checkpoint whose blob has gone leaves the workspace byte-for-byte as it was; a restore leaves no staging directory behind; stats count turns and pruning keeps the newest; `turns` lists each retained turn with its checkpoint count, newest first. This is the file half of checkpointed rollback. |
 | `WindowFrameTest` | A 640×360 landscape phone and a 900×400 wide-short window stay single-pane; a 700×700 foldable is Medium/single-pane; 1024×768 and 1280×900 use two panes; a 360dp phone uses a FAB and the 1.5× font case uses the header overflow. This is the axis-classification half; the screenshot matrix is still required for composition mistakes. |
+| `FollowScrollTest` | A horizontal drag does not stop the transcript following the newest content; a vertical one does; and the app's own `SideEffect`/programmatic scroll never does. This is the half of "jump to latest" that a screenshot cannot show. |
 | `ToolCatalogVisibilityTest` | every `remote = true` tool is absent from `ToolCatalog.visible(false)` and present only in `visible(true)`; ordinary tools remain in both. This is the one list every user-facing picker and approval table reads. |
 | `TurnNotificationsTest` (instrumentation) | Drives two real `TurnStatus` records through the service: summary plus two children, finishing one demotes to the surviving child, finishing both clears them. Also asserts an awaiting-approval turn has **Review** and **Stop**, and no one-tap Approve/Deny. |
 

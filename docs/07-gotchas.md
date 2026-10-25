@@ -513,6 +513,22 @@ Still open, each re-verified in the code as of this pass:
   renders a comma decimal separator in some locales. The rule is not followed
   where a user actually reads the number: `UsageLine.kt:102`, `:105`, `:114`,
   `:143-144` all use it, as does `ChatScreen.kt`.
+- **The transcript's two derivations run over every message on every publish**
+  (`ChatScreen.kt:905`, `:909`): `turnSummariesOf` and `userTurnsOf` sit behind
+  `remember(messages)`, and `messages` is a new list on every stream tick, so
+  the key never holds. Each publish (at most every 40 ms,
+  `ChatViewModel.kt`'s `STREAM_PUBLISH_INTERVAL_MS`) walks the whole transcript
+  and allocates a `MutableList` plus a `toList()` copy per turn.
+
+  Not fixed, and the reason is not effort. A memo keyed on the list identity
+  never hits; one keyed on a cheap structural signature (size, ids, flags,
+  usage) would be sound *only* if `TurnSummary.messages` stopped holding copies,
+  because that field is what the wire inspector shows. Today it holds
+  `current.toList()`, so reusing a summary while its turn streams would show the
+  inspector a truncated reply. The shape that works: store index ranges in
+  `TurnSummary`, let `WireSheet` slice the live transcript, and only then memoise
+  on the structure. Both halves have to move together, with `TurnSummaryTest`
+  extended to pin the range arithmetic before the memo goes in.
 
 Three things that *were* on this list and are now clean, recorded because a
 stale entry is how this list loses its authority (each was re-read, not assumed):

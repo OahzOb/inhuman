@@ -161,6 +161,22 @@ private fun <S, T> fieldOf(
 ): State<T> = remember(source) { source.map(select) }.collectAsStateWithLifecycle(fallback)
 
 /**
+ * Whether a nested-scroll event means the user took the list away from the end.
+ *
+ * Split out to be testable, because the bug it exists for is invisible in a
+ * screenshot: a horizontal drag inside a too-wide code block reached the parent
+ * connection with no vertical component, turned following off, and left the
+ * transcript at the bottom showing "jump to latest" for a list that had not
+ * moved at all.
+ *
+ * @param availableY how far the nested scroll wants to move vertically.
+ * @param ours true when the source is the app's own scroll or the app is driving
+ *   one; those must never detach following.
+ */
+internal fun detachesFollow(availableY: Float, ours: Boolean): Boolean =
+	availableY != 0f && !ours
+
+/**
  * One conversation.
  *
  * The reply is rendered as its parts rather than as one string: reasoning is
@@ -463,7 +479,19 @@ fun ChatScreen(
 				// `followLatest` true during a manual fling, so the layout
 				// observer immediately pulled the list back to the bottom.
 				// SideEffect is the only source that is ours.
-				if (source != NestedScrollSource.SideEffect && !programmaticScroll) {
+				//
+				// And only a *vertical* drag counts. A code block that is wider
+				// than the screen scrolls sideways, and that drag reaches this
+				// connection with `available.y == 0`: the transcript then
+				// stopped following and showed "jump to latest" although the
+				// list had not moved at all. Found by swiping a long fence on
+				// the 360dp emulator.
+				if (
+					detachesFollow(
+						availableY = available.y,
+						ours = source == NestedScrollSource.SideEffect || programmaticScroll,
+					)
+				) {
 					followLatest = false
 				}
 				return Offset.Zero
