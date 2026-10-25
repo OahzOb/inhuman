@@ -327,6 +327,10 @@ wrapper's unzip then dies on the first file with
 `Could not unzip … (The system cannot find the path specified)`. bsdtar writes
 them. This cost an hour the first time.
 
+None of that travels with the repository: `tools/setup-machine.ps1` puts the
+official URL back on a machine that does not have this file. See
+[Another machine](#another-machine).
+
 ### 4. `xml` comments in an `AndroidManifest.xml` cannot contain `--`
 
 The manifest merger parses manifests strictly. A prose comment containing a
@@ -410,6 +414,35 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 .\gradlew.bat :core:files:test
 .\gradlew.bat :desktopApp:run
 ```
+
+### Another machine
+
+Three things a clone does not carry, because each is a property of the machine
+rather than of the repository:
+
+| What | Why it is not in git | How the build finds it |
+| --- | --- | --- |
+| JDK 17 | installed per machine | `JAVA_HOME` |
+| Android SDK, **platform 37** | licensed download; AGP 9 needs this exact platform, not the default one | `ANDROID_HOME` or `sdk.dir` in `local.properties` (gitignored) |
+| the Gradle distribution | see below | `gradle/wrapper/gradle-wrapper.properties` |
+
+**The wrapper is the one that will bite you.** `distributionUrl` is checked in as
+a `file:` URL into this machine's `C:\android-toolchain`, because the JVM here
+cannot reach `services.gradle.org` through its proxy (the reasoning is in
+[§3 above](#3-the-gradle-wrapper-points-at-a-local-distribution-on-purpose)). On
+any other machine that file does not exist and `gradlew` dies at the first
+unzip. Run this after cloning:
+
+```powershell
+.\tools\setup-machine.ps1
+```
+
+It checks all three and repairs the wrapper when its `file:` target is missing —
+pointing it back at the official distribution for the same Gradle version, which
+the first `gradlew` then downloads once. `-NoRepair` reports without touching
+anything. It installs nothing and downloads nothing itself: two of the three
+need a licence click, and a script that guesses SDK paths is a second source of
+truth.
 
 The desktop host needs a **full JDK 21+ with `jpackage`** (not just a runtime)
 and WiX 3 for the MSI; see [docs/12-desktop.md](docs/12-desktop.md) for

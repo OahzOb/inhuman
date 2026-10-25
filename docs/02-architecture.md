@@ -234,6 +234,13 @@ Four traps, all of which already cost someone time and are documented in
 build, and `android.defaults.buildfeatures.compose=false` makes Compose opt-in
 per module so the non-UI modules do not pay for it.
 
+**On a machine that is not this one**, the wrapper's `file:` URL points at
+nothing and three prerequisites (JDK 17, Android platform 37, the Gradle
+distribution) live outside git. `tools/setup-machine.ps1` checks all three,
+repairs the wrapper when its target is missing, and exits non-zero with the
+remediation line for whatever is absent — so the first build is explained before
+it is attempted. `-NoRepair` only reports.
+
 Gradle build scripts in this repository are **Groovy** (`build.gradle`, not
 `.gradle.kts`) — `app/build.gradle`, `settings.gradle`, `build.gradle`. Only
 the `_research/rikkahub` reference material is Kotlin DSL.
