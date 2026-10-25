@@ -101,6 +101,13 @@ dialog.
 inherits future catalogue additions. That is the cost of editing, and it is
 visible in the sheet.
 
+The list an edit pins is **the catalogue minus every remote tool**
+(`ToolCatalog.everythingExplicit`). `null` already refuses remote tools, so the
+list that replaces it must refuse them too; the picker used to write
+`names - "ssh_exec"`, which put the other six remote names into the saved
+selection, and `ToolCatalog.permits` reads a remote name in a selection as
+consent. One unticked box would have granted six SSH tools that nobody chose.
+
 Hidden remote tools (SSH switched off while the conversation still names one) are
 preserved through an edit rather than dropped, because a switch-off is not a
 request to forget the selection.
@@ -120,7 +127,9 @@ per turn, not for the lifetime of the conversation.
   selections; preserving a removed tool; hidden remote names; catalogue order;
   merge on apply.
 - `ToolCatalogTest` / `ToolCatalogVisibilityTest` already pin the remote
-  explicit-only rule and the hidden-when-disabled rule.
+  explicit-only rule and the hidden-when-disabled rule; `ToolCatalogTest` also
+  pins that the list an assistant edit materialises contains **no remote name**
+  and still names every non-remote tool.
 - The UI itself is checked on the tablet and phone profiles: the sheet scrolls,
   Apply is disabled while streaming, and the count in the menu matches the
   selection.

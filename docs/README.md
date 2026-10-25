@@ -1,8 +1,9 @@
 # inhuman — the docs set
 
 These files exist so that a later session — human or agent — can work on this
-project **without reading the source first**. Each one states what the code does
-and, where useful, cites the file that decides the behaviour.
+project **without reading the source first**. Most state what the code does and,
+where useful, cite the file that decides the behaviour; `13-product.md` is the
+deliberate exception, written at the product level with no code references.
 
 There are now **two hosts** in one repository:
 
@@ -10,8 +11,10 @@ There are now **two hosts** in one repository:
 - the Windows x64 desktop app (`:desktopApp`), which shares the JVM core.
 
 `01`–`11` describe Android/shared behaviour. `12` is the current Windows desktop
-document. The old feasibility studies are in [`archive/`](archive/README.md) and
-are historical, not current documentation.
+document. `13` is the technology-neutral product document: principles, current
+features and future plans, with no stack or implementation detail. The old
+feasibility studies are in [`archive/`](archive/README.md) and are historical,
+not current documentation.
 
 They are not a replacement for the root `README.md`, and they are not a
 tutorial. The root README explains *what the app is* and what it deliberately is
@@ -34,6 +37,7 @@ not; `AGENTS.md` states the non-negotiable working rules. These files explain
 | [10-diagnostics.md](10-diagnostics.md) | Flight recorder: what is logged, what is left out, where it lives, how to share it |
 | [11-conversation-tools.md](11-conversation-tools.md) | Conversation-level tool sheet: assistant ceiling, next-turn timing, why it is not a new SSH exception |
 | [12-desktop.md](12-desktop.md) | **Windows x64 host**: architecture, feature map, security invariants, build/package/sign commands, verification and known limitations |
+| [13-product.md](13-product.md) | **Product document, deliberately technology-neutral**: design principles, current features and future plans |
 
 `07-gotchas.md` is the one to read when you are about to change something and do
 not have time to read the rest. Everything in it was a real bug.
@@ -43,6 +47,8 @@ setting, a mode, or a permission — it is where the project says which options 
 refuses to have.
 
 `12-desktop.md` is the one to read before changing or packaging the Windows host.
+`13-product.md` is the one to read before a product, platform or stack decision —
+it states what the product promises without naming a technology.
 
 ## Historical archive
 
@@ -87,23 +93,23 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :desktopApp:test --console=plain --rerun-tasks
 ```
 
-Latest run (2026-10-24):
+Latest run (2026-10-25):
 
 ```
-BUILD SUCCESSFUL, 513 tests in 75 suites, 0 failures, 3 skipped
+BUILD SUCCESSFUL, 549 tests in 83 suites, 0 failures, 4 skipped
 warnings 0, errors 0
 ```
 
 The skips are external-credential live tests: `DeepSeekWebLiveTest`,
-`EngineLiveTest` and `SshLiveProbeTest`. Suite by suite:
+`EngineLiveTest`, `SshLiveProbeTest` and `QwenTokenPlanLiveTest`. Suite by suite:
 
 | Module | Suites | Tests |
 | --- | --- | --- |
-| `:core:ai` | 30 | 256 (2 skipped) |
+| `:core:ai` | 36 | 271 (3 skipped) |
 | `:core:files` | 5 | 58 |
-| `:app` | 16 | 110 |
+| `:app` | 18 | 130 |
 | `:core:common` | 2 | 16 |
-| `:core:db` | 4 | 9 |
+| `:core:db` | 4 | 10 |
 | `:core:engine` | 2 | 10 (1 skipped) |
 | `:core:data` | 3 | 17 |
 | `:desktopApp` | 13 | 37 |

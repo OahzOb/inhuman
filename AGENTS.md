@@ -4,11 +4,13 @@ Notes for whoever picks this up next, human or agent. The README explains what
 the app is; this file explains how to change it without breaking what it
 already gets right.
 
-**Before reading the source, read `docs/`.** The twelve numbered files plus the
-index describe what the code actually does today, with a `file:line` for every
-claim, so a session can start work without re-deriving the architecture from
-scratch. `08-port-philosophy.md` records intent rather than implementation; the
-old feasibility studies are archived under `docs/archive/`.
+**Before reading the source, read `docs/`.** The numbered files plus the index
+describe what the code actually does today, with a `file:line` for every claim,
+so a session can start work without re-deriving the architecture from scratch.
+`13-product.md` is the deliberate exception: a technology-neutral product
+document with no code references. `08-port-philosophy.md` records intent rather
+than implementation; the old feasibility studies are archived under
+`docs/archive/`.
 
 | File | Answers |
 | --- | --- |
@@ -24,6 +26,7 @@ old feasibility studies are archived under `docs/archive/`.
 | `docs/10-diagnostics.md` | The flight recorder: what is logged, what is deliberately not, where the file lives and how to share it |
 | `docs/11-conversation-tools.md` | The conversation-level tool sheet: who may change it, the assistant ceiling, when it applies, and why it is not a new SSH exception |
 | `docs/12-desktop.md` | **Windows x64 host**: architecture, feature map, security invariants, build/package/sign commands, verification and known limitations |
+| `docs/13-product.md` | **Technology-neutral product document**: design principles, current features, future plans |
 | `docs/archive/` | Historical feasibility/design studies; not current documentation |
 
 `docs/07-gotchas.md` is the one to read before changing anything in a hurry.
@@ -32,6 +35,42 @@ mode, or permission — it is where the project records which options it refuses
 Keep the docs current: a commit that changes a documented behaviour changes the
 document in the same commit, or the doc becomes the next "comment that is the
 bug".
+
+## Default scope: Android, not the desktop host
+
+The Android app is the product; `:desktopApp` is a second host of the same
+shared core. **Unless a request explicitly names the desktop, Windows, or
+`:desktopApp`, do not change the desktop host.** Do not port a new screen,
+menu, string or feature to it "for parity" on your own initiative; that is a
+separate product decision.
+
+A change to a shared core module (`:core:ai`, `:core:files`, `:core:db`,
+`:core:engine`, `:core:common`) can still affect both hosts. When it does, keep
+the desktop compiling and its tests green, but do not extend its UI or feature
+set unless asked.
+
+### The desktop must not gate Android
+
+The desktop is a consumer, not a gatekeeper. A one-off conflict is normal; a
+repeated tax is not. Split the desktop into its own build/repository when any of
+these persists across roughly two Android changes or one release cycle:
+
+- an Android change is blocked or repeatedly delayed by `:desktopApp` compile,
+  test, API or UI work;
+- a shared-core API or schema change cannot land without desktop feature work;
+- Kotlin/Compose/AGP upgrades are held back by the desktop host;
+- desktop packaging or CI failures block an Android release;
+- a desktop constraint forces a worse Android design.
+
+One failed compile is not a trigger — fix the coupling. The trigger is a
+repeatable cost that changes Android's schedule.
+
+A split must preserve the design principles and capabilities: the workspace
+boundary, no full-access mode, the per-turn tool set, default-free approvals
+with an opt-in ask, paid/remote disclosure, SSH consent, and the data/backup
+contract. Split the host first (the desktop consumes the core as an artifact);
+if the core is reimplemented, add conformance tests for those invariants before
+either side ships. A split that loses them is a product fork, not a host split.
 
 ---
 
@@ -63,9 +102,12 @@ Two consequences bind every future change, and neither is negotiable:
   inheriting a narrower read-only grant.** When SSH is on, the agent
   can inspect a host, read files, write small text files, transfer files, and —
   only if `ssh_exec` is selected — run commands on a remote machine whose address
-  and credentials the user supplies; the app has no host/credential configuration
-  and redacts SSH **credential** arguments (`password`, `privateKey`,
-  `passphrase`) before storage. Command text, paths and `ssh_write_file` content
+  and credentials the user supplies; the app currently has no host/credential
+  configuration. Saving connection details for convenience is planned, without a
+  security or privacy promise (`docs/13-product.md`). SSH **credential**
+  arguments (`password`, `privateKey`,
+  `passphrase`) are redacted before storage. Command text, paths and
+  `ssh_write_file` content
   are part of the call and remain in the transcript. Do not add another exception
   without answering `docs/08-port-philosophy.md` §1.2.1 and §1.5.
 
@@ -94,8 +136,10 @@ just the two web tools.
 
 **Remote capability is disclosed separately.** Every SSH tool carries `remote =
 true`, a filled `REMOTE` badge, a notice above the tool list, and a dedicated
-first-call consent dialog. The app never configures a host or a credential store;
-the user gives them to the agent. SSH **credential** arguments are redacted
+first-call consent dialog. The app currently does not configure a host or a
+credential store; the user gives them to the agent. Saving connection details for
+convenience is planned, without a security or privacy promise
+(`docs/13-product.md`). SSH **credential** arguments are redacted
 before the transcript is stored; command text, paths and `ssh_write_file`
 content are not. The ordinary approval dialog must never show a password or
 private key — the SSH tools supply a redacted `details` string; `ssh_upload` and
@@ -303,7 +347,11 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
 - **Rollback restores the workspace before deleting the turn.** The **Edit your
   message** choice in Rewind restores the `start` checkpoint, then removes the
   message and all descendants and restores text/attachments. A restore failure
-  must leave the rows intact. A turn containing `reversible = false` (`ssh_exec`,
+  must leave the rows intact **and the workspace exactly as it was** — the
+  restore builds the checkpoint beside the workspace and swaps it in, rather
+  than emptying the workspace first, because a copy that failed halfway used to
+  leave half a checkpoint and none of the user's files while returning `false`.
+  A turn containing `reversible = false` (`ssh_exec`,
   `ssh_upload`, `ssh_write_file`) gets no Edit/rollback choice at all.
 - **Checkpoints are content-addressed, per turn and per completed tool group.**
   `start` plus group manifests live under
@@ -361,6 +409,20 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   into the call site.** A logger that can fail a turn is a second bug; one that
   keeps the user's text is a leak with a retention policy. `docs/10-diagnostics.md`
   is the contract.
+- **The updater verifies before it installs.** It checks the manifest's
+  SHA-256, the APK's package name and version code, and that the signing
+  certificate set matches the installed app; then `PackageInstaller` still asks
+  the user. HTTP is accepted only for private/LAN/Tailscale hosts. Do not
+  replace this with a URL check or a silent install. The log upload uses the
+  same boundary and only runs when the user taps it; the agent still has no
+  network path.
+- **The eleven-minute chat read timeout is for the body, not for silence before
+  the response headers.** `HeaderTimeoutInterceptor` cancels a call that has not
+  received headers within 90 seconds. The 2026-10-25 log had two requests with no
+  `HTTP 200` line and a spinner until the app was restarted; removing this
+  interceptor restores that. Do not fold it into `readTimeout`. Its
+  `HeaderTimeoutException` message contains "no response", which is what makes
+  `chatErrorAction` offer Retry.
 
 ---
 

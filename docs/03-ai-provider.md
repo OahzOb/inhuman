@@ -275,6 +275,14 @@ Settings, all deliberate (`DeepSeekProvider.kt:204-209`):
   connection if inference has not begun within 10 minutes, and reasoning models
   routinely take a long time before the first token. The conventional 30-second
   timeout kills legitimate slow responses while they are still thinking.
+- **`HeaderTimeoutInterceptor` (90 seconds).** It bounds only the wait for
+  response headers, not the body. The 2026-10-25 log had two chat requests with
+  no `HTTP 200` line at all and a spinner until the app was restarted; headers
+  normally arrive in hundreds of milliseconds, so this ends a dead connection
+  long before the eleven-minute read timeout. It throws
+  `HeaderTimeoutException`, pinned by `HeaderTimeoutInterceptorTest`; the
+  message contains "no response", so the error banner offers **Retry** without
+  resending the user's message.
 - `connectTimeout(30, SECONDS)`.
 - **`retryOnConnectionFailure(false)`.** A retried POST that already produced
   tokens duplicates the answer; the caller is better placed to decide whether
@@ -319,6 +327,22 @@ say (`DeepSeekProvider.kt:87-102`). Pinned by
 `CallbackFlowFailureDeliveryTest`, because the behaviour is a fact about the
 coroutines library rather than about that file. The same rule applies to any new
 `callbackFlow` in this tree.
+
+### The stream buffer is unlimited, because `trySend` cannot wait
+
+Inside those callbacks there is no `send`: they run on OkHttp's dispatcher
+thread, not in a coroutine, so nothing can suspend and there is no backpressure.
+A `callbackFlow` channel is finite (64 slots by default), and a `trySend` that
+finds it full **fails without a trace** — the token is gone, the reply has a hole
+in it, and nothing in the diagnostics says a chunk was lost.
+
+All three providers therefore fuse an unlimited buffer onto the flow
+(`DeepSeekProvider.kt:248-262`, and the same tail in `AnthropicProvider` and
+`GeminiProvider`). The memory ceiling is one reply's worth of text, which is
+small next to the request that produced it. The two facts this rests on — the
+default buffer drops, and `Channel.UNLIMITED` does not — are pinned by
+`the default buffer drops what does not fit, and unlimited does not` in
+`CallbackFlowFailureDeliveryTest`.
 
 ### SSE parsing
 
@@ -383,6 +407,133 @@ Two more decoder details that are easy to lose in a refactor:
   practice, but a consumer that assumes exactly one `Finish` is assuming
   something the decoder does not guarantee (`DeepSeekStreamDecoder.kt:57-62`,
   `164-172`).
+
+## Native Anthropic and Gemini adapters
+
+`ProviderFactory` (`ProviderFactory.kt`) maps the stored profile kind to one of
+three wire implementations:
+
+| `provider_profiles.kind` | Adapter | Wire |
+| --- | --- | --- |
+| `deepseek`, `openai-compatible` | `DeepSeekProvider` | OpenAI Chat Completions |
+| `anthropic-messages` | `AnthropicProvider` | Anthropic Messages |
+| `google-generative-ai` | `GeminiProvider` | Gemini `generateContent` |
+
+The database column stays a string so old profiles remain readable; no schema
+migration was needed for the two new kinds. The provider editor exposes the four
+choices as chips and sets the default base URL for each.
+
+**Known providers** (`provider/ProviderCatalog.kt`) are the Pi-style shortcut:
+Anthropic, Google Gemini, OpenAI, Z.AI Coding (global/China), Qwen Token Plan
+(global/China), Xiaomi MiMo and Token Plan, Kimi For Coding, MiniMax
+(global/China), OpenRouter, Groq, Mistral, Cerebras and xAI. Picking one fills
+the kind and base URL and asks only for the API key. "Customize endpoint" reveals
+the base URL and manual-model fields for a proxy or an unlisted service. Account
+/ web login is deliberately absent; every catalog entry is API-key
+authenticated. Most entries fetch `/models`; if a plan endpoint does not expose
+it, Customize accepts manual model IDs.
+
+**Anthropic** (`provider/anthropic/`): `POST /v1/messages`, `x-api-key`,
+`anthropic-version: 2023-06-01`, system as a separate field, `tool_use` /
+`tool_result` content blocks, images as base64 source blocks, and named SSE
+events (`content_block_start`, `content_block_delta`, `message_delta`, …).
+The adapter does **not** request extended thinking: replaying Anthropic thinking
+requires the signed `thinking` block, which the transcript cannot store yet.
+
+**Gemini** (`provider/gemini/`): `POST /v1beta/models/{model}:streamGenerateContent?alt=sse`,
+`x-goog-api-key`, `contents[].parts[]`, `functionCall` / `functionResponse`,
+`inlineData` images, and `usageMetadata`. Tool calls arrive whole rather than as
+argument fragments; the decoder still emits start/delta/end so the engine has
+one path. Thought signatures are ignored for the same reason as Anthropic's
+signatures: they need opaque per-message provider data.
+
+**Qwen Token Plan** is the first capability bundle rather than one chat
+adapter. One `sk-sp-…` key serves several API families under
+`https://token-plan.cn-beijing.maas.aliyuncs.com`:
+
+| Capability | Endpoint |
+| --- | --- |
+| Chat | `/compatible-mode/v1/chat/completions` |
+| Decision (Jev/System One) | `/compatible-mode/v1/systemone` |
+| Image | `/api/v1/services/aigc/multimodal-generation/generation` |
+| Video | `/api/v1/services/aigc/video-generation/video-synthesis` + `/api/v1/tasks/{id}` |
+| TTS | `/api/v1/services/audio/tts/SpeechSynthesizer` |
+
+`QwenTokenPlanClient` downloads the image/audio URL immediately because those
+URLs expire; video is submitted as an async task. The live probe is
+`QwenTokenPlanLiveTest` (skipped without `QWEN_TOKEN_PLAN_CN_API_KEY`), and the
+verified models are `wan2.7-image`, `wan3.0-video`, `qwen-audio-3.0-tts-plus`
+and `decision-model-preview`.
+
+0.3.0 exposes the first user-facing slice: **Chat menu → Generate image**.
+`ChatViewModel.generateImage` checks the profile's capability, downloads the
+bytes, writes them through `SessionWorkspace.resolve`, applies
+`quotaRefusal`, and stages the result as a pending attachment when the active
+model can see images.
+
+0.3.1 adds the decision slice: **Chat menu → Decision** runs the fixed
+department/urgent/severity questions, and the agent gets a `decide` tool only
+when the active provider advertises `Decision` and has a key. The tool returns
+the typed JSON unchanged.
+
+0.3.2 adds the `generate_image` tool (capability-gated, returns a workspace
+path) and **Chat menu → Text to speech**, which saves an MP3 under
+`generated/audio-*.mp3`.
+
+0.3.3 adds **Chat menu → Generate video**: `wan3.0-video` is submitted as an
+async task, the view model polls once every 15 seconds, progress survives
+closing the dialog, and a completed MP4 is saved under `generated/video-*.mp4`.
+The task id is not yet in Room, so a process kill loses the poll loop; speech-
+to-text and a `generate_video` tool are later slices.
+
+0.3.4 adds `generate_video` and `video_status` tools. `generate_video` submits
+the task and returns its id; `video_status` polls it and downloads the MP4 into
+the workspace on success. This keeps a two-minute render out of one blocking
+tool call.
+
+0.3.5 adds the `speak` tool, which saves TTS output as
+`generated/audio-*.mp3`.
+
+0.3.6 adds `transcribe`: Qwen ASR is **not** an OpenAI-style
+`/audio/transcriptions` endpoint (that returned 404). It accepts a base64 data
+URI in the same `input.messages` shape as image generation at
+`/api/v1/services/aigc/multimodal-generation/generation`, model
+`qwen-audio-3.0-asr-flash`, and returns the transcript at the top level. The tool
+reads workspace audio, limits formats to mp3/wav/opus, and returns text.
+
+0.3.7 adds media opening: the image, audio and video dialogs expose an
+**Open/Play** action that builds the DocumentsProvider URI for the generated
+file and launches the system viewer. The files were already ordinary workspace
+files; this makes the result reachable without navigating to Files first.
+
+0.3.8 persists an in-flight video task as `conversationId|taskId` in
+`SecureStore` before polling. On process restart, `ChatViewModel.init` resumes
+that task only for the same conversation, updates `videoStatus`, and clears the
+checkpoint when the file is saved or the task fails. This is a checkpoint, not a
+Room job table; a future migration can move it.
+
+0.3.9 adds a **Transcribe** button to the TTS result. It reads the generated MP3
+back through the workspace and calls the same ASR endpoint, so ASR now has a
+direct path (for generated audio) as well as the `transcribe` tool.
+
+0.4.0 adds custom decision questions: the Decision panel can switch from the
+preset department/urgent/severity set to a JSON `questions` object, parsed and
+validated locally before the same `systemone` call.
+
+0.4.1 adds **Transcribe audio file** to the chat menu. It imports the chosen
+mp3/wav/opus through `WorkspaceTransfer`, then runs the same ASR call and shows
+the transcript; the file is left in `attachments/` and can be deleted normally.
+
+**Not implemented yet:** OpenAI Responses, OAuth subscription login
+(Claude Pro/Max, ChatGPT, Copilot, Kimi Code), custom per-provider headers, and
+managed Azure/Bedrock/Vertex credentials. `ProviderKinds.OPENAI_COMPATIBLE`
+still covers most API-key plans (ZAI, Qwen, Xiaomi, Kimi, OpenCode) when the
+base URL and key are entered manually.
+
+Tests: `AnthropicMessagesTest` and `GeminiMessagesTest` pin request mapping,
+text/tool SSE decoding, usage and the tool block index. `QwenTokenPlanLiveTest`
+verifies the real Qwen image and decision endpoints when its key is present.
+They are offline by default; no key is needed.
 
 ## The model list is fetched, never hardcoded
 

@@ -8,6 +8,11 @@ Both hosts share the same JVM core, Room database schema, workspace layout, tool
 catalogue, turn loop, SSH transport and backup format. The Android app is the
 original product; the Windows client is the desktop host of the same runtime.
 
+> For a **technology-neutral** description of the product — design principles,
+> current features and future plans — see
+> [docs/13-product.md](docs/13-product.md). It deliberately names no stack,
+> framework or implementation detail.
+
 A workspace is **temporary** by default: it is created with its first
 conversation and deleted with it. **Save as permanent** (or creating a workspace
 from the Workspaces screen) keeps the files after conversations are deleted and
@@ -46,7 +51,9 @@ regenerated and compared.
 | **5** | Agent loop, multi-turn tool calling, reasoning display | **done** |
 
 Beyond the phases: assistants with visible system prompts, per-conversation
-model and reasoning effort read from the provider, an approval gate that is
+provider switching and model/reasoning effort read from the provider, **native
+Anthropic Messages and Google Gemini adapters alongside DeepSeek and
+OpenAI-compatible profiles**, an approval gate that is
 **configurable per tool, per assistant and per path and asks nothing by
 default**, branch switching, image attachments, usage reporting, a context
 gauge above the composer, temporary/permanent workspaces with the absolute
@@ -169,9 +176,11 @@ time a conversation uses one. The warning text follows the selection: a
 probe/list/read/download profile is told it cannot run arbitrary commands or write
 files. After that they follow the normal approval policy, which defaults to
 running without asking. Remote commands and replaced remote files are not a
-workspace copy: some damage cannot be undone. The app has no host list and no
-credential store; it provides the transport, and the user gives the agent the
-host, user and password/key file. SSH credential arguments are redacted before
+workspace copy: some damage cannot be undone. Currently the app has no host list
+and no credential store; saving connection details for convenience is planned,
+without a security or privacy promise. It provides the transport, and the user
+gives the agent the host, user and password/key file. SSH credential arguments
+are redacted before
 the tool-call row is stored, but command text, paths and `ssh_write_file` content
 remain in the transcript; text typed into the conversation is still stored
 verbatim. Standard host-key checking is TOFU with `SHA256:` fingerprints,
@@ -439,9 +448,47 @@ Then:
 
 If the properties file is absent, the release build falls back to the debug
 signing key so a fresh clone can still build; that build cannot update a
-production signing identity. The release version is `0.2.0` / versionCode 2.
+production signing identity. The release version is `0.4.1` / versionCode 23.
 `lintVital` is skipped in this offline environment (`checkReleaseBuilds =
 false`); run lint separately when the network is available.
+
+### Local updates and log upload
+
+The app can install an update and upload a diagnostic log over a LAN or
+Tailscale link. Both use one base URL, set in **Settings → 08 Local**; nothing
+is checked or uploaded until you tap a button.
+
+```powershell
+# Bump versionCode/versionName in app/build.gradle first: Android refuses a
+# same-or-older version, and a different signing key cannot update an install.
+.\tools\release-apk.ps1 -Notes "What changed"
+
+# Start the server. This is equivalent to: python tools\dev-server.py
+.\tools\start-server.cmd
+```
+
+For day-to-day use, double-click `tools\start-server.cmd` and leave its window
+open; closing the window or Ctrl+C stops the server. It prints the LAN and
+Tailscale URLs. To start it at logon, put a shortcut to it in
+`shell:startup`.
+
+`release-apk.ps1` builds `:app:assembleRelease`, verifies the APK with
+`apksigner`, copies it to `dist/`, and writes `dist/update.json` with the
+version, relative APK URL and SHA-256. `dev-server.py` serves that directory
+and accepts `POST /log`, saving each uploaded log under `logs/`; it prints the
+LAN addresses it sees. Use the PC's LAN address (for example
+`http://192.168.1.50:8787`) or a Tailscale `100.x`/MagicDNS address. Plain HTTP
+is accepted only for private, LAN or Tailscale hosts; a public host must use
+HTTPS.
+
+The install itself is still the system's: the app verifies the SHA-256, package
+name, version code and signing certificate, then hands the APK to
+`PackageInstaller`, which asks for confirmation. There is no silent update.
+All future builds must use the same key, which is why the release keystore
+above matters before the first distributed APK.
+
+The updater and log upload are app-level, user-initiated features, not tools;
+the agent still has no network path.
 
 ### Backup and long turns
 
@@ -483,7 +530,7 @@ which this setup does not use.
 
 ---
 
-## Deliberate non-goals
+## Deliberate non-goals and planned work
 
 - **No Linux/PRoot environment on Android.** The requirement is files in and out
   of a per-conversation directory, which needs no shell. Skipping it also removes
@@ -492,23 +539,28 @@ which this setup does not use.
 - **No Linux desktop build in the current release.** Windows x64 is the desktop
   target; Linux is not built or verified. See
   [docs/12-desktop.md](docs/12-desktop.md).
-- **No LaTeX rendering.** Still true, but **not for the reason this file used to
-  give.** It claimed the only viable Android library is GPLv2 and this app is
-  not open source — that was wrong twice over: the app is going open source
-  (`LICENSE`), and JLaTeXMath carries a linking exception whose own text grants
-  permission to *"link this library with independent modules … regardless of the
-  license terms of these independent modules"*. So the licence was never the
-  obstacle. The real costs are the ones nobody had priced: its Greek fonts are
-  GPLv2, several others are OFL or the Knuth Licence, and shipping any of them
-  means maintaining a `THIRD-PARTY-NOTICES` file. Markdown and code highlighting
-  remain permissively licensed and cover the common case.
+- **LaTeX rendering is not implemented yet; it is planned.** The reason this
+  file used to give for refusing it was wrong: it claimed the only viable
+  Android library is GPLv2 and this app is not open source — wrong twice over:
+  the app is open source (`LICENSE`), and JLaTeXMath carries a linking exception
+  whose own text grants permission to *"link this library with independent
+  modules … regardless of the license terms of these independent modules"*. So
+  the licence was never the obstacle. The real costs are the ones nobody had
+  priced: its Greek fonts are GPLv2, several others are OFL or the Knuth
+  Licence, and shipping any of them means maintaining a `THIRD-PARTY-NOTICES`
+  file. Markdown and code highlighting remain permissively licensed and cover
+  the common case today.
 - **No `MANAGE_EXTERNAL_STORAGE`,** and no `READ/WRITE_EXTERNAL_STORAGE`. Play
   gates the former behind justifications a chat app cannot honestly make. The
   user reaches a conversation's directory through the app's own `DocumentsProvider`
   and its import/export, which needs no such permission.
-- **No native Anthropic or Gemini protocol adapter.** Extra LLM providers are
+- **Native Anthropic or Gemini protocol adapters are not implemented yet; they
+  are planned at lower priority.** Today, extra LLM providers are
   OpenAI-compatible HTTPS profiles, chosen per assistant. A provider with a
   different wire protocol needs a decoder, not just a base URL.
+- **Remote connection details are not saved yet; saving them for convenience is
+  planned.** It is not a security or privacy promise. Today the app has no host
+  list and no credential store.
 
 ## Licensing
 

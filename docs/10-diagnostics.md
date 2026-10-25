@@ -29,10 +29,15 @@ owns, which survives the process and a crash.
 
 - `app.log` is live; at 1 MB it becomes `app.1.log` and older archives shift
   down. Three archives plus the live file: at most about 4 MB.
-- **Settings → Diagnostics** shows the current size and has two actions:
-  **Share log** (a `FileProvider` URI into the system share sheet) and
-  **Clear** (confirmed, because the moment before clearing is exactly when the
-  record matters).
+- **Settings → Diagnostics** shows the current size and has three actions:
+  **Share log** (a `FileProvider` URI into the system share sheet),
+  **Upload log** (an explicit POST to the user-configured LAN/Tailscale server),
+  and **Clear** (confirmed, because the moment before clearing is exactly when
+  the record matters).
+- **Upload log** sends the same text to `<server>/log`, where
+  `tools/dev-server.py` saves it under `logs/`. The server URL is set in
+  **Settings → Local** and shared with the in-app updater. It is a user action,
+  not polling: nothing is uploaded until the button is pressed.
 - Debug builds can also be read directly:
 
   ```powershell
@@ -46,7 +51,7 @@ owns, which survives the process and a crash.
   ```
 
 Release builds are not debuggable, so `run-as` is unavailable there; Settings →
-Share log is the supported path.
+**Share log** or **Upload log** is the supported path.
 
 ## What is recorded
 
@@ -63,6 +68,7 @@ Share log is the supported path.
 | Search | request (`api=search`, count, query length), response status and bytes, result count, HTTP failure body |
 | Fetch | request (URL length), response status and bytes, title and content lengths, HTTP failure body |
 | Models | `/models` request base, response status/bytes/duration, failure; picker cache hit, background refresh, 20s call timeout and 25s dialog timeout |
+| Updates | check (current and remote version code, newer flag), download requested/verified (version, bytes), install requested; log upload (bytes, saved file name). No server URL or credential is written. |
 | Tools | run (name, normalised path, argument bytes), done (ok, result bytes, duration), error text (first 240 chars), unknown tool, unparsable arguments, skipped call |
 | SSH | global switch or ceilings changed; consent ask/allow/deny/revoke (host and user only); connect (host, port, user, auth type); connected (host and `SHA256:` fingerprint); exec done (exit code, stdout/stderr lengths, truncation, duration); list/tail/upload/download/write done (path, entries or bytes; never file content) |
 | Rollback | snapshot captured or refused, restore success/failure, subtree delete request; ids and outcomes only, never file contents |
@@ -100,8 +106,9 @@ enough to tell "it ran and failed" from "it never connected"; the transcript
 already has the result. Host, port, user and host-key fingerprint are recorded
 because they are the facts that explain a connection failure.
 
-There is no upload and no telemetry. The only way a log leaves the device is the
-user pressing **Share log**.
+There is no telemetry and no automatic upload. The only ways a log leaves the
+device are the user pressing **Share log** or **Upload log**. Both are explicit;
+the upload target is whatever LAN/Tailscale server the user configured.
 
 ## Why the file comes before logcat
 

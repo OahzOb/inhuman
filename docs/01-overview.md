@@ -16,10 +16,11 @@ should never be presented as one.
 One capability can leave the device: the seven SSH tools (`ssh_probe`,
 `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`,
 `ssh_download`), which are **off by default** and require both the global
-Settings switch and a per-conversation acknowledgement. The app still has no host
-configuration and no credential store; the agent can only reach a machine whose
-address and credentials the user supplies. With SSH off — the default — the
-paragraph above is true as written. See
+Settings switch and a per-conversation acknowledgement. Currently the app has no
+host configuration or credential store; saving connection details for convenience
+is planned, without a security or privacy promise. The agent can only reach a
+machine whose address and credentials the user supplies. With SSH off — the
+default — the paragraph above is true as written. See
 [03-ai-provider.md](03-ai-provider.md) and [08-port-philosophy.md](08-port-philosophy.md) §1.2.1.
 
 Single user; the Android app and the Windows host read the same data model on
@@ -80,11 +81,12 @@ Confirmed by `README.md:17-29` and by the code:
   selected independently for search and fetch. Each is a paid API with its own
   key, separate from the chat provider
   ([03-ai-provider.md](03-ai-provider.md)).
-- Chat runs against a provider profile: the built-in DeepSeek endpoint or a
-  custom OpenAI-compatible HTTPS endpoint. Each assistant chooses a profile, and
-  a conversation copies it at creation; model lists and keys are per provider.
-  The same assistant can be switched later, but existing conversations keep the
-  provider they started with.
+- Chat runs against a provider profile: the built-in DeepSeek endpoint, a
+  custom OpenAI-compatible HTTPS endpoint, Anthropic Messages, or Google
+  Gemini. Each assistant chooses a profile, and a conversation copies it at
+  creation; model lists and keys are per provider. The conversation's model
+  dialog can switch provider later. That switch is local to the conversation,
+  clears model/effort/thinking, and leaves the assistant unchanged.
 - Per-conversation model and reasoning effort, read from the provider.
 - The model can run commands and move files on a remote machine over SSH, but only
   after the user turns the global switch on, gives the assistant the SSH tools,
@@ -131,32 +133,43 @@ Confirmed by `README.md:17-29` and by the code:
   counts, export time) before replacing anything, and keeps the replaced data
   for one **Undo last import**.
 - A local diagnostic log records turns, tool calls, HTTP failures and crashes;
-  Settings → Diagnostics can show its size, share it or clear it
+  Settings → Diagnostics can show its size, share it, upload it or clear it
   ([10-diagnostics.md](10-diagnostics.md)).
+- The Android app can check a user-run LAN/Tailscale server for an update,
+  verify the APK's hash, package, version and signing certificate, then hand it
+  to `PackageInstaller`; the system still asks before installing. The same
+  server can receive an explicit **Upload log** POST from Diagnostics.
 
 Phases 0–5 in `README.md:17-24` are all marked done. Work since then has been
 incremental and is visible in `git log`.
 
-## What is deliberately absent
+## What is deliberately absent today
 
-From `README.md:335-357`; these are decisions, not gaps. Do not "fix" them
-without a conversation:
+From the README's non-goals and planned-work section; these are decisions or
+deferred items, not gaps. Do not "fix" the non-goals without a conversation.
+LaTeX and native Anthropic/Gemini adapters are now partly implemented, not
+refused; see [13-product.md](13-product.md). The notes below explain what is
+still absent today.
 
 - **No Linux/PRoot environment on Android.** Per-conversation files need no shell. PRoot
   also runs at the app's own UID, so "sandboxed" Linux code could read the
   conversation database and the stored API key.
 - **No Linux desktop build.** Windows x64 is the desktop target; Linux packaging
   is not built or verified (see [12-desktop.md](12-desktop.md)).
-- **No LaTeX.** The obstacle is not the renderer's licence, which this file used
-  to name: JLaTeXMath carries a linking exception that permits use here, and the
-  app is Apache-2.0. The cost is the fonts it bundles — some GPLv2, some OFL,
-  some under the Knuth Licence — and the `THIRD-PARTY-NOTICES` maintenance that
-  follows from shipping them (`README.md:337-350`). Markdown and code
-  highlighting cover the common case.
+- **No LaTeX yet; planned.** The obstacle is not the renderer's licence, which
+  this file used to name: JLaTeXMath carries a linking exception that permits use
+  here, and the app is Apache-2.0. The cost is the fonts it bundles — some GPLv2,
+  some OFL, some under the Knuth Licence — and the `THIRD-PARTY-NOTICES`
+  maintenance that follows from shipping them (see the README's LaTeX note).
+  Markdown and code highlighting cover the common case today.
 - **No `MANAGE_EXTERNAL_STORAGE`**, and no `READ/WRITE_EXTERNAL_STORAGE`.
-- **No native Anthropic or Gemini protocol adapter.** Additional LLM providers
-  are OpenAI-compatible profiles; a provider with a different wire protocol
-  would need its own decoder rather than a base-URL entry.
+- **Native Anthropic/Gemini basics exist; OpenAI Responses, OAuth plan login and
+  thinking-signature replay do not.** The Anthropic Messages and Gemini
+  Generative AI adapters handle text, images, tool calls and usage. Extended
+  thinking is deliberately not requested yet: Anthropic needs signed thinking
+  blocks and Gemini needs thought signatures, and those cannot be replayed until
+  the transcript carries an opaque provider-data field. Claude Pro/Max,
+  ChatGPT, Copilot and Kimi Code OAuth are also not implemented.
 
 Two more that are stated as behaviour rather than as policy:
 

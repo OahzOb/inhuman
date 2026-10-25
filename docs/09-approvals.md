@@ -337,9 +337,14 @@ transcript 读回:
 发生的门，在转录上看起来完全一样，所以必须查磁盘而不是看 chip。
 
 **界面**：全局规则在设置页（"Before a tool runs"），按路径规则在文件浏览器
-（每行的锁按钮，四档按名字列出：Agent may change this / asks first / may look,
-not change / Hidden from the agent）。两者都写库后重读，不在内存里打补丁——
+（每行的锁按钮，四档按名字列出：Agent may change this / asks first / cannot
+read or change / Hidden from the agent）。两者都写库后重读，不在内存里打补丁——
 行上显示什么，必须是工具调用真正会取到的值。
+
+**`Deny` 的文案曾经名不符实，已修。** 文件浏览器把这一档写成 "Agent may look,
+not change"，而 `gateEngineCall` 对 `Deny` 的**任何**调用都返回拒绝——读也一样。
+设置页一直写的是 "refuse"；两处不一致，错的是能读到的那一处。现在两处都说
+"cannot read or change"/"助手不能读写这个文件"。
 
 **`Blind` 曾经名不符实，已修。** 它的文档承诺路径"不出现在 `list_files`"，
 而 `ListFilesTool` 从不查策略，所以它当时和 `Deny` 行为完全相同：按名拒绝，

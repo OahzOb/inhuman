@@ -806,6 +806,13 @@ composer stayed behind it. Removing the redundant `safeDrawing` padding fixed th
 phone layout. The same over-padding was making every other screen's content start
 one status bar too low; it has been removed from those too.
 
+The same class of bug appeared again in **Settings → Local**: the screen is
+edge-to-edge, so `adjustResize` does not shrink it, and the settings scroll
+column had no `imePadding()`. Focusing the server URL put the field behind the
+keyboard. The scroll column now applies `imePadding()` before `verticalScroll`;
+verified on the phone-sized emulator with the keyboard open. Any new scrollable
+form with a bottom field needs the same check.
+
 Separately, the new warm scheme still showed a lavender `FilterChip` and a
 generic purple dialog. `InhumanTheme` set `primary`, `background`, `surface` and
 a few roles, but Material reads `secondaryContainer` for a selected chip and the

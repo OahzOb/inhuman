@@ -327,12 +327,16 @@ of the tablet case.
 
 ### The `tools/` scripts
 
-All are PowerShell, all drive the device through `adb`, and all read the UI
-rather than guessing coordinates:
+Most are PowerShell; `dev-server.py` is standard-library Python. The device
+scripts drive `adb` and read the UI rather than guessing coordinates; the two
+update/log scripts build an APK or serve it.
 
 | Script | What it does |
 | --- | --- |
 | `build-and-shot.ps1` | The whole loop: build, install, launch, screenshot with brightness check. `-Serial`, `-Label`, `-SkipBuild`. |
+| `start-server.cmd` | Double-click launcher for `dev-server.py` on port 8787; prints the LAN/Tailscale URLs and keeps the console open. Closing it stops the server. |
+| `release-apk.ps1` | Builds `:app:assembleRelease`, verifies the APK with `apksigner`, computes SHA-256 and writes `dist/update.json` plus the APK for the in-app updater. |
+| `dev-server.py` | Standard-library Python server for a LAN/Tailscale link: serves `dist/` at `/update.json` and the APK, and accepts `POST /log` into `logs/`. No authentication; bind only on a trusted network. |
 | `device-flow.ps1` | End-to-end on a real device: clear app data, enter the API key from `C:\android-toolchain\.deepseek-key`, create a file through the agent, then ask it to delete one. It reports whether the approval dialog appeared — by default it will not, since deletion asks nothing — and dumps the transcript either way. |
 | `verify-features.ps1`, `verify-agents.ps1`, `verify-model-picker.ps1`, `verify-regenerate-guard.ps1`, `verify-back-and-delete.ps1`, `verify-migration.ps1` | Feature verification flows, each asserting on dumped UI state. |
 | `inspect-agent-state.ps1`, `measure-screen.ps1`, `measure-usage.ps1` | Read-only probes: what the UI currently says, what fits on a screen, what a turn cost. |

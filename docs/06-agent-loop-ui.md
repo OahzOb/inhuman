@@ -73,7 +73,10 @@ The engine's events are rendered and persisted here:
   `NonCancellable`, persists whatever arrived when the flow was cancelled before
   `RoundFinished` (with `STOPPED_MESSAGE`), writes an empty error row if the
   first request failed before a token, or removes the placeholder when nothing
-  arrived at all.
+  arrived at all. The whole block is wrapped in `runCatching` and the failure is
+  logged: a database error raised from it used to skip both the row close and
+  `isStreaming = false`, leaving the composer disabled until the screen was
+  recreated, with the exception escaping into the process.
 
 ### `gateEngineCall` — the one gate
 
@@ -305,9 +308,10 @@ writes one opening fence too many and then continues with headings and a table;
 the close must be removed, not moved to EOF. `MarkdownFenceTest` covers the
 paired, unclosed, info-string and longer-close cases.
 
-No LaTeX and no Mermaid, deliberately (`MarkdownText.kt:110-115`). For LaTeX the
-licence is not the obstacle (JLaTeXMath carries a linking exception); the fonts
-and the notices file are — see the root `README.md`.
+LaTeX is not implemented yet; it is planned. Mermaid is deliberately out
+(`MarkdownText.kt:110-115`). For LaTeX the licence is not the obstacle
+(JLaTeXMath carries a linking exception); the fonts and the notices file are —
+see the root `README.md` and [13-product.md](13-product.md).
 
 ## The chat screen
 
@@ -338,6 +342,38 @@ The 640dp `ReadableMeasure` still governs forms and settings screens; the chat
 column is wider because it contains code and tables, not just prose. The cap was
 inert at seven other sites; all now constrain first and fill second, and the
 576dp tablet measurement is in [07-gotchas.md](07-gotchas.md) B5.
+
+### Finding and moving inside a conversation
+
+The app bar carries **search** and **new conversation**; Files and Provider keys
+moved into the overflow menu so a phone bar stays at three actions. The turn
+index is a strip above the transcript rather than an overlay: a chip pinned to
+the top-right would sit on the first user bubble.
+
+- **In-conversation search** is a full-screen dialog, not an inline row. An
+  inline bar plus the IME, the turn strip and the composer left no transcript
+  at 640×360; the dialog owns its own window and inset handling instead. It
+  reads the loaded transcript, not the database. `searchConversation` and
+  `userTurnsOf` live in `ChatSearch.kt` and are pure list functions, so the
+  match order and the "which row does this index mean" question are tested
+  without a device. Tool results are skipped, matching the home screen's global
+  search; reasoning is skipped because it is collapsed and a hit there would
+  open a row whose text is not visible. The dialog lists the matches with a role
+  label and a snippet; tapping one closes it and jumps to that row.
+- **Turn jump** lists the user rows, numbered from one, with the first
+  non-empty line as the preview. Tapping one scrolls to the question, not to the
+  footer of its answer. The current turn is derived from
+  `firstVisibleItemIndex` minus the compaction/compacting items.
+- **New conversation** asks `ChatViewModel.createNewConversation`, which reuses
+  the current assistant and shares the workspace only when it is permanent. A
+  temporary workspace belongs to exactly one conversation; a new one gets its
+  own. The callback carries the new id to `MainActivity`, which changes
+  `openConversationId`; the old view model stays alive if its turn is still
+  streaming.
+
+The transient highlight now has one owner: a `LaunchedEffect(highlightedMessageId)`
+clears it after 2.4s. The scroll effects only set the id, so a message arriving
+during the delay cannot cancel the clear and leave a row highlighted forever.
 
 ### Window ratios, not just width
 
@@ -415,6 +451,11 @@ failure after a write cannot execute it twice. **Compact and retry** persists
 the summary before retrying, so a second failure does not throw away the paid
 summarizer work.
 
+A stopped turn is not an error banner: the partial answer keeps the
+`STOPPED_MESSAGE` footer, and that footer carries a **Retry** button next to it.
+It calls the same `regenerate()` path, so a deliberate Stop does not force the
+user to retype the message and does not re-run tools.
+
 ### Search and jump-to-message
 
 Home's search field searches conversation titles and user/assistant text through
@@ -490,6 +531,14 @@ key.
 cost is worth repeating, and SSH names the host and first 160 characters of the
 command or the source/destination paths. Everything else falls back to "Run
 <name>?".
+
+The arguments block is capped at 40% of the window height and scrolls. It was
+unbounded, and a `write_file` call carries the whole file in `content`: on a
+phone the arguments then pushed Allow and Decline off the bottom of the screen,
+so the dialog whose entire purpose is to make someone read before answering was
+the one where the answer could not be given. The cap follows the window height
+rather than a constant so a landscape phone does not spend its whole height on
+it.
 
 ### The SSH consent dialog
 
@@ -810,11 +859,23 @@ timeout with a cached list, the list stays usable and the refresh failure is
 logged; with no list, the error is shown with a **Retry** button. Selecting a
 model dismisses the dialog.
 
+The dialog also has a **Provider** section. Each profile is a chip; selecting one
+calls `ChatViewModel.setProvider`, which updates `conversations.providerId`,
+clears `model`, `reasoningEffort` and `thinking` in the same statement, and
+reloads the model list for the new provider. The transcript is unchanged — the
+switch only affects later turns. It is refused while a reply is streaming.
+Switching away from the assistant's provider also stops the agent's model from
+being used as a fallback: `publishModelState` resolves the assistant's model only
+while `agent.providerId == conversation.providerId`.
+
 ### Settings
 
 `SettingsScreen.kt` / `SettingsViewModel.kt`. **Model providers** lists the
-profiles; each opens an editor with name, kind, HTTPS base URL, password-style
-key, reasoning-field mode, stream-usage switch and fallback model ids. Save writes
+profiles. Adding one opens the known-provider picker first; a known provider
+shows only the API key field, while **Custom provider** (or **Customize
+endpoint**) opens the editor with name, kind, HTTPS base URL, password-style
+key, reasoning-field mode, stream-usage switch and fallback model ids. Save
+writes
 the row and key through `AgentRepository.saveProvider`; a blank key removes it.
 "Test connection" calls `GET /models` with the unsaved values and reports what it
 sees. The built-in DeepSeek profile cannot be deleted. **Web tools** selects the
@@ -888,7 +949,7 @@ it; the sandbox's no-network rule applies to code the model writes), and
 | `TurnSummaryTest` | Rounds of one turn sum (prompt, completion, cache, generation); a missing field stays missing; a turn still holding a tool result, a running tool call, or a streaming answer is not complete; two turns get independent footers. This keeps telemetry at the turn end rather than after every round. |
 | `ConversationToolsTest` | The assistant ceiling with `null` and explicit selections; a conversation keeps a tool the assistant no longer has; SSH off hides the row but preserves the stored name; applying stores catalogue order. This is the "new tool reaches an old conversation without inventing a capability" rule. |
 | `ImageSizingTest` / `ImagePreprocessorTest` | Fitting a 4032×3024 photo into 1568×1176, never upscaling a small image, and choosing a power-of-two sample size, on the JVM; then the same decode/scale/encode on a device, including the 1 MiB ceiling and transparent-PNG-to-WebP. This is the phone-side image pipeline that replaced accepting a 4 MiB file and silently dropping it at send. |
-| `SnapshotStoreTest` | `start` and a later tool checkpoint restore their own file versions; added/deleted/modified paths are diffed by content; stats count turns and pruning keeps the newest; `turns` lists each retained turn with its checkpoint count, newest first. This is the file half of checkpointed rollback. |
+| `SnapshotStoreTest` | `start` and a later tool checkpoint restore their own file versions; added/deleted/modified paths are diffed by content; a checkpoint whose blob has gone leaves the workspace byte-for-byte as it was; a restore leaves no staging directory behind; stats count turns and pruning keeps the newest; `turns` lists each retained turn with its checkpoint count, newest first. This is the file half of checkpointed rollback. |
 | `WindowFrameTest` | A 640×360 landscape phone and a 900×400 wide-short window stay single-pane; a 700×700 foldable is Medium/single-pane; 1024×768 and 1280×900 use two panes; a 360dp phone uses a FAB and the 1.5× font case uses the header overflow. This is the axis-classification half; the screenshot matrix is still required for composition mistakes. |
 | `ToolCatalogVisibilityTest` | every `remote = true` tool is absent from `ToolCatalog.visible(false)` and present only in `visible(true)`; ordinary tools remain in both. This is the one list every user-facing picker and approval table reads. |
 | `TurnNotificationsTest` (instrumentation) | Drives two real `TurnStatus` records through the service: summary plus two children, finishing one demotes to the surviving child, finishing both clears them. Also asserts an awaiting-approval turn has **Review** and **Stop**, and no one-tap Approve/Deny. |

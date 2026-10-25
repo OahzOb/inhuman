@@ -67,6 +67,11 @@ SSH 工具（`ssh_probe`、`ssh_list`、`ssh_read_file`、`ssh_exec`、`ssh_uplo
   "用户临时给一台机器"变成"app 管理一支舰队"。工具调用参数在写入 transcript
   之前会去掉 `password`/`privateKey`/`passphrase`；用户自己打进消息的文本仍会
   被保存，这是会话本身。
+
+  > **待办（产品已决定）**：计划加入“保存远程信息”（主机/用户/密钥），目的只是
+  > 省去重复输入，**不构成安全或隐私保证**。实现前必须重写本条关于“没有 host
+  > 列表”的论证：保存范围是什么、凭据保护的下限在哪里、以及它和“app 不管理
+  > 一支舰队”的关系。在那之前，本条仍是当前实现的规则。
 - **授权按会话持久化**，可撤销；全局开关关闭会清掉所有会话的授权。
   只读组合（`ssh_probe`、`ssh_list`、`ssh_read_file`、`ssh_download`）不经过
   任意 shell，可以在不选 `ssh_exec` 的情况下使用；`ssh_upload` 和

@@ -125,7 +125,7 @@ MSI 是 per-user 的，自带 Java runtime。2026-10 验收时安装出的
 最终全量测试：
 
 ```
-513 tests / 75 suites / 0 failures / 3 skipped
+549 tests / 83 suites / 0 failures / 4 skipped
 warnings 0, errors 0
 ```
 
@@ -154,7 +154,7 @@ MSI 已用 `.signing/inhuman-dev.pfx` 自签名。该证书是开发证书，根
 tools\sign-msi.ps1 -Msi <msi> -Pfx <real.pfx> -Password <password> -TimestampUrl <url>
 ```
 
-当前版本仍是 `0.2.0`。`upgradeUuid` 已配置；后续发版需要提升版本号才能覆盖升级。
+桌面端当前版本是 `0.2.0`（Android 端为 `0.4.1`；两端版本号独立）。`upgradeUuid` 已配置；后续发版需要提升版本号才能覆盖升级。
 
 ## 8. 已知限制
 

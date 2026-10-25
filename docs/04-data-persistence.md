@@ -443,9 +443,12 @@ completed tool group gets a manifest keyed by its last tool-result message id.
 
 This is not one full copy per checkpoint: unchanged files share a blob, so ten
 checkpoints after ten small writes store ten small deltas rather than ten
-workspaces. Symlinks are refused. Restore validates every blob before deleting
-anything, then rebuilds the workspace; `deleteSubtree`/`deleteDescendants` runs
-only after a successful restore.
+workspaces. Symlinks are refused. Restore validates every blob, builds the
+checkpoint in a staging directory beside the workspace, and swaps it in with two
+renames (putting the old tree back if the second rename fails); the workspace is
+never emptied first, so a restore that fails partway leaves the user's files
+exactly as they were. `deleteSubtree`/`deleteDescendants` runs only after a
+successful restore.
 
 The chat menu lists the retained turns (checkpoint count, bytes, timestamp) and
 the total. Retention (1/3/5/10 turns) is in
