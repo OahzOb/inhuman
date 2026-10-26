@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.pm.PackageManager
 import android.os.Build
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.scrollBy
@@ -134,6 +135,7 @@ import com.inhuman.ui.common.RemoteBadge
 import com.inhuman.ui.common.RewindBadge
 import com.inhuman.ui.common.toolBlurb
 import com.inhuman.ui.common.openWorkspaceFile
+import com.inhuman.ui.common.exportFileName
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.conflate
@@ -313,6 +315,64 @@ fun ChatScreen(
 	val notificationPermission = rememberLauncherForActivityResult(
 		ActivityResultContracts.RequestPermission(),
 	) { /* The service still runs if denied; only the notice is hidden. */ }
+
+	// Export is a plain-text/zip write through ACTION_CREATE_DOCUMENT. The
+	// dialog choice is kept outside the launcher because the result arrives on
+	// a later composition; reading the checkbox then would use whatever it
+	// happened to be, not what the user chose.
+	var showExportDialog by remember { mutableStateOf(false) }
+	var exportIncludeTools by remember { mutableStateOf(true) }
+	var pendingExportTools by remember { mutableStateOf(true) }
+	val conversationExportedText = stringResource(R.string.export_conversation_done)
+	val conversationExporter = rememberLauncherForActivityResult(
+		ActivityResultContracts.CreateDocument("text/markdown"),
+	) { uri ->
+		if (uri != null) {
+			viewModel.exportConversation(uri, pendingExportTools) { error ->
+				Toast.makeText(
+					ctx,
+					error?.let { ctx.getString(R.string.export_failed, it) }
+						?: conversationExportedText,
+					Toast.LENGTH_LONG,
+				).show()
+			}
+		}
+	}
+	val workspaceExporter = rememberLauncherForActivityResult(
+		ActivityResultContracts.CreateDocument("application/zip"),
+	) { uri ->
+		if (uri != null) {
+			viewModel.exportWorkspace(uri) { result, error ->
+				val text = when {
+					error != null -> ctx.getString(R.string.export_failed, error)
+					result != null -> buildString {
+						append(
+							ctx.resources.getQuantityString(
+								R.plurals.export_workspace_done,
+								result.files,
+								result.files,
+							),
+						)
+						if (result.skipped > 0) {
+							append('\n')
+							append(
+								ctx.resources.getQuantityString(
+									R.plurals.export_workspace_skipped,
+									result.skipped,
+									result.skipped,
+								),
+							)
+						}
+					}
+					else -> ctx.getString(
+						R.string.export_failed,
+						ctx.getString(R.string.export_error_unknown),
+					)
+				}
+				Toast.makeText(ctx, text, Toast.LENGTH_LONG).show()
+			}
+		}
+	}
 	// ## Why the transcript is read down there and not here
 	//
 	// The scaffold below wants six values that change on a human timescale: a
@@ -410,8 +470,8 @@ fun ChatScreen(
 		pendingSshConsent != null || rollbackTarget != null || showRewindDialog ||
 		showCompactPreview || showCompactionSummary ||
 		showSnapshotDialog || showToolLimitDialog || showRenameDialog || showWireDialog ||
-		turnWireMessages != null || showToolsDialog || showTurnPicker
-			|| showSaveWorkspaceDialog
+		turnWireMessages != null || showToolsDialog || showTurnPicker ||
+			showSaveWorkspaceDialog || showExportDialog
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
 	// Re-read the key and demo setting whenever this screen appears. The view
@@ -734,6 +794,37 @@ fun ChatScreen(
 									onClick = {
 										showChatMenu = false
 										onOpenFiles()
+									},
+								)
+								DropdownMenuItem(
+									text = { Text(stringResource(R.string.export_chat)) },
+									enabled = !isStreaming,
+									onClick = {
+										showChatMenu = false
+										exportIncludeTools = true
+										showExportDialog = true
+									},
+								)
+								DropdownMenuItem(
+									text = {
+										Column {
+											Text(stringResource(R.string.export_workspace_zip))
+											Text(
+												text = stringResource(R.string.export_workspace_zip_detail),
+												style = MaterialTheme.typography.bodySmall,
+												color = MaterialTheme.colorScheme.onSurfaceVariant,
+											)
+										}
+									},
+									enabled = !isStreaming,
+									onClick = {
+										showChatMenu = false
+										workspaceExporter.launch(
+											exportFileName(
+												workspaceName.ifBlank { displayTitle },
+												"zip",
+											),
+										)
 									},
 								)
 								DropdownMenuItem(
@@ -2001,6 +2092,53 @@ fun ChatScreen(
 			},
 			dismissButton = {
 				TextButton(onClick = { showSaveWorkspaceDialog = false }) { Text(stringResource(R.string.common_cancel)) }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+
+	if (showExportDialog) {
+		AlertDialog(
+			onDismissRequest = { showExportDialog = false },
+			title = { Text(stringResource(R.string.export_title)) },
+			text = {
+				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+					Text(
+						text = stringResource(R.string.export_body),
+						style = MaterialTheme.typography.bodyMedium,
+					)
+					Row(
+						modifier = Modifier
+							.fillMaxWidth()
+							.clickable { exportIncludeTools = !exportIncludeTools },
+						verticalAlignment = Alignment.CenterVertically,
+					) {
+						Checkbox(
+							checked = exportIncludeTools,
+							onCheckedChange = { exportIncludeTools = it },
+						)
+						Text(
+							text = stringResource(R.string.export_include_tools),
+							style = MaterialTheme.typography.bodyMedium,
+						)
+					}
+				}
+			},
+			confirmButton = {
+				TextButton(
+					onClick = {
+						showExportDialog = false
+						pendingExportTools = exportIncludeTools
+						conversationExporter.launch(exportFileName(displayTitle, "md"))
+					},
+				) { Text(stringResource(R.string.export_conversation_action)) }
+			},
+			dismissButton = {
+				TextButton(onClick = { showExportDialog = false }) {
+					Text(stringResource(R.string.common_cancel))
+				}
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,

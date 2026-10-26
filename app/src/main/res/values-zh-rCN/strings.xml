@@ -543,6 +543,38 @@
 	<string name="chat_rename">重命名对话</string>
 	<string name="chat_save_workspace">保存为永久工作区</string>
 	<string name="chat_save_workspace_detail">删除对话后保留文件</string>
+	<!-- 导出：对话 Markdown 与工作区 zip。 -->
+	<string name="export_chat">导出对话为 Markdown…</string>
+	<string name="export_workspace_zip">导出工作区为 zip…</string>
+	<string name="export_workspace_zip_detail">文件的明文 zip，不是备份</string>
+	<string name="export_title">导出对话</string>
+	<string name="export_body">对话会按你看到的顺序写成纯文本 Markdown，包含推理过程。文件不加密，请自己选择保存位置。</string>
+	<string name="export_include_tools">包含工具调用和结果</string>
+	<string name="export_conversation_action">导出 .md</string>
+	<string name="export_conversation_done">对话已导出。</string>
+	<string name="export_failed">导出失败：%1$s</string>
+	<plurals name="export_workspace_done">
+		<item quantity="other">已导出 %1$d 个文件</item>
+	</plurals>
+	<plurals name="export_workspace_skipped">
+		<item quantity="other">%d 项无法包含。</item>
+	</plurals>
+	<string name="export_error_missing_conversation">这段对话已不存在。</string>
+	<string name="export_error_destination">无法打开导出位置。</string>
+	<string name="export_error_unknown">未知错误。</string>
+	<string name="export_role_user">你</string>
+	<string name="export_role_assistant">助手</string>
+	<string name="export_role_system">系统</string>
+	<string name="export_reasoning">推理过程</string>
+	<string name="export_tool_calls">工具调用</string>
+	<string name="export_tool_result">工具结果</string>
+	<string name="export_error_label">错误</string>
+	<string name="export_attachments">附件</string>
+	<string name="export_exported">导出时间</string>
+	<string name="export_model">模型</string>
+	<string name="export_tools_included">包含工具调用和结果。</string>
+	<string name="export_tools_omitted">未包含工具调用和结果。</string>
+	<string name="export_attachments_note">附件文件不包含在这个 Markdown 文件里。</string>
 	<string name="chat_revoke_ssh">撤销 SSH 访问</string>
 	<string name="chat_permanent_workspace">永久工作区</string>
 	<string name="chat_temporary_workspace">临时工作区</string>

@@ -3,6 +3,8 @@ package com.inhuman.ui.workspaces
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,6 +64,7 @@ import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.ui.common.WorkbenchBackButton
 import com.inhuman.ui.common.openWorkspaceInFiles
+import com.inhuman.ui.common.exportFileName
 import java.text.DateFormat
 import java.util.Date
 
@@ -94,6 +97,42 @@ fun WorkspaceDetailScreen(
 
 	val workspace = state.workspace
 
+	val zipExporter = rememberLauncherForActivityResult(
+		ActivityResultContracts.CreateDocument("application/zip"),
+	) { uri ->
+		if (uri != null) {
+			viewModel.exportZip(uri) { result, error ->
+				val text = when {
+					error != null -> context.getString(R.string.export_failed, error)
+					result != null -> buildString {
+						append(
+							context.resources.getQuantityString(
+								R.plurals.export_workspace_done,
+								result.files,
+								result.files,
+							),
+						)
+						if (result.skipped > 0) {
+							append('\n')
+							append(
+								context.resources.getQuantityString(
+									R.plurals.export_workspace_skipped,
+									result.skipped,
+									result.skipped,
+								),
+							)
+						}
+					}
+					else -> context.getString(
+						R.string.export_failed,
+						context.getString(R.string.export_error_unknown),
+					)
+				}
+				Toast.makeText(context, text, Toast.LENGTH_LONG).show()
+			}
+		}
+	}
+
 	// Files edited in the browser are not a database change, so the flows above
 	// cannot see them. Refresh the usage when this screen is resumed.
 	LifecycleResumeEffect(Unit) {
@@ -121,6 +160,29 @@ fun WorkspaceDetailScreen(
 							Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.workspace_menu))
 						}
 						DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+							DropdownMenuItem(
+								text = {
+									Column {
+										Text(stringResource(R.string.export_workspace_zip))
+										Text(
+											text = stringResource(R.string.export_workspace_zip_detail),
+											style = MaterialTheme.typography.bodySmall,
+											color = MaterialTheme.colorScheme.onSurfaceVariant,
+										)
+									}
+								},
+								enabled = workspace != null && !state.deleting,
+								onClick = {
+									menuOpen = false
+									zipExporter.launch(
+										exportFileName(
+											workspace?.name?.ifBlank { fallbackTitle }
+												?: fallbackTitle,
+											"zip",
+										),
+									)
+								},
+							)
 							DropdownMenuItem(
 								text = { Text(stringResource(R.string.workspace_rename)) },
 								onClick = {

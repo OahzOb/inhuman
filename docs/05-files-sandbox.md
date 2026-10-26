@@ -274,6 +274,26 @@ read has to be a real path anyway (`:10-16`).
   disappears (`:125-147`). At `n > 200` it returns a name **without
   collision-checking it** (`:144`).
 
+### Workspace export: `WorkspaceZip`
+
+`core/files/src/main/kotlin/com/inhuman/core/files/WorkspaceZip.kt`. This is the
+**plain** zip behind the chat menu and the workspace detail screen. It writes
+the files only: no database, no manifest, no keys, and no encryption. It is an
+export for reading or sharing, not a backup — the encrypted `BackupRepository`
+is the migration path.
+
+Every directory and file is checked with `toRealPath()` against the real root
+before it is added. A symbolic link is skipped even when it points back inside;
+a Windows junction is followed by neither `Files.isSymbolicLink` nor
+`File.canonicalFile`, so the real-path check is what closes the B29 escape. A
+directory whose real path repeats one already visited is skipped rather than
+walked twice or allowed to loop. The result carries `skipped`; the UI prints it,
+because a zip missing a file must not look complete.
+
+Directories are kept as entries, so an empty folder survives. File contents are
+streamed at 64 KiB and the result's `bytes` is the uncompressed content total
+for diagnostics; it is not the archive size and is not shown as one.
+
 ### Download from a URL
 
 A second user-facing path, next to import/export: **Files → Download from a

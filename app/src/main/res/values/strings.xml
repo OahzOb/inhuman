@@ -563,6 +563,40 @@
 	<string name="chat_rename">Rename conversation</string>
 	<string name="chat_save_workspace">Save workspace as permanent</string>
 	<string name="chat_save_workspace_detail">Keep its files after this conversation is deleted</string>
+	<!-- Export: conversation Markdown and workspace zip. -->
+	<string name="export_chat">Export chat as Markdown…</string>
+	<string name="export_workspace_zip">Export workspace as zip…</string>
+	<string name="export_workspace_zip_detail">Plain zip of the files; not a backup</string>
+	<string name="export_title">Export chat</string>
+	<string name="export_body">The conversation is written as plain Markdown in the order you see it, including reasoning. The file is not encrypted, so choose where it goes.</string>
+	<string name="export_include_tools">Include tool calls and results</string>
+	<string name="export_conversation_action">Export .md</string>
+	<string name="export_conversation_done">Conversation exported.</string>
+	<string name="export_failed">Export failed: %1$s</string>
+	<plurals name="export_workspace_done">
+		<item quantity="one">%1$d file exported</item>
+		<item quantity="other">%1$d files exported</item>
+	</plurals>
+	<plurals name="export_workspace_skipped">
+		<item quantity="one">%d entry could not be included.</item>
+		<item quantity="other">%d entries could not be included.</item>
+	</plurals>
+	<string name="export_error_missing_conversation">This conversation no longer exists.</string>
+	<string name="export_error_destination">Could not open the export destination.</string>
+	<string name="export_error_unknown">Unknown error.</string>
+	<string name="export_role_user">You</string>
+	<string name="export_role_assistant">Assistant</string>
+	<string name="export_role_system">System</string>
+	<string name="export_reasoning">Reasoning</string>
+	<string name="export_tool_calls">Tool calls</string>
+	<string name="export_tool_result">Tool result</string>
+	<string name="export_error_label">Error</string>
+	<string name="export_attachments">Attachments</string>
+	<string name="export_exported">Exported</string>
+	<string name="export_model">Model</string>
+	<string name="export_tools_included">Tool calls and results included.</string>
+	<string name="export_tools_omitted">Tool calls and results omitted.</string>
+	<string name="export_attachments_note">Attachment files are not included in this Markdown file.</string>
 	<string name="chat_revoke_ssh">Revoke SSH access</string>
 	<string name="chat_permanent_workspace">Permanent workspace</string>
 	<string name="chat_temporary_workspace">Temporary workspace</string>

@@ -324,6 +324,14 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   **not** resolve a junction, and `Files.isSymbolicLink` does not report one.
   A junction escape was found by the desktop host and is pinned by
   `SessionWorkspaceTest`.
+- **A workspace export must not follow a link out of the workspace.**
+  `WorkspaceZip` checks every entry's `toRealPath()` against the real root. A
+  symlink is skipped even when it points back inside, and a Windows junction is
+  caught by the real-path comparison, not by `Files.isSymbolicLink` (which does
+  not report one). A directory whose real path repeats one already visited is
+  skipped, so a junction cannot loop or write the same bytes twice. The result
+  carries `skipped` and the UI shows it; a zip that dropped a file must not look
+  complete.
 - **A failure chunk must be `trySend`-ed *before* `close()`.** A chunk sent
   after the channel closes is dropped and the collector sees a clean end, so
   the failure becomes indistinguishable from "the model said nothing".

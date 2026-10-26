@@ -350,6 +350,14 @@ moved into the overflow menu so a phone bar stays at three actions. The turn
 index is a strip above the transcript rather than an overlay: a chip pinned to
 the top-right would sit on the first user bubble.
 
+- **Export** lives in the same overflow: one conversation as Markdown (a dialog
+  chooses whether tool calls and results are included) and its workspace as zip.
+  Both use `ACTION_CREATE_DOCUMENT`, so the user chooses the destination. The
+  Markdown includes reasoning and attachment paths but not attachment bytes; the
+  zip is the plain files, not an encrypted backup (`WorkspaceZip`, docs/05). The
+  permanent-workspace detail menu offers the same zip, because a workspace can
+  exist with no conversation to reach it from.
+
 - **In-conversation search** is a full-screen dialog, not an inline row. An
   inline bar plus the IME, the turn strip and the composer left no transcript
   at 640×360; the dialog owns its own window and inset handling instead. It
@@ -956,6 +964,8 @@ it; the sandbox's no-network rule applies to code the model writes), and
 | `TurnSummaryTest` | Rounds of one turn sum (prompt, completion, cache, generation); a missing field stays missing; a turn still holding a tool result, a running tool call, or a streaming answer is not complete; two turns get independent footers; the range covers exactly the turn's rows, a transcript that begins mid-turn still forms one turn, and slicing is clamped against a shorter list. The range cases exist because the summary used to carry copies of those rows and the wire inspector now slices the transcript with the indices instead. |
 | `ConversationToolsTest` | The assistant ceiling with `null` and explicit selections; a conversation keeps a tool the assistant no longer has; SSH off hides the row but preserves the stored name; applying stores catalogue order. This is the "new tool reaches an old conversation without inventing a capability" rule. |
 | `ImageSizingTest` / `ImagePreprocessorTest` | Fitting a 4032×3024 photo into 1568×1176, never upscaling a small image, and choosing a power-of-two sample size, on the JVM; then the same decode/scale/encode on a device, including the 1 MiB ceiling and transparent-PNG-to-WebP. This is the phone-side image pipeline that replaced accepting a 4 MiB file and silently dropping it at send. |
+| `ConversationMarkdownTest` | The header names title, time, model and tool policy; omitting tools removes their sections and says so; including them keeps fenced JSON arguments and fenced text results; reasoning is a blockquote; attachments are listed without bytes; an error follows the answer; a tool result containing a triple backtick gets a longer fence; export names lose filesystem-reserved characters and keep unicode. |
+| `WorkspaceZipTest` | Relative paths and contents survive; an empty directory gets an entry; an empty workspace makes a valid empty zip; a symlinked file or directory outside the workspace is skipped and counted; a Windows junction is not followed. |
 | `SnapshotStoreTest` | `start` and a later tool checkpoint restore their own file versions; added/deleted/modified paths are diffed by content; a checkpoint whose blob has gone leaves the workspace byte-for-byte as it was; a restore leaves no staging directory behind; stats count turns and pruning keeps the newest; `turns` lists each retained turn with its checkpoint count, newest first. This is the file half of checkpointed rollback. |
 | `WindowFrameTest` | A 640×360 landscape phone and a 900×400 wide-short window stay single-pane; a 700×700 foldable is Medium/single-pane; 1024×768 and 1280×900 use two panes; a 360dp phone uses a FAB and the 1.5× font case uses the header overflow. This is the axis-classification half; the screenshot matrix is still required for composition mistakes. |
 | `FollowScrollTest` | A horizontal drag does not stop the transcript following the newest content; a vertical one does; and the app's own `SideEffect`/programmatic scroll never does. This is the half of "jump to latest" that a screenshot cannot show. |

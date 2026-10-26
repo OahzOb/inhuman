@@ -96,7 +96,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 Latest run (2026-10-26):
 
 ```
-BUILD SUCCESSFUL, 577 tests in 88 suites, 0 failures, 4 skipped
+BUILD SUCCESSFUL, 591 tests in 90 suites, 0 failures, 4 skipped
 warnings 0, errors 0
 ```
 
@@ -106,8 +106,8 @@ The skips are external-credential live tests: `DeepSeekWebLiveTest`,
 | Module | Suites | Tests |
 | --- | --- | --- |
 | `:core:ai` | 38 | 280 (3 skipped) |
-| `:core:files` | 5 | 58 |
-| `:app` | 21 | 146 |
+| `:core:files` | 6 | 64 |
+| `:app` | 22 | 154 |
 | `:core:common` | 2 | 16 |
 | `:core:db` | 4 | 11 |
 | `:core:engine` | 2 | 10 (1 skipped) |
@@ -162,6 +162,7 @@ repository root; `…/` stands for `src/main/kotlin/com/inhuman/`.
 | URL download; SSRF, redirect and file-name rules | `app/…/ui/files/UrlDownloader.kt` |
 | Provider list/editor, web backends and keys | `app/…/ui/settings/SettingsScreen.kt`, `app/…/ui/chat/SettingsViewModel.kt`, `app/…/web/WebToolProviders.kt` |
 | Usage totals, paid-call counting, day buckets | `app/…/ui/settings/UsageReport.kt`, `UsageSection.kt`, `:core:db` `MessageDao.usageRows()` |
+| Conversation Markdown; workspace zip; honest failed-export reporting | `app/…/ui/chat/ConversationMarkdown.kt`, `core/files/…/WorkspaceZip.kt` |
 | `web_search` / `web_fetch` backends | `core/ai/…/provider/deepseek/DeepSeekSearchApi.kt`, `provider/exa/ExaSearchApi.kt`, `tools/WebFetchTool.kt` |
 | Anything a model can call; `mutates`; approval policy | `core/ai/…/Tool.kt` |
 | Which tools exist; the static catalogue | `core/ai/…/tools/ToolCatalog.kt` |

@@ -1,6 +1,7 @@
 package com.inhuman.ui.chat
 
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.ui.common.formatBytes
@@ -46,6 +47,7 @@ import com.inhuman.core.data.db.ToolsColumn
 import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.core.files.SessionWorkspace
 import com.inhuman.core.files.WorkspaceTransfer
+import com.inhuman.core.files.WorkspaceZip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.NonCancellable
@@ -1224,6 +1226,103 @@ class ChatViewModel(
 			}
 		}
 	}
+
+	// --- export -------------------------------------------------------------
+
+	/**
+	 * Write the active transcript to a user-chosen document as Markdown.
+	 *
+	 * The document is built in memory before the destination is touched. A
+	 * stream that fails halfway leaves a truncated file, and there is no safe
+	 * way to un-write a `content://` document; a serialization bug therefore
+	 * costs nothing, and only an I/O failure can leave a partial export.
+	 *
+	 * [onResult] receives a user-readable failure, or null on success. It is
+	 * invoked on the main dispatcher after the write finishes.
+	 */
+	fun exportConversation(uri: Uri, includeToolResults: Boolean, onResult: (String?) -> Unit) {
+		viewModelScope.launch {
+			val failure = withContext(Dispatchers.IO) {
+				runCatching {
+					val loaded = repository.conversation(conversationId)
+						?: error(context.getString(R.string.export_error_missing_conversation))
+					val markdown = conversationMarkdown(
+						conversation = loaded,
+						labels = markdownLabels(),
+						fallbackTitle = context.getString(R.string.chat_title_fallback),
+						includeToolResults = includeToolResults,
+					)
+					val out = context.contentResolver.openOutputStream(uri)
+						?: error(context.getString(R.string.export_error_destination))
+					out.use { it.write(markdown.toByteArray(Charsets.UTF_8)) }
+					Diag.i(
+						"export",
+						"conversation chars=${markdown.length} tools=$includeToolResults " +
+							"conv=${Diag.shortId(conversationId)}",
+					)
+				}.exceptionOrNull()
+			}
+			failure?.let { Diag.w("export", "conversation export failed", it) }
+			onResult(failure?.messageOrUnknown())
+		}
+	}
+
+	/**
+	 * Write the conversation's workspace to a user-chosen document as a zip.
+	 *
+	 * This is the same directory the Files screen shows, not a filtered version
+	 * of it: a conversation does not own files individually, and a zip that
+	 * silently left out other conversations' files in a shared permanent
+	 * workspace would be a different export than the one named.
+	 *
+	 * [onResult] receives the count on success, or a failure. Both are surfaced
+	 * because a zip that skipped entries (a symlink that left the workspace)
+	 * must not look complete.
+	 */
+	fun exportWorkspace(
+		uri: Uri,
+		onResult: (WorkspaceZip.Result?, String?) -> Unit,
+	) {
+		viewModelScope.launch {
+			val result = withContext(Dispatchers.IO) {
+				runCatching {
+					val entity = repository.conversation(conversationId)?.entity
+						?: error(context.getString(R.string.export_error_missing_conversation))
+					val workspace = repository.workspace(entity)
+					val out = context.contentResolver.openOutputStream(uri)
+						?: error(context.getString(R.string.export_error_destination))
+					out.use { WorkspaceZip.write(workspace, it) }
+				}
+			}
+			val written = result.getOrNull()
+			result.exceptionOrNull()?.let { Diag.w("export", "workspace export failed", it) }
+			Diag.i(
+				"export",
+				"workspace files=${written?.files} bytes=${written?.bytes} " +
+					"skipped=${written?.skipped} conv=${Diag.shortId(conversationId)}",
+			)
+			onResult(written, result.exceptionOrNull()?.messageOrUnknown())
+		}
+	}
+
+	private fun Throwable.messageOrUnknown(): String =
+		message?.takeIf { it.isNotBlank() } ?: context.getString(R.string.export_error_unknown)
+
+	private fun markdownLabels(): MarkdownLabels = MarkdownLabels(
+		user = context.getString(R.string.export_role_user),
+		assistant = context.getString(R.string.export_role_assistant),
+		system = context.getString(R.string.export_role_system),
+		reasoning = context.getString(R.string.export_reasoning),
+		toolCalls = context.getString(R.string.export_tool_calls),
+		toolResult = context.getString(R.string.export_tool_result),
+		error = context.getString(R.string.export_error_label),
+		attachments = context.getString(R.string.export_attachments),
+		exported = context.getString(R.string.export_exported),
+		model = context.getString(R.string.export_model),
+		toolsIncluded = context.getString(R.string.export_tools_included),
+		toolsOmitted = context.getString(R.string.export_tools_omitted),
+		attachmentsNotIncluded = context.getString(R.string.export_attachments_note),
+	)
 
 	private suspend fun reload() {
 		val loaded = repository.conversation(conversationId)

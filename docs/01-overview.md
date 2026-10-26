@@ -125,6 +125,11 @@ Confirmed by `README.md:17-29` and by the code:
   day and by conversation. It is derived from the transcript, so deleted or
   rewound turns and compaction summaries are not counted, and no price is
   converted.
+- **Plain-text export**: one conversation to Markdown (optionally with tool calls
+  and results; reasoning is included, attachment paths are listed without their
+  bytes) and a workspace to zip from the chat menu or the workspace detail
+  screen. The user chooses the destination; an export is not an encrypted
+  backup.
 - An encrypted, passphrase-protected backup of the database and workspaces;
   import is staged and applied before Room opens on the next launch.
 - A foreground service while a reply is streaming, so a long model/tool turn is

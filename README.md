@@ -58,7 +58,9 @@ OpenAI-compatible profiles**, an approval gate that is
 default**, branch switching, image attachments, usage reporting, a context
 gauge above the composer, a **Usage** section that totals provider-reported
 tokens and paid tool calls by day and conversation without converting prices,
-temporary/permanent workspaces with the absolute
+**plain-text export** of one conversation to Markdown (optionally with tool
+calls and results) and of a workspace to zip, temporary/permanent workspaces
+with the absolute
 location available to the user, global title/message search with
 jump-to-message, actionable error recovery, encrypted backup import preview and
 one-step undo, per-conversation progress notifications with a grouped summary,

@@ -1,6 +1,7 @@
 package com.inhuman.ui.workspaces
 
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.R
@@ -10,6 +11,7 @@ import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.WorkspaceEntity
 import com.inhuman.core.files.SessionWorkspace
+import com.inhuman.core.files.WorkspaceZip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -76,6 +78,34 @@ class WorkspaceDetailViewModel(
 					.getOrDefault(SessionWorkspace.Usage(0, 0))
 			}
 			_state.update { it.copy(usage = usage) }
+		}
+	}
+
+	/**
+	 * Write this workspace to a user-chosen zip.
+	 *
+	 * Available here as well as in the chat menu because a permanent workspace
+	 * can exist with no conversation at all; without this entry point such a
+	 * workspace would have no way to leave the device. The zip is the files
+	 * only, not the database or an encrypted backup.
+	 */
+	fun exportZip(uri: Uri, onResult: (WorkspaceZip.Result?, String?) -> Unit) {
+		viewModelScope.launch {
+			val result = withContext(Dispatchers.IO) {
+				runCatching {
+					val out = context.contentResolver.openOutputStream(uri)
+						?: error(context.getString(R.string.export_error_destination))
+					out.use { WorkspaceZip.write(repository.workspace(workspaceId), it) }
+				}
+			}
+			val failure = result.exceptionOrNull()
+			onResult(
+				result.getOrNull(),
+				failure?.let {
+					it.message?.takeIf { message -> message.isNotBlank() }
+						?: context.getString(R.string.export_error_unknown)
+				},
+			)
 		}
 	}
 
