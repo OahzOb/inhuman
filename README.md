@@ -487,7 +487,7 @@ Then:
 
 If the properties file is absent, the release build falls back to the debug
 signing key so a fresh clone can still build; that build cannot update a
-production signing identity. The release version is `0.4.1` / versionCode 23.
+production signing identity. The release version is `0.6.0` / versionCode 25.
 `lintVital` is skipped in this offline environment (`checkReleaseBuilds =
 false`); run lint separately when the network is available.
 
