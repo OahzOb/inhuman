@@ -6,15 +6,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.ui.common.formatBytes
 import com.inhuman.R
-import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.ai.policy.ToolPolicy
-import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.common.diag.Diag
-import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.data.ConversationRepository
-import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.files.SessionWorkspace
-import com.inhuman.ui.common.formatBytes
 import com.inhuman.core.files.WorkspaceTransfer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow

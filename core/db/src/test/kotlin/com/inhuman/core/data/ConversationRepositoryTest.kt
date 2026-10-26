@@ -113,6 +113,63 @@ class ConversationRepositoryTest {
 		assertFalse(row?.thinking ?: true)
 	}
 
+	@Test
+	fun `usage rows keep the counting fields and the conversation title`() = runBlocking {
+		val conversation = repository.create(title = "Usage test")
+		repository.appendMessage(
+			MessageEntity(
+				id = "usage-assistant",
+				conversationId = conversation.id,
+				parentId = null,
+				role = "assistant",
+				content = "answer",
+				createdAt = 10L,
+				promptTokens = 100,
+				completionTokens = 20,
+				cachedPromptTokens = 40,
+				reasoningTokens = 5,
+			),
+			null,
+		)
+		repository.appendMessage(
+			MessageEntity(
+				id = "usage-tool",
+				conversationId = conversation.id,
+				parentId = "usage-assistant",
+				role = "tool",
+				content = "Search results",
+				createdAt = 11L,
+				toolCallId = "call-1",
+				toolName = "web_search",
+			),
+			"usage-assistant",
+		)
+		repository.appendMessage(
+			MessageEntity(
+				id = "usage-user",
+				conversationId = conversation.id,
+				parentId = "usage-tool",
+				role = "user",
+				content = "hello",
+				createdAt = 12L,
+			),
+			"usage-tool",
+		)
+
+		val rows = repository.usageRows()
+
+		assertEquals(2, rows.size)
+		val assistant = rows.single { it.promptTokens != null }
+		assertEquals("Usage test", assistant.conversationTitle)
+		assertEquals(100, assistant.promptTokens)
+		assertEquals(20, assistant.completionTokens)
+		assertEquals(40, assistant.cachedPromptTokens)
+		assertEquals(5, assistant.reasoningTokens)
+		val tool = rows.single { it.toolName != null }
+		assertEquals("web_search", tool.toolName)
+		assertEquals("Search results", tool.resultPrefix)
+	}
+
 	private fun message(
 		id: String,
 		conversationId: String,

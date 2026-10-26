@@ -125,15 +125,16 @@ MSI 是 per-user 的，自带 Java runtime。2026-10 验收时安装出的
 最终全量测试：
 
 ```
-549 tests / 83 suites / 0 failures / 4 skipped
+577 tests / 88 suites / 0 failures / 4 skipped
 warnings 0, errors 0
 ```
 
-其中桌面端 `13 suites / 37 tests`。3 个 skip 都是需要外部凭据的 live 测试：
+其中桌面端 `13 suites / 37 tests`。4 个 skip 都是需要外部凭据的 live 测试：
 
 - `DeepSeekWebLiveTest`：真实付费 Search/Fetch；
 - `EngineLiveTest`：真实 chat completion；
-- `SshLiveProbeTest`：真实 SSH 主机。
+- `SshLiveProbeTest`：真实 SSH 主机；
+- `QwenTokenPlanLiveTest`：真实 Qwen token 套餐接口。
 
 验收过的路径：
 

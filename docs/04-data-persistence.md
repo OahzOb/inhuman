@@ -156,6 +156,15 @@ Two of those columns exist for reasons that are easy to undo by accident:
   path keeps the definitions for prompt-cache matching but suppresses calls
   (`InhumanDatabase.kt:289-307`).
 
+The **Usage** overview is a projection over `messages`, not a stored ledger.
+`MessageDao.usageRows()` selects the four token columns, `toolName`, and
+`substr(content, 1, 24)` — enough to recognise the app's unrun-call markers
+without loading message text. Summing those rows can therefore show only calls
+whose row still exists; a deleted or rewound turn has no row, and a compaction
+summary lives in `context_summaries` rather than `messages`. That is why the
+screen calls the result usage rather than a bill, and why `docs/13-product.md`
+does not promise a lifetime total.
+
 ### `agents` (`Entities.kt:30-88`)
 
 `id`, `name`, `systemPrompt` (stored and shown verbatim), `model` (nullable),

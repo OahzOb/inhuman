@@ -229,6 +229,32 @@ data class MessageSearchRow(
 	val createdAt: Long,
 )
 
+/**
+ * One stored fact the usage overview can count.
+ *
+ * A projection rather than the whole [MessageEntity]: `content` and `reasoning`
+ * are the largest columns in the database, and adding a few integers must not
+ * load a conversation's worth of prose. [resultPrefix] is the only piece of
+ * `content` needed -- it tells a call that ran from the app's own
+ * `[declined]`/`[skipped]`/`[refused]`/`[interrupted]` markers.
+ *
+ * A row carries tokens (an assistant message) or a tool name (a tool result),
+ * never both in practice; the aggregator treats the two independently because
+ * the projection cannot promise that and a future tool result with usage
+ * should still count.
+ */
+data class UsageRow(
+	val conversationId: String,
+	val conversationTitle: String,
+	val createdAt: Long,
+	val promptTokens: Int? = null,
+	val completionTokens: Int? = null,
+	val cachedPromptTokens: Int? = null,
+	val reasoningTokens: Int? = null,
+	val toolName: String? = null,
+	val resultPrefix: String = "",
+)
+
 @Dao
 interface MessageDao {
 
@@ -250,6 +276,34 @@ interface MessageDao {
 
 	@Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt ASC, id ASC")
 	suspend fun all(conversationId: String): List<MessageEntity>
+
+	/**
+	 * The rows the Usage overview can count, without their prose.
+	 *
+	 * `substr` rather than `content`: the aggregator needs only enough of a
+	 * tool result to recognise the app's unrun-call markers, and a search result
+	 * or a generated file's metadata can be megabytes. The WHERE clause keeps
+	 * the scan off user messages and empty assistant rows.
+	 *
+	 * No ORDER BY on purpose. The caller groups by local day and by
+	 * conversation, so insertion order buys nothing and would sort every message
+	 * on every open of the screen.
+	 */
+	@Query(
+		"""
+		SELECT m.conversationId AS conversationId, c.title AS conversationTitle,
+		       m.createdAt AS createdAt,
+		       m.promptTokens AS promptTokens, m.completionTokens AS completionTokens,
+		       m.cachedPromptTokens AS cachedPromptTokens,
+		       m.reasoningTokens AS reasoningTokens,
+		       m.toolName AS toolName, substr(m.content, 1, 24) AS resultPrefix
+		FROM messages m JOIN conversations c ON c.id = m.conversationId
+		WHERE m.promptTokens IS NOT NULL OR m.completionTokens IS NOT NULL
+		   OR m.cachedPromptTokens IS NOT NULL OR m.reasoningTokens IS NOT NULL
+		   OR m.toolName IS NOT NULL
+		""",
+	)
+	suspend fun usageRows(): List<UsageRow>
 
 	@Query("SELECT * FROM messages WHERE id = :id")
 	suspend fun byId(id: String): MessageEntity?

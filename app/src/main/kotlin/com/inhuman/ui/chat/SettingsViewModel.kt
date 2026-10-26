@@ -11,6 +11,7 @@ import com.inhuman.core.ai.provider.KnownProvider
 import com.inhuman.core.ai.provider.ProviderCatalog
 import com.inhuman.core.ai.provider.ProviderFactory
 import com.inhuman.core.ai.ssh.SshLimits
+import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.BackupPreview
 import com.inhuman.core.data.BackupRepository
@@ -19,8 +20,12 @@ import com.inhuman.core.data.db.ProviderIds
 import com.inhuman.core.data.db.ProviderKinds
 import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.db.ProviderReasoning
+import com.inhuman.core.data.db.UsageRow
 import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.diagnostics.AppDiagnostics
+import com.inhuman.ui.settings.UsagePeriod
+import com.inhuman.ui.settings.UsageReport
+import com.inhuman.ui.settings.buildUsageReport
 import com.inhuman.updates.UpdateInfo
 import com.inhuman.updates.UpdateInstaller
 import com.inhuman.updates.isNewerVersion
@@ -32,6 +37,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -150,6 +156,16 @@ data class SettingsUiState(
 	val logUploading: Boolean = false,
 	val logUploadStatus: String? = null,
 	val logUploadStatusIsError: Boolean = false,
+	/**
+	 * The last usage read, or null until the first one completes.
+	 *
+	 * Refreshed when Settings is shown rather than on every turn: a turn can end
+	 * while this screen is closed, and the view model outlives the composition.
+	 */
+	val usage: UsageReport? = null,
+	val usagePeriod: UsagePeriod = UsagePeriod.SevenDays,
+	val usageLoading: Boolean = false,
+	val usageFailed: Boolean = false,
 )
 
 /**
@@ -190,6 +206,28 @@ class SettingsViewModel(
 
 	/** The verified download waiting for the Install button. */
 	private var downloadedApk: File? = null
+
+	/**
+	 * The rows behind the last Usage read.
+	 *
+	 * Kept so changing the period filters what is already on hand instead of
+	 * running the query again. Null until the first read succeeds, which is why
+	 * a period change during that read is harmless.
+	 */
+	private var usageRows: List<UsageRow>? = null
+
+	/** One definition of "paid": the catalogue's flag, not a second list here. */
+	private val paidToolNames: Set<String> =
+		ToolCatalog.all.asSequence().filter { it.paid }.map { it.name }.toSet()
+
+	/**
+	 * Orders the two asynchronous paths that publish a usage report.
+	 *
+	 * A period change while a refresh is in flight can otherwise finish second
+	 * with the old window, so the chips said "today" and the numbers were last
+	 * week's. Only the newest build is allowed to publish.
+	 */
+	private var usageRevision = 0
 
 	init {
 		val packageInfo = runCatching {
@@ -1124,6 +1162,61 @@ class SettingsViewModel(
 
 	fun clearBackupStatus() {
 		_state.value = _state.value.copy(backupStatus = null, backupStatusIsError = false)
+	}
+
+	/**
+	 * Read the rows behind the Usage section.
+	 *
+	 * Room runs the query on its own executor; the fold over the rows runs on
+	 * Default because a long transcript can have thousands of them and this is
+	 * a settings screen, not a reason to park a frame.
+	 */
+	fun refreshUsage() {
+		if (_state.value.usageLoading) return
+		val revision = ++usageRevision
+		_state.update { it.copy(usageLoading = true, usageFailed = false) }
+		viewModelScope.launch {
+			val loaded = runCatching { repository.usageRows() }
+			loaded.onSuccess { rows ->
+				usageRows = rows
+				val period = _state.value.usagePeriod
+				val report = withContext(Dispatchers.Default) {
+					buildUsageReport(rows, paidToolNames, period)
+				}
+				if (revision == usageRevision) {
+					_state.update { it.copy(usageLoading = false, usage = report) }
+				}
+			}.onFailure { failure ->
+				Diag.w("usage", "could not read usage", failure)
+				if (revision == usageRevision) {
+					_state.update { it.copy(usageLoading = false, usageFailed = true) }
+				}
+			}
+		}
+	}
+
+	/**
+	 * Switch the Usage window.
+	 *
+	 * If the first read is still in flight, [usageRows] is null and there is
+	 * nothing to rebuild: that read takes the period from the state when it
+	 * finishes, so it stays authoritative -- but it must not be made stale by a
+	 * revision bump here, or its result would be discarded and nothing would
+	 * replace it.
+	 */
+	fun setUsagePeriod(period: UsagePeriod) {
+		if (period == _state.value.usagePeriod) return
+		_state.update { it.copy(usagePeriod = period) }
+		val rows = usageRows ?: return
+		val revision = ++usageRevision
+		viewModelScope.launch {
+			val report = withContext(Dispatchers.Default) {
+				buildUsageReport(rows, paidToolNames, period)
+			}
+			if (revision == usageRevision) {
+				_state.update { it.copy(usageLoading = false, usage = report) }
+			}
+		}
 	}
 
 	override fun onCleared() {

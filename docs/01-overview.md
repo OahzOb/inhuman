@@ -120,6 +120,11 @@ Confirmed by `README.md:17-29` and by the code:
 - Image attachments.
 - A context gauge above the composer, with explicit, reversible compaction of
   older complete turns.
+- A **Usage** section in Settings totals the token counts the providers reported
+  and the paid tool calls still recorded, for today/7 days/30 days/all, by local
+  day and by conversation. It is derived from the transcript, so deleted or
+  rewound turns and compaction summaries are not counted, and no price is
+  converted.
 - An encrypted, passphrase-protected backup of the database and workspaces;
   import is staged and applied before Room opens on the next launch.
 - A foreground service while a reply is streaming, so a long model/tool turn is

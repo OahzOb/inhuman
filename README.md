@@ -56,7 +56,9 @@ Anthropic Messages and Google Gemini adapters alongside DeepSeek and
 OpenAI-compatible profiles**, an approval gate that is
 **configurable per tool, per assistant and per path and asks nothing by
 default**, branch switching, image attachments, usage reporting, a context
-gauge above the composer, temporary/permanent workspaces with the absolute
+gauge above the composer, a **Usage** section that totals provider-reported
+tokens and paid tool calls by day and conversation without converting prices,
+temporary/permanent workspaces with the absolute
 location available to the user, global title/message search with
 jump-to-message, actionable error recovery, encrypted backup import preview and
 one-step undo, per-conversation progress notifications with a grouped summary,
@@ -525,7 +527,7 @@ the agent still has no network path.
 
 ### Backup and long turns
 
-Settings → **05 / Backup** writes one AES-256-GCM encrypted file of the
+Settings → **06 / Backup** writes one AES-256-GCM encrypted file of the
 database and every workspace file, using PBKDF2-HMAC-SHA256 (210,000 iterations).
 The passphrase is never stored and cannot be recovered. **API keys are not in the
 backup** — they are Keystore-backed on Android and DPAPI-backed on Windows, and

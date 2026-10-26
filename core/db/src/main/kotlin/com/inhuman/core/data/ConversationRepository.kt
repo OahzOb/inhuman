@@ -8,6 +8,7 @@ import com.inhuman.core.data.db.ConversationStore
 import com.inhuman.core.data.db.InhumanDatabase
 import com.inhuman.core.data.db.MessageEntity
 import com.inhuman.core.data.db.ToolsColumn
+import com.inhuman.core.data.db.UsageRow
 import com.inhuman.core.data.db.WorkspaceEntity
 import com.inhuman.core.files.SessionWorkspace
 import kotlinx.coroutines.Dispatchers
@@ -106,6 +107,16 @@ class ConversationRepository(
 
 	/** A one-shot list, for a host that has no flow collection at start-up. */
 	suspend fun all(): List<ConversationEntity> = db.conversations().all()
+
+	/**
+	 * The token and tool rows the Usage overview counts.
+	 *
+	 * Read-only, and deliberately derived rather than a lifetime ledger. The
+	 * overview answers "what is recorded on this device now"; a deleted or
+	 * rewound turn, and a compaction summary, have no message row and therefore
+	 * no entry. Calling it a bill would be a promise the data cannot keep.
+	 */
+	suspend fun usageRows(): List<UsageRow> = db.messages().usageRows()
 
 	/**
 	 * Search conversation titles and the user/assistant text inside them.
