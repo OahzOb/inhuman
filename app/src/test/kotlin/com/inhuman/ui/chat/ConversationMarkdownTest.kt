@@ -34,6 +34,23 @@ class ConversationMarkdownTest {
 	private val exportedAt = Instant.parse("2026-10-26T11:20:00Z") // 19:20 Shanghai.
 	private val zone = ZoneId.of("Asia/Shanghai")
 
+	/** The same document in the language the app now starts in. */
+	private val chineseLabels = MarkdownLabels(
+		user = "你",
+		assistant = "助手",
+		system = "系统",
+		reasoning = "推理过程",
+		toolCalls = "工具调用",
+		toolResult = "工具结果",
+		error = "错误",
+		attachments = "附件",
+		exported = "导出时间",
+		model = "模型",
+		toolsIncluded = "包含工具调用和结果。",
+		toolsOmitted = "未包含工具调用和结果。",
+		attachmentsNotIncluded = "附件文件不包含在这个 Markdown 文件里。",
+	)
+
 	@Test
 	fun `the header names the conversation, time, model and tool policy`() {
 		val markdown = render(
@@ -153,12 +170,40 @@ class ConversationMarkdownTest {
 		assertTrue(exportFileName("x".repeat(200), "zip").length <= 64)
 	}
 
-	private fun render(messages: List<MessageEntity>, includeTools: Boolean): String =
+	@Test
+	fun `a chinese document keeps its headings and labels`() {
+		val markdown = render(
+			messages = listOf(
+				message("u1", "user", "你好"),
+				message("a1", "assistant", "答复", reasoning = "先想一想"),
+				toolResult("t1", "read_file", "文件内容"),
+			),
+			includeTools = true,
+			labels = chineseLabels,
+			title = "会议记录",
+		)
+
+		assertTrue(markdown.startsWith("# 会议记录\n"))
+		assertTrue(markdown.contains("- 导出时间: 2026-10-26 19:20"))
+		assertTrue(markdown.contains("## 你\n\n你好"))
+		assertTrue(markdown.contains("## 助手\n\n> **推理过程**"))
+		assertTrue(markdown.contains("\n\n答复\n"))
+		assertTrue(markdown.contains("> **推理过程**\n>\n> 先想一想"))
+		assertTrue(markdown.contains("### 工具结果: `read_file`"))
+		assertTrue(markdown.contains("文件内容"))
+	}
+
+	private fun render(
+		messages: List<MessageEntity>,
+		includeTools: Boolean,
+		labels: MarkdownLabels = this.labels,
+		title: String = "Test conversation",
+	): String =
 		conversationMarkdown(
 			conversation = Conversation(
 				entity = ConversationEntity(
 					id = "c1",
-					title = "Test conversation",
+					title = title,
 					workspaceId = "w1",
 					model = "deepseek-chat",
 					createdAt = 0,

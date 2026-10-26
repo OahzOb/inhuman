@@ -323,12 +323,19 @@ fun ChatScreen(
 	var showExportDialog by remember { mutableStateOf(false) }
 	var exportIncludeTools by remember { mutableStateOf(true) }
 	var pendingExportTools by remember { mutableStateOf(true) }
+	// A zip of a full workspace can take seconds. Keep the two menu items
+	// disabled until the write finishes and say that it started, so a second tap
+	// does not start a second document and the screen is not silent.
+	var exporting by remember { mutableStateOf(false) }
 	val conversationExportedText = stringResource(R.string.export_conversation_done)
 	val conversationExporter = rememberLauncherForActivityResult(
 		ActivityResultContracts.CreateDocument("text/markdown"),
 	) { uri ->
 		if (uri != null) {
+			exporting = true
+			Toast.makeText(ctx, R.string.export_working, Toast.LENGTH_SHORT).show()
 			viewModel.exportConversation(uri, pendingExportTools) { error ->
+				exporting = false
 				Toast.makeText(
 					ctx,
 					error?.let { ctx.getString(R.string.export_failed, it) }
@@ -342,7 +349,10 @@ fun ChatScreen(
 		ActivityResultContracts.CreateDocument("application/zip"),
 	) { uri ->
 		if (uri != null) {
+			exporting = true
+			Toast.makeText(ctx, R.string.export_working, Toast.LENGTH_SHORT).show()
 			viewModel.exportWorkspace(uri) { result, error ->
+				exporting = false
 				val text = when {
 					error != null -> ctx.getString(R.string.export_failed, error)
 					result != null -> buildString {
@@ -798,7 +808,7 @@ fun ChatScreen(
 								)
 								DropdownMenuItem(
 									text = { Text(stringResource(R.string.export_chat)) },
-									enabled = !isStreaming,
+									enabled = !isStreaming && !exporting,
 									onClick = {
 										showChatMenu = false
 										exportIncludeTools = true
@@ -816,7 +826,7 @@ fun ChatScreen(
 											)
 										}
 									},
-									enabled = !isStreaming,
+									enabled = !isStreaming && !exporting,
 									onClick = {
 										showChatMenu = false
 										workspaceExporter.launch(

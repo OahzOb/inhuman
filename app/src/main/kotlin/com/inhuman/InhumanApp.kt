@@ -1,6 +1,8 @@
 package com.inhuman
 
 import android.app.Application
+import android.app.LocaleManager
+import android.os.LocaleList
 import com.inhuman.core.data.BackupRepository
 import com.inhuman.diagnostics.AppDiagnostics
 
@@ -23,9 +25,28 @@ class InhumanApp : Application() {
 
 	override fun onCreate() {
 		super.onCreate()
+		ensureDefaultLanguage()
 		AppDiagnostics.install(this)
 		// Before any repository opens Room. A staged backup import replaces the
 		// database file, which is only safe while no connection is open.
 		BackupRepository.applyPendingRestore(this)
+	}
+
+	/**
+	 * Chinese is the product's default language.
+	 *
+	 * The system owns the per-app locale: an empty list means nobody has chosen
+	 * one yet, so this is the first launch (or the user explicitly returned to
+	 * "System default"). Set Chinese once here; a later English choice is stored
+	 * by the system and is never overwritten, because the list is then non-empty.
+	 *
+	 * This runs before the first activity so the first frame is already Chinese;
+	 * setting it after a screen has composed would show an English frame first.
+	 */
+	private fun ensureDefaultLanguage() {
+		val locales = getSystemService(LocaleManager::class.java) ?: return
+		if (locales.applicationLocales.isEmpty) {
+			locales.applicationLocales = LocaleList.forLanguageTags("zh-CN")
+		}
 	}
 }

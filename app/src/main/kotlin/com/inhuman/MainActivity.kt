@@ -1,6 +1,10 @@
 package com.inhuman
 
+import android.app.LocaleManager
+import android.content.Context
+import android.content.res.Configuration
 import android.os.Bundle
+import android.os.LocaleList
 import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -53,6 +57,26 @@ class MainActivity : ComponentActivity() {
 
 	/** A conversation requested by a notification tap, consumed by the root. */
 	private val pendingConversationId = mutableStateOf<String?>(null)
+
+	/**
+	 * Make the first frame the default language.
+	 *
+	 * `InhumanApp` persists `zh-CN` when the system has no per-app locale, but a
+	 * locale set during `Application.onCreate` does not reconfigure the process
+	 * that is already starting: the first launch after install stayed English
+	 * until it was restarted. The Activity base context is the earliest place
+	 * whose resources Compose actually reads, and it is also the context the
+	 * platform recreates when the user switches language.
+	 */
+	override fun attachBaseContext(newBase: Context) {
+		val locales = newBase.getSystemService(LocaleManager::class.java)
+			?.applicationLocales
+			?.takeUnless { it.isEmpty }
+		val tag = locales?.toLanguageTags() ?: "zh-CN"
+		val configuration = Configuration(newBase.resources.configuration)
+		configuration.setLocales(LocaleList.forLanguageTags(tag))
+		super.attachBaseContext(newBase.createConfigurationContext(configuration))
+	}
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		enableEdgeToEdge()

@@ -130,6 +130,9 @@ Confirmed by `README.md:17-29` and by the code:
   bytes) and a workspace to zip from the chat menu or the workspace detail
   screen. The user chooses the destination; an export is not an encrypted
   backup.
+- The app starts in **Chinese**. Settings → **11 / Language** switches to
+  English, and the system per-app language screen does the same; the platform
+  stores the choice, so a later launch does not reset it.
 - An encrypted, passphrase-protected backup of the database and workspaces;
   import is staged and applied before Room opens on the next launch.
 - A foreground service while a reply is streaming, so a long model/tool turn is

@@ -261,6 +261,11 @@
 	<string name="settings_layout_compact">Compact: single column, tighter spacing</string>
 	<string name="settings_layout_comfortable">Comfortable: wide shell and larger gutters</string>
 	<string name="settings_layout_body">Auto follows the current window, including rotation, split-screen and foldables. Compact forces one column on a tablet; Comfortable keeps the wide shell. This is a reading preference, not a screen-ratio selector.</string>
+	<string name="settings_section_language">11 / Language</string>
+	<string name="settings_language_title">Language</string>
+	<string name="settings_language_chinese">中文</string>
+	<string name="settings_language_english">English</string>
+	<string name="settings_language_body">The app starts in Chinese. Switch to English here; the system Settings → Apps → inhuman → Language choice changes it too.</string>
 
 
 	<!-- Settings: dialogs, provider editor, diagnostics, approval rows. -->
@@ -572,6 +577,7 @@
 	<string name="export_include_tools">Include tool calls and results</string>
 	<string name="export_conversation_action">Export .md</string>
 	<string name="export_conversation_done">Conversation exported.</string>
+	<string name="export_working">Exporting…</string>
 	<string name="export_failed">Export failed: %1$s</string>
 	<plurals name="export_workspace_done">
 		<item quantity="one">%1$d file exported</item>

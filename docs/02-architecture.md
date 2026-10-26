@@ -276,9 +276,13 @@ smoke tests, which run `core:ai`/`core:files` on a plain JVM.
 
 UI text lives in `app/src/main/res/values/strings.xml`, with Simplified Chinese in
 `values-zh-rCN/strings.xml`. Both are declared in `res/xml/locales_config.xml`
-and named by `android:localeConfig` in the manifest, so the app follows the
-system language and Android 13's per-app language screen lists English and
-Chinese. There is deliberately no in-app language setting.
+and named by `android:localeConfig` in the manifest. The product's default is
+**Chinese**: `InhumanApp.ensureDefaultLanguage()` sets the system per-app locale
+to `zh-CN` when none has been chosen, before the first activity composes. The
+resource default stays English, so an English choice (Settings → **11 /
+Language**, or the system per-app language screen) uses the unqualified
+resources; the platform stores that choice, and the application never overrides
+a non-empty one. There is no second language key in `SecureStore`.
 
 Two rules:
 

@@ -899,10 +899,11 @@ separately; a backend without a key shows a warning and its tool stays
 unregistered. Demo mode and the SSH switch live below those sections.
 
 Settings is grouped into foldable sections: Providers stays open; Web tools,
-Demo & SSH, Turn limits, Backup, Approvals and Diagnostics start collapsed.
-Each header states its own state (key presence, current round count, configured
-rule count) so a folded row still answers the question that brought the user
-there. Open state uses `rememberSaveable`, so rotation does not reset it.
+Demo & SSH, Turn limits, Usage, Backup, Approvals, Diagnostics, Local, Display
+and Language start collapsed. Each header states its own state (key presence,
+current round count, configured rule count, current language) so a folded row
+still answers the question that brought the user there. Open state uses
+`rememberSaveable`, so rotation does not reset it.
 
 **Turn limits** (`04 / Turn limits`) exposes the same global tool-round setting
 as the chat menu. Both write `SecureStore.KEY_TOOL_ROUNDS`; `SettingsViewModel`
@@ -912,15 +913,23 @@ the calls it requested, so the label says "Tool rounds per turn"; the section
 also owns the separate total-call budget (`KEY_TOOL_CALLS`, default 32, range
 1–256). Raising either budget does not change which tools are allowed.
 
-**Display** (`08 / Display`) is a `LayoutPreference` of Auto / Compact /
+**Display** (`10 / Display`) is a `LayoutPreference` of Auto / Compact /
 Comfortable. Auto derives the shell from the window; Compact forces the
 single-column shell, and Comfortable keeps the wide shell. It is supplied at the
 root through `LocalLayoutPreference`, so rotation and split-screen still work
 under Auto, and is persisted under `layout.preference`. It is a reading
 preference, not a per-ratio selector.
 
-Settings moved **Backup** to `05`, **Approvals** to `06`, **Diagnostics** to
-`07` and **Display** to `08`.
+**Language** (`11 / Language`) sets the system-owned per-app locale through
+`LocaleManager`: 中文 or English. Chinese is the default, set by
+`InhumanApp.ensureDefaultLanguage()` only when the system has no per-app locale
+yet; a non-empty choice is never overwritten. Nothing is stored in
+`SecureStore` — the platform persists the locale and recreates the activity,
+which is why the chips reflect the live value rather than a copied one.
+
+Settings is numbered `01` Models, `02` Web, `03` Runtime, `04` Turn limits,
+`05` Usage, `06` Backup, `07` Approvals, `08` Diagnostics, `09` Local,
+`10` Display, `11` Language.
 
 **Demo mode is the offline verification path.** `demoEnabled()` reads
 `secure.get(SecureStore.KEY_DEMO_MODE) == "1"` (`ChatViewModel.kt:615`), and

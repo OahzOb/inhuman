@@ -68,7 +68,9 @@ Stop/Stop all and an approval **Review** action, a readable wire inspector for
 the exact system message, tool schemas, messages and raw tool calls (including
 final replies and reasoning), with long text collapsed, an in-app text editor,
 Open with… support so another app can edit and save a workspace file, and
-multi-select deletion for conversations and permanent workspaces. The layout
+multi-select deletion for conversations and permanent workspaces. The app
+starts in Chinese; Settings → **11 / Language** switches to English, as does
+the system's per-app language screen. The layout
 follows the window's width **and** height, with an Auto/Compact/Comfortable
 override; Settings is folded by concern; tool rounds and total tool calls have
 separate global budgets; and every SSH tool is absent from every picker while its

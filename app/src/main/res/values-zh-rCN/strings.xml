@@ -245,6 +245,11 @@
 	<string name="settings_layout_compact">紧凑：单列布局，间距更小</string>
 	<string name="settings_layout_comfortable">舒适：宽布局，边距更大</string>
 	<string name="settings_layout_body">自动会跟随当前窗口，包括旋转、分屏和折叠屏。紧凑会在平板上强制单列；舒适会保留宽布局。这是阅读偏好，不是屏幕比例选择器。</string>
+	<string name="settings_section_language">11 / 语言</string>
+	<string name="settings_language_title">语言</string>
+	<string name="settings_language_chinese">中文</string>
+	<string name="settings_language_english">English</string>
+	<string name="settings_language_body">应用默认使用中文。可以在这里切换英文；系统设置 → 应用 → inhuman → 语言里的选择也会改变它。</string>
 
 
 	<!-- 设置：对话框、服务商编辑器、诊断、审批行。 -->
@@ -552,6 +557,7 @@
 	<string name="export_include_tools">包含工具调用和结果</string>
 	<string name="export_conversation_action">导出 .md</string>
 	<string name="export_conversation_done">对话已导出。</string>
+	<string name="export_working">正在导出…</string>
 	<string name="export_failed">导出失败：%1$s</string>
 	<plurals name="export_workspace_done">
 		<item quantity="other">已导出 %1$d 个文件</item>

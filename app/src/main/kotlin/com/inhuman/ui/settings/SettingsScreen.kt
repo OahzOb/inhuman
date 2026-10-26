@@ -1,10 +1,12 @@
 package com.inhuman.ui.settings
 
+import android.app.LocaleManager
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import android.net.Uri
+import android.os.LocaleList
 import android.os.Process
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -107,6 +109,15 @@ fun SettingsScreen(
 	onLayoutPreferenceChange: (com.inhuman.core.design.LayoutPreference) -> Unit = {},
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
+	val context = LocalContext.current
+	// The system owns the per-app locale. An empty list means the default,
+	// which InhumanApp has already set to Chinese on first launch.
+	val localeManager = context.getSystemService(LocaleManager::class.java)
+	val appLanguage = localeManager?.applicationLocales
+		?.takeUnless { it.isEmpty }
+		?.get(0)
+		?.language
+		?: "zh"
 	// The view model outlives this screen, but a turn can finish while Settings
 	// is closed. Re-read on entry rather than trusting the last visit's numbers.
 	LaunchedEffect(Unit) { viewModel.refreshUsage() }
@@ -709,6 +720,34 @@ fun SettingsScreen(
 							label = { Text(preference.name) },
 						)
 					}
+				}
+			}
+
+			SettingsFold(
+				code = stringResource(R.string.settings_section_language),
+				title = stringResource(R.string.settings_language_title),
+				summary = if (appLanguage == "en") {
+					stringResource(R.string.settings_language_english)
+				} else {
+					stringResource(R.string.settings_language_chinese)
+				},
+			) {
+				Text(
+					text = stringResource(R.string.settings_language_body),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				FlowRowCompat {
+					FilterChip(
+						selected = appLanguage != "en",
+						onClick = { setAppLanguage(context, "zh-CN") },
+						label = { Text(stringResource(R.string.settings_language_chinese)) },
+					)
+					FilterChip(
+						selected = appLanguage == "en",
+						onClick = { setAppLanguage(context, "en") },
+						label = { Text(stringResource(R.string.settings_language_english)) },
+					)
 				}
 			}
 		}
@@ -1772,4 +1811,18 @@ private fun ToolPolicy.label(): String = when (this) {
 	ToolPolicy.Ask -> stringResource(R.string.settings_policy_ask)
 	ToolPolicy.Deny -> stringResource(R.string.settings_policy_deny)
 	ToolPolicy.Blind -> stringResource(R.string.settings_policy_blind)
+}
+
+/**
+ * Set the system-owned per-app locale.
+ *
+ * The platform persists it and recreates the activity, so there is no app-side
+ * preference to store or migrate. `LocaleManager` is API 33; the app's minSdk is
+ * 34, which is why this needs no version guard. `InhumanApp` fills an empty list
+ * with Chinese on first launch, so choosing English here is a real, persistent
+ * choice rather than one that the next start overwrites.
+ */
+private fun setAppLanguage(context: Context, tag: String) {
+	val manager = context.getSystemService(LocaleManager::class.java) ?: return
+	manager.applicationLocales = LocaleList.forLanguageTags(tag)
 }

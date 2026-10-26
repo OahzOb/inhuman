@@ -97,11 +97,15 @@ fun WorkspaceDetailScreen(
 
 	val workspace = state.workspace
 
+	var exporting by remember { mutableStateOf(false) }
 	val zipExporter = rememberLauncherForActivityResult(
 		ActivityResultContracts.CreateDocument("application/zip"),
 	) { uri ->
 		if (uri != null) {
+			exporting = true
+			Toast.makeText(context, R.string.export_working, Toast.LENGTH_SHORT).show()
 			viewModel.exportZip(uri) { result, error ->
+				exporting = false
 				val text = when {
 					error != null -> context.getString(R.string.export_failed, error)
 					result != null -> buildString {
@@ -171,7 +175,7 @@ fun WorkspaceDetailScreen(
 										)
 									}
 								},
-								enabled = workspace != null && !state.deleting,
+								enabled = workspace != null && !state.deleting && !exporting,
 								onClick = {
 									menuOpen = false
 									zipExporter.launch(
