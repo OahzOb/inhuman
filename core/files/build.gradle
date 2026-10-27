@@ -17,6 +17,7 @@ dependencies {
 	// dependency runs one way, files -> ai, and leaking the AI module to
 	// anything that depends on the sandbox would invert that.
 	implementation project(':core:ai')
+	implementation project(':core:documents')
 	implementation libs.kotlinx.coroutines.core
 	implementation libs.kotlinx.serialization.json
 

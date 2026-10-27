@@ -172,8 +172,8 @@ class ToolCatalogTest {
 		assertEquals(
 			setOf(
 				"generate_image", "generate_video", "video_status", "speak", "write_file",
-				"append_file", "create_directory", "move_file", "delete_file", "ssh_exec",
-				"ssh_upload", "ssh_write_file", "ssh_download",
+				"append_file", "create_directory", "move_file", "delete_file", "write_document",
+				"convert_document", "ssh_exec", "ssh_upload", "ssh_write_file", "ssh_download",
 			),
 			mutating,
 		)

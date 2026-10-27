@@ -40,8 +40,9 @@ class ToolMutationClassificationTest {
 		// Named explicitly so adding a tool without deciding fails here.
 		assertEquals(
 			setOf(
-				"list_files", "read_file", "file_info",
+				"list_files", "read_file", "file_info", "read_document",
 				"write_file", "append_file", "create_directory", "move_file", "delete_file",
+				"write_document", "convert_document",
 			),
 			tools.keys,
 		)
@@ -55,6 +56,7 @@ class ToolMutationClassificationTest {
 		assertFalse("list_files", tools.getValue("list_files").mutates)
 		assertFalse("read_file", tools.getValue("read_file").mutates)
 		assertFalse("file_info", tools.getValue("file_info").mutates)
+		assertFalse("read_document", tools.getValue("read_document").mutates)
 	}
 
 	@Test
@@ -69,6 +71,8 @@ class ToolMutationClassificationTest {
 			"create_directory",
 			"move_file",
 			"delete_file",
+			"write_document",
+			"convert_document",
 		).forEach { name ->
 			assertTrue("$name must be marked as mutating", tools.getValue(name).mutates)
 		}

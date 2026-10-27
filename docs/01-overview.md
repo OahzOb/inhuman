@@ -31,7 +31,7 @@ an unauditable one would be worth very little (`README.md:359-363`).
 
 ## Shape of the repository
 
-Nine Gradle modules; `_research/` and `tools/` are not modules:
+Ten Gradle modules; `_research/` and `tools/` are not modules:
 
 ```
 app                      UI, theme, entry point, all ViewModels
@@ -41,7 +41,8 @@ core/data                Android adapters: Keystore secrets, Database.open, back
 core/db                  Room schema + platform-free repositories       (plain JVM)
 core/engine              the turn loop, shared with the desktop host (plain JVM)
 core/ai                  provider + streaming + tools                (plain JVM)
-core/files               the workspace sandbox and the 8 file tools  (plain JVM)
+core/files               the workspace sandbox and the 11 file/document tools (plain JVM)
+core/documents           CSV/TXT/DOCX/XLSX read/write, neutral model, loss report (plain JVM)
 desktopApp               Windows x64 Compose Desktop host (same core + Room schema)
 _research/               background investigations, kept as evidence — not compiled
 tools/                   PowerShell device-driving and verification scripts
@@ -225,6 +226,14 @@ notes below explain what is still absent.
   before the earlier call. OAuth uses a user-registered public client and the
   `inhuman://oauth` callback; no Claude/ChatGPT/Copilot/Kimi client ID ships. None
   is verified against a real account here (that needs a key or a registration).
+- **Documents are partially implemented.** CSV/TXT and DOCX/XLSX can be read,
+  created, modified and converted through three workspace tools; DOCX/XLSX keep
+  package parts this app does not understand and report what the neutral model
+  cannot carry. PDF, DOC and XLS are still absent, and every refusal names the
+  format. The decision is [14-documents-voice.md](14-documents-voice.md).
+- **Voice input is not implemented.** The decision (local recording, existing
+  paid transcription backend, text into the composer only) is written, but there
+  is no microphone entry in the composer yet.
 
 Two more that are stated as behaviour rather than as policy:
 

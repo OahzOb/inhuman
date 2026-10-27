@@ -23,17 +23,17 @@ app ──────────┬──> core:common  (plain JVM)
 Read the arrows as "must be able to compile against". `core:data`, `core:ai` and
 `core:files` each also depend on `core:common` directly, with `implementation`;
 the diagram leaves that leaf edge out rather than drawing three lines to the same
-node. `:core:common`, `:core:ai`, `:core:files`, `:core:db` and `:core:engine` are
-**plain Kotlin/JVM modules** now, not Android libraries: the desktop host depends
-on the same jars the Android app consumes. `:core:data` and `:core:design` remain
-Android-only. `:core:documents` is a plain JVM module for the offline document
-readers/writers; it is built and tested on its own and is not yet wired into the
-app or the tool set. `:core:db` owns the Room entities, DAOs, database, migrations and
-the platform-free repositories; `:core:data` is the Android adapter around it
-(`Database.open(context)`, the Keystore-backed `SecureStore`, the encrypted
-backup and the `DocumentsProvider`). The split is what lets the desktop host
-create a conversation and append messages against the same schema without a
-`Context`.
+node. `:core:common`, `:core:ai`, `:core:files`, `:core:documents`, `:core:db` and
+`:core:engine` are **plain Kotlin/JVM modules** now, not Android libraries: the
+desktop host depends on the same jars the Android app consumes. `:core:data` and
+`:core:design` remain Android-only. `:core:documents` is a plain JVM module for
+the offline document readers/writers; `:core:files` depends on it and appends the
+three document tools to `FileTools.all`, so both hosts get them. `:core:db` owns
+the Room entities, DAOs, database, migrations and the platform-free repositories;
+`:core:data` is the Android adapter around it (`Database.open(context)`, the
+Keystore-backed `SecureStore`, the encrypted backup and the `DocumentsProvider`).
+The split is what lets the desktop host create a conversation and append messages
+against the same schema without a `Context`.
 
 `:core:engine` is the turn loop: it streams a provider, assembles tool calls,
 asks an `EngineApproval` hook, executes tools and repeats until the model

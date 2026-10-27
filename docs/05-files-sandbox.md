@@ -46,7 +46,7 @@ anything running as the same UID can read the same files regardless. Do not cite
 `resolve()` as an OS-grade boundary — the research notes in
 `_research/android-sandbox/README.md` describe the boundary that *would* be one
 (SELinux/kernel, `isolatedProcess`), and none of it is implemented. There is no
-QuickJS, no `libqjssandbox`, and no `run_code` tool; the closed set of eight
+QuickJS, no `libqjssandbox`, and no `run_code` tool; the closed set of eleven
 tools is asserted by `ToolMutationClassificationTest`. Those are the **file**
 tools. The SSH tools are not among them: `ssh_probe`, `ssh_list`,
 `ssh_read_file` and `ssh_exec` never receive a `SessionWorkspace`; `ssh_upload`,
@@ -78,7 +78,7 @@ still runs.
 
 **A failure — including "the check could not run" — is not a warning.**
 `AppCapabilities.workspaceOk` becomes false, and every workspace-bound tool is
-absent from the request and from the pickers: the eight file tools, the media
+absent from the request and from the pickers: the eleven file/document tools, the media
 tools that save or read workspace files, and SSH (its transfers and identity
 reads use the same gate). The chat shows a banner with the failing assertions;
 Files still opens the user's files, because the fence is a rule about the
@@ -222,7 +222,7 @@ The details that matter, all in `WorkspaceTool.kt`:
 - **No caching and no locking**, so two concurrent writes can both pass the same
   check.
 
-## The eight file tools
+## The eight file tools and three document tools
 
 `FileTools.all` (`core/files/src/main/kotlin/com/inhuman/core/files/tools/FileTools.kt:54-69`),
 in registry order:
@@ -237,6 +237,26 @@ in registry order:
 | `move_file` | yes | no | Refuses moving a directory inside itself (canonical prefix) and refuses an existing destination rather than clobbering. |
 | `delete_file` | yes | **no** | The one irreversible operation — and it no longer asks. Structure is the argument, not permission: what is inside a workspace is a *copy* of what the user handed over, so deleting it is reversible at the level that matters. See [09-approvals.md](09-approvals.md). |
 | `file_info` | no | no | With no path, reports the workspace totals against their two ceilings plus the per-file read and write limits — four of the six, not all of them. |
+
+### Document tools
+
+`DocumentTools.all` appends `read_document`, `write_document` and
+`convert_document` to the same list (`DocumentTools.kt`). They resolve paths
+through `SessionWorkspace`, use the same quota/free-space check
+(`WorkspaceTool.writeBytes` for binary packages), and are marked
+`workspaceBound = true`, so a failed fence check removes them from every picker
+with the file tools. `read_document` is read-only; the other two are `mutates`.
+They parse locally and accept no network or absolute path.
+
+The implemented formats are CSV/TXT (own RFC 4180 writer/reader plus plain text)
+and DOCX/XLSX (a local OOXML subset over zip + DOM). A DOCX/XLSX write copies
+every package part it does not understand, so a macro, comment or embedded chart
+survives an edit even though it cannot be rendered. A read or conversion records
+what the neutral model could not carry in a `LossReport` — unsupported features,
+flattened formulas, skipped sheets, truncation — and the tool result says so.
+PDF, DOC and XLS parsing/writing are not wired yet; `read_document` refuses them
+with the reason rather than returning an empty document. The format/library
+decision is `14-documents-voice.md`.
 
 **"Asks by default" is not where approval is decided.** `Tool.needsApproval` is
 still evaluated per call against the arguments (`Tool.kt:84`), but it has become

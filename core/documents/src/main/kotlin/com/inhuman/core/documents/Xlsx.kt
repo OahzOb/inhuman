@@ -90,10 +90,32 @@ object Xlsx {
 			"xl/worksheets/sheet${index + 1}.xml" to sheetXml(sheet.rows).toByteArray()
 		}
 		sheetEntries.forEach { (path, data) -> entries[path] = data }
-		entries["[Content_Types].xml"] = contentTypes(sheetEntries.size).toByteArray()
-		entries["_rels/.rels"] = ROOT_RELS.toByteArray()
-		entries["xl/workbook.xml"] = workbookXml(names).toByteArray()
-		entries["xl/_rels/workbook.xml.rels"] = workbookRels(names.size).toByteArray()
+		entries["[Content_Types].xml"] = Ooxml.contentTypes(
+			existing = entries["[Content_Types].xml"],
+			defaults = mapOf(
+				"rels" to "application/vnd.openxmlformats-package.relationships+xml",
+				"xml" to "application/xml",
+			),
+			overrides = buildMap {
+				put(
+					"/xl/workbook.xml",
+					"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
+				)
+				sheetEntries.indices.forEach { index ->
+					put(
+						"/xl/worksheets/sheet${index + 1}.xml",
+						"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml",
+					)
+				}
+			},
+		)
+		if ("_rels/.rels" !in entries) entries["_rels/.rels"] = ROOT_RELS.toByteArray()
+		val (rels, ids) = workbookRelationships(
+			entries["xl/_rels/workbook.xml.rels"],
+			sheetEntries.size,
+		)
+		entries["xl/_rels/workbook.xml.rels"] = rels.toByteArray()
+		entries["xl/workbook.xml"] = workbookXml(names, ids).toByteArray()
 		// Old worksheets beyond the new count are left in the package. They are
 		// unreferenced; deleting them would also delete a chart they own.
 		return Ooxml.zip(entries)
@@ -123,7 +145,12 @@ object Xlsx {
 					truncated = true
 					return@forEach
 				}
-				val column = columnIndex(Ooxml.attr(cell, "r").orEmpty())
+				val reference = Ooxml.attr(cell, "r")
+				val column = if (reference.isNullOrBlank()) cells.size else columnIndex(reference)
+				if (column >= DocumentLimits.MAX_COLUMNS) {
+					truncated = true
+					return@forEach
+				}
 				while (cells.size < column) cells += Cell()
 				val formula = Ooxml.child(cell, "f")?.textContent?.takeIf { it.isNotBlank() }
 				if (formula != null) formulas++
@@ -192,7 +219,9 @@ object Xlsx {
 				.take(31)
 			var name = base
 			var suffix = 2
-			while (!used.add(name)) {
+			// Excel sheet names are case-insensitive; a set that is not would
+			// let "Data" and "data" reach the package and make Excel repair it.
+			while (!used.add(name.lowercase())) {
 				val tail = " ($suffix)"
 				name = base.take((31 - tail.length).coerceAtLeast(1)) + tail
 				suffix++
@@ -271,34 +300,70 @@ object Xlsx {
 		return result.toString()
 	}
 
-	private fun contentTypes(sheetCount: Int): String = buildString {
-		append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
-		append("""<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">""")
-		append("""<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>""")
-		append("""<Default Extension="xml" ContentType="application/xml"/>""")
-		append("""<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>""")
-		repeat(sheetCount) { index ->
-			append("""<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>""")
-		}
-		append("</Types>")
-	}
-
-	private fun workbookXml(names: List<String>): String = buildString {
+	private fun workbookXml(names: List<String>, ids: List<String>): String = buildString {
 		append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
 		append("""<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>""")
 		names.forEachIndexed { index, name ->
-			append("""<sheet name="${Ooxml.escape(name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>""")
+			append("""<sheet name="${Ooxml.escape(name)}" sheetId="${index + 1}" r:id="${Ooxml.escape(ids[index])}"/>""")
 		}
 		append("</sheets></workbook>")
 	}
 
-	private fun workbookRels(count: Int): String = buildString {
-		append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
-		append("""<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">""")
-		repeat(count) { index ->
-			append("""<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>""")
+	private data class Relationship(
+		val id: String,
+		val type: String,
+		val target: String,
+		val targetMode: String?,
+	)
+
+	/**
+	 * Keep the template's workbook relationships (styles, shared strings, theme)
+	 * and replace only the worksheet links, whose targets this writer owns.
+	 * Dropping every relationship is how a template loses its number formats
+	 * while the workbook still opens.
+	 */
+	private fun workbookRelationships(existing: ByteArray?, sheetCount: Int): Pair<String, List<String>> {
+		val kept = if (existing == null) {
+			emptyList()
+		} else {
+			val xml = Ooxml.parse(existing)
+			Ooxml.descendants(xml.documentElement, "Relationship").mapNotNull { relation ->
+				val id = Ooxml.attr(relation, "Id") ?: return@mapNotNull null
+				val type = Ooxml.attr(relation, "Type") ?: return@mapNotNull null
+				val target = Ooxml.attr(relation, "Target") ?: return@mapNotNull null
+				Relationship(id, type, target, Ooxml.attr(relation, "TargetMode"))
+			}.filterNot { it.type.endsWith("/worksheet") }
 		}
-		append("</Relationships>")
+		val occupied = kept.map { it.id }.toMutableSet()
+		val ids = (1..sheetCount).map { index ->
+			var id = "rIdW$index"
+			var suffix = 2
+			while (!occupied.add(id)) {
+				id = "rIdW${index}_${suffix}"
+				suffix++
+			}
+			id
+		}
+		val xml = buildString {
+			append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
+			append("""<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">""")
+			kept.forEach { relation ->
+				append(
+					"<Relationship Id=\"${Ooxml.escape(relation.id)}\" " +
+						"Type=\"${Ooxml.escape(relation.type)}\" " +
+						"Target=\"${Ooxml.escape(relation.target)}\"",
+				)
+				relation.targetMode?.let {
+					append(" TargetMode=\"${Ooxml.escape(it)}\"")
+				}
+				append("/>")
+			}
+			ids.forEachIndexed { index, id ->
+				append("""<Relationship Id="$id" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>""")
+			}
+			append("</Relationships>")
+		}
+		return xml to ids
 	}
 
 	private const val ROOT_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

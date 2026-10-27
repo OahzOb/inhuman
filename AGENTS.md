@@ -18,7 +18,7 @@ than implementation; the old feasibility studies are archived under
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
 | `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the per-tool media backends (image/video/speech/transcription/decision)**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)**, and the user-set `SshLimits` ceilings |
 | `docs/04-data-persistence.md` | Room schema v18, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup |
-| `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
+| `docs/05-files-sandbox.md` | The sandbox, quotas, the file and document tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
 | `docs/08-port-philosophy.md` | **Why** the runtime is ported, which options the project refuses to have, the seven design questions, the paid-disclosure rule (§1.4), and the SSH exception (§1.2.1/§1.5) |
@@ -419,6 +419,15 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   state, keep the pending flow on a forged callback, and exchange the code with
   the stored verifier. Refresh before expiry; do not add a webview, cookie jar or
   password field. A key and an OAuth token are alternatives, not two grants.
+- **Document tools are workspace-bound and must report loss.** `read_document`,
+  `write_document` and `convert_document` resolve paths through
+  `SessionWorkspace`, use the same quota/free-space checks, and disappear with
+  the file tools on a failed fence check. An unreadable or unsupported file is a
+  refusal with a reason, never an empty success. A DOCX/XLSX write must copy the
+  package parts it does not understand and preserve `[Content_Types].xml` and
+  relationships; a conversion must return a `LossReport`. Do not claim PDF,
+  DOC or XLS until its adapter runs on the device, and do not add a cloud
+  converter or a second runtime.
 - **A failure chunk must be `trySend`-ed *before* `close()`.** A chunk sent
   after the channel closes is dropped and the collector sees a clean end, so
   the failure becomes indistinguishable from "the model said nothing".

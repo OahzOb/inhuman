@@ -74,12 +74,69 @@ internal object Ooxml {
 		return out.toByteArray()
 	}
 
+	/**
+	 * Keep an existing `[Content_Types].xml` and add only what is missing.
+	 *
+	 * Replacing the part wholesale is how a DOCX write silently deletes the
+	 * declaration that makes an image, chart or macro part legal. The template's
+	 * declarations are copied through; the writer's own parts are appended only
+	 * when their `PartName` is not already present.
+	 */
+	fun contentTypes(
+		existing: ByteArray?,
+		defaults: Map<String, String>,
+		overrides: Map<String, String>,
+	): ByteArray {
+		if (existing == null) {
+			return buildString {
+				append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
+				append("""<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">""")
+				defaults.forEach { (extension, type) ->
+					append("""<Default Extension="${escape(extension)}" ContentType="${escape(type)}"/>""")
+				}
+				overrides.forEach { (part, type) ->
+					append("""<Override PartName="${escape(part)}" ContentType="${escape(type)}"/>""")
+				}
+				append("</Types>")
+			}.toByteArray()
+		}
+		var xml = String(existing, Charsets.UTF_8)
+		if (!xml.contains("Extension=\"rels\"")) {
+			xml = xml.insertBeforeTypes(
+				"""<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>""",
+			)
+		}
+		if (!xml.contains("Extension=\"xml\"")) {
+			xml = xml.insertBeforeTypes("""<Default Extension="xml" ContentType="application/xml"/>""")
+		}
+		overrides.forEach { (part, type) ->
+			if (!xml.contains("PartName=\"${escape(part)}\"")) {
+				xml = xml.insertBeforeTypes(
+					"""<Override PartName="${escape(part)}" ContentType="${escape(type)}"/>""",
+				)
+			}
+		}
+		return xml.toByteArray()
+	}
+
+	private fun String.insertBeforeTypes(element: String): String {
+		val close = lastIndexOf("</Types>")
+		return if (close < 0) {
+			this
+		} else {
+			substring(0, close) + element + substring(close)
+		}
+	}
+
 	fun parse(bytes: ByteArray): XmlDocument {
 		try {
 			val factory = DocumentBuilderFactory.newInstance()
 			factory.isNamespaceAware = true
 			// A document is untrusted input. External entities and DTDs are how
 			// an XML parser becomes a file reader or an SSRF client.
+			runCatching {
+				factory.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true)
+			}
 			runCatching {
 				factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
 			}

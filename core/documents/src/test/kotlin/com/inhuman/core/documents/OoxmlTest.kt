@@ -41,6 +41,10 @@ class OoxmlTest {
 			read.document.blocks[4],
 		)
 		assertTrue(read.loss.complete)
+		val entries = Ooxml.unzip(bytes)
+		val rels = String(entries["word/_rels/document.xml.rels"]!!)
+		assertTrue(rels, rels.contains("styles.xml"))
+		assertTrue(rels, rels.contains("numbering.xml"))
 	}
 
 	@Test
@@ -105,6 +109,56 @@ class OoxmlTest {
 
 		assertEquals("<chart/>", String(entries["xl/charts/chart1.xml"]!!))
 		assertEquals("New", Xlsx.read(bytes).document.sheets.single().name)
+	}
+
+	@Test
+	fun `a template keeps its content types and root relationships`() {
+		val contentTypes =
+			"""<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">""" +
+				"""<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>""" +
+				"""<Default Extension="xml" ContentType="application/xml"/>""" +
+				"""<Override PartName="/word/custom.xml" ContentType="application/xml"/>""" +
+				"""</Types>"""
+		val rootRels =
+			"""<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">""" +
+				"""<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>""" +
+				"""<Relationship Id="rId2" Type="http://example.test/custom" Target="custom.xml"/>""" +
+				"""</Relationships>"""
+		val template = Ooxml.zip(
+			mapOf(
+				"word/document.xml" to """<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body/></w:document>""".toByteArray(),
+				"[Content_Types].xml" to contentTypes.toByteArray(),
+				"_rels/.rels" to rootRels.toByteArray(),
+				"word/custom.xml" to "<custom/>".toByteArray(),
+			),
+		)
+
+		val entries = Ooxml.unzip(Docx.write(listOf(Block.Paragraph("new")), template))
+
+		val types = String(entries["[Content_Types].xml"]!!)
+		assertTrue(types.contains("/word/custom.xml"))
+		assertTrue(types.contains("/word/document.xml"))
+		val rels = String(entries["_rels/.rels"]!!)
+		assertTrue(rels.contains("http://example.test/custom"))
+		assertEquals("<custom/>", String(entries["word/custom.xml"]!!))
+	}
+
+	@Test
+	fun `xlsx preserves a template styles relationship`() {
+		val template = Ooxml.zip(
+			mapOf(
+				"xl/workbook.xml" to """<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Old" sheetId="1" r:id="rId1"/></sheets></workbook>""".toByteArray(),
+				"xl/_rels/workbook.xml.rels" to """<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>""".toByteArray(),
+				"xl/styles.xml" to "<styleSheet/>".toByteArray(),
+			),
+		)
+
+		val entries = Ooxml.unzip(Xlsx.write(listOf(Sheet("New", listOf(listOf(Cell("x"))))), template))
+
+		val rels = String(entries["xl/_rels/workbook.xml.rels"]!!)
+		assertTrue(rels, rels.contains("styles.xml"))
+		assertTrue(rels, rels.contains("worksheet"))
+		assertEquals("<styleSheet/>", String(entries["xl/styles.xml"]!!))
 	}
 
 	@Test

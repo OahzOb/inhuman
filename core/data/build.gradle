@@ -46,6 +46,7 @@ dependencies {
 	// old schema means installing an old build. This runs them against a real
 	// database on a device.
 	androidTestImplementation libs.androidx.room.testing
+	androidTestImplementation project(':core:documents')
 	androidTestImplementation libs.androidx.test.junit
 	androidTestImplementation libs.androidx.test.runner
 

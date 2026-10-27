@@ -73,8 +73,21 @@ object Docx {
 		} else {
 			Ooxml.unzip(template)
 		}
-		entries["[Content_Types].xml"] = CONTENT_TYPES.toByteArray()
-		entries["_rels/.rels"] = ROOT_RELS.toByteArray()
+		entries["[Content_Types].xml"] = Ooxml.contentTypes(
+			existing = entries["[Content_Types].xml"],
+			defaults = mapOf(
+				"rels" to "application/vnd.openxmlformats-package.relationships+xml",
+				"xml" to "application/xml",
+			),
+			overrides = mapOf(
+				"/word/document.xml" to "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml",
+				"/word/styles.xml" to "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml",
+				"/word/numbering.xml" to "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml",
+			),
+		)
+		if ("_rels/.rels" !in entries) entries["_rels/.rels"] = ROOT_RELS.toByteArray()
+		entries["word/_rels/document.xml.rels"] =
+			documentRelationships(entries["word/_rels/document.xml.rels"]).toByteArray()
 		entries["word/document.xml"] = documentXml(blocks).toByteArray()
 		if ("word/styles.xml" !in entries) entries["word/styles.xml"] = STYLES.toByteArray()
 		if ("word/numbering.xml" !in entries) entries["word/numbering.xml"] = NUMBERING.toByteArray()
@@ -141,6 +154,12 @@ object Docx {
 		if (format == "docx" && entries.keys.none { it == "[Content_Types].xml" }) {
 			warnings += "unsupported: the package has no content-types part."
 		}
+		if (entries.keys.any { it.startsWith("word/header") || it.startsWith("word/footer") }) {
+			warnings += "unsupported: headers and footers are not represented."
+		}
+		if ("w:ins" in xml || "w:del" in xml) {
+			warnings += "unsupported: tracked changes are not represented."
+		}
 		return warnings
 	}
 
@@ -177,6 +196,70 @@ object Docx {
 		append("</w:t></w:r></w:p>")
 	}
 
+	private data class Relationship(
+		val id: String,
+		val type: String,
+		val target: String,
+		val targetMode: String?,
+	)
+
+	private fun documentRelationships(existing: ByteArray?): String {
+		val kept = if (existing == null) {
+			emptyList()
+		} else {
+			val xml = Ooxml.parse(existing)
+			Ooxml.descendants(xml.documentElement, "Relationship").mapNotNull { relation ->
+				val id = Ooxml.attr(relation, "Id") ?: return@mapNotNull null
+				val type = Ooxml.attr(relation, "Type") ?: return@mapNotNull null
+				val target = Ooxml.attr(relation, "Target") ?: return@mapNotNull null
+				Relationship(id, type, target, Ooxml.attr(relation, "TargetMode"))
+			}
+		}
+		val occupied = kept.map { it.id }.toMutableSet()
+		fun freeId(base: String): String {
+			var id = base
+			var suffix = 2
+			while (!occupied.add(id)) {
+				id = "${base}_$suffix"
+				suffix++
+			}
+			return id
+		}
+		val all = kept.toMutableList()
+		if (kept.none { it.type.endsWith("/styles") }) {
+			all += Relationship(
+				freeId("rIdStyles"),
+				"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles",
+				"styles.xml",
+				null,
+			)
+		}
+		if (kept.none { it.type.endsWith("/numbering") }) {
+			all += Relationship(
+				freeId("rIdNumbering"),
+				"http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering",
+				"numbering.xml",
+				null,
+			)
+		}
+		return buildString {
+			append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
+			append("""<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">""")
+			all.forEach { relation ->
+				append(
+					"<Relationship Id=\"${Ooxml.escape(relation.id)}\" " +
+						"Type=\"${Ooxml.escape(relation.type)}\" " +
+						"Target=\"${Ooxml.escape(relation.target)}\"",
+				)
+				relation.targetMode?.let {
+					append(" TargetMode=\"${Ooxml.escape(it)}\"")
+				}
+				append("/>")
+			}
+			append("</Relationships>")
+		}
+	}
+
 	private fun tableXml(rows: List<List<String>>): String = buildString {
 		append("<w:tbl>")
 		val columns = rows.maxOfOrNull { it.size } ?: 0
@@ -197,15 +280,6 @@ object Docx {
 		append("</w:tbl>")
 	}
 
-	private const val CONTENT_TYPES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-<Default Extension="xml" ContentType="application/xml"/>
-<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
-<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
-<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
-</Types>"""
-
 	private const val ROOT_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
@@ -224,7 +298,7 @@ object Docx {
 
 	private const val NUMBERING = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val=""/></w:lvl></w:abstractNum>
+<w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="•"/></w:lvl></w:abstractNum>
 <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
 </w:numbering>"""
 }

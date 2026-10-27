@@ -610,6 +610,7 @@
 	<string name="tool_blurb_list_files">查看对话文件夹里有什么</string>
 	<string name="tool_blurb_read_file">读取文件夹里的文件</string>
 	<string name="tool_blurb_file_info">查看文件大小和修改时间</string>
+	<string name="tool_blurb_read_document">读取 CSV、TXT、DOCX 或 XLSX 文档</string>
 	<string name="tool_blurb_read_time">当前日期时间，以及日期计算</string>
 	<string name="tool_blurb_web_search">通过配置的付费搜索 API 搜索网页</string>
 	<string name="tool_blurb_web_fetch">通过配置的付费抓取 API 读取网页</string>
@@ -627,6 +628,8 @@
 	<string name="tool_blurb_ssh_upload">把工作区文件发送到远程机器</string>
 	<string name="tool_blurb_ssh_download">把远程文件复制到工作区</string>
 	<string name="tool_blurb_write_file">创建或替换文件</string>
+	<string name="tool_blurb_write_document">创建或替换 CSV、TXT、DOCX 或 XLSX 文档</string>
+	<string name="tool_blurb_convert_document">转换文档并报告丢失的内容</string>
 	<string name="tool_blurb_append_file">在文件末尾追加内容</string>
 	<string name="tool_blurb_create_directory">在文件夹里创建子文件夹</string>
 	<string name="tool_blurb_move_file">移动或重命名文件夹里的内容</string>

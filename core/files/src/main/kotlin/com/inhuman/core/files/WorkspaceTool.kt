@@ -100,20 +100,25 @@ abstract class WorkspaceTool(
 	 * the volume, and the app's own database then fails to commit -- turning one
 	 * oversized file into losing a conversation.
 	 */
-	protected fun writeText(file: File, text: String): Int {
-		val bytes = text.toByteArray(Charsets.UTF_8)
+	protected fun writeText(file: File, text: String): Int =
+		writeBytes(file, text.toByteArray(Charsets.UTF_8))
+
+	/**
+	 * The binary sibling of [writeText]. A document is not text, and routing it
+	 * through a String would corrupt every non-UTF-8 byte of a docx/xlsx/pdf.
+	 * The same ceiling, quota and free-space checks apply.
+	 */
+	protected fun writeBytes(file: File, bytes: ByteArray): Int {
 		val limit = workspace.limits.maxWriteBytes
 		if (bytes.size > limit) {
 			throw Refused("refusing to write ${bytes.size} bytes; the limit is $limit")
 		}
-
 		val existing = if (file.exists() && file.isFile) file.length() else 0L
 		val delta = bytes.size - existing
 		if (delta > 0) {
 			checkQuota(delta)
 			checkFreeSpace(delta)
 		}
-
 		file.parentFile?.mkdirs()
 		file.writeBytes(bytes)
 		return bytes.size

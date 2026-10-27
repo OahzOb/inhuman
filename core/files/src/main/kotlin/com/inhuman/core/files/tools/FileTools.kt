@@ -40,6 +40,10 @@ internal fun pathProperty(description: String): Map<String, Any?> =
  * one, and a path that looks absolute is reinterpreted as relative rather than
  * honoured. Confinement is a property of the interface, not of a prompt telling
  * the model to behave.
+ *
+ * The document tools are appended here rather than registered separately: they
+ * take a workspace-relative path, obey the same quotas, and must disappear with
+ * the file tools when the startup fence check fails.
  */
 object FileTools {
 
@@ -78,7 +82,7 @@ object FileTools {
 		MoveFileTool(workspace, freeSpaceBytes),
 		DeleteFileTool(workspace, freeSpaceBytes),
 		FileInfoTool(workspace, freeSpaceBytes),
-	)
+	) + DocumentTools.all(workspace)
 }
 
 private typealias FreeSpace = (() -> Long)?

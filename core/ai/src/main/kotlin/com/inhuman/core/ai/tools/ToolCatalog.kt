@@ -104,6 +104,12 @@ object ToolCatalog {
 			mutates = false,
 			workspaceBound = true,
 		),
+		Entry(
+			"read_document",
+			"Read a CSV, TXT, DOCX or XLSX document",
+			mutates = false,
+			workspaceBound = true,
+		),
 		Entry("read_time", "The current date and time, and date arithmetic", mutates = false),
 		Entry(
 			"web_search",
@@ -234,6 +240,18 @@ object ToolCatalog {
 		// a call asks is now configurable per tool, per assistant and per path;
 		// the default is not to.
 		Entry("delete_file", "Delete from the folder", mutates = true, workspaceBound = true),
+		Entry(
+			"write_document",
+			"Create or replace a CSV, TXT, DOCX or XLSX document",
+			mutates = true,
+			workspaceBound = true,
+		),
+		Entry(
+			"convert_document",
+			"Convert between CSV, TXT, DOCX and XLSX",
+			mutates = true,
+			workspaceBound = true,
+		),
 	)
 
 	val names: List<String> = all.map { it.name }

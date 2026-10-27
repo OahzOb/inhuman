@@ -2,8 +2,9 @@
 
 Status: design decision, 2026-10-27. It is written before the implementation so
 the trade-offs are reviewable; the sections marked *planned* are the remaining
-work, not claims about today. CSV read/write is implemented in `:core:documents`;
-DOCX/XLSX/PDF/DOC/XLS and voice are still to come.
+work, not claims about today. CSV, TXT, DOCX and XLSX read/write/convert, the
+neutral model and the three tools are implemented in `:core:documents` and
+`:core:files`. PDF, legacy DOC/XLS and voice remain.
 
 `13-product.md` is the product statement: documents must be read, written and
 converted without silently losing content, and voice input must put the user's

@@ -90,14 +90,14 @@ Measured by running it, not by counting files:
 $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 .\gradlew.bat :app:assembleDebug :app:testDebugUnitTest `
   :core:data:testDebugUnitTest :core:db:test :core:engine:test `
-  :core:ai:test :core:files:test :core:common:test `
+  :core:ai:test :core:files:test :core:documents:test :core:common:test `
   :desktopApp:test --console=plain --rerun-tasks
 ```
 
 Latest run (2026-10-27, through `tools/ci.ps1`):
 
 ```
-BUILD SUCCESSFUL, 716 tests in 105 suites, 0 failures, 4 skipped
+BUILD SUCCESSFUL, 730 tests in 107 suites, 0 failures, 4 skipped
 warnings 0, errors 0
 ```
 
@@ -111,8 +111,8 @@ The skips are external-credential live tests: `DeepSeekWebLiveTest`,
 | Module | Suites | Tests |
 | --- | --- | --- |
 | `:core:ai` | 40 | 313 (3 skipped) |
-| `:core:files` | 8 | 72 |
-| `:core:documents` | 1 | 9 |
+| `:core:files` | 9 | 77 |
+| `:core:documents` | 2 | 18 |
 | `:app` | 29 | 211 |
 | `:core:common` | 2 | 16 |
 | `:core:db` | 7 | 27 |
@@ -136,6 +136,7 @@ These are not in the JVM total because they need an emulator or a phone:
 | `app/src/androidTest/…/web/RealProviderProbeTest` | One real `GET /models` when a key is stored; no-op otherwise |
 | `app/src/androidTest/…/EngineAndroidLiveTest` | One real engine completion; skips without a key |
 | `app/src/androidTest/…/ui/chat/ImagePreprocessorTest` | Android `Bitmap` decode/downscale/WebP pipeline |
+| `core/data/src/androidTest/…/DocumentCodecAndroidTest` | DOCX/XLSX zip and DOM path on Android's parser |
 | `core/data/src/androidTest/…/db/MigrationTest` | Room migrations against real SQLite |
 | `core/data/src/androidTest/…/WorkspaceLifecycleTest` | Temporary/permanent workspace lifetime and promotion |
 | `core/data/src/androidTest/…/db/ConversationLookupTest` | `id` / `workspaceId` lookup distinction |
