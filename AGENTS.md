@@ -349,6 +349,16 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   one conversation's rollback must not be able to write into another's
   materials. The source browser filters symlinks, and workspace rules do not
   apply to the owner's own copy.
+- **The share target is one item, an explicit MIME, and a copy.** The manifest
+  registers `ACTION_SEND` only -- never `SEND_MULTIPLE`, never a catch-all
+  wildcard -- and `SharedContent.kt` re-checks the action and MIME allowlist
+  because an exported activity can be started explicitly. A visible chat is the
+  destination; otherwise the user picks a conversation and the copy happens
+  immediately. Bytes go through `WorkspaceTransfer.import`, so the per-file
+  ceiling, quota, collision naming and free-space reserve are the ordinary
+  import's; the URI is read at once and never retained. Do not widen this into a
+  general import channel, and do not give the sending app any path back into the
+  workspace.
 - **A failure chunk must be `trySend`-ed *before* `close()`.** A chunk sent
   after the channel closes is dropped and the collector sees a clean end, so
   the failure becomes indistinguishable from "the model said nothing".

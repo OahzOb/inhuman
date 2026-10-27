@@ -134,6 +134,10 @@ Confirmed by `README.md:17-29` and by the code:
   unchanged, the copy is a snapshot with the same quota and " (2)" naming rules
   as an ordinary import, and nothing is mounted or shared
   ([05-files-sandbox.md](05-files-sandbox.md)).
+- Another app can share one text, image or file into a conversation. A visible
+  chat is the destination; otherwise a conversation picker appears. The item is
+  copied immediately through the same transfer limits, with no import screen
+  ([05-files-sandbox.md](05-files-sandbox.md)).
 - Answers can be retried. **Rewind** is the single restart control. **Answer
   again** keeps the tool **definitions** so the request prefix can still hit the
   context cache, but appends a transient system instruction forbidding a call;

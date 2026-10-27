@@ -413,6 +413,10 @@
 	<string name="files_import_up">上一级</string>
 	<string name="files_import_empty_dir">这个文件夹是空的。</string>
 	<string name="files_import_read_failed">读不到那个文件夹。</string>
+	<string name="share_destination_title">把分享的内容复制到…</string>
+	<string name="share_destination_empty">先新建一个对话。</string>
+	<string name="share_saved">分享的内容已保存。</string>
+	<string name="share_save_failed">保存分享的内容失败。</string>
 	<string name="files_empty_eyebrow">工作区 / 空</string>
 	<string name="files_empty_title_rules">这里还没有内容。</string>
 	<string name="files_empty_title">这个工作区是空的。</string>

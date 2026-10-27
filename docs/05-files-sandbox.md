@@ -335,6 +335,33 @@ on screen.
 - The source browser filters symlinks out; the source-side `resolve` would refuse
   them on import anyway, and a row that always fails is worse than no row.
 
+### The share sheet: one item, copied now
+
+`MainActivity` registers `ACTION_SEND` (never `ACTION_SEND_MULTIPLE`) with
+`text/plain`, `image/*` and `application/*` — no catch-all. The filter is the
+entry's whole narrowness: a share is one item the user chose in another app, not
+a channel any app can push into. `SharedContent.kt` re-checks the action and MIME
+allowlist before reading anything, because an exported activity can be started
+explicitly with anything.
+
+- **Destination.** If a chat is the visible screen, the item is copied into that
+  conversation's workspace and a Toast confirms it — the user already chose the
+  context by being there. Otherwise a one-step conversation picker appears; the
+  copy happens immediately after the pick, with no import screen. Cancelling
+  drops the share.
+- **Names.** A sender-provided display name wins, with separators flattened; text
+  becomes `shared.txt`; an unnamed image or file falls back to its type
+  (`shared.jpg`, `shared.pdf`, `shared.bin`). The target's
+  `WorkspaceTransfer.uniqueName` supplies " (2)".
+- **Rules.** The bytes go through the ordinary `WorkspaceTransfer.import`, so the
+  4 MiB per-file ceiling, total quota, file count and free-space reserve are the
+  same as a system import. The URI is read in the same process, immediately: a
+  share grant is transient, and keeping it for later would produce a broken file.
+- **No read path back.** Copying into the workspace gives the sender no ability
+  to read the workspace; the URI grant runs the other way, and the copied file is
+  just bytes. The activity is exported for the share sheet, but the MIME filter
+  and the user's tap are what create the entry.
+
 ### Workspace export: `WorkspaceZip`
 
 `core/files/src/main/kotlin/com/inhuman/core/files/WorkspaceZip.kt`. This is the

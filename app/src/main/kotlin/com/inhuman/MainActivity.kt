@@ -6,18 +6,28 @@ import android.content.res.Configuration
 import android.os.Bundle
 import android.os.LocaleList
 import android.content.Intent
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -29,11 +39,14 @@ import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.BackupRepository
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.DataPaths
+import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.secret.SecureStore
+import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.InhumanTheme
 import com.inhuman.core.design.LayoutPreference
 import com.inhuman.core.design.LocalLayoutPreference
+import com.inhuman.core.design.WideDialog
 import com.inhuman.ui.ConversationsScreen
 import com.inhuman.ui.ConversationsViewModel
 import com.inhuman.ui.agents.AgentsScreen
@@ -43,6 +56,9 @@ import com.inhuman.ui.chat.ChatViewModel
 import com.inhuman.ui.chat.SettingsViewModel
 import com.inhuman.ui.files.FilesScreen
 import com.inhuman.ui.files.FilesViewModel
+import com.inhuman.ui.files.SharedContent
+import com.inhuman.ui.files.saveSharedContent
+import com.inhuman.ui.files.sharedContentFrom
 import com.inhuman.ui.settings.SettingsScreen
 import com.inhuman.ui.workspaces.WorkspaceDetailScreen
 import com.inhuman.ui.workspaces.WorkspaceDetailViewModel
@@ -50,6 +66,7 @@ import com.inhuman.ui.workspaces.WorkspacesScreen
 import com.inhuman.ui.workspaces.WorkspacesViewModel
 import com.inhuman.web.WebToolProviders
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -57,6 +74,9 @@ class MainActivity : ComponentActivity() {
 
 	/** A conversation requested by a notification tap, consumed by the root. */
 	private val pendingConversationId = mutableStateOf<String?>(null)
+
+	/** An `ACTION_SEND` item from the share sheet, consumed by the root. */
+	private val pendingShare = mutableStateOf<SharedContent?>(null)
 
 	/**
 	 * Make the first frame the default language.
@@ -85,6 +105,12 @@ class MainActivity : ComponentActivity() {
 			pendingConversationId.value =
 				intent?.getStringExtra(TurnNotifications.EXTRA_CONVERSATION_ID)
 		}
+		// Parsed on every create, not only the first: a share must survive the
+		// activity being recreated (rotation, process death) while its
+		// destination picker is open. `onSharedConsumed` clears the action and
+		// extras, so a handled share is not offered again after a later
+		// recreate.
+		pendingShare.value = sharedContentFrom(this, intent)
 		setContent {
 			InhumanTheme {
 				// Named Root, not InhumanApp: InhumanApp is the Application
@@ -93,6 +119,15 @@ class MainActivity : ComponentActivity() {
 				InhumanRoot(
 					deepLinkedConversation = pendingConversationId.value,
 					onDeepLinkConsumed = { pendingConversationId.value = null },
+					shared = pendingShare.value,
+					onSharedConsumed = {
+						pendingShare.value = null
+						intent?.let { handled ->
+							handled.removeExtra(Intent.EXTRA_STREAM)
+							handled.removeExtra(Intent.EXTRA_TEXT)
+							handled.action = null
+						}
+					},
 				)
 			}
 		}
@@ -103,6 +138,7 @@ class MainActivity : ComponentActivity() {
 		setIntent(intent)
 		val conversation = intent.getStringExtra(TurnNotifications.EXTRA_CONVERSATION_ID)
 		if (conversation != null) pendingConversationId.value = conversation
+		sharedContentFrom(this, intent)?.let { pendingShare.value = it }
 	}
 }
 
@@ -118,6 +154,8 @@ class MainActivity : ComponentActivity() {
 private fun InhumanRoot(
 	deepLinkedConversation: String?,
 	onDeepLinkConsumed: () -> Unit,
+	shared: SharedContent?,
+	onSharedConsumed: () -> Unit,
 ) {
 	val context = androidx.compose.ui.platform.LocalContext.current
 	// One store and one repository for the process. The Keystore lookup inside
@@ -193,6 +231,37 @@ private fun InhumanRoot(
 			chatFocusMessageId = null
 			openConversationId = pendingConversation
 			onDeepLinkConsumed()
+		}
+	}
+
+	// A share while a chat is the visible screen goes straight into that chat's
+	// workspace: the user has already chosen the context by being there, and a
+	// picker would be a second decision for the same act. Everywhere else the
+	// target is chosen once, then the copy happens immediately -- no import
+	// screen, no second copy step.
+	var shareDestinations by remember { mutableStateOf<List<ConversationEntity>?>(null) }
+	val shareScope = rememberCoroutineScope()
+	LaunchedEffect(shared) {
+		val content = shared ?: return@LaunchedEffect
+		val target = openConversationId?.takeIf {
+			!showSettings && !showAgents && !showWorkspaces && openWorkspaceId == null
+		}
+		if (target != null) {
+			val saved = runCatching { saveSharedContent(context, repository, target, content) }
+				.onFailure { Diag.w("share", "save threw", it) }
+				.getOrDefault(false)
+			Toast.makeText(
+				context,
+				if (saved) R.string.share_saved else R.string.share_save_failed,
+				Toast.LENGTH_SHORT,
+			).show()
+			onSharedConsumed()
+		} else {
+			shareDestinations = withContext(Dispatchers.IO) {
+				runCatching { repository.all() }
+					.onFailure { Diag.w("share", "destination list failed", it) }
+					.getOrElse { emptyList() }
+			}
 		}
 	}
 
@@ -273,7 +342,7 @@ private fun InhumanRoot(
 			// AlertDialog handles its own dismissal through onDismissRequest and
 			// registers its handler later in the composition, so it runs first.
 			// Returning here only stops this handler from also navigating.
-			chatDialogOpen || filesDialogOpen -> Unit
+			chatDialogOpen || filesDialogOpen || shareDestinations != null -> Unit
 
 			showFiles && !filesAtRoot -> filesUpOneLevel()
 
@@ -535,6 +604,73 @@ private fun InhumanRoot(
 			)
 		}
 	}
+
+		if (shared != null && shareDestinations != null) {
+			ShareDestinationDialog(
+				conversations = shareDestinations.orEmpty(),
+				onPick = { conversation ->
+					shareDestinations = null
+					shareScope.launch {
+						val saved = runCatching {
+							saveSharedContent(context, repository, conversation.id, shared)
+						}.onFailure { Diag.w("share", "save threw", it) }
+							.getOrDefault(false)
+						Toast.makeText(
+							context,
+							if (saved) R.string.share_saved else R.string.share_save_failed,
+							Toast.LENGTH_SHORT,
+						).show()
+						onSharedConsumed()
+					}
+				},
+				onDismiss = {
+					shareDestinations = null
+					onSharedConsumed()
+				},
+			)
+		}
+	}
+}
+
+/**
+ * Pick the conversation a shared item is copied into when no chat is on screen.
+ *
+ * The list is the app's own conversations, not a file browser: a share is one
+ * item and the destination is a workspace, so the choice a user can actually
+ * make is which conversation it belongs to. An empty list is the cold-start
+ * case with no conversations yet; creating one is a separate action.
+ */
+@Composable
+private fun ShareDestinationDialog(
+	conversations: List<ConversationEntity>,
+	onPick: (ConversationEntity) -> Unit,
+	onDismiss: () -> Unit,
+) {
+	WideDialog(
+		onDismissRequest = onDismiss,
+		title = stringResource(R.string.share_destination_title),
+		dismissLabel = stringResource(R.string.common_cancel),
+		maxBodyHeight = 420.dp,
+	) {
+		if (conversations.isEmpty()) {
+			Text(
+				text = stringResource(R.string.share_destination_empty),
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		} else {
+			conversations.forEachIndexed { index, conversation ->
+				if (index > 0) Hairline()
+				Text(
+					text = conversation.title,
+					style = MaterialTheme.typography.bodyLarge,
+					modifier = Modifier
+						.fillMaxWidth()
+						.clickable { onPick(conversation) }
+						.padding(vertical = 12.dp),
+				)
+			}
+		}
 	}
 }
 

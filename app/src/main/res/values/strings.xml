@@ -432,6 +432,10 @@
 	<string name="files_import_up">Up one folder</string>
 	<string name="files_import_empty_dir">This folder is empty.</string>
 	<string name="files_import_read_failed">Could not read that folder.</string>
+	<string name="share_destination_title">Copy shared item to…</string>
+	<string name="share_destination_empty">Create a conversation first.</string>
+	<string name="share_saved">Shared item saved.</string>
+	<string name="share_save_failed">Could not save the shared item.</string>
 	<string name="files_empty_eyebrow">Workspace / Empty</string>
 	<string name="files_empty_title_rules">Nothing here yet.</string>
 	<string name="files_empty_title">This workspace is empty.</string>
