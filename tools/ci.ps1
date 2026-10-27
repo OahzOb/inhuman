@@ -19,6 +19,15 @@ With a warm build cache a plain run can report BUILD SUCCESSFUL without
 compiling the file that was just changed. The gate is only worth having if it
 actually compiled the change.
 
+## Why --no-build-cache
+
+`--rerun-tasks` and the local build cache together re-pack every task output,
+and on Windows parallel workers can still be writing a classpath snapshot when
+the cache entry is stored. The observed failures were "Could not get file mode"
+for a snapshot and a test runtime that could not find its own main classes; both
+disappeared on a rerun. The gate must not be flaky, so it recompiles instead of
+reading or writing the cache. This costs seconds and removes a class of race.
+
 ## Why warnings fail the build
 
 This tree compiles clean today (0 warnings, 0 errors). That is a property worth
@@ -81,7 +90,7 @@ try {
 	Write-Host ''
 
 	$started = Get-Date
-	& $gradle @tasks '--console=plain' '--rerun-tasks' 2>&1 |
+	& $gradle @tasks '--console=plain' '--rerun-tasks' '--no-build-cache' 2>&1 |
 		Tee-Object -FilePath $LogPath
 	$exit = $LASTEXITCODE
 	$elapsed = (Get-Date) - $started
@@ -92,7 +101,14 @@ try {
 		exit $exit
 	}
 
-	$warnings = @(Select-String -LiteralPath $LogPath -Pattern '^(w: |warning: )' -CaseSensitive)
+	# A Kotlin daemon lifecycle note is not a compiler warning about this source.
+	# It appears when parallel test tasks start more than one daemon and begins
+	# with `w:`, so the plain scan treated it as a failure even though the build
+	# was clean. Everything else that starts with `w:`/`warning:` still fails.
+	$warnings = @(
+		Select-String -LiteralPath $LogPath -Pattern '^(w: |warning: )' -CaseSensitive |
+			Where-Object { $_.Line -notmatch 'Detected multiple Kotlin daemon sessions' }
+	)
 	if ($warnings.Count -gt 0) {
 		Write-Host ("ci: FAILED -- build succeeded but produced {0} compiler warning(s) after {1:n1}s:" -f $warnings.Count, $elapsed.TotalSeconds) -ForegroundColor Red
 		$warnings | Select-Object -First 20 | ForEach-Object { Write-Host ("   " + $_.Line) -ForegroundColor Red }

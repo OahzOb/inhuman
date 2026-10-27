@@ -445,8 +445,9 @@ assistant message, and the adapter re-emits `{"type":"thinking","thinking":…,
 when **every** assistant turn carrying reasoning or tool calls has both its
 reasoning and its signature; a transcript written before this existed, or one
 whose thinking was off, falls back to a thinking-off request instead of a 400.
-Redacted thinking blocks are not replayed. Not verified against a real Anthropic
-account, which needs a key.
+Anthropic also rejects a non-default `temperature` while thinking is enabled, so
+the adapter omits it in that case. Redacted thinking blocks are not replayed. Not
+verified against a real Anthropic account, which needs a key.
 
 **Gemini** (`provider/gemini/`): `POST /v1beta/models/{model}:streamGenerateContent?alt=sse`,
 `x-goog-api-key`, `contents[].parts[]`, `functionCall` / `functionResponse`,
@@ -455,8 +456,10 @@ argument fragments; the decoder still emits start/delta/end so the engine has
 one path. A `thoughtSignature` on a `functionCall` part is captured per call,
 stored in the call record and echoed on the same part when the call is replayed;
 that is the signature Gemini requires to continue a tool turn. A signature on a
-thought text part is stored on the message but not replayed. Not verified
-against a real Gemini account, which needs a key.
+thought text part is stored on the message but not replayed. A conversation
+recorded before this field existed has no signature to echo; continuing such a
+Gemini tool turn may be rejected by the API, and the remedy is a new
+conversation. Not verified against a real Gemini account, which needs a key.
 
 **Qwen Token Plan** is the first capability bundle rather than one chat
 adapter. One `sk-sp-…` key serves several API families under
