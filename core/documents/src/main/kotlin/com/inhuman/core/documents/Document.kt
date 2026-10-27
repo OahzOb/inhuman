@@ -141,3 +141,39 @@ object DocumentLimits {
 	const val MAX_PAGES = 200
 	const val MAX_BYTES = 4L * 1024 * 1024
 }
+
+/**
+ * PDF is the one format that needs a platform library.
+ *
+ * `:core:documents` stays a plain JVM module; the Android host supplies a
+ * PDFBox-Android implementation, and a host without one refuses PDF instead of
+ * returning an empty document. Page numbers are one-based.
+ */
+interface PdfBackend {
+	fun read(bytes: ByteArray, pages: IntRange? = null): PdfRead
+	fun write(pages: List<String>): ByteArray
+}
+
+data class PdfRead(
+	val pages: List<Page>,
+	val warnings: List<String> = emptyList(),
+)
+
+/** Legacy DOC/XLS is isolated behind the same host-supplied boundary. */
+interface LegacyOfficeBackend {
+	/** Extract blocks from a Word 97 binary document. */
+	fun readDoc(bytes: ByteArray): List<Block>
+	/** Extract sheets from a BIFF8 workbook. */
+	fun readXls(bytes: ByteArray): List<Sheet>
+	fun writeDoc(blocks: List<Block>): ByteArray
+	fun writeXls(sheets: List<Sheet>): ByteArray
+}
+
+data class DocumentBackends(
+	val pdf: PdfBackend? = null,
+	val legacy: LegacyOfficeBackend? = null,
+) {
+	companion object {
+		val NONE = DocumentBackends()
+	}
+}

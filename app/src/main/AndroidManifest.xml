@@ -24,6 +24,9 @@
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+	<!-- Composer voice input only. The agent has no audio path and the audio
+	     bytes never enter the workspace. -->
+	<uses-permission android:name="android.permission.RECORD_AUDIO" />
 
 	<!--
 		Deliberately false. The Room database, every conversation workspace, the

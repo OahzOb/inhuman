@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.TurnConcurrency
 import com.inhuman.ui.common.formatBytes
+import com.inhuman.ui.documents.AndroidPdfBackend
 import com.inhuman.R
 import com.inhuman.TurnNotifications
 import com.inhuman.TurnStatus
@@ -79,6 +80,7 @@ import com.inhuman.core.ai.tools.SshProbeTool
 import com.inhuman.core.ai.tools.SshReadFileTool
 import com.inhuman.core.ai.tools.SshUploadTool
 import com.inhuman.core.ai.tools.SshWriteFileTool
+import com.inhuman.core.documents.DocumentBackends
 import com.inhuman.core.files.tools.FileTools
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -208,6 +210,12 @@ class ChatViewModel(
 	 */
 	private val approvalTimeoutMinutes: Int = APPROVAL_TIMEOUT_MINUTES,
 ) : ViewModel() {
+
+	/** PDFBox initialization and the platform writer are only needed for a document turn. */
+	private val pdfBackend by lazy { AndroidPdfBackend(context) }
+
+	/** POI is loaded only for a legacy DOC/XLS turn, not at startup. */
+	private val legacyBackend by lazy { com.inhuman.ui.documents.PoiLegacyBackend() }
 
 	private val _state = MutableStateFlow(ChatUiState())
 	val state: StateFlow<ChatUiState> = _state.asStateFlow()
@@ -798,6 +806,27 @@ class ChatViewModel(
 				)
 				.text
 		}
+	}
+
+	/** Whether the composer should offer the microphone at all. */
+	suspend fun canTranscribe(): Boolean =
+		runCatching { mediaBackend(MediaCapability.Transcription) != null }.getOrDefault(false)
+
+	/** Transcribe a composer recording. The audio is never written to the workspace. */
+	suspend fun transcribeVoice(wav: ByteArray): Result<String> = runCatching {
+		if (wav.size <= 44) error(context.getString(R.string.chat_voice_empty))
+		val backend = mediaBackend(MediaCapability.Transcription)
+			?: mediaUnavailable()
+		val text = withContext(Dispatchers.IO) {
+			backend.client.transcribe(
+				wav,
+				format = "wav",
+				mimeType = "audio/wav",
+				model = backend.model,
+			).text
+		}.trim()
+		if (text.isBlank()) error(context.getString(R.string.chat_voice_empty))
+		text
 	}
 
 	/** Synthesize text and save the audio in the conversation workspace. */
@@ -3933,6 +3962,10 @@ class ChatViewModel(
 					hidden = { path ->
 						policies.effective(tool = "list_files", relativePath = path) == ToolPolicy.Blind
 					},
+					documentBackends = DocumentBackends(
+						pdf = pdfBackend,
+						legacy = legacyBackend,
+					),
 				)
 			}
 				.getOrElse { failure ->

@@ -248,15 +248,19 @@ through `SessionWorkspace`, use the same quota/free-space check
 with the file tools. `read_document` is read-only; the other two are `mutates`.
 They parse locally and accept no network or absolute path.
 
-The implemented formats are CSV/TXT (own RFC 4180 writer/reader plus plain text)
-and DOCX/XLSX (a local OOXML subset over zip + DOM). A DOCX/XLSX write copies
-every package part it does not understand, so a macro, comment or embedded chart
+The implemented formats are CSV/TXT (own RFC 4180 writer/reader plus plain text),
+DOCX/XLSX (a local OOXML subset over zip + DOM) and PDF (PDFBox-Android for the
+text layer; the platform PDF writer for output). A DOCX/XLSX write copies every
+package part it does not understand, so a macro, comment or embedded chart
 survives an edit even though it cannot be rendered. A read or conversion records
 what the neutral model could not carry in a `LossReport` — unsupported features,
 flattened formulas, skipped sheets, truncation — and the tool result says so.
-PDF, DOC and XLS parsing/writing are not wired yet; `read_document` refuses them
-with the reason rather than returning an empty document. The format/library
-decision is `14-documents-voice.md`.
+A scanned PDF page is reported as having no text layer, not as an empty document.
+PDF/DOC/XLS backends are host-supplied: the Android host passes PDFBox and POI;
+the desktop host has none and refuses those formats with a reason. Android reads
+DOC and reads/writes XLS through POI; **DOC creation is refused** rather than
+writing a file with the wrong bytes, because Word 97 needs a valid template. The
+format/library decision is `14-documents-voice.md`.
 
 **"Asks by default" is not where approval is decided.** `Tool.needsApproval` is
 still evaluated per call against the arguments (`Tool.kt:84`), but it has become

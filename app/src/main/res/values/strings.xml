@@ -630,7 +630,7 @@
 	<string name="tool_blurb_list_files">See what is in the conversation\'s folder</string>
 	<string name="tool_blurb_read_file">Read a file from the folder</string>
 	<string name="tool_blurb_file_info">Size and modified date of a file</string>
-	<string name="tool_blurb_read_document">Read a CSV, TXT, DOCX or XLSX document</string>
+	<string name="tool_blurb_read_document">Read a CSV, TXT, DOCX, XLSX, PDF, DOC or XLS document</string>
 	<string name="tool_blurb_read_time">The current date and time, and date arithmetic</string>
 	<string name="tool_blurb_web_search">Search the web via the configured paid search API</string>
 	<string name="tool_blurb_web_fetch">Fetch a page via the configured paid fetch API</string>
@@ -648,7 +648,7 @@
 	<string name="tool_blurb_ssh_upload">Send a workspace file to the remote machine</string>
 	<string name="tool_blurb_ssh_download">Copy a remote file into the workspace</string>
 	<string name="tool_blurb_write_file">Create or replace a file</string>
-	<string name="tool_blurb_write_document">Create or replace a CSV, TXT, DOCX or XLSX document</string>
+	<string name="tool_blurb_write_document">Create or replace a CSV, TXT, DOCX, XLSX, PDF or XLS document</string>
 	<string name="tool_blurb_convert_document">Convert a document and report what was lost</string>
 	<string name="tool_blurb_append_file">Add to the end of a file</string>
 	<string name="tool_blurb_create_directory">Make a folder inside the folder</string>
@@ -820,6 +820,16 @@
 	<string name="chat_attach_image">Attach an image</string>
 	<string name="chat_cannot_read_images">This model cannot read images</string>
 	<string name="chat_message_hint">Message the assistant…</string>
+	<string name="chat_voice_empty">The recording was empty or could not be transcribed.</string>
+	<string name="chat_voice_hold">Hold to speak</string>
+	<string name="chat_voice_recording">Recording… release to transcribe</string>
+	<string name="chat_voice_busy">Transcribing…</string>
+	<string name="chat_voice_cancel">Release here to cancel</string>
+	<string name="chat_voice_cost">Voice input uses your configured transcription service, which may bill per call.</string>
+	<string name="chat_voice_permission">Microphone permission is needed for voice input.</string>
+	<string name="chat_voice_failed">Voice input failed: %1$s</string>
+	<string name="chat_voice_too_long">The recording reached the 2-minute limit.</string>
+	<string name="chat_voice_not_configured">Configure a transcription backend in Settings first.</string>
 	<string name="chat_add_key_hint">Add an API key to start</string>
 	<string name="chat_stop">Stop</string>
 	<string name="chat_send">Send</string>

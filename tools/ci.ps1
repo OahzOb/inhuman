@@ -28,6 +28,14 @@ for a snapshot and a test runtime that could not find its own main classes; both
 disappeared on a rerun. The gate must not be flaky, so it recompiles instead of
 reading or writing the cache. This costs seconds and removes a class of race.
 
+## Why --no-configuration-cache
+
+Adding a module or dependency changes the test runtime classpath. A cached
+configuration from before the change can make a test worker fail to load the
+project's own classes (`NoClassDefFoundError` for `ToolCatalog`, `Diag`, …);
+the same tasks pass as soon as the cache is rebuilt. The gate is not allowed to
+depend on a cache that can be stale, so it builds its configuration each time.
+
 ## Why warnings fail the build
 
 This tree compiles clean today (0 warnings, 0 errors). That is a property worth
@@ -91,7 +99,7 @@ try {
 	Write-Host ''
 
 	$started = Get-Date
-	& $gradle @tasks '--console=plain' '--rerun-tasks' '--no-build-cache' 2>&1 |
+	& $gradle @tasks '--console=plain' '--rerun-tasks' '--no-build-cache' '--no-configuration-cache' 2>&1 |
 		Tee-Object -FilePath $LogPath
 	$exit = $LASTEXITCODE
 	$elapsed = (Get-Date) - $started

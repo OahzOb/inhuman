@@ -610,7 +610,7 @@
 	<string name="tool_blurb_list_files">查看对话文件夹里有什么</string>
 	<string name="tool_blurb_read_file">读取文件夹里的文件</string>
 	<string name="tool_blurb_file_info">查看文件大小和修改时间</string>
-	<string name="tool_blurb_read_document">读取 CSV、TXT、DOCX 或 XLSX 文档</string>
+	<string name="tool_blurb_read_document">读取 CSV、TXT、DOCX、XLSX、PDF、DOC 或 XLS 文档</string>
 	<string name="tool_blurb_read_time">当前日期时间，以及日期计算</string>
 	<string name="tool_blurb_web_search">通过配置的付费搜索 API 搜索网页</string>
 	<string name="tool_blurb_web_fetch">通过配置的付费抓取 API 读取网页</string>
@@ -628,7 +628,7 @@
 	<string name="tool_blurb_ssh_upload">把工作区文件发送到远程机器</string>
 	<string name="tool_blurb_ssh_download">把远程文件复制到工作区</string>
 	<string name="tool_blurb_write_file">创建或替换文件</string>
-	<string name="tool_blurb_write_document">创建或替换 CSV、TXT、DOCX 或 XLSX 文档</string>
+	<string name="tool_blurb_write_document">创建或替换 CSV、TXT、DOCX、XLSX、PDF 或 XLS 文档</string>
 	<string name="tool_blurb_convert_document">转换文档并报告丢失的内容</string>
 	<string name="tool_blurb_append_file">在文件末尾追加内容</string>
 	<string name="tool_blurb_create_directory">在文件夹里创建子文件夹</string>
@@ -798,6 +798,16 @@
 	<string name="chat_attach_image">添加图片</string>
 	<string name="chat_cannot_read_images">当前模型无法读取图片</string>
 	<string name="chat_message_hint">给助手发消息…</string>
+	<string name="chat_voice_empty">没有录到内容，或转写失败。</string>
+	<string name="chat_voice_hold">按住说话</string>
+	<string name="chat_voice_recording">正在录音…松开转写</string>
+	<string name="chat_voice_busy">正在转写…</string>
+	<string name="chat_voice_cancel">松开取消</string>
+	<string name="chat_voice_cost">语音输入会使用已配置的转写服务，可能按调用计费。</string>
+	<string name="chat_voice_permission">语音输入需要麦克风权限。</string>
+	<string name="chat_voice_failed">语音输入失败：%1$s</string>
+	<string name="chat_voice_too_long">录音达到 2 分钟上限。</string>
+	<string name="chat_voice_not_configured">请先在设置中配置转写后端。</string>
 	<string name="chat_add_key_hint">添加 API 密钥后开始</string>
 	<string name="chat_stop">停止</string>
 	<string name="chat_send">发送</string>

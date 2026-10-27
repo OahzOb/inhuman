@@ -1,12 +1,17 @@
 package com.inhuman.core.files.tools
 
 import com.inhuman.core.files.SessionWorkspace
+import com.inhuman.core.documents.DocumentBackends
+import com.inhuman.core.documents.Page
+import com.inhuman.core.documents.PdfBackend
+import com.inhuman.core.documents.PdfRead
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -108,6 +113,53 @@ class DocumentToolsTest {
 	}
 
 	@Test
+	fun `pdf read uses the host backend and honours a page range`() = runBlocking {
+		val ws = workspace()
+		ws.file("scan.pdf").writeBytes(byteArrayOf(1, 2, 3))
+		val backend = object : PdfBackend {
+			var requested: IntRange? = null
+			override fun read(bytes: ByteArray, pages: IntRange?): PdfRead {
+				requested = pages
+				return PdfRead(listOf(Page(2, "page two")), listOf("page 1 has no text layer"))
+			}
+			override fun write(pages: List<String>): ByteArray =
+				pages.joinToString("|").toByteArray()
+		}
+		val tools = DocumentTools.all(ws, DocumentBackends(pdf = backend)).associateBy { it.name }
+
+		val read = tools.getValue("read_document").execute(
+			buildJsonObject {
+				put("path", "scan.pdf")
+				put("pages", "2-3")
+			},
+		)
+		assertFalse(read.content, read.isError)
+		assertEquals(2..3, backend.requested)
+		assertTrue(read.content.contains("page two"))
+		assertTrue(read.content.contains("no text layer"))
+
+		val written = tools.getValue("write_document").execute(
+			buildJsonObject {
+				put("path", "made.pdf")
+				put("paragraphs", buildJsonArray { add(JsonPrimitive("hello")) })
+			},
+		)
+		assertFalse(written.content, written.isError)
+		assertEquals("hello", ws.file("made.pdf").readText())
+	}
+
+	@Test
+	fun `a pdf is refused when the host has no backend`() = runBlocking {
+		val ws = workspace()
+		ws.file("scan.pdf").writeBytes(byteArrayOf(1, 2, 3))
+		val read = tools(ws).getValue("read_document").execute(
+			buildJsonObject { put("path", "scan.pdf") },
+		)
+		assertTrue(read.isError)
+		assertTrue(read.content, read.content.contains("PDF"))
+	}
+
+	@Test
 	fun `an unsupported document is refused with the reason`() = runBlocking {
 		val ws = workspace()
 		ws.file("scan.pdf").writeBytes(byteArrayOf(1, 2, 3))
@@ -125,6 +177,19 @@ class DocumentToolsTest {
 			buildJsonObject { put("path", "../outside.docx") },
 		)
 		assertTrue(read.isError)
+	}
+
+	@Test
+	fun `an oversized document is refused before its bytes are read`() = runBlocking {
+		val ws = workspace()
+		val file = ws.file("huge.docx")
+		java.io.RandomAccessFile(file, "rw").use { it.setLength(5L * 1024 * 1024) }
+		val read = tools(ws).getValue("read_document").execute(
+			buildJsonObject { put("path", "huge.docx") },
+		)
+
+		assertTrue(read.isError)
+		assertTrue(read.content, read.content.contains("document limit"))
 	}
 
 	@Test

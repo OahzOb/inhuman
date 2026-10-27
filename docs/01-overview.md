@@ -226,14 +226,17 @@ notes below explain what is still absent.
   before the earlier call. OAuth uses a user-registered public client and the
   `inhuman://oauth` callback; no Claude/ChatGPT/Copilot/Kimi client ID ships. None
   is verified against a real account here (that needs a key or a registration).
-- **Documents are partially implemented.** CSV/TXT and DOCX/XLSX can be read,
-  created, modified and converted through three workspace tools; DOCX/XLSX keep
-  package parts this app does not understand and report what the neutral model
-  cannot carry. PDF, DOC and XLS are still absent, and every refusal names the
-  format. The decision is [14-documents-voice.md](14-documents-voice.md).
-- **Voice input is not implemented.** The decision (local recording, existing
-  paid transcription backend, text into the composer only) is written, but there
-  is no microphone entry in the composer yet.
+- **Document formats are mostly implemented.** CSV/TXT, DOCX, XLSX, PDF and XLS
+  can be read, created, modified and converted through three workspace tools;
+  DOC can be read but not created, because Word 97 needs a template and a fake
+  `.doc` is worse than a refusal. DOCX/XLSX keep package parts this app does not
+  understand and report what the neutral model cannot carry. The decision is
+  [14-documents-voice.md](14-documents-voice.md).
+- **Voice input is implemented on Android.** A composer microphone records into
+  memory, sends the WAV to the already-configured transcription backend, and
+  inserts the text into the composer; it never writes a recording to the
+  workspace and never sends automatically. No transcription backend means no
+  microphone row, not a row that fails. Desktop has no voice path.
 
 Two more that are stated as behaviour rather than as policy:
 

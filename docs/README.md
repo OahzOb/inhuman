@@ -97,7 +97,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 Latest run (2026-10-27, through `tools/ci.ps1`):
 
 ```
-BUILD SUCCESSFUL, 730 tests in 107 suites, 0 failures, 4 skipped
+BUILD SUCCESSFUL, 735 tests in 108 suites, 0 failures, 4 skipped
 warnings 0, errors 0
 ```
 
@@ -111,9 +111,9 @@ The skips are external-credential live tests: `DeepSeekWebLiveTest`,
 | Module | Suites | Tests |
 | --- | --- | --- |
 | `:core:ai` | 40 | 313 (3 skipped) |
-| `:core:files` | 9 | 77 |
+| `:core:files` | 9 | 80 |
 | `:core:documents` | 2 | 18 |
-| `:app` | 29 | 211 |
+| `:app` | 30 | 213 |
 | `:core:common` | 2 | 16 |
 | `:core:db` | 7 | 27 |
 | `:core:engine` | 2 | 12 (1 skipped) |
@@ -137,6 +137,7 @@ These are not in the JVM total because they need an emulator or a phone:
 | `app/src/androidTest/…/EngineAndroidLiveTest` | One real engine completion; skips without a key |
 | `app/src/androidTest/…/ui/chat/ImagePreprocessorTest` | Android `Bitmap` decode/downscale/WebP pipeline |
 | `core/data/src/androidTest/…/DocumentCodecAndroidTest` | DOCX/XLSX zip and DOM path on Android's parser |
+| `app/src/androidTest/…/ui/documents/AndroidPdfBackendTest` | PDFBox-Android text extraction and platform PDF creation |
 | `core/data/src/androidTest/…/db/MigrationTest` | Room migrations against real SQLite |
 | `core/data/src/androidTest/…/WorkspaceLifecycleTest` | Temporary/permanent workspace lifetime and promotion |
 | `core/data/src/androidTest/…/db/ConversationLookupTest` | `id` / `workspaceId` lookup distinction |

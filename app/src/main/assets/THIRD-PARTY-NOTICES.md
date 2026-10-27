@@ -406,6 +406,26 @@ consider it more useful to permit linking proprietary applications with the
 library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.
 
+## PDFBox-Android
+
+PDF text extraction uses `com.tom-roush:pdfbox-android:2.0.27.0`
+(<https://github.com/TomRoush/PdfBox-Android>), the Android port of Apache
+PDFBox (<https://pdfbox.apache.org/>). It is licensed under the Apache License,
+Version 2.0. The app does not modify it; PDF creation uses Android's platform
+PDF writer, not this library.
+
+Copyright 2015-2021 Tom Roush
+Copyright 2011-2021 Apache Software Foundation
+
+## Apache POI
+
+Legacy DOC reading and XLS reading/writing use `org.apache.poi:poi:5.2.3` and
+`org.apache.poi:poi-scratchpad:5.2.3` (<https://poi.apache.org/>), licensed
+under the Apache License, Version 2.0. The app does not modify them. DOC
+creation is not claimed because Word 97 needs a valid template; the library is
+used for the formats it can write safely.
+
+Copyright 2002-2024 Apache Software Foundation
 
 ---
 

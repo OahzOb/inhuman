@@ -425,9 +425,12 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   the file tools on a failed fence check. An unreadable or unsupported file is a
   refusal with a reason, never an empty success. A DOCX/XLSX write must copy the
   package parts it does not understand and preserve `[Content_Types].xml` and
-  relationships; a conversion must return a `LossReport`. Do not claim PDF,
-  DOC or XLS until its adapter runs on the device, and do not add a cloud
-  converter or a second runtime.
+  relationships; a conversion must return a `LossReport`. PDF and legacy Office
+  adapters are host-supplied and must run on the device before their format is
+  claimed; the Android host covers PDF text/creation and XLS read/write. DOC is
+  read-only here: creating a Word 97 file needs a valid template, and a renamed
+  DOCX or RTF pretending to be `.doc` is not an acceptable substitute. Do not add
+  a cloud converter or a second runtime.
 - **A failure chunk must be `trySend`-ed *before* `close()`.** A chunk sent
   after the channel closes is dropped and the collector sees a clean end, so
   the failure becomes indistinguishable from "the model said nothing".

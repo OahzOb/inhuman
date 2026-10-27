@@ -73,6 +73,9 @@ object FileTools {
 		 * (every existing test, and any future one) behaves exactly as before.
 		 */
 		hidden: (String) -> Boolean = { false },
+		/** PDF/legacy codecs, supplied by a host that has them. */
+		documentBackends: com.inhuman.core.documents.DocumentBackends =
+			com.inhuman.core.documents.DocumentBackends.NONE,
 	): List<Tool> = listOf(
 		ListFilesTool(workspace, freeSpaceBytes, hidden),
 		ReadFileTool(workspace, freeSpaceBytes),
@@ -82,7 +85,7 @@ object FileTools {
 		MoveFileTool(workspace, freeSpaceBytes),
 		DeleteFileTool(workspace, freeSpaceBytes),
 		FileInfoTool(workspace, freeSpaceBytes),
-	) + DocumentTools.all(workspace)
+	) + DocumentTools.all(workspace, documentBackends)
 }
 
 private typealias FreeSpace = (() -> Long)?

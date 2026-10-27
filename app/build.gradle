@@ -89,6 +89,7 @@ dependencies {
 	implementation project(':core:data')
 	implementation project(':core:ai')
 	implementation project(':core:files')
+	implementation project(':core:documents')
 	implementation project(':core:engine')
 
 	// Core modules are plain JVM now; the Android app still needs the Android
@@ -125,6 +126,18 @@ dependencies {
 	// Maths is rendered on-device, offline. The AAR bundles JLaTeXMath and its
 	// fonts; THIRD-PARTY-NOTICES covers the licences and the linking exception.
 	implementation libs.jlatexmath.android
+	// PDF text extraction and creation run on-device. The JVM module keeps the
+	// neutral model; this is the one Android-only document dependency.
+	// PDFBox-Android pins the pre-1.73 BC artifact, which collides with the
+	// bcprov-jdk18on the SSH host-key code already needs. The jdk18on jar
+	// provides the same classes; keeping both is a duplicate-resource failure.
+	implementation("com.tom-roush:pdfbox-android:2.0.27.0") {
+		exclude group: 'org.bouncycastle'
+	}
+	// Legacy Word 97 / BIFF8. Isolated in the Android adapter; the JVM module
+	// still refuses these formats when no backend is supplied.
+	implementation("org.apache.poi:poi:5.2.3")
+	implementation("org.apache.poi:poi-scratchpad:5.2.3")
 
 	debugImplementation libs.androidx.compose.ui.tooling
 

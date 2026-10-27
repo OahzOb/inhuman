@@ -8,10 +8,12 @@ import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +24,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -75,6 +78,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -97,6 +101,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -250,6 +255,11 @@ fun ChatScreen(
 	val configured by fieldOf(viewModel.state, false) { it.configured }
 	val pendingAttachments by fieldOf(viewModel.state, emptyList()) { it.pendingAttachments }
 	val modelSupportsVision by fieldOf(viewModel.state, false) { it.modelSupportsVision }
+	// The microphone is offered only when a transcription backend exists. A
+	// row that would always fail is worse than no row; Settings is where the
+	// backend is configured, and returning here re-runs this check.
+	var voiceReady by remember { mutableStateOf(false) }
+	LaunchedEffect(Unit) { voiceReady = viewModel.canTranscribe() }
 
 	val listState = rememberLazyListState()
 	val scope = rememberCoroutineScope()
@@ -1567,6 +1577,13 @@ fun ChatScreen(
 					canAttachImages = modelSupportsVision,
 					onAttach = { importer.launch(arrayOf("image/*")) },
 					onRemoveAttachment = viewModel::removeAttachment,
+					voiceEnabled = voiceReady,
+					onTranscribeVoice = viewModel::transcribeVoice,
+					onVoiceText = { text ->
+						viewModel.onInputChange(
+							if (input.isBlank()) text else input.trimEnd() + " " + text,
+						)
+					},
 					context = usage,
 					showContextDetail = showContextDetail,
 					onToggleContextDetail = { showContextDetail = !showContextDetail },
@@ -3759,6 +3776,10 @@ private fun Composer(
 	canAttachImages: Boolean,
 	onAttach: () -> Unit,
 	onRemoveAttachment: (PendingAttachment) -> Unit,
+	/** The microphone is present only when a transcription backend is configured. */
+	voiceEnabled: Boolean,
+	onTranscribeVoice: suspend (ByteArray) -> Result<String>,
+	onVoiceText: (String) -> Unit,
 	context: ContextUsage,
 	showContextDetail: Boolean,
 	onToggleContextDetail: () -> Unit,
@@ -3769,6 +3790,128 @@ private fun Composer(
 	onClearCompaction: () -> Unit,
 	modifier: Modifier = Modifier,
 ) {
+	val voiceContext = LocalContext.current
+	val recorder = remember { VoiceRecorder(voiceContext) }
+	DisposableEffect(recorder) {
+		onDispose { recorder.cancel() }
+	}
+	val voiceScope = rememberCoroutineScope()
+	var recording by remember { mutableStateOf(false) }
+	var voiceBusy by remember { mutableStateOf(false) }
+	var voiceError by remember { mutableStateOf<String?>(null) }
+	var costAcknowledged by rememberSaveable { mutableStateOf(false) }
+	var showVoiceCost by remember { mutableStateOf(false) }
+	var elapsedSeconds by remember { mutableStateOf(0) }
+	val emptyVoice = stringResource(R.string.chat_voice_empty)
+	val permissionVoice = stringResource(R.string.chat_voice_permission)
+	val tooLongVoice = stringResource(R.string.chat_voice_too_long)
+	val voiceBusyLabel = stringResource(R.string.chat_voice_busy)
+	val identity = stringResource(R.string.chat_voice_recording)
+
+	fun stopAndTranscribe() {
+		recording = false
+		val wav = recorder.stop()
+		if (wav == null) {
+			voiceError = emptyVoice
+			return
+		}
+		voiceBusy = true
+		voiceScope.launch {
+			onTranscribeVoice(wav).fold(
+				onSuccess = { text ->
+					if (text.isBlank()) {
+						voiceError = emptyVoice
+					} else {
+						voiceError = null
+						onVoiceText(text)
+					}
+				},
+				onFailure = { failure ->
+					voiceError = voiceContext.getString(
+						R.string.chat_voice_failed,
+						failure.message ?: emptyVoice,
+					)
+				},
+			)
+			voiceBusy = false
+		}
+	}
+
+	fun beginRecording() {
+		if (!recorder.hasPermission()) {
+			voiceError = permissionVoice
+			return
+		}
+		val started = recorder.start(
+			onLimit = {
+				voiceScope.launch {
+					if (recorder.isRecording) stopAndTranscribe()
+					voiceError = tooLongVoice
+				}
+			},
+		)
+		if (started) {
+			recording = true
+			elapsedSeconds = 0
+			voiceError = null
+		} else {
+			voiceError = voiceContext.getString(R.string.chat_voice_not_configured)
+		}
+	}
+
+	val permission = rememberLauncherForActivityResult(
+		ActivityResultContracts.RequestPermission(),
+	) { granted ->
+		if (granted) beginRecording() else voiceError = permissionVoice
+	}
+
+	val voiceStatus = when {
+		recording -> "${elapsedSeconds}s · $identity"
+		voiceBusy -> voiceBusyLabel
+		voiceError != null -> voiceError
+		else -> null
+	}
+
+	LaunchedEffect(recording) {
+		if (!recording) {
+			elapsedSeconds = 0
+			return@LaunchedEffect
+		}
+		val startedAt = System.currentTimeMillis()
+		while (recording) {
+			elapsedSeconds = ((System.currentTimeMillis() - startedAt) / 1000).toInt()
+			kotlinx.coroutines.delay(250)
+		}
+	}
+
+	if (showVoiceCost) {
+		AlertDialog(
+			onDismissRequest = { showVoiceCost = false },
+			title = { Text(stringResource(R.string.chat_voice_hold)) },
+			text = { Text(stringResource(R.string.chat_voice_cost)) },
+			confirmButton = {
+				TextButton(
+					onClick = {
+						showVoiceCost = false
+						costAcknowledged = true
+						if (recorder.hasPermission()) {
+							beginRecording()
+						} else {
+							permission.launch(Manifest.permission.RECORD_AUDIO)
+						}
+					},
+				) {
+					Text(stringResource(R.string.common_ok))
+				}
+			},
+			dismissButton = {
+				TextButton(onClick = { showVoiceCost = false }) {
+					Text(stringResource(R.string.common_cancel))
+				}
+			},
+		)
+	}
+
 	Column(modifier = modifier) {
 		Hairline()
 		// Above the field and right-aligned, so it reads as a status of the
@@ -3828,6 +3971,23 @@ private fun Composer(
 			}
 		}
 
+		voiceStatus?.let { status ->
+			Text(
+				text = status,
+				style = MaterialTheme.typography.labelSmall,
+				color = if (voiceError != null) {
+					MaterialTheme.colorScheme.error
+				} else {
+					MaterialTheme.colorScheme.onSurfaceVariant
+				},
+				modifier = Modifier.padding(
+					start = comfortableGutter(),
+					end = comfortableGutter(),
+					top = 4.dp,
+				),
+			)
+		}
+
 		Row(
 			modifier = Modifier
 				.fillMaxWidth()
@@ -3835,6 +3995,43 @@ private fun Composer(
 			verticalAlignment = Alignment.Bottom,
 			horizontalArrangement = Arrangement.spacedBy(8.dp),
 		) {
+			if (voiceEnabled) {
+				IconButton(
+					onClick = {},
+					enabled = enabled && !isStreaming && !isCompacting && !voiceBusy,
+					modifier = Modifier
+						.padding(bottom = 4.dp)
+						.pointerInput(enabled, isStreaming, isCompacting, voiceBusy, costAcknowledged) {
+							detectTapGestures(onPress = {
+								if (!enabled || isStreaming || isCompacting || voiceBusy) {
+									return@detectTapGestures
+								}
+								if (!costAcknowledged) {
+									showVoiceCost = true
+									return@detectTapGestures
+								}
+								if (!recorder.hasPermission()) {
+									permission.launch(Manifest.permission.RECORD_AUDIO)
+									return@detectTapGestures
+								}
+								beginRecording()
+								tryAwaitRelease()
+								if (recorder.isRecording) stopAndTranscribe()
+							})
+						},
+				) {
+					Icon(
+						Icons.Filled.Mic,
+						contentDescription = stringResource(R.string.chat_voice_hold),
+						tint = if (recording) {
+							MaterialTheme.colorScheme.primary
+						} else {
+							MaterialTheme.colorScheme.onSurfaceVariant
+						},
+					)
+				}
+			}
+
 			// Present but disabled when the model cannot see, rather than hidden.
 			//
 			// A control that vanishes leaves someone wondering where it went; one

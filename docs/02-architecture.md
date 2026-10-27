@@ -354,7 +354,7 @@ update/log scripts build an APK or serve it.
 | Script | What it does |
 | --- | --- |
 | `build-and-shot.ps1` | The whole loop: build, install, launch, screenshot with brightness check. `-Serial`, `-Label`, `-SkipBuild`. |
-| `ci.ps1` | The verification gate a CI host calls: runs `setup-machine.ps1`, then `:app:assembleDebug` plus every JVM test with `--rerun-tasks --no-build-cache`, and fails on any compiler warning (a Kotlin daemon lifecycle notice is not a compiler warning and is excluded). `-SkipDesktop`, `-LogPath`. |
+| `ci.ps1` | The verification gate a CI host calls: runs `setup-machine.ps1`, then `:app:assembleDebug` plus every JVM test with `--rerun-tasks --no-build-cache --no-configuration-cache`, and fails on any compiler warning (a Kotlin daemon lifecycle notice is not a compiler warning and is excluded). `-SkipDesktop`, `-LogPath`. |
 | `start-server.cmd` | Double-click launcher for `dev-server.py` on port 8787; prints the LAN/Tailscale URLs and keeps the console open. Closing it stops the server. |
 | `release-apk.ps1` | Builds `:app:assembleRelease`, verifies the APK with `apksigner`, computes SHA-256 and writes `dist/update.json` plus the APK for the in-app updater. |
 | `dev-server.py` | Standard-library Python server for a LAN/Tailscale link: serves `dist/` at `/update.json` and the APK, and accepts `POST /log` into `logs/`. No authentication; bind only on a trusted network. |

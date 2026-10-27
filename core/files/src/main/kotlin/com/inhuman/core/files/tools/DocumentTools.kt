@@ -8,6 +8,7 @@ import com.inhuman.core.documents.Csv
 import com.inhuman.core.documents.DocFormat
 import com.inhuman.core.documents.Docx
 import com.inhuman.core.documents.Document
+import com.inhuman.core.documents.DocumentBackends
 import com.inhuman.core.documents.DocumentException
 import com.inhuman.core.documents.DocumentLimits
 import com.inhuman.core.documents.LossKind
@@ -33,10 +34,13 @@ import java.io.File
  */
 object DocumentTools {
 
-	fun all(workspace: SessionWorkspace): List<Tool> = listOf(
-		ReadDocumentTool(workspace),
-		WriteDocumentTool(workspace),
-		ConvertDocumentTool(workspace),
+	fun all(
+		workspace: SessionWorkspace,
+		backends: DocumentBackends = DocumentBackends.NONE,
+	): List<Tool> = listOf(
+		ReadDocumentTool(workspace, backends),
+		WriteDocumentTool(workspace, backends),
+		ConvertDocumentTool(workspace, backends),
 	)
 }
 
@@ -45,13 +49,23 @@ private const val DOCUMENT_READ_BYTES = DocumentLimits.MAX_BYTES
 private fun documentPath(description: String): Map<String, Any?> =
 	mapOf("type" to "string", "description" to description)
 
-private fun readDocument(file: File, format: DocFormat, sheet: String?): Document {
-	val bytes = file.readBytes()
-	if (bytes.size > DOCUMENT_READ_BYTES) {
+private fun readLimited(file: File): ByteArray {
+	if (file.length() > DOCUMENT_READ_BYTES) {
 		throw IllegalArgumentException(
-			"${file.name} is ${bytes.size} bytes, over the ${DOCUMENT_READ_BYTES}-byte document limit.",
+			"${file.name} is ${file.length()} bytes, over the ${DOCUMENT_READ_BYTES}-byte document limit.",
 		)
 	}
+	return file.readBytes()
+}
+
+private fun readDocument(
+	file: File,
+	format: DocFormat,
+	sheet: String?,
+	pages: String?,
+	backends: DocumentBackends,
+): Document {
+	val bytes = readLimited(file)
 	return when (format) {
 		DocFormat.Csv -> {
 			val text = bytes.toString(Charsets.UTF_8)
@@ -85,14 +99,66 @@ private fun readDocument(file: File, format: DocFormat, sheet: String?): Documen
 			}
 			selected
 		}
-		DocFormat.Pdf, DocFormat.Doc, DocFormat.Xls -> throw IllegalArgumentException(
-			"${format.extension.uppercase()} reading is not wired into this build yet.",
-		)
+		DocFormat.Pdf -> {
+			val backend = backends.pdf
+				?: throw IllegalArgumentException("PDF reading is not available on this host.")
+			val read = office("could not read PDF") {
+				backend.read(bytes, parsePageRange(pages))
+			}
+			Document(
+				format = format,
+				pages = read.pages,
+				truncated = read.pages.size >= DocumentLimits.MAX_PAGES,
+				warnings = read.warnings,
+			)
+		}
+		DocFormat.Doc -> {
+			val backend = backends.legacy
+				?: throw IllegalArgumentException("DOC reading is not available on this host.")
+			Document(
+				format = format,
+				blocks = office("could not read DOC") { backend.readDoc(bytes) },
+				warnings = listOf(
+					"unsupported: DOC formatting and tables are not represented; " +
+						"use DOCX for structure.",
+				),
+			)
+		}
+		DocFormat.Xls -> {
+			val backend = backends.legacy
+				?: throw IllegalArgumentException("XLS reading is not available on this host.")
+			Document(format = format, sheets = office("could not read XLS") { backend.readXls(bytes) })
+		}
 		DocFormat.Unknown -> throw IllegalArgumentException(
-			"unsupported document format; supported: csv, txt, docx, xlsx.",
+			"unsupported document format; supported: csv, txt, docx, xlsx, pdf, doc, xls.",
 		)
 	}
 }
+
+private fun parsePageRange(text: String?): IntRange? {
+	if (text.isNullOrBlank()) return null
+	val parts = text.trim().split('-').mapNotNull { it.trim().toIntOrNull() }
+	return when (parts.size) {
+		1 -> parts[0].coerceAtLeast(1).let { it..it }
+		2 -> {
+			val start = parts[0].coerceAtLeast(1)
+			val end = parts[1].coerceAtLeast(start)
+			start..end
+		}
+		else -> throw IllegalArgumentException("pages must look like 1-5.")
+	}
+}
+
+private inline fun <T> office(what: String, block: () -> T): T = try {
+	block()
+} catch (e: LinkageError) {
+	throw IllegalArgumentException("$what: a required platform class is missing (${e.javaClass.simpleName}).")
+} catch (e: Exception) {
+	throw IllegalArgumentException("$what: ${e.message ?: e.javaClass.simpleName}")
+}
+
+private fun blocksToText(blocks: List<Block>): String =
+	Document(format = DocFormat.Text, blocks = blocks).plainText()
 
 private fun lossFor(source: Document, target: DocFormat): LossReport {
 	var loss = LossReport(
@@ -127,21 +193,24 @@ private fun render(document: Document): String = buildString {
 private fun rowsFromTables(tables: List<List<List<String>>>): List<List<String>> =
 	tables.firstOrNull().orEmpty().map { row -> row.toList() }
 
-private class ReadDocumentTool(workspace: SessionWorkspace) :
+private class ReadDocumentTool(
+	workspace: SessionWorkspace,
+	private val backends: DocumentBackends,
+) :
 	WorkspaceTool(workspace), Tool {
 
 	override val name = "read_document"
 	override val mutates = false
 	override val description =
-		"Read a CSV, TXT, DOCX or XLSX file from the workspace. Returns the text, " +
-			"table or sheet contents plus any warnings; it never guesses at an " +
+		"Read a CSV, TXT, DOCX, XLSX, PDF, DOC or XLS file from the workspace. Returns " +
+			"the text, table or sheet contents plus any warnings; it never guesses at an " +
 			"unreadable file. Use pages or sheet to read only part of a large document."
 	override val parameters = mapOf(
 		"type" to "object",
 		"properties" to mapOf(
 			"path" to documentPath("Workspace-relative document path."),
 			"sheet" to mapOf("type" to "string", "description" to "XLSX sheet name."),
-			"pages" to mapOf("type" to "string", "description" to "Page range for later PDF support, e.g. 1-5."),
+			"pages" to mapOf("type" to "string", "description" to "PDF page range, e.g. 1-5."),
 		),
 		"required" to listOf("path"),
 	)
@@ -153,22 +222,34 @@ private class ReadDocumentTool(workspace: SessionWorkspace) :
 		if (file.isDirectory) throw Refused("$path is a directory, not a document")
 		val format = DocFormat.fromName(file.name)
 		try {
-			render(readDocument(file, format, arguments.optionalString("sheet")))
+			render(
+				readDocument(
+					file = file,
+					format = format,
+					sheet = arguments.optionalString("sheet"),
+					pages = arguments.optionalString("pages"),
+					backends = backends,
+				),
+			)
 		} catch (e: DocumentException) {
 			throw Refused("could not read $path: ${e.message}")
 		}
 	}
 }
 
-private class WriteDocumentTool(workspace: SessionWorkspace) :
+private class WriteDocumentTool(
+	workspace: SessionWorkspace,
+	private val backends: DocumentBackends,
+) :
 	WorkspaceTool(workspace), Tool {
 
 	override val name = "write_document"
 	override val mutates = true
 	override val description =
-		"Create or replace a CSV, TXT, DOCX or XLSX document in the workspace from " +
-			"a title, paragraphs, tables and/or sheets. Existing DOCX/XLSX files are " +
-			"modified while unrelated package parts are preserved."
+		"Create or replace a CSV, TXT, DOCX, XLSX, PDF or XLS document in the workspace " +
+			"from a title, paragraphs, tables and/or sheets. Existing DOCX/XLSX files are " +
+			"modified while unrelated package parts are preserved. DOC writing is refused; " +
+			"use DOCX instead."
 	override val parameters = mapOf(
 		"type" to "object",
 		"properties" to mapOf(
@@ -213,7 +294,7 @@ private class WriteDocumentTool(workspace: SessionWorkspace) :
 		val file = resolve(path).getOrElse { throw it }
 		val format = DocFormat.fromName(path)
 		if (format == DocFormat.Unknown) {
-			throw Refused("unsupported document extension; use csv, txt, docx or xlsx")
+			throw Refused("unsupported document extension; use csv, txt, docx, xlsx, pdf or xls")
 		}
 		val title = arguments.optionalString("title")?.takeIf { it.isNotBlank() }
 		val paragraphs = stringList(arguments["paragraphs"])
@@ -241,7 +322,7 @@ private class WriteDocumentTool(workspace: SessionWorkspace) :
 					.toByteArray()
 			}
 			DocFormat.Docx -> {
-				val previous = if (file.exists() && file.isFile) file.readBytes() else null
+				val previous = if (file.exists() && file.isFile) readLimited(file) else null
 				try {
 					Docx.write(blocks, previous)
 				} catch (e: DocumentException) {
@@ -249,14 +330,32 @@ private class WriteDocumentTool(workspace: SessionWorkspace) :
 				}
 			}
 			DocFormat.Xlsx -> {
-				val previous = if (file.exists() && file.isFile) file.readBytes() else null
+				val previous = if (file.exists() && file.isFile) readLimited(file) else null
 				try {
 					Xlsx.write(xlsxSheets(sheets, tables, paragraphs), previous)
 				} catch (e: DocumentException) {
 					throw Refused("could not write $path: ${e.message}")
 				}
 			}
-			else -> throw Refused("writing ${format.extension.uppercase()} is not wired into this build yet")
+			DocFormat.Pdf -> {
+				val backend = backends.pdf
+					?: throw Refused("PDF writing is not available on this host")
+				office("could not write PDF") {
+					backend.write(listOf(blocksToText(blocks)))
+				}
+			}
+			DocFormat.Doc -> {
+				val backend = backends.legacy
+					?: throw Refused("DOC writing is not available on this host")
+				office("could not write DOC") { backend.writeDoc(blocks) }
+			}
+			DocFormat.Xls -> {
+				val backend = backends.legacy
+					?: throw Refused("XLS writing is not available on this host")
+				office("could not write XLS") {
+					backend.writeXls(xlsxSheets(sheets, tables, paragraphs))
+				}
+			}
 		}
 		val size = writeBytes(file, bytes)
 		"wrote ${workspace.relativize(file)} (${format.extension}, $size bytes)"
@@ -273,15 +372,18 @@ private class WriteDocumentTool(workspace: SessionWorkspace) :
 	}
 }
 
-private class ConvertDocumentTool(workspace: SessionWorkspace) :
+private class ConvertDocumentTool(
+	workspace: SessionWorkspace,
+	private val backends: DocumentBackends,
+) :
 	WorkspaceTool(workspace), Tool {
 
 	override val name = "convert_document"
 	override val mutates = true
 	override val description =
-		"Convert a workspace document between CSV, TXT, DOCX and XLSX. Reports " +
-			"exactly what was lost (formatting, formulas, sheets) instead of " +
-			"claiming a clean conversion."
+		"Convert a workspace document between CSV, TXT, DOCX, XLSX, PDF and XLS. DOC is " +
+			"read-only. Reports exactly what was lost (formatting, formulas, sheets) " +
+			"instead of claiming a clean conversion."
 	override val parameters = mapOf(
 		"type" to "object",
 		"properties" to mapOf(
@@ -303,15 +405,20 @@ private class ConvertDocumentTool(workspace: SessionWorkspace) :
 		val sourceFormat = DocFormat.fromName(sourceFile.name)
 		val targetFormat = DocFormat.fromName(targetPath)
 		if (sourceFormat == DocFormat.Unknown || targetFormat == DocFormat.Unknown) {
-			throw Refused("unsupported conversion; supported: csv, txt, docx, xlsx")
+			throw Refused("unsupported conversion; supported: csv, txt, docx, xlsx, pdf, doc, xls")
 		}
 		if (sourceFormat == targetFormat) {
-			val bytes = sourceFile.readBytes()
-			writeBytes(targetFile, bytes)
+			writeBytes(targetFile, readLimited(sourceFile))
 			return@guard "copied ${sourceFile.name} to $targetPath (same format; no conversion)"
 		}
 		val doc = try {
-			readDocument(sourceFile, sourceFormat, arguments.optionalString("sheet"))
+			readDocument(
+				sourceFile,
+				sourceFormat,
+				arguments.optionalString("sheet"),
+				arguments.optionalString("pages"),
+				backends,
+			)
 		} catch (e: DocumentException) {
 			throw Refused("could not read $sourcePath: ${e.message}")
 		}
@@ -321,7 +428,23 @@ private class ConvertDocumentTool(workspace: SessionWorkspace) :
 			DocFormat.Text -> doc.plainText().toByteArray()
 			DocFormat.Docx -> Docx.write(blocksFor(doc))
 			DocFormat.Xlsx -> Xlsx.write(sheetsFor(doc))
-			else -> throw Refused("conversion to ${targetFormat.extension.uppercase()} is not wired into this build yet")
+			DocFormat.Pdf -> {
+				val backend = backends.pdf
+					?: throw Refused("PDF writing is not available on this host")
+				office("could not convert to PDF") {
+					backend.write(listOf(blocksToText(blocksFor(doc))))
+				}
+			}
+			DocFormat.Doc -> {
+				val backend = backends.legacy
+					?: throw Refused("DOC writing is not available on this host")
+				office("could not convert to DOC") { backend.writeDoc(blocksFor(doc)) }
+			}
+			DocFormat.Xls -> {
+				val backend = backends.legacy
+					?: throw Refused("XLS writing is not available on this host")
+				office("could not convert to XLS") { backend.writeXls(sheetsFor(doc)) }
+			}
 		}
 		writeBytes(targetFile, bytes)
 		val tail = if (loss.complete) "no loss reported" else "loss: ${loss.summary()}"

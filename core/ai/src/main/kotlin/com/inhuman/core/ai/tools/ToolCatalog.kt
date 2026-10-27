@@ -106,7 +106,7 @@ object ToolCatalog {
 		),
 		Entry(
 			"read_document",
-			"Read a CSV, TXT, DOCX or XLSX document",
+			"Read a CSV, TXT, DOCX, XLSX, PDF, DOC or XLS document",
 			mutates = false,
 			workspaceBound = true,
 		),
@@ -242,13 +242,13 @@ object ToolCatalog {
 		Entry("delete_file", "Delete from the folder", mutates = true, workspaceBound = true),
 		Entry(
 			"write_document",
-			"Create or replace a CSV, TXT, DOCX or XLSX document",
+			"Create or replace a CSV, TXT, DOCX, XLSX, PDF or XLS document",
 			mutates = true,
 			workspaceBound = true,
 		),
 		Entry(
 			"convert_document",
-			"Convert between CSV, TXT, DOCX and XLSX",
+			"Convert between CSV, TXT, DOCX, XLSX, PDF and XLS (DOC read-only)",
 			mutates = true,
 			workspaceBound = true,
 		),

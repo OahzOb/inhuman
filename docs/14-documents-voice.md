@@ -2,9 +2,11 @@
 
 Status: design decision, 2026-10-27. It is written before the implementation so
 the trade-offs are reviewable; the sections marked *planned* are the remaining
-work, not claims about today. CSV, TXT, DOCX and XLSX read/write/convert, the
-neutral model and the three tools are implemented in `:core:documents` and
-`:core:files`. PDF, legacy DOC/XLS and voice remain.
+work, not claims about today. CSV, TXT, DOCX, XLSX and PDF read/write/convert,
+XLS read/write, DOC read, the neutral model, the three tools and Android voice
+input are implemented in `:core:documents`, `:core:files` and `:app`. DOC
+creation is refused: it needs a Word 97 template, and generating a fake `.doc`
+would violate the "do not claim what the file is" rule.
 
 `13-product.md` is the product statement: documents must be read, written and
 converted without silently losing content, and voice input must put the user's
@@ -61,8 +63,8 @@ Why the split:
   maintained Android port of PDFBox. The reader extracts text per page; it does
   not reconstruct columns, tables or reading order, and it does not OCR. A
   scanned PDF is reported as "no text layer", not as an empty document. Writing
-  PDF goes through the same library with a deliberately simple layout; the
-  original layout is not preserved when converting a DOCX to PDF.
+  PDF uses Android's platform PDF writer, because PDFBox's standard fonts cannot
+  draw CJK; the original layout is not preserved when converting a DOCX to PDF.
 - **CSV is not Excel.** It has no types, no formulas and no sheets. Reading a
   sheet to CSV reports the sheet that was chosen and that formulas became their
   cached values; writing CSV from a multi-sheet workbook is refused unless the
