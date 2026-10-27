@@ -432,6 +432,15 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   database and workspace directory before any repository opens Room. The current
   files are renamed aside first and restored if the swap fails. Never perform
   this while a Room connection is open. API keys are intentionally absent.
+- **Turns are bounded: one per conversation, two per process, one tool at a
+  time.** `isStreaming` is the per-conversation gate; `TurnConcurrency` is the
+  process gate, acquired in `runTurn` after the no-key/no-model refusals and
+  released in `finally`, so a stop or a throw cannot leak a slot. The third turn
+  is **refused with an error, not queued** -- a queue nobody can see is a turn
+  the user thinks has started. The engine executes calls sequentially and a test
+  measures overlap at one; do not port the desktop's parallel calls or add a
+  subagent without answering `docs/08-port-philosophy.md` Q4 (subagents: one,
+  serial, non-recursive).
 - **Turn notifications are keyed by conversation.** `ChatViewModel` reports a
   `TurnStatus`; `MainActivity` passes it to `TurnNotifications`; the foreground
   service renders one notification per active turn, and a summary only when

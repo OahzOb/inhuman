@@ -96,7 +96,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 Latest run (2026-10-27, through `tools/ci.ps1`):
 
 ```
-BUILD SUCCESSFUL, 626 tests in 94 suites, 0 failures, 4 skipped
+BUILD SUCCESSFUL, 630 tests in 95 suites, 0 failures, 4 skipped
 warnings 0, errors 0
 ```
 
@@ -111,10 +111,10 @@ The skips are external-credential live tests: `DeepSeekWebLiveTest`,
 | --- | --- | --- |
 | `:core:ai` | 38 | 288 (3 skipped) |
 | `:core:files` | 7 | 68 |
-| `:app` | 24 | 171 |
+| `:app` | 25 | 174 |
 | `:core:common` | 2 | 16 |
 | `:core:db` | 5 | 17 |
-| `:core:engine` | 2 | 10 (1 skipped) |
+| `:core:engine` | 2 | 11 (1 skipped) |
 | `:core:data` | 3 | 19 |
 | `:desktopApp` | 13 | 37 |
 

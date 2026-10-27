@@ -16,6 +16,7 @@ import com.inhuman.core.files.tools.FileTools
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -27,6 +28,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 class ChatEngineTest {
 
@@ -221,6 +223,28 @@ class ChatEngineTest {
 		assertEquals(1, tool.executions)
 	}
 
+	@Test
+	fun `two calls in one round run one at a time`() = runBlocking {
+		// The mobile ceiling is one tool at a time (docs/08 Q4: the desktop's
+		// parallel calls are deliberately not ported). This pins the property
+		// by measuring overlap, not by reading the loop: a future "run them
+		// concurrently" change would raise `maxConcurrent` above one.
+		val tool = ConcurrencyTrackingTool()
+		val events = ChatEngine(TwoCalls(tool.name)).run(
+			EngineTurn(
+				model = "scripted",
+				messages = listOf(ChatMessage(Role.User, "two calls")),
+				tools = listOf(tool),
+				maxRounds = 3,
+				maxCalls = 4,
+			),
+		).toList()
+
+		assertEquals(2, tool.executions)
+		assertEquals(1, tool.maxConcurrent.get())
+		assertTrue(events.any { it is EngineEvent.Finished })
+	}
+
 	/** Emits one call, then answers with text on the next request. */
 	private class AnswersAfterOneCall(
 		private val callId: String,
@@ -256,6 +280,54 @@ class ChatEngineTest {
 			emit(StreamChunk.ToolCallDelta(0, inputDelta = "{}"))
 			emit(StreamChunk.ToolCallEnd(0))
 			emit(StreamChunk.Finish(FinishReason.ToolCalls))
+		}
+	}
+
+	/** Asks for two calls in the same round, then answers. */
+	private class TwoCalls(private val toolName: String) : ChatProvider {
+		override val id = "scripted"
+		override suspend fun listModels(): List<RemoteModel> = emptyList()
+		private var round = 0
+
+		override fun stream(request: ChatRequest): Flow<StreamChunk> = flow {
+			if (round++ == 0) {
+				emit(StreamChunk.ToolCallStart(0, "call-1", toolName))
+				emit(StreamChunk.ToolCallDelta(0, inputDelta = "{}"))
+				emit(StreamChunk.ToolCallEnd(0))
+				emit(StreamChunk.ToolCallStart(1, "call-2", toolName))
+				emit(StreamChunk.ToolCallDelta(1, inputDelta = "{}"))
+				emit(StreamChunk.ToolCallEnd(1))
+				emit(StreamChunk.Finish(FinishReason.ToolCalls))
+			} else {
+				emit(StreamChunk.TextDelta("done"))
+				emit(StreamChunk.Finish(FinishReason.Stop))
+			}
+		}
+	}
+
+	/**
+	 * Records how many `execute` calls were inside each other.
+	 *
+	 * The delay is what gives a concurrent implementation a chance to overlap;
+	 * without it the two calls would finish so fast that the measurement would
+	 * pass by accident.
+	 */
+	private class ConcurrencyTrackingTool : Tool {
+		override val name = "probe"
+		override val description = "probe"
+		override val parameters: Map<String, Any?> = mapOf("type" to "object")
+		override val mutates = false
+		var executions = 0
+		val maxConcurrent = AtomicInteger(0)
+		private val active = AtomicInteger(0)
+
+		override suspend fun execute(arguments: JsonObject): ToolResult {
+			executions++
+			val now = active.incrementAndGet()
+			maxConcurrent.updateAndGet { current -> maxOf(current, now) }
+			delay(40)
+			active.decrementAndGet()
+			return ToolResult.ok("ok")
 		}
 	}
 

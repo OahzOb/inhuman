@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inhuman.TurnConcurrency
 import com.inhuman.ui.common.formatBytes
 import com.inhuman.R
 import com.inhuman.TurnNotifications
@@ -2853,7 +2854,30 @@ class ChatViewModel(
 			}
 			return
 		}
-		runTurnWithEngine(provider, turnModel, demo, includeTools, suppressToolCalls, continuation)
+
+		// The process-wide ceiling. Acquired here, after the cheap refusals and
+		// before the first byte, and released in `finally` so a stop, a
+		// cancellation or a provider throw cannot leak a slot. The
+		// per-conversation gate is `isStreaming`; this bounds *different*
+		// conversations.
+		if (!TurnConcurrency.tryAcquire()) {
+			Diag.w("turn", "refused: ${TurnConcurrency.current} turns already active")
+			_state.update {
+				it.copy(
+					isStreaming = false,
+					error = context.getString(
+						R.string.chat_error_too_many_turns,
+						TurnConcurrency.MAX_ACTIVE_TURNS,
+					),
+				)
+			}
+			return
+		}
+		try {
+			runTurnWithEngine(provider, turnModel, demo, includeTools, suppressToolCalls, continuation)
+		} finally {
+			TurnConcurrency.release()
+		}
 	}
 
 	/**

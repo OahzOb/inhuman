@@ -922,6 +922,7 @@
 	<string name="chat_error_media_not_configured">Configure this media tool in Settings → 02 / Web &amp; media.</string>
 	<string name="chat_error_text_only_tool_call">The model tried to call a tool during a text-only retry. Nothing was executed.</string>
 	<string name="chat_error_round_limit">Stopped after %1$d tool rounds. The assistant may be looping; raise the limit in the chat menu, or send another message to continue.</string>
+	<string name="chat_error_too_many_turns">Up to %1$d replies can run at once. Wait for one to finish, or stop one.</string>
 	<string name="chat_error_call_limit">Stopped after %1$d tool calls. The assistant may be looping; raise the call limit in Settings, or send another message to continue.</string>
 	<string name="chat_error_workspace_open_failed">The workspace for this conversation could not be opened, so file tools are unavailable: %1$s</string>
 	<string name="workspace_error_delete_conversations_first">This workspace still has conversations. Delete them first.</string>

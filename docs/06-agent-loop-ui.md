@@ -138,6 +138,27 @@ checkpoint is reused when it exists (`turnSnapshotReady` is set from
 `hasStartCheckpoint`), so Rewind still goes back to before the user's message
 instead of treating the resume point as the beginning of the turn.
 
+### Concurrency ceilings
+
+Three hard numbers, none of them a setting:
+
+| Scope | Limit | Where it is enforced |
+| --- | --- | --- |
+| One conversation | 1 turn | `ChatViewModel.isStreaming`; `send`, `regenerate`, `regenerateFrom` and `continueInterruptedTurn` all refuse while it is true |
+| The process | 2 turns | `TurnConcurrency.tryAcquire()` in `runTurn`, released in `finally`; the third turn gets `chat_error_too_many_turns` and is **not queued** |
+| One turn | 1 tool at a time | The engine's sequential `for (call in calls)`; `ChatEngineTest`'s "two calls in one round run one at a time" measures overlap |
+
+Two is one visible turn plus one in the background. A queue was rejected: the
+user would believe a turn had started when it had not, and no screen would show
+the queue. The permit is taken after the cheap refusals (no key, no model) and
+released on stop, cancellation and failure, so a stopped turn cannot keep a slot.
+
+**Subagents do not exist**, so their ceiling is 0. If one is ever added,
+`docs/08-port-philosophy.md` Q4 already fixes its shape: one at a time, serial,
+and no recursion. Parallel tool calls are likewise not ported: the engine's
+approval, checkpoint and cancellation ordering all assume one call at a time,
+and the "2–3" from that note was spent on concurrent *conversations* instead.
+
 ### The approval plumbing
 
 One `CancellableContinuation<Boolean>` field, set by `awaitApproval()`.

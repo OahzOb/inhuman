@@ -898,6 +898,7 @@
 	<string name="chat_error_media_not_configured">请在 设置 → 02 / 网络与媒体 里配置这个媒体工具。</string>
 	<string name="chat_error_text_only_tool_call">模型在纯文本重试中尝试调用工具，未执行任何操作。</string>
 	<string name="chat_error_round_limit">已达到 %1$d 轮工具调用上限。助手可能陷入了循环；可以在聊天菜单里调高上限，或再发一条消息继续。</string>
+	<string name="chat_error_too_many_turns">同时最多只能跑 %1$d 个回合。等一个结束，或先停一个。</string>
 	<string name="chat_error_call_limit">已达到 %1$d 次工具调用上限。助手可能陷入了循环；可以在设置里调高上限，或再发一条消息继续。</string>
 	<string name="chat_error_workspace_open_failed">无法打开这个对话的工作区，因此文件工具不可用：%1$s</string>
 	<string name="workspace_error_delete_conversations_first">这个工作区还有对话，请先删除它们。</string>
