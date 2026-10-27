@@ -69,6 +69,7 @@ import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.List
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -115,6 +116,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.inhuman.AppCapabilities
 import com.inhuman.R
 import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.data.ApprovalRecord
@@ -123,6 +125,7 @@ import com.inhuman.core.data.SnapshotStats
 import com.inhuman.core.data.SnapshotTurn
 import com.inhuman.core.data.WorkspaceChange
 import com.inhuman.core.data.db.ApprovalDecision
+import com.inhuman.core.files.WorkspaceSelfCheck
 import com.inhuman.core.design.Eyebrow
 import com.inhuman.core.design.currentWindowFrame
 import com.inhuman.core.design.Hairline
@@ -420,7 +423,12 @@ fun ChatScreen(
 	val conversationTools by fieldOf(viewModel.state, null) { it.conversationTools }
 	val toolsKnown by fieldOf(viewModel.state, false) { it.toolsKnown }
 	val toolPlan = remember(agentTools, conversationTools, sshToolEnabled) {
-		conversationToolPlan(sshToolEnabled, agentTools, conversationTools)
+		conversationToolPlan(
+			sshEnabled = sshToolEnabled,
+			agentTools = agentTools,
+			conversationTools = conversationTools,
+			workspaceToolsEnabled = AppCapabilities.workspaceOk,
+		)
 	}
 	val rollbackAvailable by fieldOf(viewModel.state, false) { it.rollbackAvailable }
 	val rollbackBlockedReason by fieldOf(viewModel.state, null) { it.rollbackBlockedReason }
@@ -474,6 +482,7 @@ fun ChatScreen(
 	var showApprovalHistory by remember { mutableStateOf(false) }
 	var approvalHistory by remember { mutableStateOf<List<ApprovalRecord>?>(null) }
 	var approvalHistoryFailed by remember { mutableStateOf(false) }
+	var showCapabilityDetails by remember { mutableStateOf(false) }
 	LaunchedEffect(showApprovalHistory) {
 		if (showApprovalHistory) {
 			approvalHistory = null
@@ -498,7 +507,7 @@ fun ChatScreen(
 		pendingSshConsent != null || rollbackTarget != null || showRewindDialog ||
 		showCompactPreview || showCompactionSummary ||
 		showSnapshotDialog || showToolLimitDialog || showRenameDialog || showWireDialog ||
-		showApprovalHistory ||
+		showApprovalHistory || showCapabilityDetails ||
 		turnWireMessages != null || showToolsDialog || showTurnPicker ||
 			showSaveWorkspaceDialog || showExportDialog
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
@@ -1058,6 +1067,17 @@ fun ChatScreen(
 				// nothing to measure -- the composer stayed under the keyboard.
 				.imePadding(),
 		) {
+			// The failure is process-wide and set before the first frame, so it
+			// is read here rather than threaded through every screen. It sits
+			// above the transcript because it changes what the transcript can
+			// be asked to do.
+			AppCapabilities.workspaceCheck?.let { report ->
+				if (!report.ok) {
+					WorkspaceCapabilityBanner(
+						onShowDetails = { showCapabilityDetails = true },
+					)
+				}
+			}
 			// Read inside this lambda, so a new message or a streamed token
 			// invalidates the list rather than the whole screen. See the note
 			// above the state reads.
@@ -1748,6 +1768,15 @@ fun ChatScreen(
 			failed = approvalHistoryFailed,
 			onDismiss = { showApprovalHistory = false },
 		)
+	}
+
+	if (showCapabilityDetails) {
+		AppCapabilities.workspaceCheck?.let { report ->
+			WorkspaceSelfCheckDialog(
+				report = report,
+				onDismiss = { showCapabilityDetails = false },
+			)
+		}
 	}
 
 	rollbackTarget?.let { target ->
@@ -2592,6 +2621,130 @@ private fun ChatWelcome(
 		}
 	}
 }
+
+/**
+ * A persistent strip when the device failed its own fence check.
+ *
+ * It deliberately sits outside the scrolling transcript: the tools are absent
+ * for every turn, and a warning that scrolls away with last week's messages is
+ * a warning the user will not see when the agent says it has no hands.
+ */
+@Composable
+private fun WorkspaceCapabilityBanner(onShowDetails: () -> Unit) {
+	Surface(color = MaterialTheme.colorScheme.errorContainer) {
+		Row(
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(horizontal = comfortableGutter(), vertical = 10.dp),
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
+		) {
+			Icon(
+				Icons.Filled.Warning,
+				contentDescription = null,
+				tint = MaterialTheme.colorScheme.onErrorContainer,
+				modifier = Modifier.size(20.dp),
+			)
+			Column(modifier = Modifier.weight(1f)) {
+				Text(
+					text = stringResource(R.string.capability_banner_title),
+					style = MaterialTheme.typography.titleSmall,
+					color = MaterialTheme.colorScheme.onErrorContainer,
+				)
+				Text(
+					text = stringResource(R.string.capability_banner_body),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onErrorContainer,
+				)
+			}
+			TextButton(onClick = onShowDetails) {
+				Text(stringResource(R.string.capability_banner_details))
+			}
+		}
+	}
+	Hairline()
+}
+
+/**
+ * What the startup check asked, and what the device answered.
+ *
+ * One row per assertion, with the reason a check failed. The dialog is the
+ * "tell the user" half of "fail closed": removing the tools without saying why
+ * would look like a broken assistant.
+ */
+@Composable
+private fun WorkspaceSelfCheckDialog(
+	report: WorkspaceSelfCheck.Report,
+	onDismiss: () -> Unit,
+) {
+	WideDialog(
+		onDismissRequest = onDismiss,
+		title = stringResource(R.string.capability_dialog_title),
+		dismissLabel = stringResource(R.string.chat_close),
+		maxBodyHeight = 460.dp,
+	) {
+		Text(
+			text = stringResource(R.string.capability_dialog_body),
+			style = MaterialTheme.typography.bodyMedium,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		report.error?.let { reason ->
+			Text(
+				text = stringResource(R.string.capability_error, reason),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.error,
+			)
+		}
+		report.checks.forEach { check ->
+			Hairline()
+			Column(
+				modifier = Modifier.fillMaxWidth().padding(vertical = Layout.Space.InMessage),
+				verticalArrangement = Arrangement.spacedBy(2.dp),
+			) {
+				Text(
+					text = stringResource(
+						R.string.capability_check_row,
+						capabilityCheckName(check.id),
+						capabilityOutcome(check.outcome),
+					),
+					style = MaterialTheme.typography.bodyLarge,
+					color = when (check.outcome) {
+						WorkspaceSelfCheck.Outcome.Failed -> MaterialTheme.colorScheme.error
+						else -> MaterialTheme.colorScheme.onSurface
+					},
+				)
+				if (check.detail.isNotBlank()) {
+					Text(
+						text = check.detail,
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun capabilityCheckName(id: WorkspaceSelfCheck.Id): String = stringResource(
+	when (id) {
+		WorkspaceSelfCheck.Id.RelativePath -> R.string.capability_check_relative
+		WorkspaceSelfCheck.Id.ParentTraversal -> R.string.capability_check_traversal
+		WorkspaceSelfCheck.Id.AbsolutePath -> R.string.capability_check_absolute
+		WorkspaceSelfCheck.Id.RelativizeOutside -> R.string.capability_check_relativize
+		WorkspaceSelfCheck.Id.SymlinkEscape -> R.string.capability_check_symlink
+		WorkspaceSelfCheck.Id.JunctionEscape -> R.string.capability_check_junction
+	},
+)
+
+@Composable
+private fun capabilityOutcome(outcome: WorkspaceSelfCheck.Outcome): String = stringResource(
+	when (outcome) {
+		WorkspaceSelfCheck.Outcome.Passed -> R.string.capability_check_passed
+		WorkspaceSelfCheck.Outcome.Failed -> R.string.capability_check_failed
+		WorkspaceSelfCheck.Outcome.Skipped -> R.string.capability_check_skipped
+	},
+)
 
 /**
  * The conversation's approval questions, newest first.

@@ -66,6 +66,16 @@ object ToolCatalog {
 		 * warning.
 		 */
 		val remote: Boolean = false,
+		/**
+		 * Whether the tool needs the conversation's workspace to work.
+		 *
+		 * A picker must not offer one while the startup fence check says the
+		 * workspace gate is unreliable: the request would omit it anyway, and a
+		 * row that cannot do anything is a claim the app does not honour. The
+		 * remote tools are marked because their file transfers and identity
+		 * reads go through the same workspace.
+		 */
+		val workspaceBound: Boolean = false,
 	)
 
 	/**
@@ -76,9 +86,24 @@ object ToolCatalog {
 	 * third, which is the wrong thing to make easy to find.
 	 */
 	val all: List<Entry> = listOf(
-		Entry("list_files", "See what is in the conversation's folder", mutates = false),
-		Entry("read_file", "Read a file from the folder", mutates = false),
-		Entry("file_info", "Size and modified date of a file", mutates = false),
+		Entry(
+			"list_files",
+			"See what is in the conversation's folder",
+			mutates = false,
+			workspaceBound = true,
+		),
+		Entry(
+			"read_file",
+			"Read a file from the folder",
+			mutates = false,
+			workspaceBound = true,
+		),
+		Entry(
+			"file_info",
+			"Size and modified date of a file",
+			mutates = false,
+			workspaceBound = true,
+		),
 		Entry("read_time", "The current date and time, and date arithmetic", mutates = false),
 		Entry(
 			"web_search",
@@ -103,6 +128,7 @@ object ToolCatalog {
 			"Transcribe an audio file from the workspace",
 			mutates = false,
 			paid = true,
+			workspaceBound = true,
 		),
 		Entry(
 			"ssh_probe",
@@ -110,6 +136,7 @@ object ToolCatalog {
 			mutates = false,
 			reversible = true,
 			remote = true,
+			workspaceBound = true,
 		),
 		Entry(
 			"ssh_list",
@@ -117,6 +144,7 @@ object ToolCatalog {
 			mutates = false,
 			reversible = true,
 			remote = true,
+			workspaceBound = true,
 		),
 		Entry(
 			"ssh_read_file",
@@ -124,6 +152,7 @@ object ToolCatalog {
 			mutates = false,
 			reversible = true,
 			remote = true,
+			workspaceBound = true,
 		),
 		Entry(
 			"ssh_exec",
@@ -131,6 +160,7 @@ object ToolCatalog {
 			mutates = true,
 			reversible = false,
 			remote = true,
+			workspaceBound = true,
 		),
 		Entry(
 			"ssh_upload",
@@ -138,6 +168,7 @@ object ToolCatalog {
 			mutates = true,
 			reversible = false,
 			remote = true,
+			workspaceBound = true,
 		),
 		Entry(
 			"ssh_write_file",
@@ -145,6 +176,7 @@ object ToolCatalog {
 			mutates = true,
 			reversible = false,
 			remote = true,
+			workspaceBound = true,
 		),
 		Entry(
 			"ssh_download",
@@ -152,41 +184,56 @@ object ToolCatalog {
 			mutates = true,
 			reversible = true,
 			remote = true,
+			workspaceBound = true,
 		),
 		Entry(
 			"generate_image",
 			"Generate an image and save it in the workspace",
 			mutates = true,
 			paid = true,
+			workspaceBound = true,
 		),
 		Entry(
 			"generate_video",
 			"Start an async video generation task",
 			mutates = true,
 			paid = true,
+			workspaceBound = true,
 		),
 		Entry(
 			"video_status",
 			"Check a video task and save it when finished",
 			mutates = true,
+			workspaceBound = true,
 		),
 		Entry(
 			"speak",
 			"Convert text to an audio file in the workspace",
 			mutates = true,
 			paid = true,
+			workspaceBound = true,
 		),
-		Entry("write_file", "Create or replace a file", mutates = true),
-		Entry("append_file", "Add to the end of a file", mutates = true),
-		Entry("create_directory", "Make a folder inside the folder", mutates = true),
-		Entry("move_file", "Move or rename something in the folder", mutates = true),
+		Entry("write_file", "Create or replace a file", mutates = true, workspaceBound = true),
+		Entry("append_file", "Add to the end of a file", mutates = true, workspaceBound = true),
+		Entry(
+			"create_directory",
+			"Make a folder inside the folder",
+			mutates = true,
+			workspaceBound = true,
+		),
+		Entry(
+			"move_file",
+			"Move or rename something in the folder",
+			mutates = true,
+			workspaceBound = true,
+		),
 		// Was "Delete from the folder -- asks first". It no longer does by
 		// default, and this string is what a user reads when choosing tools, so
 		// leaving it would have been a claim the code does not honour -- the
 		// exact failure `docs/07-gotchas.md` section C exists to catch. Whether
 		// a call asks is now configurable per tool, per assistant and per path;
 		// the default is not to.
-		Entry("delete_file", "Delete from the folder", mutates = true),
+		Entry("delete_file", "Delete from the folder", mutates = true, workspaceBound = true),
 	)
 
 	val names: List<String> = all.map { it.name }
@@ -198,9 +245,16 @@ object ToolCatalog {
 	 * off: it is absent. Showing a disabled row still tells the user (and the
 	 * model-facing picker preview) that remote execution exists; the switch in
 	 * Runtime is the only place that should advertise it.
+	 *
+	 * [includeWorkspaceBound] is the same rule for the startup fence check:
+	 * when the workspace gate could not be proven, the tools that depend on it
+	 * are absent rather than greyed. A stored selection keeps its names, so
+	 * recovery restores the capability without the user re-picking it.
 	 */
-	fun visible(includeSsh: Boolean): List<Entry> =
-		if (includeSsh) all else all.filterNot { it.remote }
+	fun visible(includeSsh: Boolean, includeWorkspaceBound: Boolean = true): List<Entry> =
+		all.filter { entry ->
+			(includeSsh || !entry.remote) && (includeWorkspaceBound || !entry.workspaceBound)
+		}
 
 	/**
 	 * Whether a selection permits a tool.

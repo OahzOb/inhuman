@@ -67,6 +67,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.inhuman.AppCapabilities
 import com.inhuman.ui.common.formatBytes
 import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
@@ -1851,7 +1852,10 @@ private fun ApprovalRulesSection(
 		)
 		PaidToolsNotice(modifier = Modifier.padding(vertical = 2.dp))
 
-		for (entry in ToolCatalog.visible(sshToolEnabled)) {
+		for (entry in ToolCatalog.visible(
+			sshToolEnabled,
+			includeWorkspaceBound = AppCapabilities.workspaceOk,
+		)) {
 			val current = rules[entry.name] ?: ToolPolicy.Free
 			ApprovalRuleRow(
 				name = entry.name,

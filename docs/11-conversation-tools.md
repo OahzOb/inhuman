@@ -50,9 +50,12 @@ conversation.
 - `agent.tools` is a list: the ceiling is that list. The conversation's existing
   names are added to the available set as well, so a tool the assistant no longer
   has can be restored but not invented.
-- `ToolCatalog.visible(sshEnabled)` is applied last: with SSH off, no remote row
-  is shown, and existing remote names are kept in storage but not registered in
-  the turn.
+- `ToolCatalog.visible(sshEnabled, includeWorkspaceBound = workspaceToolsEnabled)`
+  is applied last: with SSH off, no remote row is shown, and existing remote
+  names are kept in storage but not registered in the turn. With the startup
+  workspace self-check failed, every workspace-bound row -- files, media and SSH
+  -- is absent for the same reason; the stored names survive, so a later healthy
+  start restores them without the user re-picking anything.
 
 The result is that editing an assistant to add `ssh_upload` makes it available in
 an existing conversation, while a conversation cannot grant itself a capability

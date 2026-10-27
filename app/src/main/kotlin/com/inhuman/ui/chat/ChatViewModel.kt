@@ -171,6 +171,17 @@ class ChatViewModel(
 	/** User ceilings; the model may only ask for smaller values. */
 	private val sshLimits: () -> SshLimits = { SshLimits() },
 	/**
+	 * Whether the startup workspace-fence check passed.
+	 *
+	 * Read per turn, like the SSH switch: the check runs once per process, but
+	 * a conversation view model can outlive a configuration change, and the
+	 * question the brake answers is "may this turn touch the workspace now?".
+	 * False means no workspace-dependent tool is built at all -- not built and
+	 * refused, but absent, because a tool the model can see but never use
+	 * teaches it to retry.
+	 */
+	private val workspaceToolsEnabled: () -> Boolean = { true },
+	/**
 	 * Called whenever a stream starts or stops.
 	 *
 	 * The app layer owns the foreground service; the view model deliberately
@@ -3699,17 +3710,25 @@ class ChatViewModel(
 			return listOf(TimeTool()).filter { ToolCatalog.permits(selected, it.name) }
 		}
 
-		val workspace = runCatching { repository.workspace(entity) }.getOrElse { failure ->
-			Diag.e("tools", "workspace could not be opened; file tools unavailable", failure)
-			_state.update {
-				it.copy(
-					error = context.getString(
-						R.string.chat_error_workspace_open_failed,
-						failure.message.orEmpty(),
-					),
-				)
-			}
+		val workspace = if (!workspaceToolsEnabled()) {
+			// Fail closed. The picker already omits these tools; this is the
+			// request-side half of the same decision, so a stored selection
+			// cannot smuggle one back in on a device whose fence failed.
+			Diag.e("tools", "workspace self-check failed; workspace tools are absent")
 			null
+		} else {
+			runCatching { repository.workspace(entity) }.getOrElse { failure ->
+				Diag.e("tools", "workspace could not be opened; file tools unavailable", failure)
+				_state.update {
+					it.copy(
+						error = context.getString(
+							R.string.chat_error_workspace_open_failed,
+							failure.message.orEmpty(),
+						),
+					)
+				}
+				null
+			}
 		}
 
 		val fileTools = workspace?.let { ws ->
@@ -3749,8 +3768,13 @@ class ChatViewModel(
 				if (workspace != null) add(QwenImageTool(it.client, workspace, it.model))
 			}
 			mediaBackend(MediaCapability.Video)?.let {
-				add(QwenVideoTool(it.client, it.model))
-				if (workspace != null) add(QwenVideoStatusTool(it.client, workspace))
+				// Both halves need the workspace: the task is only useful if
+				// its result can be saved, and a paid task whose result has
+				// nowhere to go is a charge with no outcome.
+				if (workspace != null) {
+					add(QwenVideoTool(it.client, it.model))
+					add(QwenVideoStatusTool(it.client, workspace))
+				}
 			}
 			mediaBackend(MediaCapability.Speech)?.let {
 				if (workspace != null) add(QwenSpeechTool(it.client, workspace, it.model))

@@ -3,8 +3,11 @@ package com.inhuman
 import android.app.Application
 import android.app.LocaleManager
 import android.os.LocaleList
+import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.BackupRepository
+import com.inhuman.core.files.WorkspaceSelfCheck
 import com.inhuman.diagnostics.AppDiagnostics
+import java.io.File
 
 /**
  * Application entry point.
@@ -27,9 +30,38 @@ class InhumanApp : Application() {
 		super.onCreate()
 		ensureDefaultLanguage()
 		AppDiagnostics.install(this)
+		runWorkspaceSelfCheck()
 		// Before any repository opens Room. A staged backup import replaces the
 		// database file, which is only safe while no connection is open.
 		BackupRepository.applyPendingRestore(this)
+	}
+
+	/**
+	 * Ask the device whether the workspace fence still holds.
+	 *
+	 * A failure is not a warning: [AppCapabilities.workspaceOk] becomes false,
+	 * and every tool that needs the workspace is absent from the request and
+	 * from the pickers, with a banner in the chat explaining why. A check that
+	 * could not run at all is a failure too -- "we could not ask" must not read
+	 * as "the fence is fine".
+	 */
+	private fun runWorkspaceSelfCheck() {
+		val report = try {
+			WorkspaceSelfCheck.run(File(cacheDir, "self-check"))
+		} catch (failure: Exception) {
+			WorkspaceSelfCheck.Report.failed(failure.message ?: failure.javaClass.simpleName)
+		}
+		AppCapabilities.record(report)
+		if (report.ok) {
+			Diag.i("capability", "workspace self-check passed checks=${report.checks.size}")
+		} else {
+			Diag.e(
+				"capability",
+				"workspace self-check failed error=${report.error ?: "-"} " +
+					"failed=${report.failed.joinToString(",") { it.id.name }}",
+			)
+			report.failed.forEach { Diag.e("capability", "check=${it.id.name} detail=${it.detail}") }
+		}
 	}
 
 	/**

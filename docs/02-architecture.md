@@ -179,6 +179,13 @@ repository opens Room, because replacing a live database under an open connectio
 is not safe. Navigation and repositories then start against the restored file
 normally.
 
+The workspace self-check runs earlier in the same `onCreate`, before the first
+activity: `WorkspaceSelfCheck.run(cacheDir/self-check)` writes only under the
+cache, records `AppCapabilities`, and never opens the database or a user
+workspace. A failure is process-wide state, not a screen setting; the chat
+banner and the tool lists read it in
+[05-files-sandbox.md](05-files-sandbox.md).
+
 ### Start-up sweep
 
 One `LaunchedEffect` at the root sweeps workspace directories that no

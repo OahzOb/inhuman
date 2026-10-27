@@ -28,4 +28,54 @@ class ToolCatalogVisibilityTest {
 		}
 		assertTrue("the ordinary tools disappeared too", "web_search" in visible)
 	}
+
+	@Test
+	fun workspaceToolsAreAbsentWhenTheFenceCheckFailed() {
+		val visible = ToolCatalog.visible(
+			includeSsh = true,
+			includeWorkspaceBound = false,
+		).map { it.name }
+
+		ToolCatalog.all.filter { it.workspaceBound }.forEach { entry ->
+			assertFalse("${entry.name} was visible after a failed fence check", entry.name in visible)
+		}
+		// The tools that do not touch the workspace must survive: losing the
+		// fence is not a reason to take away the clock or the web.
+		assertTrue("read_time" in visible)
+		assertTrue("web_search" in visible)
+		assertTrue("decide" in visible)
+	}
+
+	@Test
+	fun recoveringTheFenceOffersTheWorkspaceToolsAgain() {
+		val visible = ToolCatalog.visible(
+			includeSsh = true,
+			includeWorkspaceBound = true,
+		).map { it.name }
+
+		assertTrue("read_file" in visible)
+		assertTrue("generate_image" in visible)
+		assertTrue("ssh_download" in visible)
+	}
+
+	@Test
+	fun everyWorkspaceDependentToolIsMarked() {
+		val marked = ToolCatalog.all.filter { it.workspaceBound }.map { it.name }.toSet()
+
+		listOf(
+			"list_files",
+			"read_file",
+			"write_file",
+			"transcribe",
+			"generate_image",
+			"generate_video",
+			"video_status",
+			"speak",
+			"ssh_upload",
+			"ssh_download",
+		).forEach { assertTrue("$it should be workspace-bound", it in marked) }
+
+		assertFalse("read_time is workspace-free", "read_time" in marked)
+		assertFalse("web_fetch is workspace-free", "web_fetch" in marked)
+	}
 }

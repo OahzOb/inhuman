@@ -324,6 +324,15 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   **not** resolve a junction, and `Files.isSymbolicLink` does not report one.
   A junction escape was found by the desktop host and is pinned by
   `SessionWorkspaceTest`.
+- **The workspace self-check runs before the first frame and fails closed.**
+  `WorkspaceSelfCheck` asks the device the same questions the unit tests ask
+  (traversal, absolute-looking paths, an outside file, a symlink, a Windows
+  junction), in a cache probe it deletes itself. A failed or unrunnable check
+  sets `AppCapabilities.workspaceOk = false`; `ChatViewModel.buildTools` then
+  builds no workspace-dependent tool and `ToolCatalog.visible(...,
+  includeWorkspaceBound = false)` omits them from every picker. Do not turn that
+  into a warning or a greyed row, and do not let the failure take away the
+  user's own Files access: the fence constrains the agent, not its owner.
 - **A workspace export must not follow a link out of the workspace.**
   `WorkspaceZip` checks every entry's `toRealPath()` against the real root. A
   symlink is skipped even when it points back inside, and a Windows junction is

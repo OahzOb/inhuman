@@ -427,6 +427,7 @@ private fun InhumanRoot(
 								readBytes = secure.get(SecureStore.KEY_SSH_READ_BYTES),
 							)
 						},
+						workspaceToolsEnabled = { AppCapabilities.workspaceOk },
 						onTurnStatus = { status ->
 							TurnNotifications.update(context.applicationContext, status)
 						},

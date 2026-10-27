@@ -19,6 +19,13 @@ internal fun conversationToolPlan(
 	sshEnabled: Boolean,
 	agentTools: List<String>?,
 	conversationTools: List<String>?,
+	/**
+	 * False when the startup fence check failed. The sheet then stops offering
+	 * every tool that needs the workspace -- including SSH, whose transfers and
+	 * identity reads go through it -- while the stored names stay in the
+	 * conversation, so a later healthy start restores them without a re-pick.
+	 */
+	workspaceToolsEnabled: Boolean = true,
 ): ConversationToolPlan {
 	val allNonRemote = ToolCatalog.all
 		.filterNot { it.remote }
@@ -32,7 +39,10 @@ internal fun conversationToolPlan(
 	// `visible` already removes every remote entry while SSH is off. Applying
 	// it last is what keeps a stored `ssh_exec` out of the sheet without
 	// dropping it from storage.
-	val available = ToolCatalog.visible(sshEnabled)
+	val available = ToolCatalog.visible(
+		includeSsh = sshEnabled,
+		includeWorkspaceBound = workspaceToolsEnabled,
+	)
 		.filter { it.name in ceiling || it.name in current }
 
 	val selected = available

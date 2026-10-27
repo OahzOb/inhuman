@@ -112,6 +112,29 @@ class ConversationToolsTest {
 	}
 
 	@Test
+	fun `a failed fence check hides workspace tools but keeps their stored names`() {
+		val current = listOf("read_file", "ssh_exec", "web_search")
+		val plan = conversationToolPlan(
+			sshEnabled = true,
+			agentTools = null,
+			conversationTools = current,
+			workspaceToolsEnabled = false,
+		)
+
+		assertFalse("read_file needs the workspace", "read_file" in names(plan))
+		assertFalse("SSH transfers go through the workspace", "ssh_exec" in names(plan))
+		assertTrue("the web does not need the workspace", "web_search" in names(plan))
+
+		val merged = mergeConversationTools(
+			current = current,
+			available = plan.available,
+			checked = setOf("web_search"),
+		)
+		assertTrue("the hidden file tool survives", "read_file" in merged)
+		assertTrue("the hidden remote tool survives", "ssh_exec" in merged)
+	}
+
+	@Test
 	fun `adding a read-only ssh tool does not reset consent`() {
 		val before = listOf("ssh_download")
 		assertFalse(widensDangerousSsh(before, before + "ssh_list"))

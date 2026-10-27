@@ -570,6 +570,17 @@ the one where the answer could not be given. The cap follows the window height
 rather than a constant so a landscape phone does not spend its whole height on
 it.
 
+### When the workspace self-check fails
+
+`InhumanApp.onCreate` records the fence report before the first activity. A
+failed report adds a persistent strip above the transcript (`ChatScreen`), with
+a details dialogue listing each assertion and its reason; it sits outside the
+scrolling list on purpose, because it changes what every turn can do. The same
+flag is passed to `ChatViewModel`, which builds no workspace-dependent tool, and
+to the tool pickers, which omit them rather than grey them. A stored selection
+keeps the names, so a later healthy start restores the capability without the
+user re-picking it.
+
 ### The SSH consent dialog
 
 Separate from the ordinary approval dialog, deliberately. It is a capability

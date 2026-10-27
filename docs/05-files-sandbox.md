@@ -56,6 +56,41 @@ Their effects outside the sandbox are why the capability has the separate consen
 gate in [03-ai-provider.md](03-ai-provider.md) and
 [09-approvals.md](09-approvals.md).
 
+### The startup self-check: the fence is asked, not assumed
+
+`WorkspaceSelfCheck` (`core/files/src/main/kotlin/com/inhuman/core/files/WorkspaceSelfCheck.kt`)
+runs in `InhumanApp.onCreate`, before the first activity, in a throwaway
+directory under the app's cache:
+
+- a relative path stays inside the root;
+- `../` is refused;
+- an absolute-looking path is treated as relative and stays inside;
+- a file outside the root cannot be relativised;
+- a symlink planted in the workspace is refused;
+- on Windows, a junction is refused by the real-path comparison (the check that
+  `Files.isSymbolicLink` cannot make).
+
+It creates one outside file and one link, deletes the link **before** the
+directories, and never recursively deletes a tree that contains a link. A
+platform that refuses to create a symlink reports `Skipped` for that check, not
+a failure: it cannot have a planted link either, and the canonical prefix check
+still runs.
+
+**A failure — including "the check could not run" — is not a warning.**
+`AppCapabilities.workspaceOk` becomes false, and every workspace-bound tool is
+absent from the request and from the pickers: the eight file tools, the media
+tools that save or read workspace files, and SSH (its transfers and identity
+reads use the same gate). The chat shows a banner with the failing assertions;
+Files still opens the user's files, because the fence is a rule about the
+**agent's** tool calls, not about the owner's access. The next process start
+asks again.
+
+This is the workspace half of `docs/08-port-philosophy.md` §3.6. The
+code-execution assertions that section also names (`fetch` is `undefined`, the
+sandbox cannot read `filesDir`, the heap cap holds) belong to the code-execution
+tool that does not exist yet; when it does, it joins this check and a failure
+removes that tool the same way.
+
 ## `resolve()`: the one place a path becomes a `File`
 
 `SessionWorkspace` (`SessionWorkspace.kt:41-45`) has a **private constructor** and
@@ -429,3 +464,4 @@ real filesystem semantics rather than a device (`core/files/build.gradle`).
 | `SessionWorkspaceTest` | Paths inside the root; empty → root; `"."` and `"//"` normalised; backslash separators; `..` refused with a message containing `..`; absolute-looking paths confined; Windows drive paths rejected-or-confined; NUL refused; symlinks refused (conditionally — see above); `relativize` inverts `resolve`; `fileCount`/`usedBytes` exclude directories. |
 | `FileToolsTest` | The interface lock (no absolute location in any description, and `path` present among the declared properties); **no tool asks for approval by default** — the gated set is asserted *empty*, and the `needsApproval` hook is pinned by reflection rather than by a tool using it; write→read round trip with line numbering; `../` refused with nothing written outside; `/etc/passwd` reinterpreted as relative; deleting `"."` refused and the root survives; move-into-itself refused; missing file names the path; missing required argument named; oversized read refused, not truncated; oversized write leaves nothing on disk; the file-count ceiling; truncation announced; free-space refusal at an injected 1024 bytes and success at 1 GiB; Created vs Replaced; append; move preserves content; `file_info` totals; empty listing says "empty". |
 | `ToolMutationClassificationTest` | The **exact tool-name set**, so a ninth tool fails loudly until it is classified; the three read tools are `mutates = false`; the five writes are `true`; and the flags are verified against the filesystem — `list_files` leaves `fileCount` unchanged, `write_file` increases it. |
+| `WorkspaceSelfCheckTest` | A healthy temp fence passes all six checks and leaves no probe files; a parent that is a file fails closed with an error; one failed check fails the report; a `Skipped` platform check does not. |

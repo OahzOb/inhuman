@@ -116,6 +116,11 @@ Confirmed by `README.md:17-29` and by the code:
   and answer is written to the conversation's approval audit, the dialog names
   the rule that won, and an unanswered question times out as a refusal after ten
   minutes ([09-approvals.md](09-approvals.md)).
+- The workspace fence is checked on every start, in a throwaway directory under
+  the app cache. A failure -- or a check that cannot run -- removes every
+  workspace-bound tool (files, media, SSH) from the request and the pickers and
+  says so in the chat; the user's own Files access is unaffected
+  ([05-files-sandbox.md](05-files-sandbox.md)).
 - Answers can be retried. **Rewind** is the single restart control. **Answer
   again** keeps the tool **definitions** so the request prefix can still hit the
   context cache, but appends a transient system instruction forbidding a call;

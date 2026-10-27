@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Checkbox
+import com.inhuman.AppCapabilities
 import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.tools.ToolCatalog
@@ -322,7 +323,10 @@ private fun AgentEditor(
 	onDismiss: () -> Unit,
 ) {
 	val levels = effortLevels(draft.model)
-	val availableTools = ToolCatalog.visible(sshToolEnabled)
+	val availableTools = ToolCatalog.visible(
+		sshToolEnabled,
+		includeWorkspaceBound = AppCapabilities.workspaceOk,
+	)
 	val availableNames = availableTools.mapTo(mutableSetOf()) { it.name }
 	val selectedCount = draft.tools?.count { it in availableNames } ?: availableTools.size
 
@@ -867,7 +871,10 @@ private fun PromptPreview(
 	onDismiss: () -> Unit,
 ) {
 	val selected = draft.tools
-	val visibleTools = ToolCatalog.visible(sshToolEnabled)
+	val visibleTools = ToolCatalog.visible(
+		sshToolEnabled,
+		includeWorkspaceBound = AppCapabilities.workspaceOk,
+	)
 	val visibleNames = visibleTools.mapTo(mutableSetOf()) { it.name }
 	val on = visibleNames.filter { ToolCatalog.permits(selected, it) }
 
@@ -1029,7 +1036,10 @@ private fun AssistantRulesSection(
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 
-		for (entry in ToolCatalog.visible(sshToolEnabled)) {
+		for (entry in ToolCatalog.visible(
+		sshToolEnabled,
+		includeWorkspaceBound = AppCapabilities.workspaceOk,
+	)) {
 			val current = rules[entry.name] ?: ToolPolicy.Free
 			Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
 				Row(
