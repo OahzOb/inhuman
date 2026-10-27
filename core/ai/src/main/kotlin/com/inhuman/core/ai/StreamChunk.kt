@@ -53,6 +53,15 @@ sealed interface StreamChunk {
 	data class ReasoningEnd(val id: String? = null) : StreamChunk
 
 	/**
+	 * An opaque signature for the reasoning block that just ended.
+	 *
+	 * Anthropic sends one `signature_delta` per thinking block. The engine
+	 * attaches it to the assistant message; the provider replays the thinking
+	 * block with it on the next request.
+	 */
+	data class ReasoningSignature(val signature: String) : StreamChunk
+
+	/**
 	 * A tool call is opening.
 	 *
 	 * [index] is the provider's own ordering key, not arrival order. OpenAI
@@ -85,6 +94,15 @@ sealed interface StreamChunk {
 
 	/** The tool call's arguments are complete and may now be parsed. */
 	data class ToolCallEnd(val index: Int) : StreamChunk
+
+	/**
+	 * An opaque signature for the function-call part at [index].
+	 *
+	 * Gemini returns this alongside `functionCall`; it belongs to that call, not
+	 * to the assistant message as a whole, because a turn may contain several
+	 * calls with different signatures.
+	 */
+	data class ToolCallSignature(val index: Int, val signature: String) : StreamChunk
 
 	/** Token accounting, when the provider reports it. */
 	data class Usage(

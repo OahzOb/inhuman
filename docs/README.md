@@ -28,7 +28,7 @@ not; `AGENTS.md` states the non-negotiable working rules. These files explain
 | [01-overview.md](01-overview.md) | What this is, which module holds what, what the app does today, what is deliberately missing |
 | [02-architecture.md](02-architecture.md) | Module graph, dependency rule, start-up wiring, navigation, build toolchain, build/verify commands |
 | [03-ai-provider.md](03-ai-provider.md) | Provider interface and stream types, provider profiles, OpenAI-compatible adapter, SSE, demo mode, paid web tools, SSH tools and limits |
-| [04-data-persistence.md](04-data-persistence.md) | Room schema v16 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
+| [04-data-persistence.md](04-data-persistence.md) | Room schema v17 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | Turn lifecycle, tool execution, approval gate, cancellation, context gauge, Compose layout |
 | [07-gotchas.md](07-gotchas.md) | Load-bearing invariants, and mistakes that already cost someone a day |
@@ -96,7 +96,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 Latest run (2026-10-27, through `tools/ci.ps1`):
 
 ```
-BUILD SUCCESSFUL, 677 tests in 101 suites, 0 failures, 4 skipped
+BUILD SUCCESSFUL, 682 tests in 101 suites, 0 failures, 4 skipped
 warnings 0, errors 0
 ```
 
@@ -109,12 +109,12 @@ The skips are external-credential live tests: `DeepSeekWebLiveTest`,
 
 | Module | Suites | Tests |
 | --- | --- | --- |
-| `:core:ai` | 38 | 289 (3 skipped) |
+| `:core:ai` | 38 | 293 (3 skipped) |
 | `:core:files` | 8 | 72 |
 | `:app` | 29 | 211 |
 | `:core:common` | 2 | 16 |
 | `:core:db` | 6 | 22 |
-| `:core:engine` | 2 | 11 (1 skipped) |
+| `:core:engine` | 2 | 12 (1 skipped) |
 | `:core:data` | 3 | 19 |
 | `:desktopApp` | 13 | 37 |
 
@@ -180,6 +180,7 @@ repository root; `…/` stands for `src/main/kotlin/com/inhuman/`.
 | Follow-up suggestions (the advice block) | `app/…/ui/chat/Advice.kt`, `ChatViewModel.kt`, `ChatScreen.kt` |
 | The backup reminder | `app/…/ui/backup/BackupReminder.kt`, `MainActivity.kt`, `ui/settings/SettingsScreen.kt` |
 | LaTeX rendering (rewrite + transformer) | `app/…/ui/chat/LatexMarkdown.kt`, `MathImageTransformer.kt` |
+| Thinking / thought signature replay | `core/db/…/MessageEntity.kt`, `ToolCallsColumn.kt`; `core/ai/provider/anthropic/AnthropicMessages.kt`, `gemini/GeminiMessages.kt` |
 | Third-party licences and font notices | `app/src/main/assets/THIRD-PARTY-NOTICES.md` |
 | The startup fence check; what a failure removes | `core/files/…/WorkspaceSelfCheck.kt`, `app/…/AppCapabilities.kt` |
 | Resuming a turn a process death interrupted | `app/…/ui/chat/InterruptedTurn.kt`, `ChatViewModel.continueInterruptedTurn` |

@@ -245,6 +245,53 @@ class ChatEngineTest {
 		assertTrue(events.any { it is EngineEvent.Finished })
 	}
 
+	@Test
+	fun `signatures flow from the stream into the next request`() = runBlocking {
+		val provider = SignedCall("probe")
+		val events = ChatEngine(provider).run(
+			EngineTurn(
+				model = "scripted",
+				messages = listOf(ChatMessage(Role.User, "go")),
+				tools = listOf(RecordingTool()),
+				maxRounds = 2,
+			),
+		).toList()
+
+		val assistant = events.filterIsInstance<EngineEvent.AssistantMessage>().first().message
+		assertEquals("think-sig", assistant.reasoningSignature)
+		assertEquals("call-sig", assistant.toolCalls.single().thoughtSignature)
+
+		val sentBack = provider.secondRequest?.messages?.firstOrNull { it.role == Role.Assistant }
+		assertEquals("think-sig", sentBack?.reasoningSignature)
+		assertEquals("call-sig", sentBack?.toolCalls?.single()?.thoughtSignature)
+	}
+
+	/** Emits one signed call, then captures the request that replayed it. */
+	private class SignedCall(private val toolName: String) : ChatProvider {
+		override val id = "scripted"
+		override suspend fun listModels(): List<RemoteModel> = emptyList()
+		var secondRequest: ChatRequest? = null
+		private var round = 0
+
+		override fun stream(request: ChatRequest): Flow<StreamChunk> = flow {
+			if (round++ == 0) {
+				emit(StreamChunk.ReasoningStart())
+				emit(StreamChunk.ReasoningDelta("thinking"))
+				emit(StreamChunk.ReasoningSignature("think-sig"))
+				emit(StreamChunk.ReasoningEnd())
+				emit(StreamChunk.ToolCallStart(0, "call-1", toolName))
+				emit(StreamChunk.ToolCallDelta(0, inputDelta = "{}"))
+				emit(StreamChunk.ToolCallEnd(0))
+				emit(StreamChunk.ToolCallSignature(0, "call-sig"))
+				emit(StreamChunk.Finish(FinishReason.ToolCalls))
+			} else {
+				secondRequest = request
+				emit(StreamChunk.TextDelta("done"))
+				emit(StreamChunk.Finish(FinishReason.Stop))
+			}
+		}
+	}
+
 	/** Emits one call, then answers with text on the next request. */
 	private class AnswersAfterOneCall(
 		private val callId: String,

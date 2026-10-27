@@ -42,6 +42,20 @@ internal object AnthropicWire {
 	const val API_VERSION = "2023-06-01"
 	const val DEFAULT_MAX_TOKENS = 4096
 
+	/**
+	 * The smallest budget Anthropic accepts for extended thinking.
+	 *
+	 * The budget must also be smaller than `max_tokens`; [thinkingBudgetFor]
+	 * returns null rather than a value the API would reject.
+	 */
+	const val THINKING_BUDGET = 2048
+
+	private fun thinkingBudgetFor(maxTokens: Int): Int? = when {
+		maxTokens >= 4096 -> 2048
+		maxTokens >= 2048 -> 1024
+		else -> null
+	}
+
 	fun endpoint(baseUrl: String, path: String): String {
 		val root = baseUrl.trimEnd('/')
 		return if (root.endsWith("/v1")) "$root$path" else "$root/v1$path"
@@ -52,6 +66,22 @@ internal object AnthropicWire {
 			.filter { it.role == Role.System }
 			.mapNotNull { it.content.takeIf(String::isNotBlank) }
 			.joinToString("\n\n")
+		val maxTokens = request.maxTokens ?: DEFAULT_MAX_TOKENS
+		// Anthropic cannot be told to think and then handed a tool turn whose
+		// thinking block has no signature: the replay is rejected. So thinking
+		// is enabled only when every tool-using assistant turn in the history
+		// has both its reasoning and its signature. An old transcript (or a
+		// turn recorded while thinking was off) falls back to a non-thinking
+		// request rather than failing the next call.
+		val canReplayThinking = request.messages
+			.filter {
+				it.role == Role.Assistant &&
+					(it.toolCalls.isNotEmpty() || !it.reasoning.isNullOrBlank())
+			}
+			.all { !it.reasoning.isNullOrBlank() && !it.reasoningSignature.isNullOrBlank() }
+		val thinkingBudget = thinkingBudgetFor(maxTokens)?.takeIf {
+			request.thinking == true && canReplayThinking
+		}
 		val messages = mutableListOf<JsonObject>()
 		var lastRole: String? = null
 
@@ -84,17 +114,22 @@ internal object AnthropicWire {
 			when (message.role) {
 				Role.System -> Unit
 				Role.User -> append("user", userBlocks(message))
-				Role.Assistant -> append("assistant", assistantBlocks(message))
+				Role.Assistant -> append("assistant", assistantBlocks(message, includeThinking = thinkingBudget != null))
 				Role.Tool -> append("user", toolResultBlocks(message))
 			}
 		}
 
 		return buildJsonObject {
 			put("model", request.model)
-			put("max_tokens", request.maxTokens ?: DEFAULT_MAX_TOKENS)
+			put("max_tokens", maxTokens)
 			put("stream", true)
 			if (system.isNotBlank()) put("system", system)
-			if (request.temperature != null) put("temperature", request.temperature)
+			// Anthropic rejects a temperature other than 1 while extended thinking is
+// enabled. The app has no temperature control today, but a future caller must
+// not be able to build a request that 400s just because thinking was on.
+			if (request.temperature != null && thinkingBudget == null) {
+				put("temperature", request.temperature)
+			}
 			put(
 				"messages",
 				buildJsonArray {
@@ -109,9 +144,15 @@ internal object AnthropicWire {
 					},
 				)
 			}
-			// Thinking is intentionally not requested yet: replaying Anthropic
-			// thinking requires its opaque signature. Until that is stored, a
-			// thinking request with tools would be a 400 on the next turn.
+			thinkingBudget?.let { budget ->
+				put(
+					"thinking",
+					buildJsonObject {
+						put("type", "enabled")
+						put("budget_tokens", budget)
+					},
+				)
+			}
 		}
 	}
 
@@ -141,7 +182,22 @@ internal object AnthropicWire {
 		}
 	}
 
-	private fun assistantBlocks(message: ChatMessage): JsonArray = buildJsonArray {
+	private fun assistantBlocks(message: ChatMessage, includeThinking: Boolean): JsonArray = buildJsonArray {
+		// The signed thinking block must come first and be byte-for-byte the
+		// thinking the model produced; only the signature is opaque to us.
+		if (
+			includeThinking &&
+			!message.reasoning.isNullOrBlank() &&
+			!message.reasoningSignature.isNullOrBlank()
+		) {
+			add(
+				buildJsonObject {
+					put("type", "thinking")
+					put("thinking", message.reasoning)
+					put("signature", message.reasoningSignature)
+				},
+			)
+		}
 		if (message.content.isNotEmpty()) {
 			add(
 				buildJsonObject {
@@ -270,6 +326,10 @@ internal class AnthropicDecoder {
 					"thinking_delta" -> delta["thinking"]?.jsonPrimitive?.contentOrNull
 						?.takeIf { it.isNotEmpty() }
 						?.let { listOf(StreamChunk.ReasoningDelta(it)) }
+						.orEmpty()
+					"signature_delta" -> delta["signature"]?.jsonPrimitive?.contentOrNull
+						?.takeIf { it.isNotEmpty() }
+						?.let { listOf(StreamChunk.ReasoningSignature(it)) }
 						.orEmpty()
 					"input_json_delta" -> delta["partial_json"]?.jsonPrimitive?.contentOrNull
 						?.let { listOf(StreamChunk.ToolCallDelta(index, inputDelta = it)) }

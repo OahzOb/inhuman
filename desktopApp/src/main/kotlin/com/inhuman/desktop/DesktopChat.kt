@@ -349,12 +349,14 @@ class DesktopChat(
 
 					is EngineEvent.AssistantMessage -> {
 						val round = current ?: return@collect
+						round.reasoningSignature = event.message.reasoningSignature
 						event.message.toolCalls.forEachIndexed { index, call ->
 							round.calls[index] = StoredToolCall(
 								index = index,
 								id = call.id,
 								name = call.name,
 								argumentsJson = call.argumentsJson,
+								thoughtSignature = call.thoughtSignature,
 							)
 						}
 					}
@@ -503,12 +505,13 @@ class DesktopChat(
 					val calls = ToolCallsColumn.decode(message.toolCallsJson)
 						.mapNotNull { call ->
 							val id = call.id ?: return@mapNotNull null
-							ToolCall(id, call.name.orEmpty(), call.argumentsJson)
+							ToolCall(id, call.name.orEmpty(), call.argumentsJson, call.thoughtSignature)
 						}
 					out += ChatMessage(
 						role = Role.Assistant,
 						content = message.content,
 						reasoning = message.reasoning?.takeIf { it.isNotBlank() },
+						reasoningSignature = message.reasoningSignature,
 						toolCalls = calls,
 					)
 					if (calls.isNotEmpty()) {
@@ -595,6 +598,7 @@ class DesktopChat(
 	) {
 		val text = StringBuilder()
 		val reasoning = StringBuilder()
+		var reasoningSignature: String? = null
 		val calls = LinkedHashMap<Int, StoredToolCall>()
 		var usage: EngineUsage? = null
 		var persisted = false
@@ -608,6 +612,7 @@ class DesktopChat(
 				conversationId = conversationId,
 				text = text.toString(),
 				reasoning = reasoning.toString(),
+				reasoningSignature = reasoningSignature,
 				parentId = parentId,
 				toolCalls = calls.values.toList(),
 				error = error,

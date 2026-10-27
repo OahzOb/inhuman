@@ -286,6 +286,8 @@ data class ChatMessageUi(
 	 * so this is request state, not just something that was shown once.
 	 */
 	val reasoningText: String = "",
+	/** Anthropic's opaque signature for [reasoningText], when one was stored. */
+	val reasoningSignature: String? = null,
 	val isStreaming: Boolean = false,
 	/**
 	 * The deltas this reply is still arriving in, or null once it is complete.

@@ -205,29 +205,23 @@ incremental and is visible in `git log`.
 
 From the README's non-goals and planned-work section; these are decisions or
 deferred items, not gaps. Do not "fix" the non-goals without a conversation.
-LaTeX and native Anthropic/Gemini adapters are now partly implemented, not
-refused; see [13-product.md](13-product.md). The notes below explain what is
-still absent today.
+LaTeX and native Anthropic/Gemini adapters (including thinking-signature replay)
+are implemented on the Android host; see [13-product.md](13-product.md). The
+notes below explain what is still absent.
 
 - **No Linux/PRoot environment on Android.** Per-conversation files need no shell. PRoot
   also runs at the app's own UID, so "sandboxed" Linux code could read the
   conversation database and the stored API key.
 - **No Linux desktop build.** Windows x64 is the desktop target; Linux packaging
   is not built or verified (see [12-desktop.md](12-desktop.md)).
-- **No LaTeX yet; planned.** The obstacle is not the renderer's licence, which
-  this file used to name: JLaTeXMath carries a linking exception that permits use
-  here, and the app is Apache-2.0. The cost is the fonts it bundles — some GPLv2,
-  some OFL, some under the Knuth Licence — and the `THIRD-PARTY-NOTICES`
-  maintenance that follows from shipping them (see the README's LaTeX note).
-  Markdown and code highlighting cover the common case today.
 - **No `MANAGE_EXTERNAL_STORAGE`**, and no `READ/WRITE_EXTERNAL_STORAGE`.
-- **Native Anthropic/Gemini basics exist; OpenAI Responses, OAuth plan login and
-  thinking-signature replay do not.** The Anthropic Messages and Gemini
-  Generative AI adapters handle text, images, tool calls and usage. Extended
-  thinking is deliberately not requested yet: Anthropic needs signed thinking
-  blocks and Gemini needs thought signatures, and those cannot be replayed until
-  the transcript carries an opaque provider-data field. Claude Pro/Max,
-  ChatGPT, Copilot and Kimi Code OAuth are also not implemented.
+- **Native Anthropic/Gemini basics and thinking-signature replay exist; OpenAI
+  Responses and OAuth plan login do not.** The Anthropic Messages adapter keeps
+  the signed thinking block and replays it while thinking is enabled; Gemini
+  keeps per-call `thoughtSignature`s. A history with an unsigned old turn falls
+  back to thinking-off rather than a 400. Neither is verified against a real
+  account here (that needs a key). Claude Pro/Max, ChatGPT, Copilot and Kimi Code
+  OAuth are not implemented.
 
 Two more that are stated as behaviour rather than as policy:
 

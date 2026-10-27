@@ -437,15 +437,26 @@ it, Customize accepts manual model IDs.
 `anthropic-version: 2023-06-01`, system as a separate field, `tool_use` /
 `tool_result` content blocks, images as base64 source blocks, and named SSE
 events (`content_block_start`, `content_block_delta`, `message_delta`, …).
-The adapter does **not** request extended thinking: replaying Anthropic thinking
-requires the signed `thinking` block, which the transcript cannot store yet.
+When the assistant's thinking toggle is on it requests `thinking` with a
+`budget_tokens` that is always smaller than `max_tokens`; the decoder keeps the
+`signature_delta` that follows a thinking block, the engine attaches it to the
+assistant message, and the adapter re-emits `{"type":"thinking","thinking":…,
+"signature":…}` before that message's text/tool blocks. Thinking is enabled only
+when **every** assistant turn carrying reasoning or tool calls has both its
+reasoning and its signature; a transcript written before this existed, or one
+whose thinking was off, falls back to a thinking-off request instead of a 400.
+Redacted thinking blocks are not replayed. Not verified against a real Anthropic
+account, which needs a key.
 
 **Gemini** (`provider/gemini/`): `POST /v1beta/models/{model}:streamGenerateContent?alt=sse`,
 `x-goog-api-key`, `contents[].parts[]`, `functionCall` / `functionResponse`,
 `inlineData` images, and `usageMetadata`. Tool calls arrive whole rather than as
 argument fragments; the decoder still emits start/delta/end so the engine has
-one path. Thought signatures are ignored for the same reason as Anthropic's
-signatures: they need opaque per-message provider data.
+one path. A `thoughtSignature` on a `functionCall` part is captured per call,
+stored in the call record and echoed on the same part when the call is replayed;
+that is the signature Gemini requires to continue a tool turn. A signature on a
+thought text part is stored on the message but not replayed. Not verified
+against a real Gemini account, which needs a key.
 
 **Qwen Token Plan** is the first capability bundle rather than one chat
 adapter. One `sk-sp-…` key serves several API families under
@@ -555,9 +566,12 @@ still covers most API-key plans (ZAI, Qwen, Xiaomi, Kimi, OpenCode) when the
 base URL and key are entered manually.
 
 Tests: `AnthropicMessagesTest` and `GeminiMessagesTest` pin request mapping,
-text/tool SSE decoding, usage and the tool block index. `QwenTokenPlanLiveTest`
-verifies the real Qwen image and decision endpoints when its key is present.
-They are offline by default; no key is needed.
+text/tool SSE decoding, usage, the tool block index, the signed-thinking block
+and the Gemini thought-signature round trip. `ChatEngineTest` checks that a
+signature streamed by a provider reaches the assistant message and the next
+request. `QwenTokenPlanLiveTest` verifies the real Qwen image and decision
+endpoints when its key is present. They are offline by default; no key is
+needed.
 
 ## Not every listed model is a chat model
 

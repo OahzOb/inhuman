@@ -30,6 +30,15 @@ data class ToolCall(
 	val id: String,
 	val name: String,
 	val argumentsJson: String,
+	/**
+	 * Gemini's opaque `thoughtSignature` for this function-call part.
+	 *
+	 * Gemini 3 returns it with a function call and expects it echoed on the same
+	 * part when the call is replayed. It is not a secret and has no meaning to
+	 * the app; Gemini rejects a continued tool turn without it, which is why it
+	 * travels with the call rather than in display state.
+	 */
+	val thoughtSignature: String? = null,
 )
 
 /**
@@ -115,6 +124,16 @@ data class ChatMessage(
 	 * again. Sending it when thinking is off is harmless (also verified).
 	 */
 	val reasoning: String? = null,
+	/**
+	 * Anthropic's opaque signature for [reasoning].
+	 *
+	 * Anthropic streams a `signature_delta` after a thinking block. A thinking
+	 * block replayed without its signature is not accepted, and when thinking
+	 * is enabled a tool-use turn must carry the signed block back, so this is
+	 * part of the request history rather than a display detail. Null for every
+	 * other provider and for turns recorded before signatures were stored.
+	 */
+	val reasoningSignature: String? = null,
 	/** Tool calls this assistant turn requested. */
 	val toolCalls: List<ToolCall> = emptyList(),
 	/**

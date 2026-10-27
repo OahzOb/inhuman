@@ -388,6 +388,14 @@ data class MessageEntity(
 	 * discarded after rendering -- it is part of the request.
 	 */
 	val reasoning: String? = null,
+	/**
+	 * Anthropic's opaque signature for [reasoning].
+	 *
+	 * Replaying a thinking block without its signature is rejected; the column
+	 * is nullable because every other provider, and every row written before
+	 * this field existed, has no signature.
+	 */
+	val reasoningSignature: String? = null,
 	val model: String? = null,
 	val finishReason: String? = null,
 	val createdAt: Long,

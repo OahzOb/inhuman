@@ -174,6 +174,10 @@ internal object GeminiWire {
 							)
 						},
 					)
+					// Gemini returns an opaque signature with a function call
+					// and rejects a continued tool turn that omits it. The
+					// signature belongs to the part, not to `args`.
+					call.thoughtSignature?.let { put("thoughtSignature", it) }
 				},
 			)
 		}
@@ -289,10 +293,15 @@ internal class GeminiDecoder {
 					),
 				)
 				chunks.add(StreamChunk.ToolCallEnd(index))
+				val signature = part["thoughtSignature"]?.jsonPrimitive?.contentOrNull
+					?: call["thoughtSignature"]?.jsonPrimitive?.contentOrNull
+				signature?.takeIf { it.isNotBlank() }?.let {
+					chunks.add(StreamChunk.ToolCallSignature(index, it))
+				}
 			}
-			part["thoughtSignature"]?.jsonPrimitive?.contentOrNull?.let {
-				// Opaque; persisted once the provider-data column exists.
-			}
+			part["thoughtSignature"]?.jsonPrimitive?.contentOrNull
+				?.takeIf { it.isNotBlank() && part["functionCall"] == null }
+				?.let { chunks.add(StreamChunk.ReasoningSignature(it)) }
 		}
 		candidate["finishReason"]?.jsonPrimitive?.contentOrNull?.let { reason ->
 			finish = when (reason) {

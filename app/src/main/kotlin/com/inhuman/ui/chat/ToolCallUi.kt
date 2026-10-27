@@ -14,6 +14,8 @@ data class ToolCallUi(
 	val name: String?,
 	/** Raw fragments concatenated so far. Not valid JSON until complete. */
 	val argumentsJson: String = "",
+	/** Gemini's opaque signature for this call, when the provider returned one. */
+	val thoughtSignature: String? = null,
 	val state: State = State.Streaming,
 ) {
 	enum class State {

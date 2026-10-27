@@ -8,6 +8,7 @@ import com.inhuman.core.ai.StreamChunk
 import com.inhuman.core.ai.ToolCall
 import com.inhuman.core.ai.ToolSpec
 import com.inhuman.core.ai.stream.SseFrame
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -144,6 +145,104 @@ class AnthropicMessagesTest {
 			FinishReason.ToolCalls,
 			chunks.filterIsInstance<StreamChunk.Finish>().single().reason,
 		)
+	}
+
+	@Test
+	fun `signed thinking is requested and replayed`() {
+		val body = AnthropicWire.requestBody(
+			ChatRequest(
+				model = "claude-test",
+				thinking = true,
+				messages = listOf(
+					ChatMessage(Role.User, "list files"),
+					ChatMessage(
+						Role.Assistant,
+						"checking",
+						reasoning = "I should list the folder.",
+						reasoningSignature = "sig-opaque",
+						toolCalls = listOf(ToolCall("call_1", "list_files", """{"path":"."}""")),
+					),
+					ChatMessage(Role.Tool, "a.txt", toolCallId = "call_1"),
+				),
+			),
+		)
+
+		assertEquals("enabled", body["thinking"]?.jsonObject?.get("type")?.toString()?.trim('"'))
+		assertEquals("2048", body["thinking"]?.jsonObject?.get("budget_tokens")?.toString())
+		val messages = body["messages"].toString()
+		assertTrue(messages, messages.contains("\"type\":\"thinking\""))
+		assertTrue(messages, messages.contains("\"signature\":\"sig-opaque\""))
+		assertTrue(messages, messages.contains("I should list the folder."))
+	}
+
+	@Test
+	fun `an unsigned tool turn falls back to no thinking rather than a 400`() {
+		val body = AnthropicWire.requestBody(
+			ChatRequest(
+				model = "claude-test",
+				thinking = true,
+				messages = listOf(
+					ChatMessage(Role.User, "list files"),
+					ChatMessage(
+						Role.Assistant,
+						"checking",
+						toolCalls = listOf(ToolCall("call_1", "list_files", """{"path":"."}""")),
+					),
+					ChatMessage(Role.Tool, "a.txt", toolCallId = "call_1"),
+				),
+			),
+		)
+
+		assertTrue(body["thinking"] == null)
+		assertTrue(body["messages"].toString().contains("\"tool_use\""))
+		assertTrue(!body["messages"].toString().contains("\"type\":\"thinking\""))
+	}
+
+	@Test
+	fun `signature delta is kept apart from thinking text`() {
+		val decoder = AnthropicDecoder()
+		val chunks = listOf(
+			SseFrame(
+				"content_block_start",
+				"""{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}""",
+			),
+			SseFrame(
+				"content_block_delta",
+				"""{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Let me check."}}""",
+			),
+			SseFrame(
+				"content_block_delta",
+				"""{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"opaque"}}""",
+			),
+			SseFrame("content_block_stop", """{"type":"content_block_stop","index":0}"""),
+		).flatMap { decoder.decode(it) }
+
+		assertEquals("Let me check.", chunks.filterIsInstance<StreamChunk.ReasoningDelta>().single().text)
+		assertEquals("opaque", chunks.filterIsInstance<StreamChunk.ReasoningSignature>().single().signature)
+	}
+
+	@Test
+	fun `temperature is omitted while thinking and kept otherwise`() {
+		val thinking = AnthropicWire.requestBody(
+			ChatRequest(
+				model = "claude-test",
+				messages = listOf(ChatMessage(Role.User, "hi")),
+				thinking = true,
+				temperature = 0.2,
+			),
+		)
+		assertTrue(thinking["thinking"] != null)
+		assertTrue("thinking rejects a temperature", thinking["temperature"] == null)
+
+		val plain = AnthropicWire.requestBody(
+			ChatRequest(
+				model = "claude-test",
+				messages = listOf(ChatMessage(Role.User, "hi")),
+				temperature = 0.2,
+			),
+		)
+		assertTrue(plain["thinking"] == null)
+		assertEquals("0.2", plain["temperature"]?.toString())
 	}
 
 	@Test

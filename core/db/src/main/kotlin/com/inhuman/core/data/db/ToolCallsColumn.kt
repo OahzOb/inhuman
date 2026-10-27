@@ -24,6 +24,8 @@ data class StoredToolCall(
 	val id: String?,
 	val name: String?,
 	val argumentsJson: String,
+	/** Gemini's opaque `thoughtSignature` for this call, when one was returned. */
+	val thoughtSignature: String? = null,
 )
 
 /**
@@ -42,6 +44,7 @@ object ToolCallsColumn {
 				put("index", call.index)
 				call.id?.let { put("id", it) }
 				call.name?.let { put("name", it) }
+				call.thoughtSignature?.let { put("signature", it) }
 				put(
 					"arguments",
 					if (isRemote(call.name)) {
@@ -63,6 +66,8 @@ object ToolCallsColumn {
 					id = obj["id"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() },
 					name = obj["name"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() },
 					argumentsJson = obj["arguments"]?.jsonPrimitive?.content.orEmpty(),
+					thoughtSignature = obj["signature"]?.jsonPrimitive?.content
+						?.takeIf { it.isNotBlank() },
 				)
 			}
 		}.getOrDefault(emptyList())

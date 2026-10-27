@@ -582,27 +582,24 @@ which this setup does not use.
 - **No Linux desktop build in the current release.** Windows x64 is the desktop
   target; Linux is not built or verified. See
   [docs/12-desktop.md](docs/12-desktop.md).
-- **LaTeX rendering is not implemented yet; it is planned.** The reason this
-  file used to give for refusing it was wrong: it claimed the only viable
-  Android library is GPLv2 and this app is not open source — wrong twice over:
-  the app is open source (`LICENSE`), and JLaTeXMath carries a linking exception
-  whose own text grants permission to *"link this library with independent
-  modules … regardless of the license terms of these independent modules"*. So
-  the licence was never the obstacle. The real costs are the ones nobody had
-  priced: its Greek fonts are GPLv2, several others are OFL or the Knuth
-  Licence, and shipping any of them means maintaining a `THIRD-PARTY-NOTICES`
-  file. Markdown and code highlighting remain permissively licensed and cover
-  the common case today.
+- **LaTeX rendering is implemented on the Android host.** `$...$` and `$$...$$`
+  are rewritten to intercepted image links and drawn offline with the bundled
+  JLaTeXMath-Android fonts; a formula is also handled while the answer streams.
+  The licence was never the obstacle — the app is Apache-2.0 and JLaTeXMath
+  carries a linking exception — but the fonts are: the Greek set is GPLv2,
+  several others are OFL or the Knuth Licence, and all of it is recorded in
+  [app/src/main/assets/THIRD-PARTY-NOTICES.md](app/src/main/assets/THIRD-PARTY-NOTICES.md)
+  and readable from Settings → Diagnostics.
 - **No `MANAGE_EXTERNAL_STORAGE`,** and no `READ/WRITE_EXTERNAL_STORAGE`. Play
   gates the former behind justifications a chat app cannot honestly make. The
   user reaches a conversation's directory through the app's own `DocumentsProvider`
   and its import/export, which needs no such permission.
-- **Native Anthropic and Gemini adapters exist for text, images, tool calls and
-  usage; the rest of those protocols is planned.** Claude Pro/Max, ChatGPT,
-  Copilot and Kimi Code OAuth logins, OpenAI Responses, and thinking-signature
-  replay (Anthropic signed thinking blocks, Gemini thought signatures) are not
-  implemented. The replay needs an opaque provider-data field on the transcript
-  first; see [docs/01-overview.md](docs/01-overview.md).
+- **Native Anthropic and Gemini adapters exist for text, images, tool calls,
+  usage and thinking-signature replay.** Anthropic's signed thinking block and
+  Gemini's per-call `thoughtSignature` are persisted and replayed; an unsigned
+  old history falls back to thinking-off instead of a 400. Neither has been
+  verified against a real account here. Claude Pro/Max, ChatGPT, Copilot and
+  Kimi Code OAuth logins, and OpenAI Responses, are still planned.
 - **Remote connection details are not saved yet; saving them for convenience is
   planned.** It is not a security or privacy promise. Today the app has no host
   list and no credential store.

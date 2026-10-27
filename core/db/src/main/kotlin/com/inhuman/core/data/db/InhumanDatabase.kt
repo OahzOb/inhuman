@@ -567,12 +567,13 @@ interface SavedPromptDao {
 	],
 	// Bumped when columns were added for tool calls, again for measured
 	// latency, again for assistants, again for the approval rules, again for
-	// the approval audit, and again for the saved-prompt library. Room refuses
-	// to open a database whose schema hash does not match rather than guessing,
-	// which is how each was caught: the app crashed on launch with "Looks like
-	// you've changed schema but forgot to update the version number" instead of
-	// quietly losing conversations.
-	version = 16,
+	// the approval audit, again for the saved-prompt library, and again for the
+	// Anthropic thinking signature. Room refuses to open a database whose
+	// schema hash does not match rather than guessing, which is how each was
+	// caught: the app crashed on launch with "Looks like you've changed schema
+	// but forgot to update the version number" instead of quietly losing
+	// conversations.
+	version = 17,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -590,7 +591,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 		const val NAME = "inhuman.db"
 
 		/** Mirrors the Room annotation; backups record it without reflection. */
-		const val VERSION = 16
+		const val VERSION = 17
 
 		/**
 		 * 1 -> 2: tool-call columns.
@@ -989,6 +990,20 @@ abstract class InhumanDatabase : RoomDatabase() {
 		}
 
 		/**
+		 * 16 -> 17: the Anthropic thinking signature.
+		 *
+		 * Nullable and additive: old rows keep null, which the Anthropic adapter
+		 * treats as "thinking cannot be enabled on a transcript containing this
+		 * tool turn". Storing an empty string would look like a signature and
+		 * produce a 400 instead.
+		 */
+		val MIGRATION_16_17 = object : Migration(16, 17) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL("ALTER TABLE messages ADD COLUMN reasoningSignature TEXT")
+			}
+		}
+
+		/**
 		 * Every migration, in order.
 		 *
 		 * A host that builds the database itself must not copy this list. The
@@ -1013,6 +1028,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 			MIGRATION_13_14,
 			MIGRATION_14_15,
 			MIGRATION_15_16,
+			MIGRATION_16_17,
 		)
 
 		/**

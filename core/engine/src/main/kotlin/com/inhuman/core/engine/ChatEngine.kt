@@ -54,6 +54,8 @@ class ChatEngine(
 			var failure: String? = null
 			var usage: EngineUsage? = null
 
+			var reasoningSignature: String? = null
+
 			val request = ChatRequest(
 				model = turn.model,
 				messages = history,
@@ -89,6 +91,13 @@ class ChatEngine(
 								chunk.nameDelta?.let(name::append)
 								chunk.inputDelta?.let(arguments::append)
 							}
+						}
+
+						is StreamChunk.ReasoningSignature -> reasoningSignature = chunk.signature
+
+						is StreamChunk.ToolCallSignature -> {
+							builders.getOrPut(chunk.index) { CallBuilder(chunk.index) }
+								.signature = chunk.signature
 						}
 
 						is StreamChunk.ToolCallEnd -> Unit
@@ -140,7 +149,10 @@ class ChatEngine(
 				role = Role.Assistant,
 				content = text.toString(),
 				reasoning = reasoning.toString().ifBlank { null },
-				toolCalls = calls.map { ToolCall(it.id, it.name, it.argumentsJson) },
+				reasoningSignature = reasoningSignature,
+				toolCalls = calls.map {
+					ToolCall(it.id, it.name, it.argumentsJson, it.thoughtSignature)
+				},
 			)
 			history += assistant
 			emit(EngineEvent.AssistantMessage(assistant))
@@ -293,6 +305,7 @@ data class EngineToolCall(
 	val id: String,
 	val name: String,
 	val argumentsJson: String,
+	val thoughtSignature: String? = null,
 )
 
 data class EngineUsage(
@@ -390,11 +403,13 @@ private class CallBuilder(val index: Int) {
 	var id: String? = null
 	val name = StringBuilder()
 	val arguments = StringBuilder()
+	var signature: String? = null
 
 	fun toCall(round: Int) = EngineToolCall(
 		index = index,
 		id = id ?: "call-$round-$index",
 		name = name.toString(),
 		argumentsJson = arguments.toString(),
+		thoughtSignature = signature,
 	)
 }

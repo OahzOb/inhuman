@@ -25,7 +25,14 @@ class GeminiMessagesTest {
 					ChatMessage(
 						Role.Assistant,
 						"",
-						toolCalls = listOf(ToolCall("gemini_0_list_files", "list_files", """{"path":"."}""")),
+						toolCalls = listOf(
+							ToolCall(
+								"gemini_0_list_files",
+								"list_files",
+								"""{"path":"."}""",
+								thoughtSignature = "opaque-gemini",
+							),
+						),
 					),
 					ChatMessage(Role.Tool, "a.txt", toolCallId = "gemini_0_list_files"),
 				),
@@ -45,6 +52,25 @@ class GeminiMessagesTest {
 		assertTrue(text, text.contains("\"functionCall\""))
 		assertTrue(text, text.contains("\"functionResponse\""))
 		assertTrue(text, text.contains("list_files"))
+		assertTrue(text, text.contains("\"thoughtSignature\":\"opaque-gemini\""))
+	}
+
+	@Test
+	fun `a function call keeps its thought signature`() {
+		val chunks = GeminiDecoder().decode(
+			SseFrame(
+				event = null,
+				data = """
+					{"candidates":[{"content":{"parts":[{
+					  "functionCall":{"name":"list_files","args":{"path":"."}},
+					  "thoughtSignature":"sig-123"}]},"finishReason":"STOP"}]}
+				""".trimIndent(),
+			),
+		)
+
+		val signature = chunks.filterIsInstance<StreamChunk.ToolCallSignature>().single()
+		assertEquals(0, signature.index)
+		assertEquals("sig-123", signature.signature)
 	}
 
 	@Test

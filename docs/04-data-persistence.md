@@ -20,10 +20,10 @@ Both hosts install the same `InhumanDatabase.MIGRATIONS` and
 `BundledSQLiteDriver`. The callback seeds the DeepSeek provider and the default
 assistant on create, so a desktop install is not a second, empty schema.
 
-## The schema, version 16
+## The schema, version 17
 
 `InhumanDatabase` (`core/db/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 16`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 17`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/db/schemas/` by KSP — configured in `core/db/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
@@ -36,6 +36,17 @@ Eleven entities in four files: `ProviderProfileEntity`, `WorkspaceEntity`,
 `db/PolicyEntities.kt` (added by migration 7→8), the approval audit
 (`ApprovalAuditEntity`) in `db/ApprovalAuditEntity.kt` (14→15), and the
 saved-prompt library (`SavedPromptEntity`) in `db/SavedPromptEntity.kt` (15→16).
+
+### `messages.reasoningSignature` — added in 16→17
+
+The opaque signature Anthropic streams after a thinking block. Nullable and
+additive: an old row, or a row from any other provider, has none. The Anthropic
+adapter treats a missing signature on a reasoning/tool turn as "thinking cannot
+be enabled for this history" and falls back to a thinking-off request, because
+replaying the block without it is rejected. Tool-call signatures (Gemini's
+`thoughtSignature`) live inside `toolCallsJson` per call rather than in a
+separate column, since they belong to the call records and the column is shared
+with the desktop host.
 
 ### `saved_prompts` — added in 15→16
 
@@ -287,7 +298,7 @@ the messages explicitly before the row **even though the FK cascades** — the
 comment says that keeps the behaviour obvious if the cascade is ever switched
 off (`:496-502`).
 
-## Migration history 1 → 16
+## Migration history 1 → 17
 
 All hand-written. There is **no `fallbackToDestructiveMigration` anywhere** and
 the reason is stated at `MIGRATION_1_2`: it would delete every conversation on
@@ -316,6 +327,7 @@ order below.
 | 13→14 | `provider_profiles` gains `modelTags TEXT NOT NULL DEFAULT ''`, so an upgraded install has every model untagged and the picker falls back to the name-based guess. |
 | 14→15 | `approval_audit` created, empty: an install that never sees a prompt has nothing to show, and an upgraded one has no old questions to import. The table has one index `(conversationId, askedAt)`, for the history dialogue, and a cascade on the conversation. |
 | 15→16 | `saved_prompts` created, empty, with a unique index on `title`. No existing row is interpreted; an install that never saves a prompt keeps a table nobody reads. |
+| 16→17 | `messages.reasoningSignature` added, nullable. Old rows read as null, which the Anthropic adapter treats as "do not enable thinking on this history"; an empty string would look like a signature and produce a 400. |
 
 The 7→8 comment records a product change that is *not* in the migration:
 deletion no longer asks for approval, and that lives in `DeleteFileTool`, not
@@ -640,7 +652,7 @@ means a failed or cancelled export does not clear the reminder.
 
 ## Tests in this module
 
-Three JVM files and five device files:
+The JVM and device files below:
 
 | Test | Locks in |
 | --- | --- |

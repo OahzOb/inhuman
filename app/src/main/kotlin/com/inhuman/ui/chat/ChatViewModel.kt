@@ -3114,8 +3114,18 @@ class ChatViewModel(
 								id = call.id,
 								name = call.name,
 								argumentsJson = call.argumentsJson,
+								thoughtSignature = call.thoughtSignature,
 								state = ToolCallUi.State.Ready,
 							)
+						}
+						// The live UI row is what the next turn builds its wire
+						// history from; without this the signature would exist
+						// only in the database row, and the next request would
+						// silently fall back to thinking-off.
+						currentId?.let { replyId ->
+							updateMessage(replyId) {
+								it.copy(reasoningSignature = event.message.reasoningSignature)
+							}
 						}
 						publish(force = true)
 					}
@@ -3156,6 +3166,7 @@ class ChatViewModel(
 										role = "assistant",
 										content = content,
 										reasoning = message?.reasoning?.takeIf { it.isNotBlank() },
+										reasoningSignature = message?.reasoningSignature,
 										model = model,
 										finishReason = event.reason.describe(),
 										createdAt = System.currentTimeMillis(),
@@ -3184,6 +3195,7 @@ class ChatViewModel(
 								finishReason = event.reason.describe(),
 								usage = usage,
 								suggestions = suggestions,
+								reasoningSignature = message?.reasoningSignature,
 							)
 						}
 						refreshContext()
@@ -3309,6 +3321,7 @@ class ChatViewModel(
 											role = "assistant",
 											content = text,
 											reasoning = reasoning.takeIf { it.isNotBlank() },
+											reasoningSignature = currentAssistant?.reasoningSignature,
 											model = model,
 											finishReason = lastFinish?.describe(),
 											// A stopped turn says so rather than
@@ -3392,6 +3405,7 @@ class ChatViewModel(
 							isStreaming = false,
 							error = it.error ?: failure ?: if (userStopped) STOPPED_MESSAGE else null,
 							suggestions = suggestions,
+							reasoningSignature = currentAssistant?.reasoningSignature,
 						)
 					}
 					if (wroteRow) refreshContext()
@@ -3666,6 +3680,7 @@ class ChatViewModel(
 		id = id,
 		name = name,
 		argumentsJson = argumentsJson,
+		thoughtSignature = thoughtSignature,
 		state = ToolCallUi.State.Ready,
 	)
 
@@ -4355,9 +4370,15 @@ class ChatViewModel(
 					role = Role.Assistant,
 					content = m.plainText,
 					reasoning = m.reasoningText.takeIf { it.isNotBlank() },
+					reasoningSignature = m.reasoningSignature,
 					toolCalls = m.toolCalls.mapNotNull { c ->
 						val id = c.id ?: return@mapNotNull null
-						com.inhuman.core.ai.ToolCall(id, c.displayName, c.argumentsJson.ifBlank { "{}" })
+						com.inhuman.core.ai.ToolCall(
+							id,
+							c.displayName,
+							c.argumentsJson.ifBlank { "{}" },
+							c.thoughtSignature,
+						)
 					},
 				)
 			}
@@ -4433,6 +4454,7 @@ class ChatViewModel(
 				put("index", c.index)
 				c.id?.let { put("id", it) }
 				c.name?.let { put("name", it) }
+				c.thoughtSignature?.let { put("signature", it) }
 				put(
 					"arguments",
 					if (ToolCatalog.all.firstOrNull { it.name == c.name }?.remote == true) {
@@ -4732,6 +4754,7 @@ private fun MessageEntity.toUi(
 		parts = parts,
 		plainText = content,
 		reasoningText = reasoning.orEmpty(),
+		reasoningSignature = reasoningSignature,
 		// Present only while this reply is the one arriving; see replyDeltas.
 		deltas = deltas,
 		finishReason = finishReason,
@@ -4825,6 +4848,8 @@ private fun decodeCalls(
 				id = obj["id"]?.toString()?.trim('"'),
 				name = obj["name"]?.toString()?.trim('"'),
 				argumentsJson = obj["arguments"]?.toString()?.trim('"').orEmpty(),
+				thoughtSignature = obj["signature"]?.toString()?.trim('"')
+					?.takeIf { it.isNotBlank() },
 				state = ToolCallUi.State.Done,
 			)
 			if (wasDeclined(call)) call.copy(state = ToolCallUi.State.Declined) else call
