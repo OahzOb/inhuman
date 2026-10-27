@@ -27,6 +27,8 @@ import com.inhuman.core.data.db.ProviderReasoning
 import com.inhuman.core.data.db.UsageRow
 import com.inhuman.core.data.oauth.OAuthSession
 import com.inhuman.core.data.secret.SecureStore
+import com.inhuman.core.ai.ssh.SshProfile
+import com.inhuman.ui.ssh.SavedSshHostStore
 import com.inhuman.ui.backup.BackupReminderPolicy
 import com.inhuman.diagnostics.AppDiagnostics
 import com.inhuman.ui.settings.UsagePeriod
@@ -126,6 +128,8 @@ data class SettingsUiState(
 	val providers: List<ProviderProfileEntity> = emptyList(),
 	val editingProvider: ProviderDraft? = null,
 	val oauthLogin: OAuthLoginUi? = null,
+	/** Host shown for the one saved SSH profile; never includes secrets. */
+	val savedSshHost: String? = null,
 	val providerStatus: String? = null,
 	val providerStatusIsError: Boolean = false,
 	val webSearchBackend: String = "deepseek",
@@ -249,6 +253,8 @@ class SettingsViewModel(
 	private val knownHostsFile: File,
 ) : ViewModel() {
 
+	private val savedSshHostStore = SavedSshHostStore(secure)
+
 	private val _state = MutableStateFlow(SettingsUiState())
 	val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
@@ -268,6 +274,45 @@ class SettingsViewModel(
 
 	/** PKCE sign-in state; tokens are stored through SecureStore. */
 	private val oauth = OAuthSession(secure)
+
+	init {
+		_state.update { it.copy(savedSshHost = savedSshHostStore.load()?.host) }
+	}
+
+	fun savedSshHost(): SshProfile? = savedSshHostStore.load()
+
+	/**
+	 * Save or forget the one remote host. A blank password/key keeps the saved
+	 * secret, so editing only the hostname does not silently erase credentials.
+	 */
+	fun saveSavedSshHost(
+		host: String,
+		port: Int,
+		username: String,
+		password: String?,
+		privateKey: String?,
+		passphrase: String?,
+		hostKeyFingerprint: String?,
+	) {
+		val previous = savedSshHostStore.load()
+		val saved = SshProfile(
+			host = host.trim(),
+			port = port.coerceIn(1, 65535),
+			username = username.trim(),
+			password = password?.takeIf { it.isNotEmpty() } ?: previous?.password,
+			privateKey = privateKey?.takeIf { it.isNotBlank() } ?: previous?.privateKey,
+			passphrase = passphrase?.takeIf { it.isNotEmpty() } ?: previous?.passphrase,
+			hostKeyFingerprint = hostKeyFingerprint?.trim()?.takeIf { it.isNotBlank() }
+				?: previous?.hostKeyFingerprint,
+		)
+		savedSshHostStore.save(saved)
+		_state.update { it.copy(savedSshHost = saved.host) }
+	}
+
+	fun clearSavedSshHost() {
+		savedSshHostStore.clear()
+		_state.update { it.copy(savedSshHost = null) }
+	}
 
 	/** The verified download waiting for the Install button. */
 	private var downloadedApk: File? = null

@@ -1,5 +1,6 @@
 package com.inhuman.core.ai.tools
 
+import com.inhuman.core.ai.ssh.SshProfile
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -104,6 +105,35 @@ class SshArgumentsTest {
 			)
 		}
 		assertNull(SshArguments.missingRequired("ssh_exec", wrapped))
+	}
+
+	@Test
+	fun aSavedConnectionCanSupplyTheConnectionFields() {
+		val saved = SshProfile(
+			host = "saved.example",
+			port = 2222,
+			username = "deploy",
+			password = "secret",
+		)
+		val call = args("useSavedHost" to "true", "command" to "uptime")
+
+		assertNull(SshArguments.missingRequired("ssh_exec", call) { saved })
+		val parsed = SshArguments.parse("ssh_exec", call, { null }) { saved }
+
+		val connection = (parsed as SshArguments.Parsed.Ok).value
+		assertEquals("saved.example", connection.host)
+		assertEquals(2222, connection.port)
+		assertEquals("deploy", connection.username)
+		assertEquals("secret", connection.auth.password)
+	}
+
+	@Test
+	fun namingASavedConnectionThatDoesNotExistIsRefused() {
+		val call = args("useSavedHost" to "true", "command" to "uptime")
+		assertEquals(
+			"a saved SSH host (none is configured)",
+			SshArguments.missingRequired("ssh_exec", call),
+		)
 	}
 
 	@Test

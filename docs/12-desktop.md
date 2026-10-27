@@ -126,7 +126,7 @@ MSI 是 per-user 的，自带 Java runtime。2026-10 验收时安装出的
 最终全量测试：
 
 ```
-737 tests / 109 suites / 0 failures / 4 skipped
+743 tests / 110 suites / 0 failures / 4 skipped
 warnings 0, errors 0
 ```
 

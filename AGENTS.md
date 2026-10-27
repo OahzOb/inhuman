@@ -103,9 +103,8 @@ Two consequences bind every future change, and neither is negotiable:
   inheriting a narrower read-only grant.** When SSH is on, the agent
   can inspect a host, read files, write small text files, transfer files, and —
   only if `ssh_exec` is selected — run commands on a remote machine whose address
-  and credentials the user supplies; the app currently has no host/credential
-  configuration. Saving connection details for convenience is planned, without a
-  security or privacy promise (`docs/13-product.md`). SSH **credential**
+  and credentials the user supplies; the app can save **one** host for convenience,
+  without a security or privacy promise (`docs/13-product.md`). SSH **credential**
   arguments (`password`, `privateKey`,
   `passphrase`) are redacted before storage. Command text, paths and
   `ssh_write_file` content
@@ -137,10 +136,10 @@ just the web and media tools.
 
 **Remote capability is disclosed separately.** Every SSH tool carries `remote =
 true`, a filled `REMOTE` badge, a notice above the tool list, and a dedicated
-first-call consent dialog. The app currently does not configure a host or a
-credential store; the user gives them to the agent. Saving connection details for
-convenience is planned, without a security or privacy promise
-(`docs/13-product.md`). SSH **credential** arguments are redacted
+first-call consent dialog. The app can save one host and its credentials in the
+platform secret store for convenience, never as a security or privacy promise;
+there is no host list or fleet manager, and backups exclude the secret. SSH
+**credential** arguments are redacted
 before the transcript is stored; command text, paths and `ssh_write_file`
 content are not. The ordinary approval dialog must never show a password or
 private key — the SSH tools supply a redacted `details` string; `ssh_upload` and

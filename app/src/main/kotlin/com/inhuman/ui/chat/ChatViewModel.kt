@@ -9,6 +9,7 @@ import com.inhuman.sandbox.JavaScriptTool
 import com.inhuman.sandbox.SandboxRuntime
 import com.inhuman.ui.common.formatBytes
 import com.inhuman.ui.documents.AndroidPdfBackend
+import com.inhuman.ui.ssh.SavedSshHostStore
 import com.inhuman.R
 import com.inhuman.TurnNotifications
 import com.inhuman.TurnStatus
@@ -218,6 +219,9 @@ class ChatViewModel(
 
 	/** POI is loaded only for a legacy DOC/XLS turn, not at startup. */
 	private val legacyBackend by lazy { com.inhuman.ui.documents.PoiLegacyBackend(context) }
+
+	/** One saved host, encrypted; the model only receives it through a tool call. */
+	private val savedSshHost = SavedSshHostStore(secure)
 
 	private val _state = MutableStateFlow(ChatUiState())
 	val state: StateFlow<ChatUiState> = _state.asStateFlow()
@@ -3506,7 +3510,7 @@ class ChatViewModel(
 		if (remote) {
 			// Never show a consent dialogue for a call the tool would reject as
 			// malformed: the dialogue describes a call that can actually happen.
-			SshArguments.missingRequired(tool.name, parsed)?.let { missing ->
+			SshArguments.missingRequired(tool.name, parsed, savedSshHost::load)?.let { missing ->
 				Diag.w("ssh", "malformed name=${tool.name} missing=$missing")
 				return EngineDecision.Deny(
 					"${tool.name}: $missing is required",
@@ -3554,8 +3558,20 @@ class ChatViewModel(
 		// A capability grant, not a per-call approval: the first SSH call needs
 		// an explicit acknowledgement that later calls inherit.
 		if (remote && !sshAllowed) {
-			val host = stringArg(parsed, "host").orEmpty()
-			val username = stringArg(parsed, "username").orEmpty()
+			val savedConnection = if (
+				SshArguments.boolean(parsed, "useSavedHost") ||
+				!stringArg(parsed, "profile").isNullOrBlank()
+			) {
+				savedSshHost.load()
+			} else {
+				null
+			}
+			val host = stringArg(parsed, "host").orEmpty().ifBlank {
+				savedConnection?.host.orEmpty()
+			}
+			val username = stringArg(parsed, "username").orEmpty().ifBlank {
+				savedConnection?.username.orEmpty()
+			}
 			val operation = remoteOperation(tool.name, parsed)
 			val selection = conversation?.tools ?: agent?.tools
 			val canExec = selection?.contains("ssh_exec") == true
@@ -3578,7 +3594,8 @@ class ChatViewModel(
 						canExec = canExec,
 						canUpload = canUpload,
 						canWriteFile = canWriteFile,
-						hostKeyFingerprint = stringArg(parsed, "hostKeyFingerprint")
+						hostKeyFingerprint = (stringArg(parsed, "hostKeyFingerprint")
+							?: savedConnection?.hostKeyFingerprint)
 							?.trim()
 							?.takeIf { it.isNotEmpty() },
 					),
@@ -4039,16 +4056,17 @@ class ChatViewModel(
 					}
 				}
 				if (sshTransport != null && selected?.contains("ssh_exec") == true) {
-					add(SshExecTool(sshTransport, limits, readIdentity))
+					add(SshExecTool(sshTransport, limits, readIdentity, savedSshHost::load))
 				}
 				if (sshTransport != null && selected?.contains("ssh_probe") == true) {
-					add(SshProbeTool(sshTransport, limits, readIdentity))
+					add(SshProbeTool(sshTransport, limits, readIdentity, savedSshHost::load))
 				}
 				if (sshFileTransport != null && selected?.contains("ssh_list") == true) {
 					add(
 						SshListTool(
 							transport = sshFileTransport,
 							readWorkspaceFile = readIdentity,
+							savedConnection = savedSshHost::load,
 							maxEntries = limits.listCeilingEntries,
 						),
 					)
@@ -4058,6 +4076,7 @@ class ChatViewModel(
 						SshReadFileTool(
 							transport = sshFileTransport,
 							readWorkspaceFile = readIdentity,
+							savedConnection = savedSshHost::load,
 							maxBytes = limits.readCeilingBytes,
 						),
 					)
@@ -4067,6 +4086,7 @@ class ChatViewModel(
 						SshUploadTool(
 							transport = sshFileTransport,
 							readWorkspaceFile = readUpload,
+							savedConnection = savedSshHost::load,
 							maxBytes = ws.limits.maxReadBytes,
 						),
 					)
@@ -4076,6 +4096,7 @@ class ChatViewModel(
 						SshWriteFileTool(
 							transport = sshFileTransport,
 							readWorkspaceFile = readIdentity,
+							savedConnection = savedSshHost::load,
 						),
 					)
 				}
@@ -4084,6 +4105,7 @@ class ChatViewModel(
 						SshDownloadTool(
 							transport = sshFileTransport,
 							readWorkspaceFile = readIdentity,
+							savedConnection = savedSshHost::load,
 							saveWorkspaceFile = { path, bytes, overwrite ->
 								saveDownload(ws, path, bytes, overwrite)
 							},

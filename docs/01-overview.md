@@ -16,10 +16,11 @@ should never be presented as one.
 One capability can leave the device: the seven SSH tools (`ssh_probe`,
 `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`,
 `ssh_download`), which are **off by default** and require both the global
-Settings switch and a per-conversation acknowledgement. Currently the app has no
-host configuration or credential store; saving connection details for convenience
-is planned, without a security or privacy promise. The agent can only reach a
-machine whose address and credentials the user supplies. With SSH off — the
+Settings switch and a per-conversation acknowledgement. The app can optionally
+save one host and its credentials in the platform secret store for convenience,
+without a security or privacy promise; there is no host list or fleet manager.
+The agent can only reach a machine whose address and credentials the user
+supplies. With SSH off — the
 default — the paragraph above is true as written. See
 [03-ai-provider.md](03-ai-provider.md) and [08-port-philosophy.md](08-port-philosophy.md) §1.2.1.
 
@@ -96,8 +97,8 @@ Confirmed by `README.md:17-29` and by the code:
 - Per-conversation model and reasoning effort, read from the provider.
 - The model can run commands and move files on a remote machine over SSH, but only
   after the user turns the global switch on, gives the assistant the SSH tools,
-  and allows it once per conversation; there is no host list or credential store,
-  and SSH tool-call arguments are redacted before storage
+  and allows it once per conversation; one saved host may be reused only when the
+  call asks for it, and SSH tool-call arguments are redacted before storage
   ([03-ai-provider.md](03-ai-provider.md)).
 - SSH also has a read-only profile: `ssh_probe` takes a fixed host snapshot,
   `ssh_list` and `ssh_read_file` browse over SFTP without a shell (with optional

@@ -139,9 +139,12 @@ class SshExecToolTest {
 	@Test
 	fun `identityFile is read through the workspace reader and not the prompt`() = runBlocking {
 		val transport = FakeTransport()
-		val tool = SshExecTool(transport) { path ->
-			if (path == "keys/server") "PRIVATE KEY".toByteArray() else null
-		}
+		val tool = SshExecTool(
+			transport = transport,
+			readWorkspaceFile = { path ->
+				if (path == "keys/server") "PRIVATE KEY".toByteArray() else null
+			},
+		)
 		val result = tool.execute(
 			buildJsonObject {
 				put("host", "example.test")
@@ -158,7 +161,7 @@ class SshExecToolTest {
 	@Test
 	fun `a missing identityFile is an error before connecting`() = runBlocking {
 		val transport = FakeTransport()
-		val tool = SshExecTool(transport) { null }
+		val tool = SshExecTool(transport, readWorkspaceFile = { null })
 		val result = tool.execute(
 			buildJsonObject {
 				put("host", "example.test")

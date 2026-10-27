@@ -3,6 +3,7 @@ package com.inhuman.core.ai.tools
 import com.inhuman.core.ai.ToolResult
 import com.inhuman.core.ai.ssh.SshException
 import com.inhuman.core.ai.ssh.SshFileTransport
+import com.inhuman.core.ai.ssh.SshProfile
 import com.inhuman.core.ai.ssh.SshTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
@@ -22,6 +23,7 @@ import kotlinx.serialization.json.JsonObject
 class SshWriteFileTool(
 	private val transport: SshFileTransport,
 	private val readWorkspaceFile: (String) -> ByteArray? = { null },
+	private val savedConnection: () -> SshProfile? = { null },
 	private val maxBytes: Int = 64 * 1024,
 ) : SshTool {
 
@@ -30,7 +32,7 @@ class SshWriteFileTool(
 	override val description: String = """
 		Write a text file on a remote machine over SFTP.
 		Use it for a config, a systemd unit or a small script instead of a shell heredoc; the content is written verbatim and is binary-safe.
-		The app has no host inventory or credential store: pass host, username and a way to authenticate, exactly as for ssh_exec. Prefer identityFile over a password or raw key.
+		The app can use a connection saved in Settings with useSavedHost=true; otherwise pass host, username and authentication. Prefer identityFile over a password or raw key.
 		Limit: $maxBytes bytes. An existing file is refused unless overwrite=true; that replacement cannot be undone. Set createParents=true to create a missing parent directory.
 	""".trimIndent()
 
@@ -54,7 +56,7 @@ class SshWriteFileTool(
 				"description" to "Create missing remote parent directories; default false",
 			),
 		),
-		"required" to listOf("host", "username", "remotePath", "content"),
+		"required" to listOf("remotePath", "content"),
 	)
 
 	override val mutates: Boolean = true
@@ -62,7 +64,7 @@ class SshWriteFileTool(
 
 	override suspend fun execute(arguments: JsonObject): ToolResult {
 		val args = SshArguments.normalize(arguments)
-		val connection = when (val parsed = SshArguments.parse(name, args, readWorkspaceFile)) {
+		val connection = when (val parsed = SshArguments.parse(name, args, readWorkspaceFile, savedConnection)) {
 			is SshArguments.Parsed.Error -> return ToolResult.error(parsed.message)
 			is SshArguments.Parsed.Ok -> parsed.value
 		}

@@ -1,14 +1,13 @@
 package com.inhuman.core.ai.tools
 
 import com.inhuman.core.ai.ToolResult
-import com.inhuman.core.ai.ssh.SshAuth
 import com.inhuman.core.ai.ssh.SshException
 import com.inhuman.core.ai.ssh.SshLimits
+import com.inhuman.core.ai.ssh.SshProfile
 import com.inhuman.core.ai.ssh.SshTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.intOrNull
 
 /**
  * Run one command on a remote machine over SSH.
@@ -34,13 +33,14 @@ class SshExecTool(
 	private val limits: SshLimits = SshLimits(),
 	/** Reads a workspace-relative private-key file. */
 	private val readWorkspaceFile: (String) -> ByteArray? = { null },
+	private val savedConnection: () -> SshProfile? = { null },
 ) : SshTool {
 
 	override val name: String = "ssh_exec"
 
 	override val description: String = """
 		Run one non-interactive command on a remote machine over SSH.
-		Use it only when the user has given you a host, a username and a way to authenticate. The app has no host inventory or credential store; SSH tool arguments are redacted before storage.
+		Use it only when the user has given you a host, a username and a way to authenticate, or use useSavedHost=true for the connection saved in Settings. SSH tool arguments are redacted before storage.
 		Prefer identityFile (a workspace-relative private-key path the user placed there) over pasting a private key; a password is accepted only if the user gave you one.
 		There is no PTY: commands that wait for input will time out. There is no port forwarding.
 		The command may run for at most ${limits.commandTimeoutCeilingSeconds}s; timeoutSeconds may lower that, never raise it. Output is capped at ${limits.outputCeilingBytes} bytes per stream; maxOutputBytes may lower it.
@@ -50,6 +50,10 @@ class SshExecTool(
 	override val parameters: Map<String, Any?> = mapOf(
 		"type" to "object",
 		"properties" to mapOf(
+			"useSavedHost" to mapOf(
+				"type" to "boolean",
+				"description" to "Use the one connection saved in Settings; explicit host/username override it.",
+			),
 			"host" to mapOf("type" to "string", "description" to "Hostname or IP address"),
 			"port" to mapOf("type" to "integer", "description" to "SSH port; default 22"),
 			"username" to mapOf("type" to "string", "description" to "Remote user"),
@@ -80,7 +84,7 @@ class SshExecTool(
 				"description" to "Optional SHA256:... host-key fingerprint; first use is trust-on-first-use",
 			),
 		),
-		"required" to listOf("host", "username", "command"),
+		"required" to listOf("command"),
 	)
 
 	override val mutates: Boolean = true
@@ -92,28 +96,14 @@ class SshExecTool(
 		// `hostname` for `host`. Unwrap one level rather than refusing a call
 		// whose payload is otherwise complete.
 		val args = SshArguments.normalize(arguments)
-		val host = args.string("host")?.trim().orEmpty()
-		val username = args.string("username")?.trim().orEmpty()
 		val command = args.string("command")?.trim().orEmpty()
-		if (host.isBlank()) return ToolResult.error("ssh_exec: host is required")
-		if (username.isBlank()) return ToolResult.error("ssh_exec: username is required")
 		if (command.isBlank()) return ToolResult.error("ssh_exec: command is required")
-		if (host.any { it.isWhitespace() } || username.any { it.isWhitespace() }) {
-			return ToolResult.error("ssh_exec: host and username cannot contain whitespace")
+		val connection = when (
+			val parsed = SshArguments.parse(name, args, readWorkspaceFile, savedConnection)
+		) {
+			is SshArguments.Parsed.Error -> return ToolResult.error(parsed.message)
+			is SshArguments.Parsed.Ok -> parsed.value
 		}
-
-		val port = args["port"]?.let { element ->
-			val primitive = element as? JsonPrimitive
-				?: return ToolResult.error("ssh_exec: port must be an integer")
-			if (primitive.isString) {
-				primitive.content.toIntOrNull()
-					?: return ToolResult.error("ssh_exec: port must be an integer")
-			} else {
-				primitive.intOrNull
-					?: return ToolResult.error("ssh_exec: port must be an integer")
-			}
-		} ?: 22
-		if (port !in 1..65535) return ToolResult.error("ssh_exec: port must be between 1 and 65535")
 
 		val timeoutRequest = SshArguments.int(args, "timeoutSeconds", 0).takeIf { it > 0 }
 		val outputRequest = SshArguments.int(args, "maxOutputBytes", 0).takeIf { it > 0 }
@@ -128,42 +118,14 @@ class SshExecTool(
 			}
 		}
 
-		val identityFile = args.string("identityFile")?.trim()?.takeIf { it.isNotEmpty() }
-		val rawPrivateKey = args.string("privateKey")?.takeIf { it.isNotEmpty() }
-		if (identityFile != null && rawPrivateKey != null) {
-			return ToolResult.error("ssh_exec: provide identityFile or privateKey, not both")
-		}
-
-		val privateKey = when {
-			identityFile != null -> runCatching { readWorkspaceFile(identityFile) }
-				.getOrElse { failure ->
-					return ToolResult.error(
-						"ssh_exec: could not read identityFile '$identityFile': ${failure.message}",
-					)
-				}
-				?: return ToolResult.error("ssh_exec: identityFile not found: $identityFile")
-			rawPrivateKey != null -> rawPrivateKey.toByteArray(Charsets.UTF_8)
-			else -> null
-		}
-		val password = args.string("password")
-		if (privateKey == null && password == null) {
-			return ToolResult.error(
-				"ssh_exec: authentication is required: identityFile, privateKey or password",
-			)
-		}
-
 		return try {
 			val result = transport.execute(
-				host = host,
-				port = port,
-				username = username,
+				host = connection.host,
+				port = connection.port,
+				username = connection.username,
 				command = command,
-				auth = SshAuth(
-					password = password,
-					privateKey = privateKey,
-					passphrase = args.string("passphrase")?.toByteArray(Charsets.UTF_8),
-				),
-				hostKeyFingerprint = args.string("hostKeyFingerprint")?.trim()?.takeIf { it.isNotEmpty() },
+				auth = connection.auth,
+				hostKeyFingerprint = connection.hostKeyFingerprint,
 				connectTimeoutMs = SshTransport.DEFAULT_CONNECT_TIMEOUT_MS,
 				commandTimeoutMs = timeoutMs,
 				maxOutputBytes = outputBytes,

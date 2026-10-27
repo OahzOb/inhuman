@@ -62,16 +62,15 @@ SSH 工具（`ssh_probe`、`ssh_list`、`ssh_read_file`、`ssh_exec`、`ssh_uplo
   工具清单里显式选中要用的每一个 SSH 工具；第一次调用时，会话里再弹一次**能力
   授权**，不是普通的单次审批。`toolsJson = null` 的历史助手**不会**自动获得 SSH——
   `ToolCatalog.permits` 对所有 `remote = true` 的工具特判，必须显式写进清单。
-- **app 不提供远程设备配置**：没有 host 列表、没有凭据仓库、没有 allowlist。
-  连接信息由用户告诉 agent；app 只做传输。这是刻意的：一个 host 列表会把
-  "用户临时给一台机器"变成"app 管理一支舰队"。工具调用参数在写入 transcript
-  之前会去掉 `password`/`privateKey`/`passphrase`；用户自己打进消息的文本仍会
-  被保存，这是会话本身。
-
-  > **待办（产品已决定）**：计划加入“保存远程信息”（主机/用户/密钥），目的只是
-  > 省去重复输入，**不构成安全或隐私保证**。实现前必须重写本条关于“没有 host
-  > 列表”的论证：保存范围是什么、凭据保护的下限在哪里、以及它和“app 不管理
-  > 一支舰队”的关系。在那之前，本条仍是当前实现的规则。
+- **app 提供一台可选保存的远程主机，不是舰队。** 设置里可以保存 host、port、
+  username、password/private key/passphrase 和可选的主机密钥指纹；只保存**一台**，
+  没有 host 列表、没有 allowlist、没有多主机切换。目的只是省去每次重敲，
+  **不构成安全或隐私保证**。凭据放在 `SecureStore`（Android Keystore/DPAPI），
+  与 API key 一样不进入备份、不进入诊断日志；忘记主机时整条删除。工具调用参数
+  在写入 transcript 之前仍会去掉 `password`/`privateKey`/`passphrase`。模型必须
+  显式发送 `useSavedHost: true` 才会使用保存的主机；调用里写明的 host/用户/凭据
+  优先于保存值，不会因为“保存过”就悄悄改连另一台机器。SSH 的会话授权、host key
+  TOFU 和首次调用披露都不因保存而改变。
 - **授权按会话持久化**，可撤销；全局开关关闭会清掉所有会话的授权。
   只读组合（`ssh_probe`、`ssh_list`、`ssh_read_file`、`ssh_download`）不经过
   任意 shell，可以在不选 `ssh_exec` 的情况下使用；`ssh_upload` 和
@@ -139,7 +138,7 @@ key；chat provider 的 key 不授权这两个工具。这类能力有一条独�
 SSH 工具不花钱，但它们能造成比花钱更重的后果。规则和付费披露同构：
 
 - `ToolCatalog.Entry.remote = true`，`REMOTE` 徽标紧挨工具名；助手工具列表上方
-  有常驻说明，明确说 app 不配置 host、远端损坏不可逆、第一次调用要授权。
+  有常驻说明，明确说 app 最多保存一台 host、远端损坏不可逆、第一次调用要授权。
 - **能否 rewind 也是工具标签，不是说明文字。** 所有会改变状态的工具在名字旁带
   `REWIND`（本地可恢复）或 `NO REWIND`（不可恢复），和 `PAID`/`REMOTE` 同一行；
   `ssh_exec` 和 `ssh_upload` 同时有 `REMOTE` 和 `NO REWIND`；`ssh_download` 是

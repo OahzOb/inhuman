@@ -1,6 +1,7 @@
 package com.inhuman.core.ai.tools
 
 import com.inhuman.core.ai.ssh.SshAuth
+import com.inhuman.core.ai.ssh.SshProfile
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -64,10 +65,17 @@ object SshArguments {
 	 * `privateKey` and `password` are alternatives, and the tool has to read
 	 * the workspace key file to decide whether one of them works.
 	 */
-	fun missingRequired(toolName: String, arguments: JsonObject): String? {
+	fun missingRequired(
+		toolName: String,
+		arguments: JsonObject,
+		savedProfile: () -> SshProfile? = { null },
+	): String? {
 		val args = normalize(arguments)
-		if (args.stringOrNull("host").isNullOrBlank()) return "host"
-		if (args.stringOrNull("username").isNullOrBlank()) return "username"
+		val wantsSaved = boolean(args, "useSavedHost") || !args.stringOrNull("profile").isNullOrBlank()
+		val saved = if (wantsSaved) savedProfile() else null
+		if (wantsSaved && saved == null) return "a saved SSH host (none is configured)"
+		if (args.stringOrNull("host").isNullOrBlank() && saved == null) return "host"
+		if (args.stringOrNull("username").isNullOrBlank() && saved == null) return "username"
 		return when (toolName) {
 			"ssh_exec" -> "command".takeIf { args.stringOrNull(it).isNullOrBlank() }
 			"ssh_probe" -> null
@@ -124,12 +132,20 @@ object SshArguments {
 		toolName: String,
 		arguments: JsonObject,
 		readWorkspaceFile: (String) -> ByteArray?,
+		savedProfile: () -> SshProfile? = { null },
 	): Parsed {
 		val args = normalize(arguments)
-		val host = args.stringOrNull("host")?.trim().orEmpty()
-		val username = args.stringOrNull("username")?.trim().orEmpty()
-		if (host.isBlank()) return Parsed.Error("$toolName: host is required")
-		if (username.isBlank()) return Parsed.Error("$toolName: username is required")
+		val wantsSaved = boolean(args, "useSavedHost") || !args.stringOrNull("profile").isNullOrBlank()
+		val saved = if (wantsSaved) savedProfile() else null
+		if (wantsSaved && saved == null) {
+			return Parsed.Error("$toolName: no saved SSH connection; add one in Settings")
+		}
+		val host = (args.stringOrNull("host") ?: saved?.host)?.trim().orEmpty()
+		val username = (args.stringOrNull("username") ?: saved?.username)?.trim().orEmpty()
+		if (host.isBlank()) return Parsed.Error("$toolName: host or a saved connection is required")
+		if (username.isBlank()) {
+			return Parsed.Error("$toolName: username or a saved connection is required")
+		}
 		if (host.any { it.isWhitespace() } || username.any { it.isWhitespace() }) {
 			return Parsed.Error("$toolName: host and username cannot contain whitespace")
 		}
@@ -144,16 +160,19 @@ object SshArguments {
 				primitive.intOrNull
 					?: return Parsed.Error("$toolName: port must be an integer")
 			}
-		} ?: 22
+		} ?: saved?.port ?: 22
 		if (port !in 1..65535) {
 			return Parsed.Error("$toolName: port must be between 1 and 65535")
 		}
 
 		val identityFile = args.stringOrNull("identityFile")?.trim()?.takeIf { it.isNotEmpty() }
-		val rawPrivateKey = args.stringOrNull("privateKey")?.takeIf { it.isNotEmpty() }
-		if (identityFile != null && rawPrivateKey != null) {
+		val explicitPrivateKey = args.stringOrNull("privateKey")?.takeIf { it.isNotEmpty() }
+		if (identityFile != null && explicitPrivateKey != null) {
 			return Parsed.Error("$toolName: provide identityFile or privateKey, not both")
 		}
+		val rawPrivateKey = explicitPrivateKey
+			?: identityFile?.let { null }
+			?: saved?.privateKey?.takeIf { it.isNotEmpty() }
 
 		val privateKey = when {
 			identityFile != null -> runCatching { readWorkspaceFile(identityFile) }
@@ -167,9 +186,10 @@ object SshArguments {
 			else -> null
 		}
 		val password = args.stringOrNull("password")
+			?: if (privateKey == null) saved?.password else null
 		if (privateKey == null && password == null) {
 			return Parsed.Error(
-				"$toolName: authentication is required: identityFile, privateKey or password",
+				"$toolName: authentication is required: identityFile, privateKey, password, or a saved connection",
 			)
 		}
 
@@ -181,9 +201,10 @@ object SshArguments {
 				auth = SshAuth(
 					password = password,
 					privateKey = privateKey,
-					passphrase = args.stringOrNull("passphrase")?.toByteArray(Charsets.UTF_8),
+					passphrase = (args.stringOrNull("passphrase") ?: saved?.passphrase)
+						?.toByteArray(Charsets.UTF_8),
 				),
-				hostKeyFingerprint = args.stringOrNull("hostKeyFingerprint")
+				hostKeyFingerprint = (args.stringOrNull("hostKeyFingerprint") ?: saved?.hostKeyFingerprint)
 					?.trim()
 					?.takeIf { it.isNotEmpty() },
 			),
@@ -214,6 +235,10 @@ object SshArguments {
 
 	/** The authentication block every SSH tool's schema repeats. */
 	fun connectionParameters(): Map<String, Any?> = mapOf(
+		"useSavedHost" to mapOf(
+			"type" to "boolean",
+			"description" to "Use the one connection saved in Settings; explicit host/username override it.",
+		),
 		"host" to mapOf("type" to "string", "description" to "Hostname or IP address"),
 		"port" to mapOf("type" to "integer", "description" to "SSH port; default 22"),
 		"username" to mapOf("type" to "string", "description" to "Remote user"),

@@ -862,7 +862,7 @@ $env:DEEPSEEK_LIVE_KEY = 'sk-...'
 It checks the request shape that fixtures cannot, and it is what caught the
 `&amp;` URL-encoding issue above.
 
-## The SSH tools: read-only, transfer and exec, no host inventory
+## The SSH tools: read-only, transfer and exec, one saved host
 
 `SshClient` (`core/ai/src/main/kotlin/com/inhuman/core/ai/ssh/SshClient.kt`) wraps
 **sshj 0.41.2**. JSch was tried first and rejected: its EdDSA implementation
@@ -881,17 +881,21 @@ The client is deliberately narrow:
   `hostKeyFingerprint` argument overrides first use and is stored. Settings →
   Pinned host keys lists them and can forget them, which is the only in-app
   recovery when a server legitimately changes its key;
-- no host inventory and no credential store; SSH tool-call arguments are
-  redacted before the transcript is persisted.
+- **one** SSH connection can be saved under Settings → SSH, in `SecretStore`
+  (host, port, username, password/private key/passphrase, optional fingerprint).
+  It is convenience, not a security or privacy promise, is absent from backups,
+  and is used only when a call sends `useSavedHost=true`; explicit host/username
+  arguments override it. SSH tool-call arguments are redacted before the
+  transcript is persisted.
 
 `SshExecTool` (`tools/SshExecTool.kt`) takes `host`, `port`, `username`,
 `command`, and one of `password`, `privateKey` (OpenSSH text) or `identityFile`
-(a workspace-relative path read through `SessionWorkspace`). The file path keeps
-the key out of the tool arguments that are sent to DeepSeek. It is **not** a
+(a workspace-relative path read through `SessionWorkspace`), **or**
+`useSavedHost=true` to use the saved connection. The file path keeps the key out
+of the tool arguments that are sent to DeepSeek. It is **not** a
 secret store — the file is workspace content, so the model can also call
-`read_file` on it, and the transcript would then hold the key. The app has no
-separate credential store; do not leave long-lived keys in a workspace if that
-distinction matters. A password/key supplied as a **tool argument** is sent to
+`read_file` on it, and the transcript would then hold the key. A password/key
+supplied as a **tool argument** is sent to
 DeepSeek with the request but is removed before the tool-call row is persisted;
 the stored transcript keeps host, user, command and `identityFile`, not the
 secret. Text the user typed into a message is still stored verbatim — that is
@@ -1021,9 +1025,9 @@ another: `ssh_list`, `ssh_read_file` and `ssh_download` work with `ssh_exec`
 absent. `ToolCatalog.permits` treats every entry with `remote = true` as
 explicit-only: `null` means "everything" for historical assistants, but it does
 **not** mean consent to SSH, and special-casing one name would silently grant the
-other four. The app has no host editor, no allowlist and no credential store — the
-user tells the model how to connect, or puts a key file in the workspace and tells
-it the path.
+other four. The app has one saved host, no host list or allowlist; the user tells
+the model how to connect, or saves one connection in Settings. A saved
+connection is used only when the model sends `useSavedHost=true`.
 
 ## The tool catalogue
 

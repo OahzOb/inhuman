@@ -3,6 +3,7 @@ package com.inhuman.core.ai.tools
 import com.inhuman.core.ai.ToolResult
 import com.inhuman.core.ai.ssh.SshException
 import com.inhuman.core.ai.ssh.SshFileTransport
+import com.inhuman.core.ai.ssh.SshProfile
 import com.inhuman.core.ai.ssh.SshTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
@@ -29,6 +30,7 @@ import kotlinx.serialization.json.JsonObject
 class SshUploadTool(
 	private val transport: SshFileTransport,
 	private val readWorkspaceFile: (String) -> ByteArray? = { null },
+	private val savedConnection: () -> SshProfile? = { null },
 	private val maxBytes: Long = 1L shl 20,
 ) : SshTool {
 
@@ -37,7 +39,7 @@ class SshUploadTool(
 	override val description: String = """
 		Upload one file from this conversation's workspace to a remote machine over SSH (SFTP).
 		Use it to deploy a script or config you already wrote in the workspace instead of pasting the whole file into a command; it is binary-safe and avoids shell quoting.
-		The app has no host inventory or credential store: pass host, username and a way to authenticate, exactly as for ssh_exec. Prefer identityFile over a password or raw key.
+		The app can use a connection saved in Settings with useSavedHost=true; otherwise pass host, username and authentication. Prefer identityFile over a password or raw key.
 		The user is asked once per conversation, before the first SSH call, that the agent may reach the machines it is given. After that, normal tool policy applies.
 		Limit: $maxBytes bytes per call. An existing remote file is refused unless overwrite=true; overwriting it may be irreversible. Set createParents=true to create a missing parent directory.
 	""".trimIndent()
@@ -62,7 +64,7 @@ class SshUploadTool(
 				"description" to "Create missing remote parent directories; default false",
 			),
 		),
-		"required" to listOf("host", "username", "localPath", "remotePath"),
+		"required" to listOf("localPath", "remotePath"),
 	)
 
 	override val mutates: Boolean = true
@@ -70,7 +72,7 @@ class SshUploadTool(
 
 	override suspend fun execute(arguments: JsonObject): ToolResult {
 		val args = SshArguments.normalize(arguments)
-		val connection = when (val parsed = SshArguments.parse(name, args, readWorkspaceFile)) {
+		val connection = when (val parsed = SshArguments.parse(name, args, readWorkspaceFile, savedConnection)) {
 			is SshArguments.Parsed.Error -> return ToolResult.error(parsed.message)
 			is SshArguments.Parsed.Ok -> parsed.value
 		}

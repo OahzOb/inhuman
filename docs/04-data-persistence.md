@@ -178,7 +178,7 @@ The lifetime rule is in the row, not the directory:
 | `model`, `reasoningEffort`, `thinking` | **Copied from the assistant at creation**, so editing an assistant cannot rewrite what an existing conversation does. |
 | `toolsJson` | The tool selection. Copied from the assistant at creation, then editable **by the user only** from the conversation's tool sheet; an edited conversation stores an explicit list and the change applies on the next turn. It is also what makes a transcript's tool calls recoverable: they were legal under this set when they ran. |
 | `createdAt`, `updatedAt`, `pinned` | Ordering and list state. |
-| `sshAllowed` | The conversation-level SSH acknowledgement, default `0`. Added in 8→9. Per conversation, not per assistant: consenting in one thread must not grant another thread the same capability. The app has no host list or credential store; SSH tool-call arguments are redacted before storage, so this boolean is the only persistent state the SSH feature adds. |
+| `sshAllowed` | The conversation-level SSH acknowledgement, default `0`. Added in 8→9. Per conversation, not per assistant: consenting in one thread must not grant another thread the same capability. Room stores no host list or credential; one optional saved host lives in `SecureStore`, and SSH tool-call arguments are redacted before storage, so this boolean is the only SSH state in Room. |
 
 ### `messages` (`Entities.kt:207-319`)
 
@@ -329,7 +329,7 @@ order below.
 | 5→6 | `messages` gains `mutated INTEGER NOT NULL DEFAULT 0`. |
 | 6→7 | `agents` and `conversations` gain `toolsJson TEXT NOT NULL DEFAULT ''`. `''` decodes to `null` = every tool, so pre-existing assistants keep everything. |
 | 7→8 | Three new tables and **no change to any existing one**: `approval_defaults(toolName PK, policy)`, `agent_approval(agentId, toolName PK, policy)`, `path_policy(conversationId, relPath PK, policy)`. Created empty, which is both the correct migration and the correct product default — absence of a rule means no restriction. The statements are written by hand to match what Room generates, and the safety net is Room's own schema-hash check on open. |
-| 8→9 | `conversations` gains `sshAllowed INTEGER NOT NULL DEFAULT 0`. Additive and defaulted off, so every existing conversation arrives without SSH consent. `MIGRATION_8_9` is also the first migration with no new table: the SSH feature stores no host list or credential store, only this per-conversation acknowledgement, and tool-call secrets are redacted before the message row is written. |
+| 8→9 | `conversations` gains `sshAllowed INTEGER NOT NULL DEFAULT 0`. Additive and defaulted off, so every existing conversation arrives without SSH consent. `MIGRATION_8_9` is also the first migration with no new table: Room stores no host list or credentials, only this per-conversation acknowledgement; the optional saved host is in `SecureStore`, and tool-call secrets are redacted before the message row is written. |
 | 9→10 | `messages` gains `changedFilesJson`, nullable: an old reply has no file list and must not claim one. |
 | 10→11 | `workspaces` created, one temporary row per existing conversation, and the unique `index_conversations_workspaceId` replaced by a non-unique one. No directory moves. `ownerConversationId` is the conversation id; the display name starts as its title. |
 | 11→12 | `provider_profiles` created and the built-in `deepseek` row seeded with `baseUrl = https://api.deepseek.com` and `reasoningMode = deepseek`; `agents.providerId` and `conversations.providerId` added with default `deepseek`. The legacy chat key slot is reused, so no key is copied and no key is lost. |
@@ -491,6 +491,11 @@ Secret Service binding with the same key names.
   token are alternatives: saving a key forgets the OAuth session, and signing in
   leaves the key unused while the token is present. Deleting the provider
   deletes both.
+- The one saved SSH connection lives under `ssh.saved_connection`, as a single
+  JSON value (host, port, username, optional password/private key/passphrase/
+  fingerprint). It is convenience only, is absent from backups and diagnostics,
+  and is used only when a tool call sends `useSavedHost=true`. There is no
+  multi-profile table or host list.
 
 ## The files outside Room
 

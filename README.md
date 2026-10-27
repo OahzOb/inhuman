@@ -122,7 +122,7 @@ be reached without an account.
 | `ssh_read_file` | read a remote text file, head or tail; 64 KiB, binary refused |
 | `web_search` | paid search through DeepSeek or Exa; own key, independent of the chat provider |
 | `web_fetch` | paid fetch through DeepSeek or Exa; own key, independent of the chat provider |
-| `ssh_exec` | one command on a remote machine; **off by default**, explicit assistant selection, per-conversation consent, no host config |
+| `ssh_exec` | one command on a remote machine; **off by default**, explicit assistant selection, per-conversation consent, optional one saved host |
 | `ssh_upload` | copy a workspace file to the remote machine over SFTP; **NO REWIND**, default refuses to overwrite, can create parents |
 | `ssh_write_file` | write a small remote text file over SFTP; **NO REWIND**, no heredoc |
 | `ssh_download` | copy a remote file into the workspace over SFTP; **REWIND**, default refuses to overwrite |
@@ -184,9 +184,10 @@ time a conversation uses one. The warning text follows the selection: a
 probe/list/read/download profile is told it cannot run arbitrary commands or write
 files. After that they follow the normal approval policy, which defaults to
 running without asking. Remote commands and replaced remote files are not a
-workspace copy: some damage cannot be undone. Currently the app has no host list
-and no credential store; saving connection details for convenience is planned,
-without a security or privacy promise. It provides the transport, and the user
+workspace copy: some damage cannot be undone. The app can optionally save **one**
+remote host (host/user/password or key) in the platform credential store for
+convenience, not as a security or privacy promise; there is no host list,
+allowlist or fleet manager. It provides the transport, and the user
 gives the agent the host, user and password/key file. SSH credential arguments
 are redacted before
 the tool-call row is stored, but command text, paths and `ssh_write_file` content
@@ -200,6 +201,14 @@ workspace file over SFTP (1 MiB read limit); and `ssh_download` saves one remote
 file into the workspace (4 MiB write limit). Upload, write and download refuse to
 overwrite unless asked. Details are in
 [docs/03-ai-provider.md](docs/03-ai-provider.md).
+
+**Model-written code runs in the platform's JavaScript sandbox, or not at all.**
+`run_javascript` executes a short function body in an isolated V8 process with a
+16 MiB heap and a 10-second limit; `fetch`, `XMLHttpRequest`, `WebSocket`,
+`require`, `process` and the filesystem are absent. A device probe checks those
+globals and the heap before the tool is offered; if it fails, the tool is absent
+rather than present with a warning. It returns one string and has no workspace,
+network or host callback.
 
 **SSH limits are user ceilings.** Settings → SSH limits has four values:
 command timeout, output per stream, directory rows and text read. The model can
@@ -612,9 +621,11 @@ which this setup does not use.
   user-registered public client and the `inhuman://oauth` callback; no
   Claude/ChatGPT/Copilot/Kimi client ID is bundled, and the flow has not been
   verified against a real registration or account.
-- **Remote connection details are not saved yet; saving them for convenience is
-  planned.** It is not a security or privacy promise. Today the app has no host
-  list and no credential store.
+- **Remote details can be saved, but only one host, and only for convenience.**
+  It is not a security or privacy promise. The host/user/password/key sit in the
+  platform credential store, are absent from backups, and can be forgotten in
+  Settings; the model must opt in with `useSavedHost` and explicit connection
+  details still win. There is no host list, allowlist or multi-host switching.
 
 ## Licensing
 

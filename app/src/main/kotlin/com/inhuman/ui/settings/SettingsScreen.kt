@@ -94,6 +94,7 @@ import com.inhuman.diagnostics.AppDiagnostics
 import com.inhuman.updates.UpdateInfo
 import com.inhuman.core.ai.oauth.OAuthProtocol
 import com.inhuman.ui.chat.ProviderDraft
+import com.inhuman.core.ai.ssh.SshProfile
 import com.inhuman.ui.chat.OAuthLoginUi
 import com.inhuman.ui.chat.SettingsViewModel
 import com.inhuman.ui.chat.MediaCapability
@@ -148,6 +149,7 @@ fun SettingsScreen(
 	// is closed. Re-read on entry rather than trusting the last visit's numbers.
 	LaunchedEffect(Unit) { viewModel.refreshUsage() }
 	var showHostKeysDialog by remember { mutableStateOf(false) }
+	var showSavedSshDialog by remember { mutableStateOf(false) }
 	var backupMode by remember { mutableStateOf<BackupMode?>(null) }
 	var backupUri by remember { mutableStateOf<Uri?>(null) }
 	var showBackupPassphrase by remember { mutableStateOf(false) }
@@ -502,6 +504,15 @@ fun SettingsScreen(
 							stringResource(R.string.settings_host_keys_none)
 						} else {
 							stringResource(R.string.settings_host_keys_count, state.knownHosts.size)
+						},
+					)
+				}
+				TextButton(onClick = { showSavedSshDialog = true }) {
+					Text(
+						if (state.savedSshHost == null) {
+							stringResource(R.string.settings_saved_host_none)
+						} else {
+							stringResource(R.string.settings_saved_host_saved, state.savedSshHost ?: "")
 						},
 					)
 				}
@@ -940,6 +951,29 @@ fun SettingsScreen(
 		)
 	}
 
+	if (showSavedSshDialog) {
+		SavedSshHostDialog(
+			initial = viewModel.savedSshHost(),
+			onSave = { host, port, username, password, privateKey, passphrase, fingerprint ->
+				viewModel.saveSavedSshHost(
+					host = host,
+					port = port,
+					username = username,
+					password = password,
+					privateKey = privateKey,
+					passphrase = passphrase,
+					hostKeyFingerprint = fingerprint,
+				)
+				showSavedSshDialog = false
+			},
+			onForget = {
+				viewModel.clearSavedSshHost()
+				showSavedSshDialog = false
+			},
+			onDismiss = { showSavedSshDialog = false },
+		)
+	}
+
 	if (showBackupPassphrase && backupMode != null && backupUri != null) {
 		val mode = backupMode!!
 		val canSubmit = backupPassphrase.length >= 8 &&
@@ -1266,6 +1300,143 @@ private fun MediaCapability.title(): String = when (this) {
 	MediaCapability.Speech -> stringResource(R.string.settings_media_speech)
 	MediaCapability.Transcription -> stringResource(R.string.settings_media_transcribe)
 	MediaCapability.Decision -> stringResource(R.string.settings_media_decision)
+}
+
+@Composable
+private fun SavedSshHostDialog(
+	initial: SshProfile?,
+	onSave: (
+		host: String,
+		port: Int,
+		username: String,
+		password: String,
+		privateKey: String,
+		passphrase: String,
+		fingerprint: String,
+	) -> Unit,
+	onForget: () -> Unit,
+	onDismiss: () -> Unit,
+) {
+	var host by remember(initial) { mutableStateOf(initial?.host.orEmpty()) }
+	var port by remember(initial) { mutableStateOf((initial?.port ?: 22).toString()) }
+	var username by remember(initial) { mutableStateOf(initial?.username.orEmpty()) }
+	var password by remember(initial) { mutableStateOf("") }
+	var privateKey by remember(initial) { mutableStateOf("") }
+	var passphrase by remember(initial) { mutableStateOf("") }
+	var fingerprint by remember(initial) { mutableStateOf(initial?.hostKeyFingerprint.orEmpty()) }
+	var error by remember { mutableStateOf<String?>(null) }
+	val errorText = stringResource(R.string.settings_saved_host_error)
+
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text(stringResource(R.string.settings_saved_host_title)) },
+		text = {
+			Column(
+				modifier = Modifier
+					.heightIn(max = 380.dp)
+					.verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(8.dp),
+			) {
+				Text(
+					stringResource(R.string.settings_saved_host_body),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Text(
+					stringResource(R.string.settings_saved_host_note),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				OutlinedTextField(
+					value = host,
+					onValueChange = { host = it },
+					label = { Text(stringResource(R.string.settings_saved_host_host)) },
+					singleLine = true,
+					modifier = Modifier.fillMaxWidth(),
+				)
+				OutlinedTextField(
+					value = port,
+					onValueChange = { port = it.filter(Char::isDigit) },
+					label = { Text(stringResource(R.string.settings_saved_host_port)) },
+					singleLine = true,
+					modifier = Modifier.fillMaxWidth(),
+				)
+				OutlinedTextField(
+					value = username,
+					onValueChange = { username = it },
+					label = { Text(stringResource(R.string.settings_saved_host_user)) },
+					singleLine = true,
+					modifier = Modifier.fillMaxWidth(),
+				)
+				OutlinedTextField(
+					value = password,
+					onValueChange = { password = it },
+					label = { Text(stringResource(R.string.settings_saved_host_password)) },
+					singleLine = true,
+					visualTransformation = PasswordVisualTransformation(),
+					modifier = Modifier.fillMaxWidth(),
+				)
+				OutlinedTextField(
+					value = privateKey,
+					onValueChange = { privateKey = it },
+					label = { Text(stringResource(R.string.settings_saved_host_key)) },
+					modifier = Modifier.fillMaxWidth(),
+				)
+				OutlinedTextField(
+					value = passphrase,
+					onValueChange = { passphrase = it },
+					label = { Text(stringResource(R.string.settings_saved_host_passphrase)) },
+					singleLine = true,
+					visualTransformation = PasswordVisualTransformation(),
+					modifier = Modifier.fillMaxWidth(),
+				)
+				OutlinedTextField(
+					value = fingerprint,
+					onValueChange = { fingerprint = it },
+					label = { Text(stringResource(R.string.settings_saved_host_fingerprint)) },
+					singleLine = true,
+					modifier = Modifier.fillMaxWidth(),
+				)
+				error?.let {
+					Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+				}
+			}
+		},
+		confirmButton = {
+			TextButton(
+				onClick = {
+					val hasNewSecret = password.isNotBlank() || privateKey.isNotBlank()
+					if (host.isBlank() || username.isBlank() ||
+						(!hasNewSecret && initial?.hasAuthentication != true)
+					) {
+						error = errorText
+					} else {
+						onSave(
+							host,
+							port.toIntOrNull() ?: 22,
+							username,
+							password,
+							privateKey,
+							passphrase,
+							fingerprint,
+						)
+					}
+				},
+			) { Text(stringResource(R.string.common_save)) }
+		},
+		dismissButton = {
+			Row {
+				if (initial != null) {
+					TextButton(onClick = onForget) {
+						Text(stringResource(R.string.settings_saved_host_forget))
+					}
+				}
+				TextButton(onClick = onDismiss) {
+					Text(stringResource(R.string.common_cancel))
+				}
+			}
+		},
+	)
 }
 
 @Composable

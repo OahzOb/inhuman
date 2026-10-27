@@ -3,6 +3,7 @@ package com.inhuman.core.ai.tools
 import com.inhuman.core.ai.ToolResult
 import com.inhuman.core.ai.ssh.SshException
 import com.inhuman.core.ai.ssh.SshFileTransport
+import com.inhuman.core.ai.ssh.SshProfile
 import com.inhuman.core.ai.ssh.SshTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
@@ -26,6 +27,7 @@ import kotlinx.serialization.json.JsonObject
 class SshDownloadTool(
 	private val transport: SshFileTransport,
 	private val readWorkspaceFile: (String) -> ByteArray? = { null },
+	private val savedConnection: () -> SshProfile? = { null },
 	private val saveWorkspaceFile: (remotePath: String, bytes: ByteArray, overwrite: Boolean) -> String,
 	private val maxBytes: Long = 4L shl 20,
 ) : SshTool {
@@ -35,7 +37,7 @@ class SshDownloadTool(
 	override val description: String = """
 		Download one file from a remote machine into this conversation's workspace over SSH (SFTP).
 		Use it for logs, build artefacts and generated files that are easier to open or read locally than to print with cat. A downloaded text file can then be read with read_file.
-		The app has no host inventory or credential store: pass host, username and a way to authenticate, exactly as for ssh_exec. Prefer identityFile over a password or raw key.
+		The app can use a connection saved in Settings with useSavedHost=true; otherwise pass host, username and authentication. Prefer identityFile over a password or raw key.
 		The user is asked once per conversation, before the first SSH call, that the agent may reach the machines it is given. After that, normal tool policy applies.
 		Limit: $maxBytes bytes per call. An existing workspace file is refused unless overwrite=true.
 	""".trimIndent()
@@ -56,7 +58,7 @@ class SshDownloadTool(
 				"description" to "Replace an existing workspace file; default false",
 			),
 		),
-		"required" to listOf("host", "username", "remotePath", "localPath"),
+		"required" to listOf("remotePath", "localPath"),
 	)
 
 	override val mutates: Boolean = true
@@ -64,7 +66,7 @@ class SshDownloadTool(
 
 	override suspend fun execute(arguments: JsonObject): ToolResult {
 		val args = SshArguments.normalize(arguments)
-		val connection = when (val parsed = SshArguments.parse(name, args, readWorkspaceFile)) {
+		val connection = when (val parsed = SshArguments.parse(name, args, readWorkspaceFile, savedConnection)) {
 			is SshArguments.Parsed.Error -> return ToolResult.error(parsed.message)
 			is SshArguments.Parsed.Ok -> parsed.value
 		}
