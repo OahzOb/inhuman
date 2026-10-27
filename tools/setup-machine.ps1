@@ -149,5 +149,5 @@ if ($broken.Count -gt 0) {
 Write-Host "Ready. First build:"
 Write-Host "  .\gradlew.bat :app:assembleDebug"
 Write-Host "Tests:"
-Write-Host "  .\gradlew.bat :app:testDebugUnitTest :core:ai:test :core:db:test :core:engine:test :core:files:test :core:common:test :core:data:testDebugUnitTest --rerun-tasks"
+Write-Host "  .\gradlew.bat :app:testDebugUnitTest :core:ai:test :core:db:test :core:engine:test :core:files:test :core:documents:test :core:common:test :core:data:testDebugUnitTest --rerun-tasks"
 Write-Host ""

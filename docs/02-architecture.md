@@ -26,7 +26,9 @@ the diagram leaves that leaf edge out rather than drawing three lines to the sam
 node. `:core:common`, `:core:ai`, `:core:files`, `:core:db` and `:core:engine` are
 **plain Kotlin/JVM modules** now, not Android libraries: the desktop host depends
 on the same jars the Android app consumes. `:core:data` and `:core:design` remain
-Android-only. `:core:db` owns the Room entities, DAOs, database, migrations and
+Android-only. `:core:documents` is a plain JVM module for the offline document
+readers/writers; it is built and tested on its own and is not yet wired into the
+app or the tool set. `:core:db` owns the Room entities, DAOs, database, migrations and
 the platform-free repositories; `:core:data` is the Android adapter around it
 (`Database.open(context)`, the Keystore-backed `SecureStore`, the encrypted
 backup and the `DocumentsProvider`). The split is what lets the desktop host

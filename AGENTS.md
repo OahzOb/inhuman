@@ -557,6 +557,7 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   :core:engine:test `
   :core:ai:test `
   :core:files:test `
+  :core:documents:test `
   :core:common:test `
   :desktopApp:test `
   --console=plain --rerun-tasks
@@ -568,7 +569,7 @@ runs exactly this list and fails on the first compiler warning; a CI host should
 call that script rather than duplicate the arguments. Check that the
 warning output is empty as well as the error output — this tree currently
 compiles clean, and that is worth keeping. `:core:common`, `:core:ai`,
-`:core:files`, `:core:db` and `:core:engine` are plain JVM modules now;
+`:core:files`, `:core:documents`, `:core:db` and `:core:engine` are plain JVM modules now;
 `:desktopApp` is the full Compose Desktop Windows host and consumes the same
 jars; its build, packaging and verification details are in
 `docs/12-desktop.md`.

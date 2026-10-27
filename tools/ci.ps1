@@ -73,6 +73,7 @@ try {
 		':core:engine:test'
 		':core:ai:test'
 		':core:files:test'
+		':core:documents:test'
 		':core:common:test'
 	)
 	if (-not $SkipDesktop) { $tasks += ':desktopApp:test' }
