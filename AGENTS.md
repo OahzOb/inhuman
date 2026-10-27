@@ -432,6 +432,14 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   renamed DOCX/RTF as `.doc`, and flatten tables/formatting with a stated loss
   rather than pretending the structure survived. Do not add a cloud converter or
   a second runtime.
+- **`run_javascript` is a calculator, not a shell.** It is registered only after
+  `SandboxRuntime.probe()` proves `fetch`/`XMLHttpRequest`/`WebSocket`/`require`/
+  `process` are `undefined`, `1+1` works, and an isolate with a 16 MiB heap can
+  be created. A failed probe removes the tool; do not leave a warning and a
+  working tool. It has no `SessionWorkspace`, no host callback and no network
+  bridge; the only data crossing is the script string in and one result string
+  out. Timeout is 10 seconds and closing the isolate is what stops a runaway.
+  Never pass a file handle, a URL or a provider key into it.
 - **A failure chunk must be `trySend`-ed *before* `close()`.** A chunk sent
   after the channel closes is dropped and the collector sees a clean end, so
   the failure becomes indistinguishable from "the model said nothing".

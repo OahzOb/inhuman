@@ -379,6 +379,10 @@
 	<string name="settings_checking">检查中…</string>
 	<string name="settings_test_connection">测试连接</string>
 	<string name="settings_diagnostics_body">本地日志会记录回合、工具调用、HTTP 失败和崩溃，无需复现也能解释问题。除非你分享或上传，否则它只留在这台设备上。消息文本、文件内容和 API 密钥不会写入。</string>
+	<string name="settings_sandbox_available">JavaScript 沙箱：可用（无网络、无文件系统访问、16 MiB 堆）。</string>
+	<string name="settings_sandbox_unavailable">JavaScript 沙箱：不可用——%1$s。run_javascript 工具不会出现。</string>
+	<string name="settings_sandbox_checking">JavaScript 沙箱：检查中…</string>
+	<string name="settings_sandbox_unknown_reason">没有报告原因</string>
 	<string name="settings_diagnostics_file">%1$s — %2$s</string>
 	<string name="settings_no_log">还没有日志</string>
 	<string name="settings_no_file_yet">还没有文件</string>

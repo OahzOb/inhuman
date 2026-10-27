@@ -24,7 +24,21 @@ object AppCapabilities {
 
 	val workspaceOk: Boolean get() = workspaceReport?.ok == true
 
+	@Volatile
+	var sandboxOk: Boolean? = null
+		private set
+
+	@Volatile
+	var sandboxError: String? = null
+		private set
+
 	fun record(report: WorkspaceSelfCheck.Report) {
 		workspaceReport = report
+	}
+
+	/** Result of the platform JavaScript sandbox probe. */
+	fun recordSandbox(ok: Boolean, error: String?) {
+		sandboxOk = ok
+		sandboxError = if (ok) null else error
 	}
 }

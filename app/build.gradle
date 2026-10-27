@@ -138,6 +138,9 @@ dependencies {
 	// still refuses these formats when no backend is supplied.
 	implementation("org.apache.poi:poi:5.2.3")
 	implementation("org.apache.poi:poi-scratchpad:5.2.3")
+	// Model-authored JavaScript runs in the platform's isolated V8 sandbox:
+	// no fetch/require/process and a heap ceiling, not a WebView.
+	implementation libs.androidx.javascriptengine
 
 	debugImplementation libs.androidx.compose.ui.tooling
 

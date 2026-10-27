@@ -97,7 +97,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 Latest run (2026-10-27, through `tools/ci.ps1`):
 
 ```
-BUILD SUCCESSFUL, 737 tests in 109 suites, 0 failures, 4 skipped
+BUILD SUCCESSFUL, 738 tests in 109 suites, 0 failures, 4 skipped
 warnings 0, errors 0
 ```
 
@@ -110,7 +110,7 @@ The skips are external-credential live tests: `DeepSeekWebLiveTest`,
 
 | Module | Suites | Tests |
 | --- | --- | --- |
-| `:core:ai` | 40 | 313 (3 skipped) |
+| `:core:ai` | 40 | 314 (3 skipped) |
 | `:core:files` | 9 | 80 |
 | `:core:documents` | 2 | 18 |
 | `:app` | 30 | 213 |
@@ -140,6 +140,7 @@ These are not in the JVM total because they need an emulator or a phone:
 | `app/src/androidTest/…/ui/documents/AndroidPdfBackendTest` | PDFBox-Android text extraction and platform PDF creation |
 | `app/src/androidTest/…/ui/documents/LegacyPoiProbeTest` | POI BIFF8 round trip, legacy adapter, DOC-write refusal |
 | `app/src/androidTest/…/ui/chat/VoiceRecorderTest` | Microphone permission and the in-memory WAV container |
+| `app/src/androidTest/…/sandbox/SandboxRuntimeTest` | JS arithmetic, absent network APIs and runaway timeout |
 | `core/data/src/androidTest/…/db/MigrationTest` | Room migrations against real SQLite |
 | `core/data/src/androidTest/…/WorkspaceLifecycleTest` | Temporary/permanent workspace lifetime and promotion |
 | `core/data/src/androidTest/…/db/ConversationLookupTest` | `id` / `workspaceId` lookup distinction |

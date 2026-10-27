@@ -192,6 +192,17 @@ class ToolCatalogTest {
 	}
 
 	@Test
+	fun `the sandbox tool is absent when the device probe failed`() {
+		assertTrue(
+			ToolCatalog.visible(includeSsh = false).any { it.name == "run_javascript" },
+		)
+		assertFalse(
+			ToolCatalog.visible(includeSsh = false, includeSandbox = false)
+				.any { it.name == "run_javascript" },
+		)
+	}
+
+	@Test
 	fun `remote writes are irreversible but reads and a download are not`() {
 		val irreversible = ToolCatalog.all.filterNot { it.reversible }.map { it.name }.toSet()
 		assertEquals(setOf("ssh_exec", "ssh_upload", "ssh_write_file"), irreversible)

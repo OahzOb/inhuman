@@ -398,6 +398,10 @@
 	<string name="settings_checking">Checking…</string>
 	<string name="settings_test_connection">Test connection</string>
 	<string name="settings_diagnostics_body">A local log records turns, tool calls, HTTP failures and crashes, so a problem can be explained without reproducing it. It stays on this device unless you share it or upload it. Message text, file contents and the API key are not written to it.</string>
+	<string name="settings_sandbox_available">JavaScript sandbox: available (no network, no filesystem access, 16 MiB heap).</string>
+	<string name="settings_sandbox_unavailable">JavaScript sandbox: unavailable — %1$s. The run_javascript tool is absent.</string>
+	<string name="settings_sandbox_checking">JavaScript sandbox: checking…</string>
+	<string name="settings_sandbox_unknown_reason">no reason reported</string>
 	<string name="settings_diagnostics_file">%1$s — %2$s</string>
 	<string name="settings_no_log">no log yet</string>
 	<string name="settings_no_file_yet">no file yet</string>

@@ -333,6 +333,7 @@ private fun AgentEditor(
 	val availableTools = ToolCatalog.visible(
 		sshToolEnabled,
 		includeWorkspaceBound = AppCapabilities.workspaceOk,
+		includeSandbox = AppCapabilities.sandboxOk == true,
 	)
 	val availableNames = availableTools.mapTo(mutableSetOf()) { it.name }
 	val selectedCount = draft.tools?.count { it in availableNames } ?: availableTools.size
@@ -1027,6 +1028,7 @@ private fun PromptPreview(
 	val visibleTools = ToolCatalog.visible(
 		sshToolEnabled,
 		includeWorkspaceBound = AppCapabilities.workspaceOk,
+		includeSandbox = AppCapabilities.sandboxOk == true,
 	)
 	val visibleNames = visibleTools.mapTo(mutableSetOf()) { it.name }
 	val on = visibleNames.filter { ToolCatalog.permits(selected, it) }
@@ -1192,6 +1194,7 @@ private fun AssistantRulesSection(
 		for (entry in ToolCatalog.visible(
 		sshToolEnabled,
 		includeWorkspaceBound = AppCapabilities.workspaceOk,
+		includeSandbox = AppCapabilities.sandboxOk == true,
 	)) {
 			val current = rules[entry.name] ?: ToolPolicy.Free
 			Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {

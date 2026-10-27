@@ -112,6 +112,11 @@ object ToolCatalog {
 		),
 		Entry("read_time", "The current date and time, and date arithmetic", mutates = false),
 		Entry(
+			"run_javascript",
+			"Run a short JavaScript calculation in an isolated no-network sandbox",
+			mutates = false,
+		),
+		Entry(
 			"web_search",
 			"Search the web via the configured paid search API",
 			mutates = false,
@@ -269,9 +274,15 @@ object ToolCatalog {
 	 * are absent rather than greyed. A stored selection keeps its names, so
 	 * recovery restores the capability without the user re-picking it.
 	 */
-	fun visible(includeSsh: Boolean, includeWorkspaceBound: Boolean = true): List<Entry> =
+	fun visible(
+		includeSsh: Boolean,
+		includeWorkspaceBound: Boolean = true,
+		includeSandbox: Boolean = true,
+	): List<Entry> =
 		all.filter { entry ->
-			(includeSsh || !entry.remote) && (includeWorkspaceBound || !entry.workspaceBound)
+			(includeSsh || !entry.remote) &&
+				(includeWorkspaceBound || !entry.workspaceBound) &&
+				(includeSandbox || entry.name != "run_javascript")
 		}
 
 	/**

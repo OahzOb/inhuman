@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.TurnConcurrency
+import com.inhuman.sandbox.JavaScriptTool
+import com.inhuman.sandbox.SandboxRuntime
 import com.inhuman.ui.common.formatBytes
 import com.inhuman.ui.documents.AndroidPdfBackend
 import com.inhuman.R
@@ -3977,6 +3979,10 @@ class ChatViewModel(
 		return buildList {
 			addAll(fileTools)
 			add(TimeTool())
+			// The platform sandbox is probed on the device. If it cannot prove
+			// no-fetch/no-require and a heap ceiling, the tool is absent rather
+			// than present with a warning.
+			if (SandboxRuntime.available(context)) add(JavaScriptTool(context))
 			// The web tools are registered only when something can answer them.
 			// A tool that is present and always fails teaches the model that the
 			// tool is broken and it keeps retrying; one that is absent teaches it

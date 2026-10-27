@@ -7,6 +7,11 @@ import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.BackupRepository
 import com.inhuman.core.files.WorkspaceSelfCheck
 import com.inhuman.diagnostics.AppDiagnostics
+import com.inhuman.sandbox.SandboxRuntime
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
@@ -26,14 +31,40 @@ import java.io.File
  */
 class InhumanApp : Application() {
 
+	private val startupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
 	override fun onCreate() {
 		super.onCreate()
 		ensureDefaultLanguage()
 		AppDiagnostics.install(this)
 		runWorkspaceSelfCheck()
+		runSandboxSelfCheck()
 		// Before any repository opens Room. A staged backup import replaces the
 		// database file, which is only safe while no connection is open.
 		BackupRepository.applyPendingRestore(this)
+	}
+
+	/**
+	 * Ask the platform sandbox the capability question before a tool is offered.
+	 *
+	 * The probe starts a JavaScript isolate with the 16 MiB ceiling and checks
+	 * that `fetch`, `XMLHttpRequest`, `WebSocket`, `require` and `process` are
+	 * absent. A failure is recorded in [AppCapabilities] and the tool is absent;
+	 * Settings -> Diagnostics shows the reason. Running it here means a turn
+	 * never has to turn "we could not ask" into "the sandbox is fine".
+	 */
+	private fun runSandboxSelfCheck() {
+		startupScope.launch {
+			val ok = SandboxRuntime.available(this@InhumanApp)
+			if (ok) {
+				Diag.i("capability", "javascript sandbox probe passed")
+			} else {
+				Diag.e(
+					"capability",
+					"javascript sandbox unavailable: ${SandboxRuntime.failureReason ?: "-"}",
+				)
+			}
+		}
 	}
 
 	/**

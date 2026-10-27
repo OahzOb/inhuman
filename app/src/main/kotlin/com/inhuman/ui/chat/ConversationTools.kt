@@ -1,5 +1,6 @@
 package com.inhuman.ui.chat
 
+import com.inhuman.AppCapabilities
 import com.inhuman.core.ai.tools.ToolCatalog
 
 /**
@@ -42,6 +43,7 @@ internal fun conversationToolPlan(
 	val available = ToolCatalog.visible(
 		includeSsh = sshEnabled,
 		includeWorkspaceBound = workspaceToolsEnabled,
+		includeSandbox = AppCapabilities.sandboxOk == true,
 	)
 		.filter { it.name in ceiling || it.name in current }
 

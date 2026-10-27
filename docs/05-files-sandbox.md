@@ -46,10 +46,13 @@ anything running as the same UID can read the same files regardless. Do not cite
 `resolve()` as an OS-grade boundary — the research notes in
 `_research/android-sandbox/README.md` describe the boundary that *would* be one
 (SELinux/kernel, `isolatedProcess`), and none of it is implemented. There is no
-QuickJS, no `libqjssandbox`, and no `run_code` tool; the closed set of eleven
-tools is asserted by `ToolMutationClassificationTest`. Those are the **file**
-tools. The SSH tools are not among them: `ssh_probe`, `ssh_list`,
-`ssh_read_file` and `ssh_exec` never receive a `SessionWorkspace`; `ssh_upload`,
+QuickJS, no `libqjssandbox`, and no shell `run_code`; the closed set of eleven
+workspace tools is asserted by `ToolMutationClassificationTest`. `run_javascript`
+is a separate tool with no `SessionWorkspace`: it runs in the platform's V8
+isolated process, is offered only after its own device probe, and can return a
+string but cannot read a file or open a socket. The SSH tools are not workspace
+tools either: `ssh_probe`, `ssh_list`, `ssh_read_file` and `ssh_exec` never
+receive a `SessionWorkspace`; `ssh_upload`,
 `ssh_write_file` and `ssh_download` reach the workspace only through callbacks
 owned by `ChatViewModel`, which resolves every path with `SessionWorkspace`.
 Their effects outside the sandbox are why the capability has the separate consent
@@ -87,9 +90,11 @@ asks again.
 
 This is the workspace half of `docs/08-port-philosophy.md` §3.6. The
 code-execution assertions that section also names (`fetch` is `undefined`, the
-sandbox cannot read `filesDir`, the heap cap holds) belong to the code-execution
-tool that does not exist yet; when it does, it joins this check and a failure
-removes that tool the same way.
+sandbox cannot read `filesDir`, the heap cap holds) are made by
+`SandboxRuntime.probe()` on every process that offers `run_javascript`; a
+failure removes that tool and records the reason in Diagnostics. They are not
+part of `WorkspaceSelfCheck`, because the JavaScript isolate has no workspace to
+check.
 
 ## `resolve()`: the one place a path becomes a `File`
 

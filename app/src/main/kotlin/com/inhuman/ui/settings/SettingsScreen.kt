@@ -1994,6 +1994,13 @@ private fun DiagnosticsSection(
 	var confirmingClear by remember { mutableStateOf(false) }
 	val shareLog = stringResource(R.string.settings_share_log)
 	val shareSubject = stringResource(R.string.settings_share_subject)
+	var sandboxOk by remember { mutableStateOf(AppCapabilities.sandboxOk) }
+	LaunchedEffect(Unit) {
+		while (sandboxOk == null) {
+			kotlinx.coroutines.delay(200)
+			sandboxOk = AppCapabilities.sandboxOk
+		}
+	}
 
 	Column(
 		modifier = Modifier
@@ -2019,6 +2026,22 @@ private fun DiagnosticsSection(
 			),
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		Text(
+			text = when (sandboxOk) {
+				true -> stringResource(R.string.settings_sandbox_available)
+				false -> stringResource(
+					R.string.settings_sandbox_unavailable,
+					AppCapabilities.sandboxError ?: stringResource(R.string.settings_sandbox_unknown_reason),
+				)
+				null -> stringResource(R.string.settings_sandbox_checking)
+			},
+			style = MaterialTheme.typography.bodySmall,
+			color = if (sandboxOk == false) {
+				MaterialTheme.colorScheme.error
+			} else {
+				MaterialTheme.colorScheme.onSurfaceVariant
+			},
 		)
 
 		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2156,6 +2179,7 @@ private fun ApprovalRulesSection(
 		for (entry in ToolCatalog.visible(
 			sshToolEnabled,
 			includeWorkspaceBound = AppCapabilities.workspaceOk,
+			includeSandbox = AppCapabilities.sandboxOk == true,
 		)) {
 			val current = rules[entry.name] ?: ToolPolicy.Free
 			ApprovalRuleRow(
