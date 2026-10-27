@@ -138,6 +138,8 @@ These are not in the JVM total because they need an emulator or a phone:
 | `app/src/androidTest/…/ui/chat/ImagePreprocessorTest` | Android `Bitmap` decode/downscale/WebP pipeline |
 | `core/data/src/androidTest/…/DocumentCodecAndroidTest` | DOCX/XLSX zip and DOM path on Android's parser |
 | `app/src/androidTest/…/ui/documents/AndroidPdfBackendTest` | PDFBox-Android text extraction and platform PDF creation |
+| `app/src/androidTest/…/ui/documents/LegacyPoiProbeTest` | POI BIFF8 round trip, legacy adapter, DOC-write refusal |
+| `app/src/androidTest/…/ui/chat/VoiceRecorderTest` | Microphone permission and the in-memory WAV container |
 | `core/data/src/androidTest/…/db/MigrationTest` | Room migrations against real SQLite |
 | `core/data/src/androidTest/…/WorkspaceLifecycleTest` | Temporary/permanent workspace lifetime and promotion |
 | `core/data/src/androidTest/…/db/ConversationLookupTest` | `id` / `workspaceId` lookup distinction |
