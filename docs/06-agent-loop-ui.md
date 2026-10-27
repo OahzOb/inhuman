@@ -893,12 +893,17 @@ key, reasoning-field mode, stream-usage switch and fallback model ids. Save
 writes
 the row and key through `AgentRepository.saveProvider`; a blank key removes it.
 "Test connection" calls `GET /models` with the unsaved values and reports what it
-sees. The built-in DeepSeek profile cannot be deleted. **Web tools** selects the
-search and fetch backend independently (DeepSeek/Exa) and stores their keys
-separately; a backend without a key shows a warning and its tool stays
-unregistered. Demo mode and the SSH switch live below those sections.
+sees. The built-in DeepSeek profile cannot be deleted. **Web & media tools**
+selects the search and fetch backend independently (DeepSeek/Exa) and stores
+their keys separately; a backend without a key shows a warning and its tool stays
+unregistered. Below them, the five paid media tools each have a row with an
+**Assistant / Configured provider / Separate API** backend. Provider mode lists
+only profiles whose kind supports the capability and fetches their models,
+narrowed by the model tags where they exist; Separate API takes an HTTPS endpoint,
+a Keystore-stored key and a model id. Demo mode and the SSH switch live below
+those sections.
 
-Settings is grouped into foldable sections: Providers stays open; Web tools,
+Settings is grouped into foldable sections: Providers stays open; Web & media,
 Demo & SSH, Turn limits, Usage, Backup, Approvals, Diagnostics, Local, Display
 and Language start collapsed. Each header states its own state (key presence,
 current round count, configured rule count, current language) so a folded row

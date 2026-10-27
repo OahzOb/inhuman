@@ -116,12 +116,13 @@ class QwenTokenPlanClient(
 		format: String = "mp3",
 		mimeType: String = "audio/mpeg",
 		sampleRate: Int = 24000,
+		model: String = DEFAULT_ASR_MODEL,
 	): QwenTranscription = withContext(Dispatchers.IO) {
 		val dataUri = "data:$mimeType;base64," +
 			java.util.Base64.getEncoder().encodeToString(audio)
 		val body = JsonObject(
 			mapOf(
-				"model" to JsonPrimitive(DEFAULT_ASR_MODEL),
+				"model" to JsonPrimitive(model),
 				"input" to JsonObject(
 					mapOf(
 						"messages" to kotlinx.serialization.json.JsonArray(

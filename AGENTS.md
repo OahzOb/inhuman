@@ -16,7 +16,7 @@ than implementation; the old feasibility studies are archived under
 | --- | --- |
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
-| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)**, and the user-set `SshLimits` ceilings |
+| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the per-tool media backends (image/video/speech/transcription/decision)**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)**, and the user-set `SshLimits` ceilings |
 | `docs/04-data-persistence.md` | Room schema v14, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
@@ -132,7 +132,7 @@ beside its name, and a billing notice above the tool list; a price in a
 description nobody opens is not disclosure. This is separate from approval — paid does not
 mean "ask" by default. The rule and its reasoning are
 `docs/08-port-philosophy.md` §1.4; apply it to every future paid capability, not
-just the two web tools.
+just the web and media tools.
 
 **Remote capability is disclosed separately.** Every SSH tool carries `remote =
 true`, a filled `REMOTE` badge, a notice above the tool list, and a dedicated

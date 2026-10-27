@@ -63,6 +63,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -72,6 +73,7 @@ import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.ProviderKinds
+import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.db.ProviderReasoning
 import com.inhuman.core.design.Eyebrow
 import com.inhuman.core.design.Hairline
@@ -87,6 +89,9 @@ import com.inhuman.diagnostics.AppDiagnostics
 import com.inhuman.updates.UpdateInfo
 import com.inhuman.ui.chat.ProviderDraft
 import com.inhuman.ui.chat.SettingsViewModel
+import com.inhuman.ui.chat.MediaCapability
+import com.inhuman.ui.chat.MediaMode
+import com.inhuman.ui.chat.MediaToolConfig
 import java.text.DateFormat
 import java.util.Date
 import com.inhuman.ui.common.FlowRowCompat
@@ -335,6 +340,36 @@ fun SettingsScreen(
 						text = status,
 						style = MaterialTheme.typography.bodyMedium,
 						color = if (state.webStatusIsError) {
+							MaterialTheme.colorScheme.error
+						} else {
+							MaterialTheme.colorScheme.primary
+						},
+					)
+				}
+
+				Hairline(Modifier.padding(vertical = 10.dp))
+				Eyebrow(stringResource(R.string.settings_media_title))
+				Text(
+					text = stringResource(R.string.settings_media_body),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				MediaCapability.entries.forEach { capability ->
+					MediaBackendRow(
+						title = capability.title(),
+						summary = mediaSummary(
+							capability = capability,
+							config = state.mediaConfigs[capability] ?: MediaToolConfig(),
+							providers = state.providers,
+						),
+						onClick = { viewModel.openMedia(capability) },
+					)
+				}
+				state.mediaStatus?.let { status ->
+					Text(
+						text = status,
+						style = MaterialTheme.typography.bodyMedium,
+						color = if (state.mediaStatusIsError) {
 							MaterialTheme.colorScheme.error
 						} else {
 							MaterialTheme.colorScheme.primary
@@ -999,9 +1034,98 @@ fun SettingsScreen(
 			onDismiss = viewModel::closeProviderEditor,
 		)
 	}
+
+	state.mediaDraft?.let { draft ->
+		MediaToolDialog(
+			draft = draft,
+			providers = state.providers,
+			onMode = viewModel::setMediaMode,
+			onProvider = viewModel::setMediaProvider,
+			onModel = viewModel::setMediaModel,
+			onModelPicker = viewModel::setMediaModelPicker,
+			onBaseUrl = viewModel::setMediaBaseUrl,
+			onApiKey = viewModel::setMediaKeyInput,
+			onSave = viewModel::saveMedia,
+			onClose = viewModel::closeMedia,
+		)
+	}
 }
 
 private enum class BackupMode { Export, Import }
+
+@Composable
+private fun MediaBackendRow(title: String, summary: String, onClick: () -> Unit) {
+	Row(
+		modifier = Modifier
+			.fillMaxWidth()
+			.clickable(onClick = onClick)
+			.padding(vertical = 10.dp),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		Column(
+			modifier = Modifier.weight(1f),
+			verticalArrangement = Arrangement.spacedBy(2.dp),
+		) {
+			Text(text = title, style = MaterialTheme.typography.titleSmall)
+			Text(
+				text = summary,
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 1,
+				overflow = TextOverflow.Ellipsis,
+			)
+		}
+		Icon(
+			imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+			contentDescription = null,
+			tint = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+}
+
+@Composable
+private fun mediaSummary(
+	capability: MediaCapability,
+	config: MediaToolConfig,
+	providers: List<ProviderProfileEntity>,
+): String {
+	val model = config.model.ifBlank { capability.defaultModel }
+	return when (config.mode) {
+		MediaMode.Assistant -> if (config.model.isBlank()) {
+			stringResource(R.string.settings_media_summary_assistant)
+		} else {
+			stringResource(
+				R.string.settings_media_summary_assistant_model,
+				config.model,
+			)
+		}
+		MediaMode.Provider -> {
+			val provider = providers.firstOrNull { it.id == config.providerId }
+			if (provider == null) {
+				stringResource(R.string.settings_media_summary_missing)
+			} else {
+				stringResource(
+					R.string.settings_media_summary_provider,
+					provider.name,
+					model,
+				)
+			}
+		}
+		MediaMode.Direct -> stringResource(
+			R.string.settings_media_summary_direct,
+			Uri.parse(config.baseUrl).host ?: config.baseUrl,
+		)
+	}
+}
+
+@Composable
+private fun MediaCapability.title(): String = when (this) {
+	MediaCapability.Image -> stringResource(R.string.settings_media_image)
+	MediaCapability.Video -> stringResource(R.string.settings_media_video)
+	MediaCapability.Speech -> stringResource(R.string.settings_media_speech)
+	MediaCapability.Transcription -> stringResource(R.string.settings_media_transcribe)
+	MediaCapability.Decision -> stringResource(R.string.settings_media_decision)
+}
 
 @Composable
 private fun ProviderPickerDialog(

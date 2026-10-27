@@ -6,6 +6,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.core.ai.capability.ProviderCapabilities
+import com.inhuman.core.ai.model.ModelCapabilities
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.ai.provider.KnownProvider
 import com.inhuman.core.ai.provider.ProviderCatalog
@@ -91,6 +93,17 @@ data class SettingsUiState(
 	val hasWebExaKey: Boolean = false,
 	val webStatus: String? = null,
 	val webStatusIsError: Boolean = false,
+	/**
+	 * Where each paid media tool gets its key, endpoint and model.
+	 *
+	 * The value is derived from `SecureStore` on every screen entry; it is not a
+	 * database row, for the same reason the web backends are not: a secret store
+	 * is the only place a key can live, and the choice is useless without it.
+	 */
+	val mediaConfigs: Map<MediaCapability, MediaToolConfig> = emptyMap(),
+	val mediaDraft: MediaToolDraft? = null,
+	val mediaStatus: String? = null,
+	val mediaStatusIsError: Boolean = false,
 	/** Backup export/import progress and result. */
 	val backupBusy: Boolean = false,
 	val backupStatus: String? = null,
@@ -253,6 +266,7 @@ class SettingsViewModel(
 			webExaKeyInput = secure.get(SecureStore.KEY_WEB_EXA_API_KEY).orEmpty(),
 			hasWebDeepSeekKey = secure.hasUsable(SecureStore.KEY_WEB_DEEPSEEK_API_KEY),
 			hasWebExaKey = secure.hasUsable(SecureStore.KEY_WEB_EXA_API_KEY),
+			mediaConfigs = loadMediaConfigs(),
 			backupCanUndo = backup.hasUndo(),
 			localServerUrl = secure.get(SecureStore.KEY_LOCAL_SERVER_URL).orEmpty(),
 			currentVersionName = packageInfo?.versionName ?: "?",
@@ -1019,6 +1033,210 @@ class SettingsViewModel(
 			webStatusIsError = false,
 		)
 	}
+
+	// --- media tools ---------------------------------------------------------
+
+	/**
+	 * Open one media tool's backend dialog.
+	 *
+	 * A provider-mode config whose provider has since been deleted falls back to
+	 * the first eligible profile rather than showing a selection that no longer
+	 * exists; the dialog's Save is still explicit, so nothing is written by merely
+	 * opening it.
+	 */
+	fun openMedia(capability: MediaCapability) {
+		val config = MediaToolStore.load(secure, capability)
+		val eligible = _state.value.providers.filter {
+			ProviderCapabilities.supports(it.kind, capability.providerCapability)
+		}
+		val providerId = config.providerId.takeIf { id -> eligible.any { it.id == id } }
+			?: eligible.firstOrNull()?.id.orEmpty()
+		val draft = MediaToolDraft(
+			capability = capability,
+			mode = config.mode,
+			providerId = providerId,
+			model = config.model,
+			baseUrl = config.baseUrl,
+			hasKey = config.apiKey.isNotBlank(),
+		)
+		_state.value = _state.value.copy(mediaDraft = draft, mediaStatus = null)
+		if (draft.mode == MediaMode.Provider) loadMediaModels()
+	}
+
+	fun closeMedia() {
+		_state.value = _state.value.copy(mediaDraft = null)
+	}
+
+	fun setMediaMode(mode: MediaMode) {
+		val draft = _state.value.mediaDraft ?: return
+		_state.value = _state.value.copy(
+			mediaDraft = draft.copy(mode = mode, error = null, showModelPicker = false),
+		)
+		if (mode == MediaMode.Provider) {
+			if (draft.providerId.isBlank()) {
+				val first = _state.value.providers.firstOrNull {
+					ProviderCapabilities.supports(it.kind, draft.capability.providerCapability)
+				}
+				if (first != null) setMediaProvider(first.id)
+			} else {
+				loadMediaModels()
+			}
+		}
+	}
+
+	fun setMediaProvider(providerId: String) {
+		val draft = _state.value.mediaDraft ?: return
+		_state.value = _state.value.copy(
+			mediaDraft = draft.copy(
+				providerId = providerId,
+				model = "",
+				models = emptyList(),
+				modelError = null,
+				error = null,
+			),
+		)
+		loadMediaModels()
+	}
+
+	fun setMediaModel(model: String) {
+		val draft = _state.value.mediaDraft ?: return
+		_state.value = _state.value.copy(
+			mediaDraft = draft.copy(model = model, showModelPicker = false, error = null),
+		)
+	}
+
+	fun setMediaModelPicker(open: Boolean) {
+		val draft = _state.value.mediaDraft ?: return
+		_state.value = _state.value.copy(mediaDraft = draft.copy(showModelPicker = open))
+	}
+
+	fun setMediaBaseUrl(value: String) {
+		val draft = _state.value.mediaDraft ?: return
+		_state.value = _state.value.copy(mediaDraft = draft.copy(baseUrl = value, error = null))
+	}
+
+	fun setMediaKeyInput(value: String) {
+		val draft = _state.value.mediaDraft ?: return
+		_state.value = _state.value.copy(mediaDraft = draft.copy(apiKeyInput = value, error = null))
+	}
+
+	fun saveMedia() {
+		val draft = _state.value.mediaDraft ?: return
+		val existing = MediaToolStore.load(secure, draft.capability)
+		val config = when (draft.mode) {
+			MediaMode.Assistant -> MediaToolConfig(
+				mode = MediaMode.Assistant,
+				model = draft.model.trim(),
+			)
+			MediaMode.Provider -> {
+				val profile = _state.value.providers.firstOrNull { it.id == draft.providerId }
+				val failure = when {
+					profile == null -> context.getString(R.string.settings_media_error_provider)
+					!ProviderCapabilities.supports(
+						profile.kind,
+						draft.capability.providerCapability,
+					) -> context.getString(R.string.settings_media_error_provider_support)
+					!agents.hasKey(profile.id) -> context.getString(
+						R.string.settings_media_error_provider_key,
+						profile.name,
+					)
+					else -> null
+				}
+				if (failure != null) {
+					_state.value = _state.value.copy(mediaDraft = draft.copy(error = failure))
+					return
+				}
+				MediaToolConfig(
+					mode = MediaMode.Provider,
+					providerId = draft.providerId,
+					model = draft.model.trim(),
+				)
+			}
+			MediaMode.Direct -> {
+				val apiKey = draft.apiKeyInput.trim().ifBlank { existing.apiKey }
+				val baseUrl = draft.baseUrl.trim()
+				val failure = when {
+					!validBaseUrl(baseUrl) -> context.getString(R.string.settings_media_error_base_url)
+					apiKey.isBlank() -> context.getString(R.string.settings_media_error_key)
+					else -> null
+				}
+				if (failure != null) {
+					_state.value = _state.value.copy(mediaDraft = draft.copy(error = failure))
+					return
+				}
+				MediaToolConfig(
+					mode = MediaMode.Direct,
+					model = draft.model.trim(),
+					baseUrl = baseUrl,
+					apiKey = apiKey,
+				)
+			}
+		}
+		MediaToolStore.save(secure, draft.capability, config)
+		_state.value = _state.value.copy(
+			mediaConfigs = loadMediaConfigs(),
+			mediaDraft = null,
+			mediaStatus = context.getString(R.string.settings_media_saved),
+			mediaStatusIsError = false,
+		)
+	}
+
+	/**
+	 * Load the selected provider's models and narrow them by capability.
+	 *
+	 * The tag lookup is separate from the fetch because a model's role is a
+	 * local judgement, not a provider field. An empty filtered list falls back to
+	 * the whole list: a provider whose models have not been tagged must still be
+	 * selectable, and the model text field remains editable.
+	 */
+	private fun loadMediaModels() {
+		val draft = _state.value.mediaDraft ?: return
+		val providerId = draft.providerId
+		if (providerId.isBlank()) return
+		_state.value = _state.value.copy(
+			mediaDraft = draft.copy(
+				models = emptyList(),
+				loadingModels = true,
+				modelError = null,
+			),
+		)
+		viewModelScope.launch {
+			val result = agents.models(providerId)
+			val tags = runCatching { agents.modelTags(providerId) }.getOrDefault(emptyMap())
+			val current = _state.value.mediaDraft
+			if (current == null ||
+				current.capability != draft.capability ||
+				current.providerId != providerId
+			) {
+				return@launch
+			}
+			result.onSuccess { models ->
+				val filtered = models.filter { model ->
+					draft.capability.modelCapability in
+						ModelCapabilities.effective(model.id, tags[model.id])
+				}.ifEmpty { models }
+				_state.value = _state.value.copy(
+					mediaDraft = current.copy(
+						models = filtered,
+						loadingModels = false,
+						modelError = null,
+					),
+				)
+			}.onFailure { failure ->
+				_state.value = _state.value.copy(
+					mediaDraft = current.copy(
+						models = emptyList(),
+						loadingModels = false,
+						modelError = failure.message
+							?: context.getString(R.string.settings_media_models_failed),
+					),
+				)
+			}
+		}
+	}
+
+	private fun loadMediaConfigs(): Map<MediaCapability, MediaToolConfig> =
+		MediaCapability.entries.associateWith { MediaToolStore.load(secure, it) }
 
 	/** Export the database and workspaces to a user-chosen document. */
 	fun exportBackup(uri: Uri, passphrase: CharArray) {

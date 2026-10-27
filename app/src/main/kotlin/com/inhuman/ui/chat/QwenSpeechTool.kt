@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonPrimitive
 class QwenSpeechTool(
 	private val client: QwenTokenPlanClient,
 	private val workspace: SessionWorkspace,
+	private val model: String = QwenTokenPlanClient.DEFAULT_TTS_MODEL,
 ) : Tool {
 
 	override val name = "speak"
@@ -38,7 +39,7 @@ class QwenSpeechTool(
 			?.takeIf { it.isNotBlank() }
 			?: return ToolResult("text is required", isError = true)
 		return runCatching {
-			val result = client.synthesize(text)
+			val result = client.synthesize(text, model = model)
 			val path = "generated/audio-${System.currentTimeMillis()}.mp3"
 			val resolution = workspace.resolve(path)
 			if (resolution !is SessionWorkspace.Resolution.Ok) {

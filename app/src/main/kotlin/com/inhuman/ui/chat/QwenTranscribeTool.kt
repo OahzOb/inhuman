@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonPrimitive
 class QwenTranscribeTool(
 	private val client: QwenTokenPlanClient,
 	private val workspace: SessionWorkspace,
+	private val model: String = QwenTokenPlanClient.DEFAULT_ASR_MODEL,
 ) : Tool {
 
 	override val name = "transcribe"
@@ -56,7 +57,7 @@ class QwenTranscribeTool(
 			else -> "audio/opus"
 		}
 		return runCatching {
-			val result = client.transcribe(file.readBytes(), format = format, mimeType = mime)
+			val result = client.transcribe(file.readBytes(), format = format, mimeType = mime, model = model)
 			ToolResult.ok(result.text)
 		}.getOrElse { ToolResult("transcription failed: ${it.message}", isError = true) }
 	}

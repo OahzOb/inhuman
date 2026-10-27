@@ -16,6 +16,7 @@ import kotlinx.serialization.json.jsonObject
  */
 class QwenDecisionTool(
 	private val client: QwenTokenPlanClient,
+	private val model: String = QwenTokenPlanClient.DEFAULT_DECISION_MODEL,
 ) : Tool {
 
 	override val name = "decide"
@@ -65,7 +66,7 @@ class QwenDecisionTool(
 			return ToolResult("questions must not be empty", isError = true)
 		}
 		val state = arguments["state"] ?: JsonNull
-		return runCatching { client.decide(state, questions) }.fold(
+		return runCatching { client.decide(state, questions, model = model) }.fold(
 			onSuccess = { ToolResult.ok(it.toString()) },
 			onFailure = { ToolResult(it.message ?: "decision failed", isError = true) },
 		)

@@ -10,7 +10,10 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
 /** Submit a video task; the agent polls it with [QwenVideoStatusTool]. */
-class QwenVideoTool(private val client: QwenTokenPlanClient) : Tool {
+class QwenVideoTool(
+	private val client: QwenTokenPlanClient,
+	private val model: String = QwenTokenPlanClient.DEFAULT_VIDEO_MODEL,
+) : Tool {
 
 	override val name = "generate_video"
 
@@ -42,7 +45,13 @@ class QwenVideoTool(private val client: QwenTokenPlanClient) : Tool {
 		val ratio = arguments["ratio"]?.jsonPrimitive?.contentOrNull ?: "16:9"
 		val duration = arguments["duration"]?.jsonPrimitive?.intOrNull?.coerceIn(2, 30) ?: 5
 		return runCatching {
-			val id = client.submitVideo(prompt, resolution = resolution, ratio = ratio, duration = duration)
+			val id = client.submitVideo(
+				prompt,
+				model = model,
+				resolution = resolution,
+				ratio = ratio,
+				duration = duration,
+			)
 			ToolResult.ok(
 				"Video task submitted: $id. Use video_status with task_id=$id to check progress.",
 			)

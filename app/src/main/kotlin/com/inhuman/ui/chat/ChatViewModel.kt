@@ -532,13 +532,8 @@ class ChatViewModel(
 	 * model answers one ticket the way the API documentation says it will.
 	 */
 	suspend fun decide(text: String): Result<JsonObject> = runCatching {
-		val profile = agents.provider(providerId) ?: error("provider is not available")
-		if (!ProviderCapabilities.supports(profile.kind, ProviderCapability.Decision)) {
-			error("${profile.name} does not support decision models")
-		}
-		val key = secure.get(agents.apiKeySlot(providerId))
-			?.takeIf { it.isNotBlank() }
-			?: error("Add an API key for ${profile.name} first")
+		val backend = mediaBackend(MediaCapability.Decision)
+			?: mediaUnavailable()
 		val questions = buildJsonObject {
 			put(
 				"department",
@@ -580,9 +575,10 @@ class ChatViewModel(
 			)
 		}
 		withContext(Dispatchers.IO) {
-			QwenTokenPlanClient(key, profile.baseUrl).decide(
+			backend.client.decide(
 				state = buildJsonObject { put("content", text) },
 				questions = questions,
+				model = backend.model,
 			)
 		}.also {
 			Diag.i("qwen", "decision conv=${Diag.shortId(conversationId)}")
@@ -591,20 +587,16 @@ class ChatViewModel(
 
 	/** Run caller-supplied questions; the JSON is the typed question map. */
 	suspend fun decideCustom(text: String, questionsJson: String): Result<JsonObject> = runCatching {
-		val profile = agents.provider(providerId) ?: error("provider is not available")
-		if (!ProviderCapabilities.supports(profile.kind, ProviderCapability.Decision)) {
-			error("${profile.name} does not support decision models")
-		}
-		val key = secure.get(agents.apiKeySlot(providerId))
-			?.takeIf { it.isNotBlank() }
-			?: error("Add an API key for ${profile.name} first")
+		val backend = mediaBackend(MediaCapability.Decision)
+			?: mediaUnavailable()
 		val questions = kotlinx.serialization.json.Json
 			.parseToJsonElement(questionsJson)
 			.jsonObject
 		withContext(Dispatchers.IO) {
-			QwenTokenPlanClient(key, profile.baseUrl).decide(
+			backend.client.decide(
 				state = buildJsonObject { put("content", text) },
 				questions = questions,
+				model = backend.model,
 			)
 		}
 	}
@@ -635,23 +627,18 @@ class ChatViewModel(
 		viewModelScope.launch {
 			try {
 				val entity = conversation ?: error("conversation is not ready")
-				val profile = agents.provider(providerId) ?: error("provider is not available")
-				if (!ProviderCapabilities.supports(profile.kind, ProviderCapability.Video)) {
-					error("${profile.name} does not support video generation")
-				}
-				val key = secure.get(agents.apiKeySlot(providerId))
-					?.takeIf { it.isNotBlank() }
-					?: error("Add an API key for ${profile.name} first")
+				val backend = mediaBackend(MediaCapability.Video)
+					?: mediaUnavailable()
 				val workspace = repository.workspace(entity)
-				val client = QwenTokenPlanClient(key, profile.baseUrl)
-				val taskId = client.submitVideo(
+				val taskId = backend.client.submitVideo(
 					prompt = prompt,
+					model = backend.model,
 					resolution = resolution,
 					ratio = ratio,
 					duration = duration,
 				)
 				secure.put(VIDEO_JOB_KEY, "$conversationId|$taskId")
-				val path = pollVideo(client, workspace, taskId)
+				val path = pollVideo(backend.client, workspace, taskId)
 				secure.remove(VIDEO_JOB_KEY)
 				_state.update {
 					it.copy(videoStatus = null, videoPath = path)
@@ -716,12 +703,10 @@ class ChatViewModel(
 			_state.update { it.copy(videoStatus = "Resuming…", videoError = null) }
 			try {
 				val entity = conversation ?: error("conversation is not ready")
-				val profile = agents.provider(providerId) ?: error("provider is not available")
-				val key = secure.get(agents.apiKeySlot(providerId))
-					?.takeIf { it.isNotBlank() }
-					?: error("Add an API key for ${profile.name} first")
+				val backend = mediaBackend(MediaCapability.Video)
+					?: mediaUnavailable()
 				val workspace = repository.workspace(entity)
-				val path = pollVideo(QwenTokenPlanClient(key, profile.baseUrl), workspace, taskId)
+				val path = pollVideo(backend.client, workspace, taskId)
 				secure.remove(VIDEO_JOB_KEY)
 				_state.update { it.copy(videoStatus = null, videoPath = path) }
 			} catch (failure: Exception) {
@@ -756,13 +741,8 @@ class ChatViewModel(
 	/** Transcribe an audio file already inside this conversation's workspace. */
 	suspend fun transcribe(relativePath: String): Result<String> = runCatching {
 		val entity = conversation ?: error("conversation is not ready")
-		val profile = agents.provider(providerId) ?: error("provider is not available")
-		if (!ProviderCapabilities.supports(profile.kind, ProviderCapability.Speech)) {
-			error("${profile.name} does not support speech")
-		}
-		val key = secure.get(agents.apiKeySlot(providerId))
-			?.takeIf { it.isNotBlank() }
-			?: error("Add an API key for ${profile.name} first")
+		val backend = mediaBackend(MediaCapability.Transcription)
+			?: mediaUnavailable()
 		val workspace = repository.workspace(entity)
 		val resolution = workspace.resolve(relativePath)
 		if (resolution !is SessionWorkspace.Resolution.Ok) error("file not found: $relativePath")
@@ -776,8 +756,13 @@ class ChatViewModel(
 			else -> "audio/opus"
 		}
 		withContext(Dispatchers.IO) {
-			QwenTokenPlanClient(key, profile.baseUrl)
-				.transcribe(file.readBytes(), format = format, mimeType = mime)
+			backend.client
+				.transcribe(
+					file.readBytes(),
+					format = format,
+					mimeType = mime,
+					model = backend.model,
+				)
 				.text
 		}
 	}
@@ -785,16 +770,11 @@ class ChatViewModel(
 	/** Synthesize text and save the audio in the conversation workspace. */
 	suspend fun synthesize(text: String): Result<GeneratedAudio> = runCatching {
 		val entity = conversation ?: error("conversation is not ready")
-		val profile = agents.provider(providerId) ?: error("provider is not available")
-		if (!ProviderCapabilities.supports(profile.kind, ProviderCapability.Speech)) {
-			error("${profile.name} does not support speech")
-		}
-		val key = secure.get(agents.apiKeySlot(providerId))
-			?.takeIf { it.isNotBlank() }
-			?: error("Add an API key for ${profile.name} first")
+		val backend = mediaBackend(MediaCapability.Speech)
+			?: mediaUnavailable()
 		val workspace = repository.workspace(entity)
 		val result = withContext(Dispatchers.IO) {
-			QwenTokenPlanClient(key, profile.baseUrl).synthesize(text)
+			backend.client.synthesize(text, model = backend.model)
 		}
 		val path = "generated/audio-${System.currentTimeMillis()}.mp3"
 		val resolution = workspace.resolve(path)
@@ -833,16 +813,11 @@ class ChatViewModel(
 	suspend fun generateImage(prompt: String, size: String = "1024*1024"): Result<GeneratedImage> =
 		runCatching {
 			val entity = conversation ?: error("conversation is not ready")
-			val profile = agents.provider(providerId) ?: error("provider is not available")
-			if (!ProviderCapabilities.supports(profile.kind, ProviderCapability.Image)) {
-				error("${profile.name} does not support image generation")
-			}
-			val key = secure.get(agents.apiKeySlot(providerId))
-				?.takeIf { it.isNotBlank() }
-				?: error("Add an API key for ${profile.name} first")
+			val backend = mediaBackend(MediaCapability.Image)
+				?: mediaUnavailable()
 			val workspace = repository.workspace(entity)
 			val result = withContext(Dispatchers.IO) {
-				QwenTokenPlanClient(key, profile.baseUrl).generateImage(prompt, size = size)
+				backend.client.generateImage(prompt, model = backend.model, size = size)
 			}
 			val extension = if (result.mimeType.contains("webp")) "webp" else "png"
 			val relativePath = "generated/image-${System.currentTimeMillis()}.$extension"
@@ -3541,7 +3516,46 @@ class ChatViewModel(
 	 * start" are the same code path -- and failing open is the wrong direction.
 	 * It is reported now, and the turn does not run on a silent failure.
 	 */
-	private fun buildTools(policies: PolicySet = PolicySet.None): List<Tool> {
+	private suspend fun mediaBackend(capability: MediaCapability): MediaBackend? {
+		val config = MediaToolStore.load(secure, capability)
+		val model = config.modelOrDefault(capability)
+		return when (config.mode) {
+			MediaMode.Assistant -> {
+				if (!ProviderCapabilities.supports(
+						providerKind.orEmpty(),
+						capability.providerCapability,
+					)
+				) {
+					return null
+				}
+				val key = secure.get(agents.apiKeySlot(providerId))
+					?.takeIf { it.isNotBlank() } ?: return null
+				val base = providerBaseUrl ?: return null
+				MediaBackend(QwenTokenPlanClient(key, base), model)
+			}
+			MediaMode.Provider -> {
+				val profile = agents.provider(config.providerId) ?: return null
+				if (!ProviderCapabilities.supports(profile.kind, capability.providerCapability)) {
+					return null
+				}
+				val key = secure.get(agents.apiKeySlot(profile.id))
+					?.takeIf { it.isNotBlank() } ?: return null
+				MediaBackend(QwenTokenPlanClient(key, profile.baseUrl), model)
+			}
+			MediaMode.Direct -> {
+				// A direct endpoint is a user-entered public URL, so the same
+				// HTTPS-only rule as every other provider applies. The Qwen
+				// endpoint families are not reachable over plain HTTP.
+				if (config.apiKey.isBlank() || !config.baseUrl.startsWith("https://")) return null
+				MediaBackend(QwenTokenPlanClient(config.apiKey, config.baseUrl), model)
+			}
+		}
+	}
+
+	private fun mediaUnavailable(): Nothing =
+		error(context.getString(R.string.chat_error_media_not_configured))
+
+	private suspend fun buildTools(policies: PolicySet = PolicySet.None): List<Tool> {
 		val entity = conversation
 
 		// The conversation's own copy wins, falling back to the assistant's.
@@ -3596,47 +3610,22 @@ class ChatViewModel(
 			// A decision model is capability-specific: a chat-only provider must
 			// not get a tool that always fails, and a missing key means the call
 			// cannot be answered either.
-			ProviderCapabilities.of(providerKind.orEmpty())
-				.takeIf { ProviderCapability.Decision in it }
-				?.let {
-					val key = secure.get(agents.apiKeySlot(providerId))
-					val base = providerBaseUrl
-					if (!key.isNullOrBlank() && base != null) {
-						add(QwenDecisionTool(QwenTokenPlanClient(key, base)))
-					}
-				}
-			ProviderCapabilities.of(providerKind.orEmpty())
-				.takeIf { ProviderCapability.Image in it }
-				?.let {
-					val key = secure.get(agents.apiKeySlot(providerId))
-					val base = providerBaseUrl
-					if (!key.isNullOrBlank() && base != null && workspace != null) {
-						add(QwenImageTool(QwenTokenPlanClient(key, base), workspace))
-					}
-				}
-			ProviderCapabilities.of(providerKind.orEmpty())
-				.takeIf { ProviderCapability.Video in it }
-				?.let {
-					val key = secure.get(agents.apiKeySlot(providerId))
-					val base = providerBaseUrl
-					if (!key.isNullOrBlank() && base != null) {
-						val client = QwenTokenPlanClient(key, base)
-						add(QwenVideoTool(client))
-						if (workspace != null) add(QwenVideoStatusTool(client, workspace))
-					}
-				}
-			ProviderCapabilities.of(providerKind.orEmpty())
-				.takeIf { ProviderCapability.Speech in it }
-				?.let {
-					val key = secure.get(agents.apiKeySlot(providerId))
-					val base = providerBaseUrl
-					if (!key.isNullOrBlank() && base != null && workspace != null) {
-						add(QwenSpeechTool(QwenTokenPlanClient(key, base), workspace))
-					}
-					if (!key.isNullOrBlank() && base != null && workspace != null) {
-						add(QwenTranscribeTool(QwenTokenPlanClient(key, base), workspace))
-					}
-				}
+			mediaBackend(MediaCapability.Decision)?.let {
+				add(QwenDecisionTool(it.client, it.model))
+			}
+			mediaBackend(MediaCapability.Image)?.let {
+				if (workspace != null) add(QwenImageTool(it.client, workspace, it.model))
+			}
+			mediaBackend(MediaCapability.Video)?.let {
+				add(QwenVideoTool(it.client, it.model))
+				if (workspace != null) add(QwenVideoStatusTool(it.client, workspace))
+			}
+			mediaBackend(MediaCapability.Speech)?.let {
+				if (workspace != null) add(QwenSpeechTool(it.client, workspace, it.model))
+			}
+			mediaBackend(MediaCapability.Transcription)?.let {
+				if (workspace != null) add(QwenTranscribeTool(it.client, workspace, it.model))
+			}
 			// SSH is opt-in twice: the global setting and the assistant's
 			// explicit tool selection. `selected == null` means "all tools" for
 			// historical assistants, so it must NOT be read as consent to SSH.

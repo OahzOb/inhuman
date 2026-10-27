@@ -539,8 +539,9 @@ a workspace folder.
 standalone, checkpointed copy, not a live file plus WAL), zips it with
 `filesDir/conversations`, and encrypts the ZIP with AES-256-GCM and
 PBKDF2-HMAC-SHA256 (210,000 iterations). The header carries the magic, salt and
-IV; the passphrase is never stored. API keys are **not** in the archive because
-they live in the Keystore-backed `SecureStore`. Rollback snapshots are omitted;
+IV; the passphrase is never stored. API keys and the web/media backend
+selections are **not** in the archive because they live in the Keystore-backed
+`SecureStore`. Rollback snapshots are omitted;
 import clears the current snapshot directory rather than offering a rewind to
 files that are no longer present.
 

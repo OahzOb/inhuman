@@ -18,6 +18,7 @@ import kotlinx.serialization.json.jsonPrimitive
 class QwenImageTool(
 	private val client: QwenTokenPlanClient,
 	private val workspace: SessionWorkspace,
+	private val model: String = QwenTokenPlanClient.DEFAULT_IMAGE_MODEL,
 ) : Tool {
 
 	override val name = "generate_image"
@@ -54,7 +55,7 @@ class QwenImageTool(
 			?: return ToolResult("prompt is required", isError = true)
 		val size = arguments["size"]?.jsonPrimitive?.contentOrNull ?: "1024*1024"
 		return runCatching {
-			val result = client.generateImage(prompt, size = size)
+			val result = client.generateImage(prompt, model = model, size = size)
 			val extension = if (result.mimeType.contains("webp")) "webp" else "png"
 			val path = "generated/image-${System.currentTimeMillis()}.$extension"
 			val resolution = workspace.resolve(path)

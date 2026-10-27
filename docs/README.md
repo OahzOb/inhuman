@@ -96,7 +96,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 Latest run (2026-10-26):
 
 ```
-BUILD SUCCESSFUL, 592 tests in 90 suites, 0 failures, 4 skipped
+BUILD SUCCESSFUL, 597 tests in 91 suites, 0 failures, 4 skipped
 warnings 0, errors 0
 ```
 
@@ -107,7 +107,7 @@ The skips are external-credential live tests: `DeepSeekWebLiveTest`,
 | --- | --- | --- |
 | `:core:ai` | 38 | 280 (3 skipped) |
 | `:core:files` | 6 | 64 |
-| `:app` | 22 | 155 |
+| `:app` | 22 | 160 |
 | `:core:common` | 2 | 16 |
 | `:core:db` | 4 | 11 |
 | `:core:engine` | 2 | 10 (1 skipped) |
@@ -161,6 +161,7 @@ repository root; `…/` stands for `src/main/kotlin/com/inhuman/`.
 | Browsing, import, export, preview | `app/…/ui/files/FilesScreen.kt`, `FilesViewModel.kt` |
 | URL download; SSRF, redirect and file-name rules | `app/…/ui/files/UrlDownloader.kt` |
 | Provider list/editor, web backends and keys | `app/…/ui/settings/SettingsScreen.kt`, `app/…/ui/chat/SettingsViewModel.kt`, `app/…/web/WebToolProviders.kt` |
+| Media tool backends, per-tool provider/model or separate API | `app/…/ui/chat/MediaTools.kt`, `app/…/ui/settings/MediaToolDialog.kt` |
 | Usage totals, paid-call counting, day buckets | `app/…/ui/settings/UsageReport.kt`, `UsageSection.kt`, `:core:db` `MessageDao.usageRows()` |
 | Conversation Markdown; workspace zip; honest failed-export reporting | `app/…/ui/chat/ConversationMarkdown.kt`, `core/files/…/WorkspaceZip.kt` |
 | `web_search` / `web_fetch` backends | `core/ai/…/provider/deepseek/DeepSeekSearchApi.kt`, `provider/exa/ExaSearchApi.kt`, `tools/WebFetchTool.kt` |

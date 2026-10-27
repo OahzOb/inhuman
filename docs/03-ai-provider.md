@@ -465,6 +465,30 @@ URLs expire; video is submitted as an async task. The live probe is
 verified models are `wan2.7-image`, `wan3.0-video`, `qwen-audio-3.0-tts-plus`
 and `decision-model-preview`.
 
+### Media backends: one choice per tool
+
+The five media capabilities (`Image`, `Video`, `Speech`, `Transcription`,
+`Decision`) no longer have to use the assistant's chat provider. Each is
+configured independently under **Settings → 02 / Web & media**:
+
+- **Assistant** (default): the conversation's provider, if its kind advertises
+  the capability. This preserves the pre-setting behaviour.
+- **Configured provider**: any profile under 01 / Models whose kind supports the
+  capability (today the two Qwen Token Plan kinds), plus a model chosen from
+  that profile's `/models`; the profile's own key and base URL are used.
+- **Separate API**: a key, an HTTPS base URL and a model entered in the media
+  section itself. The value is one `SecureStore` entry per capability, so the
+  key is Keystore-wrapped and never enters the transcript.
+
+`MediaToolConfig` (`app/…/ui/chat/MediaTools.kt`) is the stored shape; a blank
+model means the capability's built-in default. `ChatViewModel.mediaBackend`
+resolves the choice per turn and passes the model into the tool, so changing the
+backend affects the next call rather than requiring a restart. A provider or key
+that is missing leaves the tool absent; it is not registered and then failed.
+
+The version notes below describe the original capability gate (the assistant's
+provider chose the backend); the per-tool backend above is the current rule.
+
 0.3.0 exposes the first user-facing slice: **Chat menu → Generate image**.
 `ChatViewModel.generateImage` checks the profile's capability, downloads the
 bytes, writes them through `SessionWorkspace.resolve`, applies

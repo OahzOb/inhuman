@@ -59,7 +59,9 @@ default**, branch switching, image attachments, usage reporting, a context
 gauge above the composer, a **Usage** section that totals provider-reported
 tokens and paid tool calls by day and conversation without converting prices,
 **plain-text export** of one conversation to Markdown (optionally with tool
-calls and results) and of a workspace to zip, temporary/permanent workspaces
+calls and results) and of a workspace to zip, per-tool media backends
+(assistant, a configured Qwen Token Plan provider and model, or a separate
+Qwen-compatible API and key), temporary/permanent workspaces
 with the absolute
 location available to the user, global title/message search with
 jump-to-message, actionable error recovery, encrypted backup import preview and
@@ -487,7 +489,7 @@ Then:
 
 If the properties file is absent, the release build falls back to the debug
 signing key so a fresh clone can still build; that build cannot update a
-production signing identity. The release version is `0.6.0` / versionCode 25.
+production signing identity. The release version is `0.7.0` / versionCode 26.
 `lintVital` is skipped in this offline environment (`checkReleaseBuilds =
 false`); run lint separately when the network is available.
 

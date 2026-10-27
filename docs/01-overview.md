@@ -81,6 +81,11 @@ Confirmed by `README.md:17-29` and by the code:
   selected independently for search and fetch. Each is a paid API with its own
   key, separate from the chat provider
   ([03-ai-provider.md](03-ai-provider.md)).
+- The paid media tools — image, video, speech, transcription and decision — are
+  configured one by one under **02 / Web & media**: keep the assistant's
+  provider, choose a configured Qwen Token Plan provider and model, or enter a
+  separate Qwen-compatible endpoint and key. A missing or unsupported backend
+  leaves that tool absent rather than failing at call time.
 - Chat runs against a provider profile: the built-in DeepSeek endpoint, a
   custom OpenAI-compatible HTTPS endpoint, Anthropic Messages, or Google
   Gemini. Each assistant chooses a profile, and a conversation copies it at
