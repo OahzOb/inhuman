@@ -263,6 +263,17 @@
 	<string name="settings_import_backup">导入备份</string>
 	<string name="settings_undo_import">撤销上次导入</string>
 	<string name="settings_backup_explain">导出时会要求设置口令，并生成一个加密文件。导入前会先展示文件内容。应用只会在重启后替换当前数据，旧数据会保留下来，可撤销一次。</string>
+	<string name="settings_backup_reminder">提醒</string>
+	<string name="settings_backup_never">还没有导出过备份。</string>
+	<string name="settings_backup_last">上次备份：%1$s</string>
+	<string name="settings_backup_reminder_days">%1$d 天</string>
+	<string name="settings_backup_reminder_off">关闭</string>
+	<string name="settings_backup_reminder_note">到期时应用只提醒；不会在后台自动写备份，导出仍由你按按钮触发。</string>
+	<string name="backup_reminder_title">该备份了</string>
+	<string name="backup_reminder_never">还没有备份；这些数据只在这台手机上。</string>
+	<string name="backup_reminder_due">上次备份是 %1$d 天前。</string>
+	<string name="backup_reminder_action">去备份</string>
+	<string name="backup_reminder_later">稍后</string>
 	<string name="settings_restart_now">立即重启</string>
 	<string name="settings_working">处理中…</string>
 	<string name="settings_section_approvals">07 / 审批</string>

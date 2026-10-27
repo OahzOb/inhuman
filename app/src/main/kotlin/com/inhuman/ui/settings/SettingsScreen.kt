@@ -83,6 +83,7 @@ import com.inhuman.core.design.SectionHeading
 import com.inhuman.core.design.StatusDot
 import com.inhuman.core.design.WorkbenchSwitch
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.ui.backup.BACKUP_REMINDER_PERIODS
 import com.inhuman.core.ai.provider.KnownProvider
 import com.inhuman.core.ai.provider.ProviderCatalog
 import com.inhuman.core.ai.provider.ProviderFactory
@@ -113,9 +114,15 @@ fun SettingsScreen(
 	viewModel: SettingsViewModel,
 	onBack: () -> Unit,
 	onLayoutPreferenceChange: (com.inhuman.core.design.LayoutPreference) -> Unit = {},
+	/** Open with the backup section expanded, for the home reminder's action. */
+	startBackup: Boolean = false,
+	onBackupStarted: () -> Unit = {},
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	val context = LocalContext.current
+	LaunchedEffect(startBackup) {
+		if (startBackup) onBackupStarted()
+	}
 	// The system owns the per-app locale. An empty list means the default,
 	// which InhumanApp has already set to Chinese on first launch.
 	val localeManager = context.getSystemService(LocaleManager::class.java)
@@ -595,6 +602,7 @@ fun SettingsScreen(
 				code = stringResource(R.string.settings_section_backup),
 				title = stringResource(R.string.settings_backup_title),
 				summary = stringResource(R.string.settings_backup_summary),
+				initiallyExpanded = startBackup,
 			) {
 			Text(
 				text = stringResource(R.string.settings_backup_body),
@@ -622,6 +630,50 @@ fun SettingsScreen(
 			}
 			Text(
 				text = stringResource(R.string.settings_backup_explain),
+				modifier = Modifier
+					.widthIn(max = Layout.ReadableMeasure)
+					.fillMaxWidth(),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+
+			HorizontalDivider(
+				modifier = Modifier.padding(vertical = 6.dp),
+				color = MaterialTheme.colorScheme.outlineVariant,
+			)
+			Eyebrow(stringResource(R.string.settings_backup_reminder))
+			Text(
+				text = if (state.backupLastExportAt <= 0L) {
+					stringResource(R.string.settings_backup_never)
+				} else {
+					stringResource(
+						R.string.settings_backup_last,
+						DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+							.format(Date(state.backupLastExportAt)),
+					)
+				},
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurface,
+			)
+			FlowRowCompat {
+				BACKUP_REMINDER_PERIODS.forEach { days ->
+					FilterChip(
+						selected = state.backupReminderDays == days,
+						onClick = { viewModel.setBackupReminderDays(days) },
+						label = {
+							Text(
+								if (days == 0) {
+									stringResource(R.string.settings_backup_reminder_off)
+								} else {
+									stringResource(R.string.settings_backup_reminder_days, days)
+								},
+							)
+						},
+					)
+				}
+			}
+			Text(
+				text = stringResource(R.string.settings_backup_reminder_note),
 				modifier = Modifier
 					.widthIn(max = Layout.ReadableMeasure)
 					.fillMaxWidth(),

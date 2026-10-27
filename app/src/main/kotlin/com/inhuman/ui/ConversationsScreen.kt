@@ -83,6 +83,7 @@ import com.inhuman.core.design.WorkbenchGrid
 import com.inhuman.core.design.Wordmark
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.core.design.prefersFabForPrimaryAction
+import com.inhuman.ui.backup.BackupReminderUi
 import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
@@ -105,6 +106,9 @@ fun ConversationsScreen(
 	onOpenWorkspaces: () -> Unit,
 	onNewWorkspace: () -> Unit,
 	sshToolEnabled: Boolean = false,
+	backupReminder: BackupReminderUi? = null,
+	onOpenBackup: () -> Unit = {},
+	onLaterBackup: () -> Unit = {},
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
@@ -219,6 +223,9 @@ fun ConversationsScreen(
 							onOpenAssistants = onOpenAgents,
 							compactLayout = frame.isCompact,
 							showStartButton = true,
+							backupReminder = backupReminder,
+							onOpenBackup = onOpenBackup,
+							onLaterBackup = onLaterBackup,
 						)
 					}
 				}
@@ -249,6 +256,9 @@ fun ConversationsScreen(
 					onOpenAssistants = onOpenAgents,
 					compactLayout = frame.isCompact,
 					showStartButton = false,
+					backupReminder = backupReminder,
+					onOpenBackup = onOpenBackup,
+					onLaterBackup = onLaterBackup,
 					modifier = Modifier
 						.fillMaxSize()
 						.padding(bottom = if (useFab) 72.dp else 0.dp),
@@ -817,6 +827,50 @@ private fun HomeRail(
 }
 
 @Composable
+private fun BackupReminderBanner(
+	reminder: BackupReminderUi,
+	onOpen: () -> Unit,
+	onLater: () -> Unit,
+) {
+	Column(
+		modifier = Modifier
+			.fillMaxWidth()
+			.padding(vertical = 8.dp),
+	) {
+		// Text above the actions, not beside them: at 360dp a sentence in a
+		// weight(1f) column wraps around the buttons ("手机 / 上。"), which reads
+		// as a broken line rather than a narrower measure.
+		Text(
+			text = stringResource(R.string.backup_reminder_title),
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.primary,
+		)
+		Text(
+			text = if (reminder.neverBackedUp) {
+				stringResource(R.string.backup_reminder_never)
+			} else {
+				stringResource(R.string.backup_reminder_due, reminder.daysSince)
+			},
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		Row(
+			modifier = Modifier.fillMaxWidth(),
+			horizontalArrangement = Arrangement.End,
+		) {
+			TextButton(onClick = onOpen) {
+				Text(stringResource(R.string.backup_reminder_action))
+			}
+			TextButton(onClick = onLater) {
+				Text(stringResource(R.string.backup_reminder_later))
+			}
+		}
+		Spacer(Modifier.height(6.dp))
+		Hairline()
+	}
+}
+
+@Composable
 private fun ConversationPanel(
 	conversations: List<ConversationEntity>,
 	workspaceNames: Map<String, String>,
@@ -843,6 +897,9 @@ private fun ConversationPanel(
 	onOpenAssistants: () -> Unit,
 	compactLayout: Boolean,
 	showStartButton: Boolean,
+	backupReminder: BackupReminderUi?,
+	onOpenBackup: () -> Unit,
+	onLaterBackup: () -> Unit,
 	modifier: Modifier = Modifier,
 ) {
 	val compact = compactLayout
@@ -908,6 +965,15 @@ private fun ConversationPanel(
 			}
 			Spacer(Modifier.height(10.dp))
 			Hairline()
+			if (!selecting) {
+				backupReminder?.let { reminder ->
+					BackupReminderBanner(
+						reminder = reminder,
+						onOpen = onOpenBackup,
+						onLater = onLaterBackup,
+					)
+				}
+			}
 			if (selecting) {
 				Row(
 					modifier = Modifier.fillMaxWidth(),

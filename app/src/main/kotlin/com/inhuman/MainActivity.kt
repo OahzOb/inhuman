@@ -51,6 +51,8 @@ import com.inhuman.ui.ConversationsScreen
 import com.inhuman.ui.ConversationsViewModel
 import com.inhuman.ui.agents.AgentsScreen
 import com.inhuman.ui.agents.AgentsViewModel
+import com.inhuman.ui.backup.BackupReminderStore
+import com.inhuman.ui.backup.BackupReminderUi
 import com.inhuman.ui.chat.ChatScreen
 import com.inhuman.ui.chat.ChatViewModel
 import com.inhuman.ui.chat.SettingsViewModel
@@ -173,6 +175,7 @@ private fun InhumanRoot(
 	val repository = remember { ConversationRepository(db, DataPaths(context.filesDir)) }
 	val agents = remember { AgentRepository(db, secure) }
 	val backup = remember { BackupRepository(context) }
+	val backupReminders = remember(secure) { BackupReminderStore(secure) }
 
 	// Clear out workspace directories that no conversation refers to.
 	//
@@ -189,6 +192,10 @@ private fun InhumanRoot(
 		withContext(Dispatchers.IO) {
 			runCatching { repository.sweepOrphanedWorkspaces() }
 				.onFailure { Diag.w("workspace", "orphan sweep failed", it) }
+			// Start the "never backed up" clock on this launch. Nothing is
+			// written; this only makes the first reminder measurable.
+			runCatching { backupReminders.ensureTracking(System.currentTimeMillis()) }
+				.onFailure { Diag.w("backup", "reminder clock failed", it) }
 		}
 	}
 
@@ -214,6 +221,10 @@ private fun InhumanRoot(
 	var showWorkspaces by rememberSaveable { mutableStateOf(false) }
 	var startWorkspaceCreation by rememberSaveable { mutableStateOf(false) }
 	var openWorkspaceId by rememberSaveable { mutableStateOf<String?>(null) }
+	/** Open Settings with the backup fold expanded, from the home reminder. */
+	var startBackupSection by rememberSaveable { mutableStateOf(false) }
+	/** Non-null while the home screen is showing a due-backup prompt. */
+	var backupReminder by remember { mutableStateOf<BackupReminderUi?>(null) }
 	/** Files opened from a workspace rather than from a chat. */
 	var filesWorkspaceId by rememberSaveable { mutableStateOf<String?>(null) }
 	/** Where Back returns after closing a conversation opened inside a workspace. */
@@ -262,6 +273,31 @@ private fun InhumanRoot(
 					.onFailure { Diag.w("share", "destination list failed", it) }
 					.getOrElse { emptyList() }
 			}
+		}
+	}
+
+	// The backup reminder is evaluated when the home screen is the visible
+	// screen: on launch, and after coming back from Settings. It is not a
+	// background job and never writes a backup; a due reminder is a banner with
+	// a button, and "Later" snoozes it for a few days.
+	LaunchedEffect(
+		openConversationId,
+		showSettings,
+		showAgents,
+		showFiles,
+		showWorkspaces,
+		openWorkspaceId,
+	) {
+		val home = openConversationId == null && !showSettings && !showAgents &&
+			!showFiles && !showWorkspaces && openWorkspaceId == null
+		if (!home) return@LaunchedEffect
+		backupReminder = withContext(Dispatchers.IO) {
+			val hasData = runCatching { repository.all().isNotEmpty() }
+				.onFailure { Diag.w("backup", "reminder check failed", it) }
+				.getOrDefault(false)
+			runCatching { backupReminders.evaluate(System.currentTimeMillis(), hasData) }
+				.onFailure { Diag.w("backup", "reminder read failed", it) }
+				.getOrNull()
 		}
 	}
 
@@ -389,6 +425,8 @@ private fun InhumanRoot(
 				viewModel = vm,
 				onBack = { showSettings = false },
 				onLayoutPreferenceChange = { layoutPreference = it },
+				startBackup = startBackupSection,
+				onBackupStarted = { startBackupSection = false },
 			)
 		}
 
@@ -604,6 +642,18 @@ private fun InhumanRoot(
 					showWorkspaces = true
 				},
 				sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
+				backupReminder = backupReminder,
+				onOpenBackup = {
+					backupReminder = null
+					startBackupSection = true
+					showSettings = true
+				},
+				onLaterBackup = {
+					backupReminder = null
+					shareScope.launch(Dispatchers.IO) {
+						backupReminders.snooze(System.currentTimeMillis())
+					}
+				},
 			)
 		}
 	}

@@ -146,6 +146,10 @@ Confirmed by `README.md:17-29` and by the code:
   composer and never sends; the suggestions come from the same answer, with no
   extra request, and the setting can turn them off
   ([06-agent-loop-ui.md](06-agent-loop-ui.md)).
+- The home screen can remind you that the encrypted backup is overdue (7/30/90
+  days, default 30, or off). It only reminds: the export is still the button in
+  Settings, and no background job writes an archive
+  ([04-data-persistence.md](04-data-persistence.md)).
 - Answers can be retried. **Rewind** is the single restart control. **Answer
   again** keeps the tool **definitions** so the request prefix can still hit the
   context cache, but appends a transient system instruction forbidding a call;

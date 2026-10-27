@@ -373,6 +373,14 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   round starts, and it is not persisted. `useSuggestion` may only fill the
   composer; it must never send, and a suggestion is not an approval or a grant.
   The setting is a display preference, not a capability tier.
+- **The backup reminder reminds; it never writes a backup.** `BackupReminderPolicy`
+  is pure (no data, off, a snooze, a backward clock or an age under the period →
+  nothing); the "never backed up" baseline is `backup.tracking_since`, written on
+  first launch. `backup.last_export_at` is written only after a successful
+  export. There is no worker and no notification: the home screen evaluates when
+  it becomes visible, **Later** snoozes three days, and the export remains the
+  user's button. Do not turn this into a background writer without answering the
+  passphrase and retention questions in `docs/13-product.md`.
 - **A failure chunk must be `trySend`-ed *before* `close()`.** A chunk sent
   after the channel closes is dropped and the collector sees a clean end, so
   the failure becomes indistinguishable from "the model said nothing".

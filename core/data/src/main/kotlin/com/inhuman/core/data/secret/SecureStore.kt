@@ -202,6 +202,27 @@ class SecureStore(
 		const val KEY_ADVICE_ENABLED = "chat.advice_enabled"
 
 		/**
+		 * When the last encrypted backup was written, in epoch milliseconds.
+		 *
+		 * Not a secret; stored here with the other small preferences. `"0"` or
+		 * absent means the user has never exported a backup.
+		 */
+		const val KEY_BACKUP_LAST_EXPORT_AT = "backup.last_export_at"
+
+		/** The reminder period in days; `0` means off. */
+		const val KEY_BACKUP_REMINDER_DAYS = "backup.reminder_days"
+
+		/**
+		 * The first launch this install tracked, so "never backed up" has a
+		 * baseline. Without it the app would either nag on day one or never
+		 * remind a user who has never exported.
+		 */
+		const val KEY_BACKUP_TRACKING_SINCE = "backup.tracking_since"
+
+		/** Suppresses the in-app reminder until this instant after "Later". */
+		const val KEY_BACKUP_SNOOZED_UNTIL = "backup.snoozed_until"
+
+		/**
 		 * Whether the SSH tool is available at all.
 		 *
 		 * Default off. This is the first of two gates: the assistant still has

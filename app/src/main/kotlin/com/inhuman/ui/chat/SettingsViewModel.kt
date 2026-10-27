@@ -24,6 +24,7 @@ import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.db.ProviderReasoning
 import com.inhuman.core.data.db.UsageRow
 import com.inhuman.core.data.secret.SecureStore
+import com.inhuman.ui.backup.BackupReminderPolicy
 import com.inhuman.diagnostics.AppDiagnostics
 import com.inhuman.ui.settings.UsagePeriod
 import com.inhuman.ui.settings.UsageReport
@@ -114,6 +115,10 @@ data class SettingsUiState(
 	val backupPreview: BackupPreview? = null,
 	/** Whether the data replaced by the last import can still be restored. */
 	val backupCanUndo: Boolean = false,
+	/** Epoch millis of the last successful export; 0 means never. */
+	val backupLastExportAt: Long = 0L,
+	/** Reminder period in days; 0 is off. */
+	val backupReminderDays: Int = 30,
 	/** Reply from the built-in scripted source instead of DeepSeek. */
 	val demoMode: Boolean = false,
 	/** Whether replies end with follow-up suggestions. */
@@ -271,6 +276,11 @@ class SettingsViewModel(
 			hasWebExaKey = secure.hasUsable(SecureStore.KEY_WEB_EXA_API_KEY),
 			mediaConfigs = loadMediaConfigs(),
 			backupCanUndo = backup.hasUndo(),
+			backupLastExportAt = secure.get(SecureStore.KEY_BACKUP_LAST_EXPORT_AT)
+				?.toLongOrNull() ?: 0L,
+			backupReminderDays = BackupReminderPolicy.normalizePeriod(
+				secure.get(SecureStore.KEY_BACKUP_REMINDER_DAYS)?.toIntOrNull(),
+			),
 			localServerUrl = secure.get(SecureStore.KEY_LOCAL_SERVER_URL).orEmpty(),
 			currentVersionName = packageInfo?.versionName ?: "?",
 			currentVersionCode = packageInfo?.longVersionCode ?: 0L,
@@ -1357,6 +1367,12 @@ class SettingsViewModel(
 	private fun loadMediaConfigs(): Map<MediaCapability, MediaToolConfig> =
 		MediaCapability.entries.associateWith { MediaToolStore.load(secure, it) }
 
+	fun setBackupReminderDays(days: Int) {
+		val normalized = BackupReminderPolicy.normalizePeriod(days)
+		secure.put(SecureStore.KEY_BACKUP_REMINDER_DAYS, normalized.toString())
+		_state.value = _state.value.copy(backupReminderDays = normalized)
+	}
+
 	/** Export the database and workspaces to a user-chosen document. */
 	fun exportBackup(uri: Uri, passphrase: CharArray) {
 		if (_state.value.backupBusy) return
@@ -1368,8 +1384,16 @@ class SettingsViewModel(
 		viewModelScope.launch {
 			val result = runCatching { backup.export(uri, passphrase) }
 			passphrase.fill('\u0000')
+			val exportedAt = if (result.isSuccess) System.currentTimeMillis() else null
+			if (exportedAt != null) {
+				secure.put(SecureStore.KEY_BACKUP_LAST_EXPORT_AT, exportedAt.toString())
+				// A completed export answers any pending reminder; clearing the
+				// snooze keeps a later period from being shortened by it.
+				secure.put(SecureStore.KEY_BACKUP_SNOOZED_UNTIL, "0")
+			}
 			_state.value = _state.value.copy(
 				backupBusy = false,
+				backupLastExportAt = exportedAt ?: _state.value.backupLastExportAt,
 				backupStatus = result.fold(
 					onSuccess = {
 						context.getString(R.string.settings_status_backup_written)

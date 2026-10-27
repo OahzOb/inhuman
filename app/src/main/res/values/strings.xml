@@ -278,6 +278,17 @@
 	<string name="settings_import_backup">Import backup</string>
 	<string name="settings_undo_import">Undo last import</string>
 	<string name="settings_backup_explain">Export asks for a passphrase and writes one encrypted file. Import first shows what the file contains. The current data is replaced only after a restart, and the previous copy is kept for one Undo.</string>
+	<string name="settings_backup_reminder">Reminder</string>
+	<string name="settings_backup_never">No backup has been written yet.</string>
+	<string name="settings_backup_last">Last backup: %1$s</string>
+	<string name="settings_backup_reminder_days">%1$d days</string>
+	<string name="settings_backup_reminder_off">Off</string>
+	<string name="settings_backup_reminder_note">The app reminds you when a backup is due; it never writes one in the background. Export stays a button you press.</string>
+	<string name="backup_reminder_title">Backup due</string>
+	<string name="backup_reminder_never">No backup yet. This install only exists on this phone.</string>
+	<string name="backup_reminder_due">Last backup was %1$d days ago.</string>
+	<string name="backup_reminder_action">Back up</string>
+	<string name="backup_reminder_later">Later</string>
 	<string name="settings_restart_now">Restart now</string>
 	<string name="settings_working">Working…</string>
 	<string name="settings_section_approvals">07 / Approvals</string>

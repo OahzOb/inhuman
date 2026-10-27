@@ -613,6 +613,31 @@ way back.
 The UI says the app must restart for this reason. There is no hot restore: no
 open Room connection is ever replaced underneath its callers.
 
+### The backup reminder
+
+`ui/backup/BackupReminder.kt` turns the export into something the app can notice
+is overdue. It stores four non-secret values in `SecureStore`:
+`backup.last_export_at` (written only after a successful export),
+`backup.reminder_days` (7/30/90, or 0 for off; default 30),
+`backup.tracking_since` (the first launch that ran this code, so an install that
+has never exported has a baseline) and `backup.snoozed_until` (three days after
+**Later**).
+
+`BackupReminderPolicy.evaluate` is pure: no data, off, a pending snooze, a
+clock that moved backwards or an age under the period produce null; otherwise it
+returns the age and whether it is measured from first use. The home screen asks
+once when it becomes visible and after returning from Settings. A due reminder is
+a banner with **Back up** and **Later**; Back up opens Settings with the backup
+fold expanded.
+
+**It never writes a backup.** A useful archive needs the user's passphrase, and
+the app intentionally keeps neither the passphrase nor a copy of the archive; a
+background writer would have to invent a credential store and a retention
+policy, both unresolved product questions. So there is no WorkManager job and no
+notification: the reminder is evaluated when the app is opened, and the export is
+still the button in Settings. Recording the export time only on success also
+means a failed or cancelled export does not clear the reminder.
+
 ## Tests in this module
 
 Three JVM files and five device files:
