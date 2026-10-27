@@ -96,7 +96,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 Latest run (2026-10-27, through `tools/ci.ps1`):
 
 ```
-BUILD SUCCESSFUL, 663 tests in 100 suites, 0 failures, 4 skipped
+BUILD SUCCESSFUL, 677 tests in 101 suites, 0 failures, 4 skipped
 warnings 0, errors 0
 ```
 
@@ -111,7 +111,7 @@ The skips are external-credential live tests: `DeepSeekWebLiveTest`,
 | --- | --- | --- |
 | `:core:ai` | 38 | 289 (3 skipped) |
 | `:core:files` | 8 | 72 |
-| `:app` | 28 | 197 |
+| `:app` | 29 | 211 |
 | `:core:common` | 2 | 16 |
 | `:core:db` | 6 | 22 |
 | `:core:engine` | 2 | 11 (1 skipped) |
@@ -179,6 +179,8 @@ repository root; `…/` stands for `src/main/kotlin/com/inhuman/`.
 | Saved system prompts (the library) | `core/db/…/SavedPromptEntity.kt`, `SavedPromptRepository.kt`, `app/…/ui/agents/AgentsScreen.kt` |
 | Follow-up suggestions (the advice block) | `app/…/ui/chat/Advice.kt`, `ChatViewModel.kt`, `ChatScreen.kt` |
 | The backup reminder | `app/…/ui/backup/BackupReminder.kt`, `MainActivity.kt`, `ui/settings/SettingsScreen.kt` |
+| LaTeX rendering (rewrite + transformer) | `app/…/ui/chat/LatexMarkdown.kt`, `MathImageTransformer.kt` |
+| Third-party licences and font notices | `app/src/main/assets/THIRD-PARTY-NOTICES.md` |
 | The startup fence check; what a failure removes | `core/files/…/WorkspaceSelfCheck.kt`, `app/…/AppCapabilities.kt` |
 | Resuming a turn a process death interrupted | `app/…/ui/chat/InterruptedTurn.kt`, `ChatViewModel.continueInterruptedTurn` |
 | Import/export and name collisions | `core/files/…/WorkspaceTransfer.kt` |

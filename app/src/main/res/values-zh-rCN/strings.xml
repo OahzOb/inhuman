@@ -285,6 +285,8 @@
 	<string name="settings_section_diagnostics">08 / 诊断</string>
 	<string name="settings_diagnostics_title">诊断</string>
 	<string name="settings_diagnostics_summary">本地诊断日志，以及如何分享</string>
+	<string name="settings_third_party_notices">第三方许可</string>
+	<string name="settings_third_party_missing">这个构建里缺少许可文件。</string>
 	<string name="settings_section_local">09 / 本地</string>
 	<string name="settings_local_title">更新与日志</string>
 	<string name="settings_local_summary">在局域网或 Tailscale 内检查更新、上传日志</string>

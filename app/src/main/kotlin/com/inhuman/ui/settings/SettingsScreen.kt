@@ -76,11 +76,13 @@ import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.ProviderKinds
 import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.db.ProviderReasoning
+import androidx.compose.foundation.text.selection.SelectionContainer
 import com.inhuman.core.design.Eyebrow
 import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.SectionHeading
 import com.inhuman.core.design.StatusDot
+import com.inhuman.core.design.WideDialog
 import com.inhuman.core.design.WorkbenchSwitch
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.ui.backup.BACKUP_REMINDER_PERIODS
@@ -139,6 +141,7 @@ fun SettingsScreen(
 	var backupUri by remember { mutableStateOf<Uri?>(null) }
 	var showBackupPassphrase by remember { mutableStateOf(false) }
 	var showUndoConfirm by remember { mutableStateOf(false) }
+	var showNotices by remember { mutableStateOf(false) }
 	var backupPassphrase by remember { mutableStateOf("") }
 	var backupPassphraseConfirm by remember { mutableStateOf("") }
 	var showProviderPicker by remember { mutableStateOf(false) }
@@ -755,6 +758,12 @@ fun SettingsScreen(
 					statusIsError = state.logUploadStatusIsError,
 					onUploadLog = viewModel::uploadLog,
 				)
+				OutlinedButton(
+					onClick = { showNotices = true },
+					shape = MaterialTheme.shapes.small,
+				) {
+					Text(stringResource(R.string.settings_third_party_notices))
+				}
 			}
 
 			SettingsFold(
@@ -1092,6 +1101,33 @@ fun SettingsScreen(
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
 			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
+	}
+
+	if (showNotices) {
+		val notices = remember {
+			runCatching {
+				context.assets.open("THIRD-PARTY-NOTICES.md")
+					.bufferedReader()
+					.use { it.readText() }
+			}.getOrElse { "" }
+		}
+		WideDialog(
+			onDismissRequest = { showNotices = false },
+			title = stringResource(R.string.settings_third_party_notices),
+			dismissLabel = stringResource(R.string.settings_close),
+			// The licence is longer than a screen. 320dp leaves room for the
+			// title, the close row and the system bars on a 640dp phone; a
+			// larger body pushed the only way out of the dialog off the bottom.
+			maxBodyHeight = 320.dp,
+		) {
+			SelectionContainer {
+				Text(
+					text = notices.ifBlank { stringResource(R.string.settings_third_party_missing) },
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+		}
 	}
 
 	if (showProviderPicker) {

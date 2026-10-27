@@ -262,6 +262,23 @@ class DemoProvider(
 		 * a single plain sentence. The fence opens long before it closes, which
 		 * is the state a real reply spends most of its time in.
 		 */
+		/**
+		 * A short maths section for the plain demo answer.
+		 *
+		 * Written as a normal string so `\$` is a literal dollar; a raw string
+		 * would treat `$a` as a Kotlin template. JLaTeXMath renders it offline
+		 * from the AAR's bundled fonts, which is the path the app's LaTeX
+		 * rewrite exists to reach.
+		 */
+		val MATH_SECTION =
+			"\n\n## Maths\n\n" +
+				"Inline: \$a^2 + b^2 = c^2\$ stays in the paragraph, and " +
+				"\$\\frac{1}{2}\$ is a fraction.\n\n" +
+				"Display:\n\n" +
+				"\$\$\\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}\$\$\n\n" +
+				"Both are drawn on the device from bundled fonts; no request is\n" +
+				"made to render them.\n"
+
 		val TEXT_ANSWER = """
 			# Hello
 
@@ -285,7 +302,7 @@ class DemoProvider(
 			```
 
 			Add a DeepSeek key in settings to talk to a real model.
-		""".trimIndent()
+		""".trimIndent() + MATH_SECTION
 
 		const val CALL_PREAMBLE =
 			"Demo mode with tools. Creating a file, then deleting it. Configure a " +

@@ -122,6 +122,9 @@ dependencies {
 	implementation libs.markdown.renderer
 	implementation libs.markdown.renderer.m3
 	implementation libs.markdown.renderer.code
+	// Maths is rendered on-device, offline. The AAR bundles JLaTeXMath and its
+	// fonts; THIRD-PARTY-NOTICES covers the licences and the linking exception.
+	implementation libs.jlatexmath.android
 
 	debugImplementation libs.androidx.compose.ui.tooling
 

@@ -301,6 +301,8 @@
 	<string name="settings_section_diagnostics">08 / Diagnostics</string>
 	<string name="settings_diagnostics_title">Diagnostics</string>
 	<string name="settings_diagnostics_summary">The local flight recorder and how to share it</string>
+	<string name="settings_third_party_notices">Third-party notices</string>
+	<string name="settings_third_party_missing">The notices file is missing from this build.</string>
 	<string name="settings_section_local">09 / Local</string>
 	<string name="settings_local_title">Updates and logs</string>
 	<string name="settings_local_summary">Check for updates and upload a log over LAN or Tailscale</string>

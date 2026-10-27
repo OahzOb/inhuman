@@ -315,39 +315,42 @@ when there is no window (`:87-93`). `TokenFormat` avoids `String.format` on
 purpose — Turkish locale (`:122-124`). That rule is **not** followed at
 `UsageLine.kt:102,114,143-144` and `ChatScreen.kt:1039`.
 
-### `MarkdownText` (`app/src/main/kotlin/com/inhuman/ui/chat/MarkdownText.kt:118-233`)
+### `MarkdownText`
 
 While streaming: `rememberStreamingMarkdownState()` plus a manual
-`for (delta in deltas) streaming.append(delta)` loop, because
+`for (snapshot in deltas) streaming.append(...)` loop, because
 `collectAsStreamingMarkdownState` exists in the artifact but is not visible
-through this module's Kotlin metadata (`:154-161`). The streaming `Markdown`
-call is still **positional** because four overloads defeat named arguments;
-only `components` is named (`:199-205`).
+through this module's Kotlin metadata. The channel carries accumulated
+snapshots, and `DeltaCursor` slices them. The streaming `Markdown` call is still
+**positional** because four overloads defeat named arguments; `components` and
+`imageTransformer` are named.
 
-The flicker fix is `retainState = true` on the non-streaming path (`:224`).
-The switch its doc comment (`:100-106`) describes now happens: when the stream
-ends, `ChatViewModel` updates the reply with `deltas = null` alongside
-`isStreaming = false` (`ChatViewModel.kt:1009-1021`), so the finished reply is
-handed to the plain renderer and `retainState` applies to it too.
+The flicker fix is `retainState = true` on the non-streaming path. The switch to
+the plain path does **not** happen when the stream ends: `ChatViewModel` leaves
+`deltas` non-null, because the plain path parses asynchronously and a blank frame
+was visible at the handover. The finished reply keeps its streaming state until
+the row is rebuilt from the database (reopen, branch switch, reload), which has
+no deltas and takes the plain path once. `isStreaming = false` is still passed so
+the LaTeX rewrite can flush an unfinished formula.
 
 **A rotation mid-stream no longer loses the text received before it.** The delta
 channel is a queue with no replay, and a rebuilt composition starts with an empty
-streaming state — so `MarkdownText` appends the message's `text` through a
-`DeltaCursor` before it starts following the channel (`:165-190`); the cursor
-emits only what the renderer does not already have. Verified by reading the code;
-the cursor's rewind cases have unit tests, but the composition itself has no
-device observation, because this happens inside a stream.
+streaming state — so `MarkdownText` appends the message's text through a
+`DeltaCursor` before it starts following the channel; the cursor emits only what
+the renderer does not already have. The cursor's rewind cases have unit tests, but
+the composition itself has no device observation, because this happens inside a
+stream.
 
 **Table cells wrap rather than truncate.** The renderer's 0.45.0 defaults are
 `maxLines = 1` and `TextOverflow.Ellipsis` for every cell, so with its fixed
 160dp column any cell longer than a few words became "…" — while the table
 itself still scrolled horizontally, and scrolling only helps if there is content
-left to scroll to. `chatMarkdownComponents` (`:37-66`) replaces only the `table`
-component: the header and row blocks pass `maxLines = Int.MAX_VALUE` and
-`Clip`. It also re-supplies the m3 checkbox, because `markdownComponents()`
-would otherwise fall back to the base renderer's. Verified on both AVDs: the
-tablet renders the full two-line cost cell, and the phone scrolls the same
-table horizontally and shows that cell wrapped, not ellipsized.
+left to scroll to. `chatMarkdownComponents` replaces only the `table` component:
+the header and row blocks pass `maxLines = Int.MAX_VALUE` and `Clip`. It also
+re-supplies the m3 checkbox, because `markdownComponents()` would otherwise fall
+back to the base renderer's. Verified on both AVDs: the tablet renders the full
+two-line cost cell, and the phone scrolls the same table horizontally and shows
+that cell wrapped, not ellipsized.
 
 **Malformed Markdown stays readable, and is never silently rewritten.** If a
 finished reply leaves a fence open, `openFence` (`MarkdownFence.kt`) finds the
@@ -362,10 +365,28 @@ writes one opening fence too many and then continues with headings and a table;
 the close must be removed, not moved to EOF. `MarkdownFenceTest` covers the
 paired, unclosed, info-string and longer-close cases.
 
-LaTeX is not implemented yet; it is planned. Mermaid is deliberately out
-(`MarkdownText.kt:110-115`). For LaTeX the licence is not the obstacle
-(JLaTeXMath carries a linking exception); the fonts and the notices file are —
-see the root `README.md` and [13-product.md](13-product.md).
+**LaTeX is rendered on-device, including while the answer streams.**
+`LatexMarkdown` rewrites `$...$` and `$$...$$` into Markdown image links, and
+`MathImageTransformer` draws those links with JLaTeXMath-Android at the formula's
+own size. The renderer already gives an inline image a real inline placeholder in
+a paragraph, which is why this is an image link rather than a second layout path:
+text on either side wraps around the formula, and a formula alone in its
+paragraph becomes a block. A tall inline construct (a fraction, for example) is
+promoted to its own line by the renderer; the sentence order is preserved.
+
+The rewrite must satisfy the append-only streaming parser, so `LatexMarkdown`
+withholds a construct whose closing delimiter has not arrived and `finished`
+flushes it as literal text at the end. Code fences, inline code, `\$` and
+currency-shaped text are left alone. `LatexMarkdownTest` asserts that every
+longer prefix of a corpus extends the previous output, which is the property the
+parser cannot check for itself. The formulas use bundled fonts only: there is no
+network request, and the `.invalid` image host is intercepted before any loader
+could see it. The font licences and the GPLv2 linking exception are in
+`app/src/main/assets/THIRD-PARTY-NOTICES.md` and are readable from Settings →
+Diagnostics → **Third-party notices**.
+
+Mermaid is deliberately out for weight: it needs a JavaScript engine in a
+WebView, and a WebView per diagram destroys scroll performance.
 
 ## The chat screen
 

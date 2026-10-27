@@ -3469,7 +3469,11 @@ private fun MessageBubble(
 								color = MaterialTheme.colorScheme.onSurface,
 							)
 						} else {
-							MarkdownText(text = text, deltas = message.deltas)
+							MarkdownText(
+								text = text,
+								deltas = message.deltas,
+								isStreaming = message.isStreaming,
+							)
 						}
 					}
 				}

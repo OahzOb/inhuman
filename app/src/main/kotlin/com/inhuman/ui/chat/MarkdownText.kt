@@ -3,6 +3,7 @@ package com.inhuman.ui.chat
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -18,6 +19,8 @@ import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.rememberMarkdownState
 import com.mikepenz.markdown.model.rememberStreamingMarkdownState
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Table cells that wrap instead of truncating.
@@ -107,14 +110,17 @@ private val chatMarkdownComponents = markdownComponents(
  *
  * ## Deliberately absent
  *
- * **No LaTeX yet.** It is planned (`docs/13-product.md`), not refused. The
- * renderer's licence is not the obstacle (JLaTeXMath has a linking exception);
- * the fonts are, because some are GPLv2, some OFL and some under the Knuth
- * Licence, and shipping them means maintaining a `THIRD-PARTY-NOTICES` file.
- * Rendering `$x^2$` as literal text is worse than maths, and better than that
- * upkeep while it is unbuilt.
  * **No Mermaid** for weight rather than licence: it needs a JavaScript engine
  * in a WebView, and a WebView per diagram destroys scroll performance.
+ *
+ * ## LaTeX
+ *
+ * [LatexMarkdown] rewrites math into image links and
+ * [rememberMathImageTransformer] draws them with the bundled JLaTeXMath fonts.
+ * The rewrite runs over the accumulated text on both paths, so a formula is
+ * rendered the same way while it streams and after it is stored. An unfinished
+ * formula is withheld rather than shown raw and then replaced; see the doc on
+ * `LatexMarkdown`.
  */
 @Composable
 fun MarkdownText(
@@ -125,6 +131,8 @@ fun MarkdownText(
 	 * complete. Non-null selects the incremental parser.
 	 */
 	deltas: Channel<String>? = null,
+	/** Whether more text can still arrive; flushes an unfinished formula at the end. */
+	isStreaming: Boolean = false,
 ) {
 	val colors = markdownColor(
 		text = MaterialTheme.colorScheme.onSurface,
@@ -150,6 +158,8 @@ fun MarkdownText(
 		quote = MaterialTheme.typography.bodyLarge,
 	)
 
+	val transformer = rememberMathImageTransformer()
+
 	if (deltas != null) {
 		// ## Why the app appends the deltas itself
 		//
@@ -163,8 +173,27 @@ fun MarkdownText(
 		// explicitly rather than a reimplementation.
 		val streaming = rememberStreamingMarkdownState()
 		// Tracks what *this* composition has appended, which is not the same
-		// question as what the reply contains.
+		// question as what the reply contains. It tracks the **rewritten**
+		// Markdown (math as image links), not the raw reply.
 		val appended = remember(deltas) { DeltaCursor() }
+		val finished = remember(deltas) { mutableStateOf(!isStreaming) }
+		val appendLock = remember(deltas) { Mutex() }
+
+		// One lock around "advance the cursor and append". The final flush and
+		// the channel loop are two coroutines; without it, the flush could
+		// append the tail before a snapshot's prefix, and the append-only
+		// renderer would show the tail twice in the wrong order.
+		suspend fun appendRaw(raw: String, atEnd: Boolean) {
+			appendLock.withLock {
+				// A stale snapshot must not be appended after the final text:
+				// its rewrite is only a prefix, and `DeltaCursor` reads a
+				// shorter buffer as a fresh document.
+				if (finished.value && !atEnd) return
+				val rewritten = LatexMarkdown.transform(raw, finished = atEnd)
+				appended.next(rewritten)?.let { streaming.append(it) }
+			}
+		}
+
 		LaunchedEffect(deltas) {
 			// Catch up first, then follow.
 			//
@@ -176,33 +205,42 @@ fun MarkdownText(
 			// configuration change -- starts empty while `text` already holds
 			// everything received so far.
 			//
-			// Appending `text` before the loop closes that gap, and it is safe
-			// in both directions: `DeltaCursor` only ever emits what the
-			// renderer does not already have, so text that has already been
-			// appended produces nothing, and text that has not produces exactly
-			// the missing part. The queued snapshots are reconciled the same
-			// way, so overlapping catch-up does not duplicate a prefix.
-			appended.next(text)?.let { streaming.append(it) }
+			// Appending the rewritten `text` before the loop closes that gap,
+			// and it is safe in both directions: `DeltaCursor` only ever emits
+			// what the renderer does not already have. The queued snapshots are
+			// reconciled the same way.
+			appendRaw(text, atEnd = finished.value)
 
 			// Sequential and lossless: `append` suspends, so the loop cannot
 			// run ahead of the parser. The channel carries accumulated
-			// snapshots, not slices, so a value that arrived before the first
-			// composition is reconciled by `DeltaCursor` instead of being
-			// appended twice.
+			// snapshots, not slices.
 			for (snapshot in deltas) {
-				appended.next(snapshot)?.let { streaming.append(it) }
+				if (finished.value) break
+				appendRaw(snapshot, atEnd = false)
 			}
 		}
+
+		// The stream ending is the only moment the rewrite may flush an
+		// unfinished `$...` as literal text. Setting the flag before taking the
+		// lock is what makes the loop drop any snapshot it has not appended yet.
+		LaunchedEffect(isStreaming) {
+			if (!isStreaming) {
+				finished.value = true
+				appendRaw(text, atEnd = true)
+			}
+		}
+
 		// Positional, not named: the m3 artifact carries four `Markdown`
 		// overloads (String, MarkdownState, State, StreamingMarkdownState) and
 		// the compiler rejected the named form here once already. Only
-		// `components` is named, and the first argument's type selects the
-		// streaming overload.
+		// `components` and `imageTransformer` are named, and the first
+		// argument's type selects the streaming overload.
 		Markdown(
 			streaming,
 			colors,
 			typography,
 			modifier,
+			imageTransformer = transformer,
 			components = chatMarkdownComponents,
 		)
 		return
@@ -223,13 +261,15 @@ fun MarkdownText(
 	//   rememberMarkdownState(content, lookupLinks, retainState, flavour, parser, …)
 	// and everything after `content` defaults to exactly the value that causes
 	// the flicker.
-	val state = rememberMarkdownState(content = text, retainState = true)
+	val painted = remember(text) { LatexMarkdown.transform(text, finished = true) }
+	val state = rememberMarkdownState(content = painted, retainState = true)
 
 	Markdown(
 		markdownState = state,
 		modifier = modifier,
 		colors = colors,
 		typography = typography,
+		imageTransformer = transformer,
 		components = chatMarkdownComponents,
 	)
 }

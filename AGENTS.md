@@ -381,6 +381,17 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   it becomes visible, **Later** snoozes three days, and the export remains the
   user's button. Do not turn this into a background writer without answering the
   passphrase and retention questions in `docs/13-product.md`.
+- **LaTeX is a rewrite into intercepted image links, and the rewrite must be
+  prefix-stable.** `LatexMarkdown` turns `$...$` / `$$...$$` into
+  `https://inhuman.invalid/math/...` image links; `MathImageTransformer` draws
+  them with the bundled JLaTeXMath fonts and returns null for every other URL.
+  The streaming parser is append-only, so an unfinished formula is withheld and
+  only `finished` flushes it literally; every longer snapshot must extend the
+  previous output. Do not remove that property, widen the `.invalid` prefix, or
+  let a real image loader see these links. Code, `\$` and currency are not math.
+  The fonts and the GPLv2 linking exception are in the bundled
+  `THIRD-PARTY-NOTICES.md`; keep that asset and the Settings reader current when
+  the dependency changes.
 - **A failure chunk must be `trySend`-ed *before* `close()`.** A chunk sent
   after the channel closes is dropped and the collector sees a clean end, so
   the failure becomes indistinguishable from "the model said nothing".

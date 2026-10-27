@@ -150,6 +150,10 @@ Confirmed by `README.md:17-29` and by the code:
   days, default 30, or off). It only reminds: the export is still the button in
   Settings, and no background job writes an archive
   ([04-data-persistence.md](04-data-persistence.md)).
+- LaTeX formulas (`$...$` and `$$...$$`) are rendered on the device, inline and
+  as blocks, using bundled fonts. Nothing is downloaded; code and currency are
+  left alone ([06-agent-loop-ui.md](06-agent-loop-ui.md),
+  [THIRD-PARTY-NOTICES](<app/src/main/assets/THIRD-PARTY-NOTICES.md>)).
 - Answers can be retried. **Rewind** is the single restart control. **Answer
   again** keeps the tool **definitions** so the request prefix can still hit the
   context cache, but appends a transient system instruction forbidding a call;
