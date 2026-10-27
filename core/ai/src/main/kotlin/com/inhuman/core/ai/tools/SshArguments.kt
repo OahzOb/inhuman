@@ -171,8 +171,11 @@ object SshArguments {
 			return Parsed.Error("$toolName: provide identityFile or privateKey, not both")
 		}
 		val rawPrivateKey = explicitPrivateKey
-			?: identityFile?.let { null }
-			?: saved?.privateKey?.takeIf { it.isNotEmpty() }
+			?: if (identityFile == null) {
+				saved?.privateKey?.takeIf { it.isNotEmpty() }
+			} else {
+				null
+			}
 
 		val privateKey = when {
 			identityFile != null -> runCatching { readWorkspaceFile(identityFile) }

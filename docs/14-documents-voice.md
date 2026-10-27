@@ -149,9 +149,10 @@ Voice is an **Android-only composer feature**, not a tool:
   and a denied permission means the button explains why, not a silent no-op;
 - press-and-hold to record, release to transcribe; a visible elapsed time and a
   warning before the 120-second cap; cancel discards the file;
-- recording uses the platform encoder (AAC in an MP4 container) at a modest
-  bitrate; the file lives in `cacheDir`, never in the workspace, and is deleted
-  in a `finally` after the transcription attempt, success or failure;
+- recording uses `AudioRecord`: 16 kHz mono PCM wrapped in a WAV container, held
+  **only in memory**. There is no `cacheDir` file, no workspace entry and no
+  transcript copy; `stop()` returns the bytes and the caller drops them after the
+  transcription attempt, success or failure;
 - transcription uses the **existing** per-tool transcription backend and key.
   That backend is paid and already carries the `PAID` disclosure; the composer
   shows the same notice before the first recording. No new network path and no
@@ -170,9 +171,11 @@ a desktop microphone path would be a separate product decision.
 
 - JVM tests for CSV, DOCX/XLSX package round trips, loss reporting, limits and
   format detection; a malformed zip/XML must be a refusal, not a crash.
-- Device tests for PDF text extraction, PDF creation, the legacy DOC/XLS adapter
-  (including a deliberately broken file) and the voice recorder's permission,
-  duration cap and discard path.
+- Device tests for PDF text extraction/creation, the legacy DOC/XLS adapter and
+  the voice recorder's permission, WAV container and 120-second cap. The
+  transcription call itself needs the user's configured paid backend; the
+  emulator verifies the recorder and WAV path, not a real ASR account (external
+  credential, not a completion gap).
 - A conversion test asserts that a dropped feature appears in the report; a test
   that only asserts "conversion returned" is not enough.
 - The full gate (`tools/ci.ps1`) stays at zero warnings; any new dependency is
