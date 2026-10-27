@@ -17,7 +17,7 @@ than implementation; the old feasibility studies are archived under
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
 | `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the per-tool media backends (image/video/speech/transcription/decision)**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)**, and the user-set `SshLimits` ceilings |
-| `docs/04-data-persistence.md` | Room schema v15, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup |
+| `docs/04-data-persistence.md` | Room schema v16, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
@@ -359,6 +359,12 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   import's; the URI is read at once and never retained. Do not widen this into a
   general import channel, and do not give the sending app any path back into the
   workspace.
+- **The saved-prompt library is user configuration, not capability.** It is the
+  `saved_prompts` table, written only by the assistant editor; no tool reads,
+  writes or selects it, and a title is unique so re-saving updates rather than
+  clones. Choosing an entry only fills the assistant's system-prompt field,
+  which remains editable, and the assistant row keeps its own copy. Neither the
+  title nor the text goes to diagnostics.
 - **A failure chunk must be `trySend`-ed *before* `close()`.** A chunk sent
   after the channel closes is dropped and the collector sees a clean end, so
   the failure becomes indistinguishable from "the model said nothing".

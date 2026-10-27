@@ -73,6 +73,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.core.data.db.AgentEntity
+import com.inhuman.core.data.db.SavedPromptEntity
 import com.inhuman.core.design.Eyebrow
 import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.Layout
@@ -199,11 +200,14 @@ fun AgentsScreen(
 			loadingModels = state.loadingModels,
 			modelsError = state.modelsError,
 			sshToolEnabled = state.sshToolEnabled,
+			savedPrompts = state.savedPrompts,
 			effortLevels = { viewModel.effortLevelsFor(it) },
 			onChange = viewModel::updateDraft,
 			onProviderChange = viewModel::selectProvider,
 			onRuleChange = viewModel::setDraftRule,
 			onReloadModels = { viewModel.loadModels(providerId = draft.providerId, force = true) },
+			onSavePrompt = viewModel::savePrompt,
+			onDeletePrompt = viewModel::deletePrompt,
 			onSave = viewModel::save,
 			onDismiss = viewModel::closeEditor,
 		)
@@ -314,11 +318,14 @@ private fun AgentEditor(
 	loadingModels: Boolean,
 	modelsError: String?,
 	sshToolEnabled: Boolean,
+	savedPrompts: List<SavedPromptEntity>,
 	effortLevels: (String?) -> List<String>,
 	onChange: ((AgentDraft) -> AgentDraft) -> Unit,
 	onProviderChange: (String) -> Unit,
 	onRuleChange: (String, ToolPolicy) -> Unit,
 	onReloadModels: () -> Unit,
+	onSavePrompt: (String, String) -> Unit,
+	onDeletePrompt: (String) -> Unit,
 	onSave: () -> Unit,
 	onDismiss: () -> Unit,
 ) {
@@ -343,6 +350,15 @@ private fun AgentEditor(
 	var importError by remember { mutableStateOf<String?>(null) }
 	var importStatus by remember { mutableStateOf<String?>(null) }
 	var pendingImport by remember { mutableStateOf<ImportedPrompt?>(null) }
+
+	// The library is an inline panel rather than another dialog: the editor is
+	// already a dialog, and stacking windows on top of it hides the prompt the
+	// user is choosing for.
+	var showPromptLibrary by rememberSaveable { mutableStateOf(false) }
+	var showSavePrompt by remember { mutableStateOf(false) }
+	var promptTitle by remember { mutableStateOf("") }
+	var promptStatus by remember { mutableStateOf<String?>(null) }
+	var pendingPromptDelete by remember { mutableStateOf<String?>(null) }
 
 	val promptImporter = rememberLauncherForActivityResult(
 		ActivityResultContracts.OpenDocument(),
@@ -430,6 +446,143 @@ private fun AgentEditor(
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
+		}
+
+		Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+			TextButton(
+				onClick = {
+					showPromptLibrary = !showPromptLibrary
+					showSavePrompt = false
+				},
+			) {
+				Text(stringResource(R.string.agents_prompt_library, savedPrompts.size))
+			}
+			TextButton(
+				onClick = {
+					promptTitle = if (draft.name.isBlank()) {
+						context.getString(R.string.agents_prompt_default_title_unnamed)
+					} else {
+						context.getString(R.string.agents_prompt_default_title, draft.name)
+					}
+					showSavePrompt = true
+					showPromptLibrary = false
+					promptStatus = null
+				},
+				enabled = draft.systemPrompt.isNotBlank(),
+			) {
+				Text(stringResource(R.string.agents_prompt_save_current))
+			}
+		}
+		promptStatus?.let {
+			Text(
+				text = it,
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+
+		if (showSavePrompt) {
+			Column {
+				OutlinedTextField(
+					value = promptTitle,
+					onValueChange = { promptTitle = it },
+					label = { Text(stringResource(R.string.agents_prompt_name)) },
+					singleLine = true,
+					modifier = Modifier.fillMaxWidth(),
+				)
+				Text(
+					text = stringResource(R.string.agents_prompt_update_note),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					horizontalArrangement = Arrangement.End,
+				) {
+					TextButton(onClick = { showSavePrompt = false }) {
+						Text(stringResource(R.string.common_cancel))
+					}
+					TextButton(
+						enabled = promptTitle.isNotBlank() && draft.systemPrompt.isNotBlank(),
+						onClick = {
+							onSavePrompt(promptTitle, draft.systemPrompt)
+							promptStatus = context.getString(R.string.agents_prompt_saved)
+							showSavePrompt = false
+						},
+					) {
+						Text(stringResource(R.string.agents_prompt_store))
+					}
+				}
+			}
+		}
+
+		if (showPromptLibrary) {
+			HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+			Text(
+				text = stringResource(R.string.agents_prompt_library_note),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			if (savedPrompts.isEmpty()) {
+				Text(
+					text = stringResource(R.string.agents_prompt_empty),
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			} else {
+				savedPrompts.forEach { prompt ->
+					Row(
+						modifier = Modifier.fillMaxWidth(),
+						verticalAlignment = Alignment.CenterVertically,
+					) {
+						Column(modifier = Modifier.weight(1f)) {
+							Text(
+								text = prompt.title,
+								style = MaterialTheme.typography.bodyLarge,
+								maxLines = 1,
+								overflow = TextOverflow.Ellipsis,
+							)
+							Text(
+								text = prompt.text.take(160).replace('\n', ' '),
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+								maxLines = 2,
+								overflow = TextOverflow.Ellipsis,
+							)
+						}
+						TextButton(
+							onClick = {
+								onChange { it.copy(systemPrompt = prompt.text) }
+								promptStatus = context.getString(R.string.agents_prompt_loaded)
+								showPromptLibrary = false
+							},
+						) {
+							Text(stringResource(R.string.agents_prompt_use))
+						}
+						TextButton(
+							onClick = {
+								if (pendingPromptDelete == prompt.id) {
+									onDeletePrompt(prompt.id)
+									pendingPromptDelete = null
+								} else {
+									pendingPromptDelete = prompt.id
+								}
+							},
+						) {
+							Text(
+								text = stringResource(
+									if (pendingPromptDelete == prompt.id) {
+										R.string.agents_prompt_confirm_delete
+									} else {
+										R.string.common_delete
+									},
+								),
+								color = MaterialTheme.colorScheme.error,
+							)
+						}
+					}
+				}
+			}
 		}
 		if (!draft.canSave) {
 			// The Save button is disabled by validation a few sections below;

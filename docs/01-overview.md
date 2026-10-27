@@ -138,6 +138,10 @@ Confirmed by `README.md:17-29` and by the code:
   chat is the destination; otherwise a conversation picker appears. The item is
   copied immediately through the same transfer limits, with no import screen
   ([05-files-sandbox.md](05-files-sandbox.md)).
+- System prompts can be saved to a library and chosen while editing an
+  assistant. The library is text the user wrote for assistants, not context:
+  no tool reads or writes it, and choosing an entry only fills the prompt box,
+  which stays editable ([04-data-persistence.md](04-data-persistence.md)).
 - Answers can be retried. **Rewind** is the single restart control. **Answer
   again** keeps the tool **definitions** so the request prefix can still hit the
   context cache, but appends a transient system instruction forbidding a call;

@@ -10,6 +10,7 @@ import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.Database
+import com.inhuman.core.data.db.SavedPromptEntity
 import com.inhuman.core.data.db.ToolsColumn
 import com.inhuman.core.data.secret.SecureStore
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +29,8 @@ data class AgentsUiState(
 	/** Whether ssh_exec is currently part of the user-visible tool set. */
 	val sshToolEnabled: Boolean = false,
 	val editing: AgentDraft? = null,
+	/** The user's saved system prompts, newest first. */
+	val savedPrompts: List<SavedPromptEntity> = emptyList(),
 )
 
 /**
@@ -114,6 +117,30 @@ class AgentsViewModel(
 		}
 	}
 
+	/**
+	 * Save the editor's current prompt under a title.
+	 *
+	 * The same title updates its row rather than creating a near-duplicate; the
+	 * repository owns that decision. Neither the title nor the text is logged:
+	 * diagnostics deliberately do not record prompt content, and a title can
+	 * reveal as much as the body.
+	 */
+	fun savePrompt(title: String, text: String) {
+		viewModelScope.launch {
+			runCatching { conversations.savedPrompts().save(title, text) }
+				.onSuccess { id -> if (id != null) Diag.i("prompt", "saved chars=${text.length}") }
+				.onFailure { Diag.w("prompt", "save failed", it) }
+		}
+	}
+
+	fun deletePrompt(id: String) {
+		viewModelScope.launch {
+			runCatching { conversations.savedPrompts().delete(id) }
+				.onSuccess { Diag.i("prompt", "deleted") }
+				.onFailure { Diag.w("prompt", "delete failed", it) }
+		}
+	}
+
 	init {
 		refreshSshTool()
 		viewModelScope.launch {
@@ -124,6 +151,11 @@ class AgentsViewModel(
 		viewModelScope.launch {
 			repository.observeProviders().collect { list ->
 				_state.update { it.copy(providers = list) }
+			}
+		}
+		viewModelScope.launch {
+			conversations.savedPrompts().observeAll().collect { list ->
+				_state.update { it.copy(savedPrompts = list) }
 			}
 		}
 		loadModels(

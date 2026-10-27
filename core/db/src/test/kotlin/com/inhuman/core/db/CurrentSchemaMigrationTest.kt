@@ -52,6 +52,8 @@ class CurrentSchemaMigrationTest {
 			// v15 added the approval audit; this both proves the table exists
 			// and that an upgraded install starts with no rows.
 			assertTrue(db.approvals().count("none") == 0)
+			// v16 added the saved-prompt library; an upgraded install has none.
+			assertTrue(db.savedPrompts().all().isEmpty())
 		} finally {
 			db.close()
 		}

@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Opens the current schema (v15) on the JVM.
+ * Opens the current schema (v16) on the JVM.
  *
  * The schema, entities and DAOs live in this module now; both `:core:data` and
  * `:desktopApp` depend on it. The test is the JVM counterpart of the Android
@@ -17,13 +17,14 @@ import org.junit.Test
 class CurrentSchemaTest {
 
 	@Test
-	fun `current v15 schema opens and queries on the JVM`() = runBlocking {
+	fun `current v16 schema opens and queries on the JVM`() = runBlocking {
 		val db = Room.inMemoryDatabaseBuilder<InhumanDatabase>()
 			.setDriver(BundledSQLiteDriver())
 			.build()
 		try {
 			assertTrue(db.workspaces().all().isEmpty())
 			assertTrue(db.approvals().count("none") == 0)
+			assertTrue(db.savedPrompts().all().isEmpty())
 		} finally {
 			db.close()
 		}

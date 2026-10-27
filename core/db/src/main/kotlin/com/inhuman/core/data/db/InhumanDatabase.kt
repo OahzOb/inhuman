@@ -525,6 +525,32 @@ interface ApprovalAuditDao {
 	suspend fun count(conversationId: String): Int
 }
 
+/**
+ * The saved-prompt library.
+ *
+ * Newest first, with `id` as the tie-break for two saves in the same
+ * millisecond. The unique title index is what makes "save with this title
+ * again" an update rather than a second row.
+ */
+@Dao
+interface SavedPromptDao {
+
+	@Query("SELECT * FROM saved_prompts ORDER BY updatedAt DESC, id ASC")
+	fun observeAll(): Flow<List<SavedPromptEntity>>
+
+	@Query("SELECT * FROM saved_prompts ORDER BY updatedAt DESC, id ASC")
+	suspend fun all(): List<SavedPromptEntity>
+
+	@Query("SELECT * FROM saved_prompts WHERE title = :title LIMIT 1")
+	suspend fun byTitle(title: String): SavedPromptEntity?
+
+	@Insert(onConflict = OnConflictStrategy.REPLACE)
+	suspend fun upsert(row: SavedPromptEntity)
+
+	@Query("DELETE FROM saved_prompts WHERE id = :id")
+	suspend fun delete(id: String)
+}
+
 @Database(
 	entities = [
 		ProviderProfileEntity::class,
@@ -537,14 +563,16 @@ interface ApprovalAuditDao {
 		AgentApprovalEntity::class,
 		PathPolicyEntity::class,
 		ApprovalAuditEntity::class,
+		SavedPromptEntity::class,
 	],
 	// Bumped when columns were added for tool calls, again for measured
-	// latency, again for assistants, again for the approval rules, and again for
-	// the approval audit. Room refuses to open a database whose schema hash does
-	// not match rather than guessing, which is how each was caught: the app
-	// crashed on launch with "Looks like you've changed schema but forgot to
-	// update the version number" instead of quietly losing conversations.
-	version = 15,
+	// latency, again for assistants, again for the approval rules, again for
+	// the approval audit, and again for the saved-prompt library. Room refuses
+	// to open a database whose schema hash does not match rather than guessing,
+	// which is how each was caught: the app crashed on launch with "Looks like
+	// you've changed schema but forgot to update the version number" instead of
+	// quietly losing conversations.
+	version = 16,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -556,12 +584,13 @@ abstract class InhumanDatabase : RoomDatabase() {
 	abstract fun agents(): AgentDao
 	abstract fun policies(): PolicyDao
 	abstract fun approvals(): ApprovalAuditDao
+	abstract fun savedPrompts(): SavedPromptDao
 
 	companion object {
 		const val NAME = "inhuman.db"
 
 		/** Mirrors the Room annotation; backups record it without reflection. */
-		const val VERSION = 15
+		const val VERSION = 16
 
 		/**
 		 * 1 -> 2: tool-call columns.
@@ -933,6 +962,33 @@ abstract class InhumanDatabase : RoomDatabase() {
 		}
 
 		/**
+		 * 15 -> 16: the saved-prompt library.
+		 *
+		 * Additive and empty. No existing row is interpreted, and an install
+		 * that never saves a prompt keeps a table nobody reads.
+		 */
+		val MIGRATION_15_16 = object : Migration(15, 16) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"""
+					CREATE TABLE IF NOT EXISTS saved_prompts (
+						id TEXT NOT NULL,
+						title TEXT NOT NULL,
+						text TEXT NOT NULL,
+						createdAt INTEGER NOT NULL,
+						updatedAt INTEGER NOT NULL,
+						PRIMARY KEY(id)
+					)
+					""".trimIndent(),
+				)
+				connection.execSQL(
+					"CREATE UNIQUE INDEX IF NOT EXISTS index_saved_prompts_title " +
+						"ON saved_prompts (title)",
+				)
+			}
+		}
+
+		/**
 		 * Every migration, in order.
 		 *
 		 * A host that builds the database itself must not copy this list. The
@@ -956,6 +1012,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 			MIGRATION_12_13,
 			MIGRATION_13_14,
 			MIGRATION_14_15,
+			MIGRATION_15_16,
 		)
 
 		/**

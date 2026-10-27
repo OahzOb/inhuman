@@ -347,6 +347,17 @@ class ConversationRepository(
 
 	private val approvalRepository by lazy { ApprovalAuditRepository(db) }
 
+	/**
+	 * The saved system prompts.
+	 *
+	 * Reached through this repository for the same reason as the others: one
+	 * Room instance per process. The library is global -- a prompt is not tied
+	 * to a conversation -- but the host still opens one database.
+	 */
+	fun savedPrompts(): SavedPromptRepository = savedPromptRepository
+
+	private val savedPromptRepository by lazy { SavedPromptRepository(db) }
+
 	suspend fun rename(id: String, title: String) {
 		val now = System.currentTimeMillis()
 		db.conversations().rename(id, title, now)
