@@ -126,11 +126,11 @@ MSI 是 per-user 的，自带 Java runtime。2026-10 验收时安装出的
 最终全量测试：
 
 ```
-597 tests / 91 suites / 0 failures / 4 skipped
+737 tests / 109 suites / 0 failures / 4 skipped
 warnings 0, errors 0
 ```
 
-其中桌面端 `13 suites / 37 tests`。4 个 skip 都是需要外部凭据的 live 测试：
+其中桌面端 `14 suites / 39 tests`。4 个 skip 都是需要外部凭据的 live 测试：
 
 - `DeepSeekWebLiveTest`：真实付费 Search/Fetch；
 - `EngineLiveTest`：真实 chat completion；
