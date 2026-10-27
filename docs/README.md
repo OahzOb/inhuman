@@ -38,6 +38,7 @@ not; `AGENTS.md` states the non-negotiable working rules. These files explain
 | [11-conversation-tools.md](11-conversation-tools.md) | Conversation-level tool sheet: assistant ceiling, next-turn timing, why it is not a new SSH exception |
 | [12-desktop.md](12-desktop.md) | **Windows x64 host**: architecture, feature map, security invariants, build/package/sign commands, verification and known limitations |
 | [13-product.md](13-product.md) | **Product document, deliberately technology-neutral**: design principles, current features and future plans |
+| [14-documents-voice.md](14-documents-voice.md) | Documents/voice decision: format matrix, libraries, loss reporting, limits, tools, Android-only voice, rejected alternatives |
 
 `07-gotchas.md` is the one to read when you are about to change something and do
 not have time to read the rest. Everything in it was a real bug.
@@ -96,7 +97,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 Latest run (2026-10-27, through `tools/ci.ps1`):
 
 ```
-BUILD SUCCESSFUL, 706 tests in 104 suites, 0 failures, 4 skipped
+BUILD SUCCESSFUL, 707 tests in 104 suites, 0 failures, 4 skipped
 warnings 0, errors 0
 ```
 
@@ -109,7 +110,7 @@ The skips are external-credential live tests: `DeepSeekWebLiveTest`,
 
 | Module | Suites | Tests |
 | --- | --- | --- |
-| `:core:ai` | 40 | 312 (3 skipped) |
+| `:core:ai` | 40 | 313 (3 skipped) |
 | `:core:files` | 8 | 72 |
 | `:app` | 29 | 211 |
 | `:core:common` | 2 | 16 |

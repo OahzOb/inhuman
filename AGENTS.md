@@ -27,6 +27,7 @@ than implementation; the old feasibility studies are archived under
 | `docs/11-conversation-tools.md` | The conversation-level tool sheet: who may change it, the assistant ceiling, when it applies, and why it is not a new SSH exception |
 | `docs/12-desktop.md` | **Windows x64 host**: architecture, feature map, security invariants, build/package/sign commands, verification and known limitations |
 | `docs/13-product.md` | **Technology-neutral product document**: design principles, current features, future plans |
+| `docs/14-documents-voice.md` | The documents/voice decision: format matrix and libraries, the neutral model and loss report, read/write limits, the three tools, Android-only voice |
 | `docs/archive/` | Historical feasibility/design studies; not current documentation |
 
 `docs/07-gotchas.md` is the one to read before changing anything in a hurry.
