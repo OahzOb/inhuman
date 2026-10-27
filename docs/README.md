@@ -93,12 +93,16 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :desktopApp:test --console=plain --rerun-tasks
 ```
 
-Latest run (2026-10-26):
+Latest run (2026-10-27, through `tools/ci.ps1`):
 
 ```
 BUILD SUCCESSFUL, 597 tests in 91 suites, 0 failures, 4 skipped
 warnings 0, errors 0
 ```
+
+`tools/ci.ps1` runs this list (plus `setup-machine.ps1`) and fails on any
+compiler warning, so a CI host has one command to call instead of a copied
+argument list.
 
 The skips are external-credential live tests: `DeepSeekWebLiveTest`,
 `EngineLiveTest`, `SshLiveProbeTest` and `QwenTokenPlanLiveTest`. Suite by suite:

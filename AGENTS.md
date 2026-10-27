@@ -450,7 +450,9 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
 ```
 
 `--rerun-tasks` matters: with the build cache warm, a plain run can report
-`BUILD SUCCESSFUL` without compiling the file you just changed. Check that the
+`BUILD SUCCESSFUL` without compiling the file you just changed. `tools/ci.ps1`
+runs exactly this list and fails on the first compiler warning; a CI host should
+call that script rather than duplicate the arguments. Check that the
 warning output is empty as well as the error output — this tree currently
 compiles clean, and that is worth keeping. `:core:common`, `:core:ai`,
 `:core:files`, `:core:db` and `:core:engine` are plain JVM modules now;
