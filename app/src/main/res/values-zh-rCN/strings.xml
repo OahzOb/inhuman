@@ -643,6 +643,9 @@
 	<string name="chat_allow_title">允许这个操作？</string>
 	<string name="chat_allow">允许</string>
 	<string name="chat_decline">拒绝</string>
+	<string name="chat_continue_title">上一回合被中断</string>
+	<string name="chat_continue_body">从最后一个已保存的步骤继续；当时还在流式生成、尚未保存的文字不会出现。</string>
+	<string name="chat_continue">继续</string>
 	<string name="chat_allow_rule">触发规则：%1$s</string>
 	<string name="chat_allow_timeout">若 %1$d 分钟内无人回答，这次调用不会执行。</string>
 	<string name="approval_rule_global">全局设置</string>

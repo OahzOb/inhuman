@@ -114,6 +114,30 @@ chip `Failed`, `stopTurn = false`). A user refusal is a capability answer
 two used to be one event with different text, which made a call the user stopped
 look like one that ran and broke.
 
+### Resuming an interrupted turn
+
+The turn is persisted at round boundaries, so a process death leaves the active
+branch ending at one of three shapes: a user message (no round saved yet), a
+tool result (a round ran, the next did not), or an assistant row whose
+`tool_calls` have no results. `isInterruptedTurn` (`InterruptedTurn.kt`, tested
+by `InterruptedTurnTest`) recognises exactly those tails. An assistant row with
+`error` is deliberately excluded: a provider failure or a user stop already has
+Retry, and Continue would be a second retry path with different tool semantics.
+
+The banner above the composer calls `continueInterruptedTurn`. It adds **no user
+message**; it builds the wire history from the transcript, appends a transient
+`CONTINUE_INSTRUCTION` system message (not stored), and runs the normal engine
+turn. The new assistant row is a child of the tail, so the branch model is
+unchanged; `closeDanglingCalls` and the reload-time `[interrupted]` repair make
+the request valid.
+
+What resumes is the last *saved* step. Text still streaming when the process died
+was never written -- persistence is per round, not per token -- and the banner
+says so rather than implying a seamless continuation. The original start
+checkpoint is reused when it exists (`turnSnapshotReady` is set from
+`hasStartCheckpoint`), so Rewind still goes back to before the user's message
+instead of treating the resume point as the beginning of the turn.
+
 ### The approval plumbing
 
 One `CancellableContinuation<Boolean>` field, set by `awaitApproval()`.

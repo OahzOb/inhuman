@@ -121,6 +121,11 @@ Confirmed by `README.md:17-29` and by the code:
   workspace-bound tool (files, media, SSH) from the request and the pickers and
   says so in the chat; the user's own Files access is unaffected
   ([05-files-sandbox.md](05-files-sandbox.md)).
+- A turn cut off by a process death can be resumed from the last saved step: the
+  chat offers **Continue** when the branch ends at a user message, a tool result
+  or an unfinished tool call, adds no second user message, and reuses the
+  original start checkpoint. Text that was still streaming at the kill was never
+  persisted and does not come back ([06-agent-loop-ui.md](06-agent-loop-ui.md)).
 - Answers can be retried. **Rewind** is the single restart control. **Answer
   again** keeps the tool **definitions** so the request prefix can still hit the
   context cache, but appends a transient system instruction forbidding a call;

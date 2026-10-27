@@ -665,6 +665,9 @@
 	<string name="chat_allow_title">Allow this action?</string>
 	<string name="chat_allow">Allow</string>
 	<string name="chat_decline">Decline</string>
+	<string name="chat_continue_title">The previous turn was interrupted</string>
+	<string name="chat_continue_body">Continue from the last saved step. Text that was still streaming was not saved.</string>
+	<string name="chat_continue">Continue</string>
 	<string name="chat_allow_rule">Rule: %1$s</string>
 	<string name="chat_allow_timeout">If unanswered for %1$d minutes, this call will not run.</string>
 	<string name="approval_rule_global">global setting</string>

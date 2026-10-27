@@ -1581,6 +1581,68 @@ class ChatViewModel(
 		compact(keepTurns = 2, retryAfter = true)
 	}
 
+	/**
+	 * Resume a turn that a process death left unfinished.
+	 *
+	 * No user message is added: the transcript already ends where the turn
+	 * stopped, and the model is asked to continue from it. That is the
+	 * difference between this and [retryLastTurn] -- Retry replaces an answer
+	 * that exists, Continue asks for the next step when none does.
+	 *
+	 * ## What is resumed, and what is not
+	 *
+	 * Every completed model round and tool result is already in the database,
+	 * so those are resumed. The text of a round that was still streaming when
+	 * the process died was never written -- the host persists at round
+	 * boundaries, not per token -- so it is gone; the banner and docs say so
+	 * rather than pretending otherwise. A dangling tool call was repaired with
+	 * an `[interrupted]` result during [reload], and the model sees that.
+	 *
+	 * ## The checkpoint is the original one
+	 *
+	 * The start checkpoint belongs to the user message, not to where the resume
+	 * began. If it still exists, [turnSnapshotReady] is set so the gate does
+	 * not capture the post-interruption workspace over it; rollback must go
+	 * back to before the user's message. A missing checkpoint is left to the
+	 * normal capture-before-first-mutation rule.
+	 */
+	fun continueInterruptedTurn() {
+		if (_state.value.isStreaming || _state.value.isCompacting) return
+		if (_state.value.pendingApproval != null || _state.value.pendingSshConsent != null) return
+		if (!isInterruptedTurn(_state.value.messages, _state.value.isStreaming)) return
+		val anchor = _state.value.messages.lastOrNull { it.fromUser } ?: return
+
+		val demo = demoEnabled()
+		if (!demo && !agents.hasKey(providerId)) {
+			_state.update {
+				it.copy(error = context.getString(R.string.chat_error_add_key_demo, providerName))
+			}
+			return
+		}
+
+		Diag.i(
+			"turn",
+			"continue conv=${Diag.shortId(conversationId)} anchor=${Diag.shortId(anchor.id)}",
+		)
+		userStopped = false
+		_state.update { it.copy(isStreaming = true, error = null) }
+		streamJob = viewModelScope.launch {
+			turnAnchorId = anchor.id
+			turnSnapshotReady = runCatching {
+				repository.hasStartCheckpoint(conversationId, anchor.id)
+			}.getOrElse { failure ->
+				Diag.w("rollback", "could not read the start checkpoint", failure)
+				false
+			}
+			turnIrreversible = _state.value.messages
+				.dropWhile { it.id != anchor.id }
+				.any { it.hasIrreversibleCall() }
+			runTurn(demo = demo, continuation = true)
+			recordChangedFiles()
+			refreshTurnMeta()
+		}
+	}
+
 	/** Return to sending the full transcript. */
 	fun clearCompaction() {
 		if (_state.value.isStreaming || _state.value.isCompacting) return
@@ -2759,6 +2821,7 @@ class ChatViewModel(
 		demo: Boolean,
 		includeTools: Boolean = true,
 		suppressToolCalls: Boolean = false,
+		continuation: Boolean = false,
 	) {
 		val provider: ChatProvider? =
 			if (demo) {
@@ -2790,7 +2853,7 @@ class ChatViewModel(
 			}
 			return
 		}
-		runTurnWithEngine(provider, turnModel, demo, includeTools, suppressToolCalls)
+		runTurnWithEngine(provider, turnModel, demo, includeTools, suppressToolCalls, continuation)
 	}
 
 	/**
@@ -2806,6 +2869,7 @@ class ChatViewModel(
 		demo: Boolean,
 		includeTools: Boolean,
 		suppressToolCalls: Boolean,
+		continuation: Boolean,
 	) {
 		val policies = loadPolicies()
 		// A text-only retry keeps the tool definitions on a real provider so
@@ -2827,11 +2891,12 @@ class ChatViewModel(
 		// model answer the previous turn. The phone transcript showed exactly
 		// that: "帮我搜搜今天的新闻" received the answer to "你好".
 		val history = buildWireHistory(includeCurrent = true).let { base ->
-			if (suppressToolCalls) {
+			val retried = if (suppressToolCalls) {
 				base + ChatMessage(Role.System, NO_TOOL_RETRY_INSTRUCTION)
 			} else {
 				base
 			}
+			if (continuation) retried + ChatMessage(Role.System, CONTINUE_INSTRUCTION) else retried
 		}
 
 		var currentId: String? = null
@@ -4491,6 +4556,20 @@ class ChatViewModel(
 		 */
 		const val NO_TOOL_RETRY_INSTRUCTION =
 			"Answer the last user message in prose only. Do not call any tool in this reply."
+
+		/**
+		 * Appended only to a resumed turn, not stored.
+		 *
+		 * The transcript already ends where the process died. The instruction
+		 * names the two things the model cannot infer from the text alone: that
+		 * finished work is finished, and that an `[interrupted]` result means
+		 * the call did not happen rather than that it failed.
+		 */
+		const val CONTINUE_INSTRUCTION =
+			"The previous turn was interrupted by the app or the device. Continue the task " +
+				"from the transcript. Do not repeat text or tool calls that already completed. " +
+				"A tool result beginning with [interrupted] means that call did not run; decide " +
+				"whether it should be called again."
 
 		/**
 		 * How often a streaming reply is copied into the visible state.

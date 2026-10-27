@@ -96,7 +96,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 Latest run (2026-10-27, through `tools/ci.ps1`):
 
 ```
-BUILD SUCCESSFUL, 616 tests in 93 suites, 0 failures, 4 skipped
+BUILD SUCCESSFUL, 626 tests in 94 suites, 0 failures, 4 skipped
 warnings 0, errors 0
 ```
 
@@ -111,7 +111,7 @@ The skips are external-credential live tests: `DeepSeekWebLiveTest`,
 | --- | --- | --- |
 | `:core:ai` | 38 | 288 (3 skipped) |
 | `:core:files` | 7 | 68 |
-| `:app` | 23 | 161 |
+| `:app` | 24 | 171 |
 | `:core:common` | 2 | 16 |
 | `:core:db` | 5 | 17 |
 | `:core:engine` | 2 | 10 (1 skipped) |
@@ -175,6 +175,7 @@ repository root; `…/` stands for `src/main/kotlin/com/inhuman/`.
 | Quotas and guarded reads/writes/lists | `core/files/…/WorkspaceTool.kt`, `WorkspaceLimits.kt` |
 | A path becoming a `File`; confinement | `core/files/…/SessionWorkspace.kt` |
 | The startup fence check; what a failure removes | `core/files/…/WorkspaceSelfCheck.kt`, `app/…/AppCapabilities.kt` |
+| Resuming a turn a process death interrupted | `app/…/ui/chat/InterruptedTurn.kt`, `ChatViewModel.continueInterruptedTurn` |
 | Import/export and name collisions | `core/files/…/WorkspaceTransfer.kt` |
 | HTTP, SSE, decoder, model list, request shape | `core/ai/…/provider/deepseek/` |
 | Provider profiles, model cache, key slots | `core/db/…/AgentRepository.kt`, `app/…/ui/chat/SettingsViewModel.kt` |

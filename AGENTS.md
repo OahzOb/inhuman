@@ -363,6 +363,15 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   deliberately not a foreign key: rewinding a turn must not erase the record
   that its call was asked about. Deleting the conversation is the retention
   boundary.
+- **Continue resumes the transcript; it does not add a user message or
+  overwrite the turn's start checkpoint.** `continueInterruptedTurn` is offered
+  only when `isInterruptedTurn` sees a tail with no finished answer -- a user
+  message, a tool result, or an assistant row with unexecuted calls -- and not
+  when the last assistant row carries an error (that tail belongs to Retry).
+  The transient `CONTINUE_INSTRUCTION` is never stored. `turnSnapshotReady` is
+  taken from `hasStartCheckpoint` for the original user message, so the gate
+  must not capture the post-interruption workspace over it. Persistence is per
+  round: text still streaming at a kill is gone, and the banner says so.
 - **The final-answer retry keeps tools but suppresses calls.** The **Answer
   again** choice in Rewind rewrites final text from existing results; keeping the
   definitions preserves the cache prefix, while a transient system instruction

@@ -1082,6 +1082,12 @@ fun ChatScreen(
 			// invalidates the list rather than the whole screen. See the note
 			// above the state reads.
 			val messages by fieldOf(viewModel.state, emptyList()) { it.messages }
+			// A turn whose last saved message is not a finished answer can be
+			// resumed. Computed from the same list the transcript draws, so the
+			// banner cannot appear over a turn that is already complete.
+			val interrupted = remember(messages, isStreaming) {
+				isInterruptedTurn(messages, isStreaming)
+			}
 			// Turn boundaries and their summed usage. Computed from the same
 			// list the transcript renders, so a footer cannot describe a turn
 			// that is no longer on the active path.
@@ -1532,6 +1538,16 @@ fun ChatScreen(
 				// composer and the keyboard left no transcript on a 731dp-tall
 				// phone; the matches were searchable and invisible.
 				if (!searchOpen) {
+					if (interrupted && configured) {
+						ContinueTurnBanner(
+							onContinue = {
+								// Resuming is a request to see the new part, like
+								// sending; re-arm following before it is laid out.
+								followLatest = true
+								viewModel.continueInterruptedTurn()
+							},
+						)
+					}
 					Composer(
 					value = input,
 					onValueChange = viewModel::onInputChange,
@@ -3666,6 +3682,42 @@ private fun changeMark(kind: WorkspaceChange.Kind): String = when (kind) {
 	WorkspaceChange.Kind.Added -> "+"
 	WorkspaceChange.Kind.Modified -> "~"
 	WorkspaceChange.Kind.Deleted -> "-"
+}
+
+/**
+ * The resume control for a turn a process death left unfinished.
+ *
+ * Above the composer rather than in the transcript: the action is about the
+ * next model call, and a message at the bottom of a long scroll is exactly
+ * where the user is not looking. The wording states the boundary -- the last
+ * saved step resumes, a half-streamed sentence does not -- because a button
+ * that implied more would be a promise the storage cannot keep.
+ */
+@Composable
+private fun ContinueTurnBanner(onContinue: () -> Unit) {
+	Row(
+		modifier = Modifier
+			.fillMaxWidth()
+			.padding(horizontal = comfortableGutter(), vertical = 4.dp),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
+	) {
+		Column(modifier = Modifier.weight(1f)) {
+			Text(
+				text = stringResource(R.string.chat_continue_title),
+				style = MaterialTheme.typography.titleSmall,
+				color = MaterialTheme.colorScheme.onSurface,
+			)
+			Text(
+				text = stringResource(R.string.chat_continue_body),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+		TextButton(onClick = onContinue) {
+			Text(stringResource(R.string.chat_continue))
+		}
+	}
 }
 
 @Composable
