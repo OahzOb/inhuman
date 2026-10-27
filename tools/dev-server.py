@@ -19,10 +19,34 @@ import argparse
 import datetime
 import shutil
 import socket
+import sys
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 MAX_LOG_BYTES = 8 * 1024 * 1024
+
+
+class UpdateLogServer(ThreadingHTTPServer):
+    """A client that hangs up is not a fault in this script.
+
+    `socketserver` prints a full traceback for every handler exception. A
+    cancelled update check, a browser preconnect, a Tailscale path change or
+    an app killed between connect and request makes `rfile.readline` raise
+    ConnectionResetError, and a cancelled APK download raises BrokenPipeError
+    out of `copyfile`. Those read like server faults and bury the one-line
+    access log; the address and exception class are enough to keep them
+    visible.
+    """
+
+    def handle_error(self, request, client_address) -> None:
+        failure = sys.exc_info()[1]
+        if isinstance(failure, ConnectionError):
+            print(
+                f"{client_address[0]} client disconnected ({type(failure).__name__})",
+                flush=True,
+            )
+            return
+        super().handle_error(request, client_address)
 
 
 def local_ipv4_addresses() -> list[str]:
@@ -106,7 +130,7 @@ def main() -> int:
     dist.mkdir(parents=True, exist_ok=True)
     logs.mkdir(parents=True, exist_ok=True)
 
-    server = ThreadingHTTPServer(("0.0.0.0", args.port), make_handler(dist, logs))
+    server = UpdateLogServer(("0.0.0.0", args.port), make_handler(dist, logs))
     print(f"serving {dist}", flush=True)
     print(f"logs    {logs}", flush=True)
     for ip in local_ipv4_addresses():
