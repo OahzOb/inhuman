@@ -594,13 +594,14 @@ which this setup does not use.
   gates the former behind justifications a chat app cannot honestly make. The
   user reaches a conversation's directory through the app's own `DocumentsProvider`
   and its import/export, which needs no such permission.
-- **Document formats are mostly implemented.** CSV/TXT, DOCX, XLSX, PDF and XLS
-  can be read, created, modified and converted by workspace-bound tools; DOC can
-  be read but not created (Word 97 needs a template, and a fake `.doc` is not an
-  option). DOCX/XLSX preserve package parts the app does not understand and every
-  conversion reports what it could not carry. Android voice input is implemented:
-  hold the microphone, release to transcribe into the composer, never auto-send.
-  The decision is [docs/14-documents-voice.md](docs/14-documents-voice.md).
+- **The first batch of document formats is implemented.** CSV/TXT, DOCX, XLSX,
+  PDF, DOC and XLS can be read, created, modified and converted by
+  workspace-bound tools. DOC is written into a bundled empty Word 97 template
+  (tables and formatting are flattened and reported); DOCX/XLSX preserve package
+  parts the app does not understand, and every conversion reports what it could
+  not carry. Android voice input is implemented: hold the microphone, release to
+  transcribe into the composer, never auto-send. The decision is
+  [docs/14-documents-voice.md](docs/14-documents-voice.md).
 - **Native Anthropic, Gemini and OpenAI Responses adapters exist for text,
   images, tool calls and usage.** Anthropic's signed thinking block and Gemini's
   per-call `thoughtSignature` are persisted and replayed; an unsigned old history

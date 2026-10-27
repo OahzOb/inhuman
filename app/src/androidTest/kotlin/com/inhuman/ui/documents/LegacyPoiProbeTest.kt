@@ -1,6 +1,7 @@
 package com.inhuman.ui.documents
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.inhuman.core.documents.Block
 import com.inhuman.core.documents.Cell
 import com.inhuman.core.documents.Sheet
@@ -40,9 +41,11 @@ class LegacyPoiProbeTest {
 		}
 	}
 
+	private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
+
 	@Test
 	fun theLegacyAdapterReadsAndWritesXls() {
-		val backend = PoiLegacyBackend()
+		val backend = PoiLegacyBackend(context)
 		val bytes = backend.writeXls(
 			listOf(
 				Sheet(
@@ -63,10 +66,15 @@ class LegacyPoiProbeTest {
 	}
 
 	@Test
-	fun docWritingIsARefusalUntilATemplateExists() {
-		val failure = runCatching {
-			PoiLegacyBackend().writeDoc(listOf(Block.Paragraph("hello")))
-		}
-		assertTrue(failure.exceptionOrNull() is UnsupportedOperationException)
+	fun docWritesThroughTheBlankTemplate() {
+		val backend = PoiLegacyBackend(context)
+		val bytes = backend.writeDoc(
+			listOf(Block.Heading(1, "Report"), Block.Paragraph("hello")),
+		)
+
+		val blocks = backend.readDoc(bytes)
+
+		assertTrue(blocks.isNotEmpty())
+		assertTrue(blocks.joinToString(" ") { (it as? Block.Paragraph)?.text.orEmpty() }.contains("hello"))
 	}
 }

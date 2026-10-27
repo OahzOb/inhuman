@@ -3,10 +3,12 @@
 Status: design decision, 2026-10-27. It is written before the implementation so
 the trade-offs are reviewable; the sections marked *planned* are the remaining
 work, not claims about today. CSV, TXT, DOCX, XLSX and PDF read/write/convert,
-XLS read/write, DOC read, the neutral model, the three tools and Android voice
-input are implemented in `:core:documents`, `:core:files` and `:app`. DOC
-creation is refused: it needs a Word 97 template, and generating a fake `.doc`
-would violate the "do not claim what the file is" rule.
+XLS read/write, DOC read/write through a bundled blank Word 97 template, the
+neutral model, the three tools and Android voice input are implemented in
+`:core:documents`, `:core:files` and `:app`. DOC output is plain paragraphs;
+tables and formatting are flattened and reported on read. The bundled
+`app/src/main/assets/blank.doc` is an empty Word 97 container generated locally,
+not a third-party library; a device test asserts that it starts with no text.
 
 `13-product.md` is the product statement: documents must be read, written and
 converted without silently losing content, and voice input must put the user's

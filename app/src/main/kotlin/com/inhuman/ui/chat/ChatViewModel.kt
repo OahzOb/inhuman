@@ -215,7 +215,7 @@ class ChatViewModel(
 	private val pdfBackend by lazy { AndroidPdfBackend(context) }
 
 	/** POI is loaded only for a legacy DOC/XLS turn, not at startup. */
-	private val legacyBackend by lazy { com.inhuman.ui.documents.PoiLegacyBackend() }
+	private val legacyBackend by lazy { com.inhuman.ui.documents.PoiLegacyBackend(context) }
 
 	private val _state = MutableStateFlow(ChatUiState())
 	val state: StateFlow<ChatUiState> = _state.asStateFlow()

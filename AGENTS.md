@@ -427,10 +427,11 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   package parts it does not understand and preserve `[Content_Types].xml` and
   relationships; a conversion must return a `LossReport`. PDF and legacy Office
   adapters are host-supplied and must run on the device before their format is
-  claimed; the Android host covers PDF text/creation and XLS read/write. DOC is
-  read-only here: creating a Word 97 file needs a valid template, and a renamed
-  DOCX or RTF pretending to be `.doc` is not an acceptable substitute. Do not add
-  a cloud converter or a second runtime.
+  claimed; the Android host covers PDF text/creation, XLS read/write and DOC
+  read/write. DOC writing uses the bundled blank Word 97 template; never emit a
+  renamed DOCX/RTF as `.doc`, and flatten tables/formatting with a stated loss
+  rather than pretending the structure survived. Do not add a cloud converter or
+  a second runtime.
 - **A failure chunk must be `trySend`-ed *before* `close()`.** A chunk sent
   after the channel closes is dropped and the collector sees a clean end, so
   the failure becomes indistinguishable from "the model said nothing".

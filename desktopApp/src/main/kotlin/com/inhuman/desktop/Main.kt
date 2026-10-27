@@ -81,6 +81,7 @@ import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.db.StoredToolCall
 import com.inhuman.core.data.db.ToolsColumn
+import com.inhuman.core.data.db.WorkspaceEntity
 import java.awt.datatransfer.DataFlavor
 import java.awt.dnd.DnDConstants
 import java.awt.dnd.DropTarget
@@ -309,6 +310,7 @@ private fun DesktopSpike(
 	var showSettings by remember { mutableStateOf(false) }
 	var showAssistants by remember { mutableStateOf(false) }
 	var showFiles by remember { mutableStateOf(false) }
+	var showWorkspaces by remember { mutableStateOf(false) }
 	var showRewind by remember { mutableStateOf(false) }
 	var showTools by remember { mutableStateOf(false) }
 	var pendingApproval by remember { mutableStateOf<DesktopChat.ApprovalRequest?>(null) }
@@ -658,6 +660,7 @@ private fun DesktopSpike(
 				onRewind = { if (!streaming) showRewind = true },
 				onTools = { if (!streaming) showTools = true },
 				onFiles = { showFiles = true },
+				onWorkspaces = { showWorkspaces = true },
 				onAssistants = { showAssistants = true },
 				onSettings = { showSettings = true },
 			)
@@ -754,6 +757,13 @@ private fun DesktopSpike(
 					showAssistants = false
 				}
 			},
+		)
+	}
+
+	if (showWorkspaces) {
+		WorkspacesWindow(
+			store = store,
+			onClose = { showWorkspaces = false },
 		)
 	}
 
@@ -1101,6 +1111,7 @@ private fun TopBar(
 	onRewind: () -> Unit,
 	onTools: () -> Unit,
 	onFiles: () -> Unit,
+	onWorkspaces: () -> Unit,
 	onAssistants: () -> Unit,
 	onSettings: () -> Unit,
 ) {
@@ -1143,6 +1154,15 @@ private fun TopBar(
 				letterSpacing = 1.sp,
 				color = Signal,
 				modifier = Modifier.clickable { onFiles() },
+			)
+			Spacer(Modifier.width(18.dp))
+			Text(
+				text = s("WORKSPACES", "工作区"),
+				fontFamily = FontFamily.Monospace,
+				fontSize = 10.sp,
+				letterSpacing = 1.sp,
+				color = Signal,
+				modifier = Modifier.clickable { onWorkspaces() },
 			)
 			Spacer(Modifier.width(18.dp))
 			Text(
@@ -2402,6 +2422,215 @@ private fun DeleteWindow(
 						shape = RoundedCornerShape(6.dp),
 					) {
 						Text(s("Delete", "删除"))
+					}
+				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun WorkspacesWindow(
+	store: DesktopStore,
+	onClose: () -> Unit,
+) {
+	val scope = rememberCoroutineScope()
+	var workspaces by remember { mutableStateOf<List<WorkspaceEntity>>(emptyList()) }
+	var selectedId by remember { mutableStateOf<String?>(null) }
+	var name by remember { mutableStateOf("") }
+	var conversationCount by remember { mutableStateOf(0) }
+	var status by remember { mutableStateOf<String?>(null) }
+	var statusIsError by remember { mutableStateOf(false) }
+
+	val selected = workspaces.firstOrNull { it.id == selectedId }
+	val createdStatus = s("Workspace created.", "工作区已创建。")
+	val deletedStatus = s("Workspace deleted.", "工作区已删除。")
+	val moveFirstStatus = s("Move or delete its conversations first.", "请先移走或删除它的对话。")
+	val renamedStatus = s("Renamed.", "已重命名。")
+	val openFailedStatus = s(
+		"The system file manager could not open the folder.",
+		"无法用系统文件管理器打开该文件夹。",
+	)
+	suspend fun reload(select: String? = selectedId) {
+		workspaces = store.permanentWorkspaces()
+		selectedId = workspaces.firstOrNull { it.id == select }?.id ?: workspaces.firstOrNull()?.id
+		name = workspaces.firstOrNull { it.id == selectedId }?.name.orEmpty()
+	}
+
+	LaunchedEffect(Unit) { reload() }
+	LaunchedEffect(selectedId) {
+		conversationCount = selectedId?.let { store.workspaceConversationCount(it) } ?: 0
+	}
+
+	DialogWindow(
+		onCloseRequest = onClose,
+		title = "inhuman · workspaces",
+		state = rememberDialogState(width = 820.dp, height = 600.dp),
+	) {
+		MaterialTheme(colorScheme = DesktopColors) {
+			Row(
+				modifier = Modifier.fillMaxSize().background(GraphiteRaised).padding(24.dp),
+			) {
+				Column(modifier = Modifier.width(230.dp).fillMaxHeight()) {
+					Text(
+						text = s("WORKSPACES", "工作区"),
+						fontFamily = FontFamily.Monospace,
+						fontSize = 11.sp,
+						letterSpacing = 1.5.sp,
+						color = Signal,
+					)
+					Spacer(Modifier.height(12.dp))
+					Text(
+						text = s("+ NEW PERMANENT", "+ 新建永久"),
+						fontFamily = FontFamily.Monospace,
+						fontSize = 10.sp,
+						color = Signal,
+						modifier = Modifier.clickable {
+							scope.launch {
+								val created = store.createWorkspace("New workspace")
+								reload(created.id)
+								status = createdStatus
+								statusIsError = false
+							}
+						},
+					)
+					Spacer(Modifier.height(10.dp))
+					LazyColumn(modifier = Modifier.weight(1f)) {
+						items(workspaces, key = { it.id }) { workspace ->
+							val isSelected = workspace.id == selectedId
+							Column(
+								modifier = Modifier
+									.fillMaxWidth()
+									.background(
+										if (isSelected) Color(0xFF26211D) else Color.Transparent,
+										RoundedCornerShape(6.dp),
+									)
+									.clickable {
+										selectedId = workspace.id
+										name = workspace.name
+										status = null
+									}
+									.padding(10.dp),
+							) {
+								Text(workspace.name, fontSize = 13.sp, color = Paper)
+								Text(
+									text = s("shared", "共享"),
+									fontFamily = FontFamily.Monospace,
+									fontSize = 9.sp,
+									color = Muted,
+								)
+							}
+						}
+					}
+				}
+				Spacer(Modifier.width(28.dp))
+				Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+					if (selected == null) {
+						Text(
+							text = s(
+								"No permanent workspaces yet. Create one here; conversations can then share it.",
+								"还没有永久工作区。在这里新建，对话就能共享它。",
+							),
+							fontSize = 14.sp,
+							color = Muted,
+						)
+					} else {
+						Text(
+							text = s("PERMANENT WORKSPACE", "永久工作区"),
+							fontFamily = FontFamily.Monospace,
+							fontSize = 10.sp,
+							letterSpacing = 1.sp,
+							color = Signal,
+						)
+						Spacer(Modifier.height(12.dp))
+						OutlinedTextField(
+							value = name,
+							onValueChange = { name = it },
+							label = { Text(s("Name", "名称")) },
+							singleLine = true,
+							modifier = Modifier.fillMaxWidth(),
+						)
+						Spacer(Modifier.height(12.dp))
+						Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+							Button(
+								onClick = {
+									scope.launch {
+										runCatching { store.renameWorkspace(selected, name) }
+											.onSuccess {
+												reload(selected.id)
+												status = renamedStatus
+												statusIsError = false
+											}
+											.onFailure {
+												status = it.message
+												statusIsError = true
+											}
+									}
+								},
+								enabled = name.isNotBlank() && name.trim() != selected.name,
+							) { Text(s("Rename", "重命名")) }
+							Button(
+								onClick = {
+									val dir = store.workspaceDirectory(selected.id)
+									val opened = runCatching {
+										if (!dir.exists()) dir.mkdirs()
+										check(
+											Desktop.isDesktopSupported() &&
+												Desktop.getDesktop().isSupported(Desktop.Action.OPEN),
+										) { "The system file manager is not available." }
+										Desktop.getDesktop().open(dir)
+									}.isSuccess
+									if (!opened) {
+										status = openFailedStatus
+										statusIsError = true
+									}
+								},
+							) { Text(s("Open in Explorer", "在资源管理器中打开")) }
+							Button(
+								onClick = {
+									scope.launch {
+										val deleted = store.deleteWorkspace(selected)
+										if (deleted) {
+											reload()
+											status = deletedStatus
+											statusIsError = false
+										} else {
+											status = moveFirstStatus
+											statusIsError = true
+										}
+									}
+								},
+								enabled = conversationCount == 0,
+							) { Text(s("Delete", "删除")) }
+						}
+						Spacer(Modifier.height(12.dp))
+						Text(
+							text = if (conversationCount == 0) {
+								s("No conversations use this workspace.", "没有对话使用这个工作区。")
+							} else {
+								s(
+									"$conversationCount conversation(s) share this workspace.",
+									"$conversationCount 个对话共享这个工作区。",
+								)
+							},
+							fontSize = 12.sp,
+							color = Muted,
+						)
+						Spacer(Modifier.height(6.dp))
+						Text(
+							text = store.workspaceDirectory(selected.id).absolutePath,
+							fontFamily = FontFamily.Monospace,
+							fontSize = 10.sp,
+							color = Muted,
+						)
+					}
+					Spacer(Modifier.weight(1f))
+					status?.let {
+						Text(
+							text = it,
+							fontSize = 12.sp,
+							color = if (statusIsError) Color(0xFFE07A5F) else Muted,
+						)
 					}
 				}
 			}

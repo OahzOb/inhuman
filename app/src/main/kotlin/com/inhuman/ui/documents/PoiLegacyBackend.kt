@@ -1,5 +1,6 @@
 package com.inhuman.ui.documents
 
+import android.content.Context
 import com.inhuman.core.documents.Block
 import com.inhuman.core.documents.Cell
 import com.inhuman.core.documents.DocumentLimits
@@ -26,7 +27,7 @@ import java.util.Locale
  * cell APIs, and every call is wrapped so a missing Android class becomes a
  * tool-level error instead of a process crash.
  */
-class PoiLegacyBackend : LegacyOfficeBackend {
+class PoiLegacyBackend(private val context: Context) : LegacyOfficeBackend {
 
 	override fun readDoc(bytes: ByteArray): List<Block> {
 		HWPFDocument(ByteArrayInputStream(bytes)).use { document ->
@@ -66,12 +67,32 @@ class PoiLegacyBackend : LegacyOfficeBackend {
 	}
 
 	override fun writeDoc(blocks: List<Block>): ByteArray {
-		// Creating a Word 97 binary from scratch needs a valid FIB/table stream
-		// template; writing anything else would produce a `.doc` that Word cannot
-		// open. The honest answer is to use DOCX, which this app can write.
-		throw UnsupportedOperationException(
-			"DOC writing needs a Word 97 template; save as DOCX instead.",
-		)
+		// A blank Word 97 file is a template, not a generated format. The app
+		// writes text into its empty range; it does not rename a DOCX or RTF.
+		val template = try {
+			context.assets.open("blank.doc").use { it.readBytes() }
+		} catch (e: Exception) {
+			throw UnsupportedOperationException("The Word 97 template asset is missing.", e)
+		}
+		val document = HWPFDocument(ByteArrayInputStream(template))
+		try {
+			val text = blocks.joinToString("\n") { block ->
+				when (block) {
+					is Block.Heading -> block.text
+					is Block.Paragraph -> block.text
+					is Block.ListItem -> "• " + block.text
+					is Block.Table -> block.rows.joinToString("\n") { row ->
+						row.joinToString(" | ")
+					}
+				}
+			}
+			document.range.replaceText(text, true)
+			val out = ByteArrayOutputStream()
+			document.write(out)
+			return out.toByteArray()
+		} finally {
+			document.close()
+		}
 	}
 
 	override fun writeXls(sheets: List<Sheet>): ByteArray {

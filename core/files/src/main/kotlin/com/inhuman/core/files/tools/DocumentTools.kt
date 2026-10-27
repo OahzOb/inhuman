@@ -175,6 +175,12 @@ private fun lossFor(source: Document, target: DocFormat): LossReport {
 	if (target == DocFormat.Csv && source.sheets.any { sheet -> sheet.rows.any { row -> row.any { it.formula != null } } }) {
 		loss = loss.plus(LossKind.Flattened, "formulas become their cached values in CSV")
 	}
+	if (target == DocFormat.Doc) {
+		loss = loss.plus(
+			LossKind.Flattened,
+			"DOC output is plain paragraphs; tables, headings and styles are flattened",
+		)
+	}
 	return loss
 }
 

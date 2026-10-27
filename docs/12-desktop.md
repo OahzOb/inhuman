@@ -51,6 +51,7 @@ Linux 没有构建、没有验证。桌面代码本身尽量不依赖 Windows，
 | Rewind | 多轮 picker；恢复到任意 user 回合前的 `start` checkpoint；删除该轮及后续；文本/图片回 composer；不可逆远程 suffix 拒绝 |
 | Compaction | token gauge；保留最近 2 个 user turn；summary 写入 `context_summaries`；Clear 恢复完整投影 |
 | 文件 | 浏览工作区、导入、导出、编辑保存（512 KB / 二进制保护）、用系统程序打开 |
+| 永久工作区 | 列表、新建、重命名、仅无对话时删除、在资源管理器中打开真实目录；与 Android 共用数据库和目录布局 |
 | 图片 | `Ctrl+O` / `ATTACH` / 拖放；最多 4 张；ImageIO 重编码；缩略图；请求侧 `ChatImage`；rewind 返回附件 |
 | 备份 | 加密导出数据库 + 全部 workspace；密钥刻意不含；staging restore 在 Room 打开前应用 |
 | Diagnostics | `inhuman-data/logs/inhuman.log`；打开目录、清空；不记 key/prompt/文件内容 |
@@ -163,5 +164,6 @@ tools\sign-msi.ps1 -Msi <msi> -Pfx <real.pfx> -Password <password> -TimestampUrl
 - 少量 provider/DB 原始错误和工具描述仍以英文显示，主 UI 已双语；
 - 正式分发缺少真实代码签名证书；
 - Linux 未构建、未验证；
-- 桌面端没有 Android 的永久 workspace 管理界面和 DocumentsProvider；文件面限定在
-  当前会话的 workspace。
+- 桌面端有永久 workspace 管理窗口，但没有 Android `DocumentsProvider` 那样的
+  content-URI 文件面；它通过资源管理器打开 workspace 的真实目录，Android 仍是
+  文件集成的主产品。

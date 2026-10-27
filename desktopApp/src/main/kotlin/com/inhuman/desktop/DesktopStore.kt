@@ -31,6 +31,7 @@ import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.db.StoredToolCall
 import com.inhuman.core.data.db.ToolCallsColumn
 import com.inhuman.core.data.db.ToolsColumn
+import com.inhuman.core.data.db.WorkspaceEntity
 import com.inhuman.core.files.SessionWorkspace
 import com.inhuman.desktop.secret.DpapiSecretStore
 import java.io.File
@@ -174,12 +175,38 @@ class DesktopStore private constructor(
 	suspend fun create(
 		title: String = "New conversation",
 		assistant: AgentEntity? = null,
+		workspaceId: String? = null,
 	): ConversationSummary {
 		val resolved = assistant ?: defaultAssistant()
-		return summary(conversations.create(title = title, agent = resolved))
+		return summary(conversations.create(title = title, agent = resolved, workspaceId = workspaceId))
 	}
 
 	suspend fun defaultAssistant(): AgentEntity? = agents.defaultAgent()
+
+	/** Permanent workspaces, for the desktop's workspaces window. */
+	suspend fun permanentWorkspaces(): List<WorkspaceEntity> =
+		conversations.workspaces()
+			.filter { it.isPermanent }
+			.sortedBy { it.name.lowercase(Locale.ROOT) }
+
+	suspend fun createWorkspace(name: String): WorkspaceEntity =
+		conversations.createWorkspace(name)
+
+	suspend fun renameWorkspace(workspace: WorkspaceEntity, name: String) {
+		conversations.renameWorkspace(workspace, name)
+	}
+
+	suspend fun deleteWorkspace(workspace: WorkspaceEntity): Boolean =
+		conversations.deleteWorkspace(workspace)
+
+	suspend fun workspaceConversationCount(workspaceId: String): Int =
+		conversations.workspaceConversationCount(workspaceId)
+
+	/** Open a workspace by id, including one with no conversation yet. */
+	fun workspace(workspaceId: String): SessionWorkspace = conversations.workspace(workspaceId)
+
+	/** The real directory Explorer should open. */
+	fun workspaceDirectory(workspaceId: String): File = paths.workspaceDir(workspaceId)
 
 	suspend fun assistants(): List<AgentEntity> = agents.all()
 

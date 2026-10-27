@@ -226,12 +226,12 @@ notes below explain what is still absent.
   before the earlier call. OAuth uses a user-registered public client and the
   `inhuman://oauth` callback; no Claude/ChatGPT/Copilot/Kimi client ID ships. None
   is verified against a real account here (that needs a key or a registration).
-- **Document formats are mostly implemented.** CSV/TXT, DOCX, XLSX, PDF and XLS
-  can be read, created, modified and converted through three workspace tools;
-  DOC can be read but not created, because Word 97 needs a template and a fake
-  `.doc` is worse than a refusal. DOCX/XLSX keep package parts this app does not
-  understand and report what the neutral model cannot carry. The decision is
-  [14-documents-voice.md](14-documents-voice.md).
+- **The first batch of document formats is implemented.** CSV/TXT, DOCX, XLSX,
+  PDF, DOC and XLS can be read, created, modified and converted through three
+  workspace tools. DOC is written into a bundled empty Word 97 template; its
+  tables and formatting are flattened and reported. DOCX/XLSX keep package parts
+  this app does not understand and report what the neutral model cannot carry.
+  The decision is [14-documents-voice.md](14-documents-voice.md).
 - **Voice input is implemented on Android.** A composer microphone records into
   memory, sends the WAV to the already-configured transcription backend, and
   inserts the text into the composer; it never writes a recording to the

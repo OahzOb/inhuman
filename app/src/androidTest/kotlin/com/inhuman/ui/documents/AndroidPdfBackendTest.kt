@@ -41,6 +41,14 @@ class AndroidPdfBackendTest {
 		assertTrue(read.pages.single().text.contains("second"))
 	}
 
+	@Test
+	fun chineseTextSurvivesThePlatformWriter() {
+		val bytes = backend.write(listOf("你好，世界\n第二行"))
+		val text = backend.read(bytes).pages.joinToString(" ") { it.text }
+
+		assertTrue(text, text.contains("你好"))
+	}
+
 	@Test(expected = DocumentException::class)
 	fun aBrokenPdfIsRefused() {
 		backend.read("not a pdf".toByteArray())

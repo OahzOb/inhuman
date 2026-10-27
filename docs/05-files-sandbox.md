@@ -258,8 +258,9 @@ flattened formulas, skipped sheets, truncation — and the tool result says so.
 A scanned PDF page is reported as having no text layer, not as an empty document.
 PDF/DOC/XLS backends are host-supplied: the Android host passes PDFBox and POI;
 the desktop host has none and refuses those formats with a reason. Android reads
-DOC and reads/writes XLS through POI; **DOC creation is refused** rather than
-writing a file with the wrong bytes, because Word 97 needs a valid template. The
+and writes XLS, and writes DOC into a bundled blank Word 97 template rather than
+renaming a DOCX/RTF; DOC output is plain paragraphs (tables and formatting are
+flattened), and DOC reads report that structure is not represented. The
 format/library decision is `14-documents-voice.md`.
 
 **"Asks by default" is not where approval is decided.** `Tool.needsApproval` is
