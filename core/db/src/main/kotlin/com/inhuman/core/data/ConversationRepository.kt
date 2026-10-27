@@ -248,6 +248,14 @@ class ConversationRepository(
 	fun observeWorkspaces(): Flow<List<WorkspaceEntity>> =
 		db.workspaces().observeAll()
 
+	/**
+	 * Every workspace, for a picker that asks once.
+	 *
+	 * The observe variant is for screens that stay open; the cross-workspace
+	 * import dialogue reads on open and is gone before a change could matter.
+	 */
+	suspend fun workspaces(): List<WorkspaceEntity> = db.workspaces().all()
+
 	suspend fun workspaceConversations(workspaceId: String): List<ConversationEntity> =
 		db.conversations().byWorkspace(workspaceId)
 

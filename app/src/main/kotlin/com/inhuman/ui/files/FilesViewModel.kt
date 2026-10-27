@@ -9,7 +9,9 @@ import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.ConversationRepository
+import com.inhuman.core.data.db.WorkspaceEntity
 import com.inhuman.core.files.SessionWorkspace
+import com.inhuman.core.files.WorkspaceCopy
 import com.inhuman.core.files.WorkspaceTransfer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +23,7 @@ import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
+import java.nio.file.Files
 import java.text.DateFormat
 import java.util.Date
 
@@ -107,6 +110,21 @@ data class FileEditor(
 
 /** Where a download landed inside the workspace. */
 data class DownloadSave(val relativePath: String, val bytes: Long)
+
+/** One source in the cross-workspace import picker. */
+data class WorkspaceChoice(
+	val id: String,
+	val name: String,
+	val isPermanent: Boolean,
+)
+
+/** One row in the source workspace's browser. */
+data class ImportFileChoice(
+	val name: String,
+	val relativePath: String,
+	val isDirectory: Boolean,
+	val sizeBytes: Long,
+)
 
 /**
  * The workspace, as a browser.
@@ -483,6 +501,110 @@ class FilesViewModel(
 						"imported path=${outcome.relativePath} bytes=${outcome.bytes}",
 					)
 					_state.value = _state.value.copy(error = null)
+				}
+			}
+			refresh()
+		}
+	}
+
+	/**
+	 * Every workspace except this one, for the cross-workspace import picker.
+	 *
+	 * Permanent workspaces sort first because they are the common case -- a
+	 * shared materials folder -- but temporary ones are listed too: rescuing a
+	 * file from a conversation before deleting it is exactly the moment this
+	 * picker is useful. The list is a snapshot; the dialogue is short-lived.
+	 */
+	suspend fun otherWorkspaces(): List<WorkspaceChoice> = withContext(Dispatchers.IO) {
+		workspace()
+		val current = workspaceId
+		repository.workspaces()
+			.filter { it.id != current }
+			.sortedWith(
+				compareByDescending<WorkspaceEntity> { it.isPermanent }
+					.thenBy { it.name.lowercase() },
+			)
+			.map { WorkspaceChoice(id = it.id, name = it.name, isPermanent = it.isPermanent) }
+	}
+
+	/**
+	 * Browse a source workspace.
+	 *
+	 * The path is re-resolved through the source's [SessionWorkspace], so this
+	 * screen cannot be talked into reading outside it by a crafted path. A
+	 * symlink is filtered out of the listing: the source-side fence would refuse
+	 * it on import anyway, and a row that always fails is worse than no row.
+	 */
+	suspend fun sourceFiles(
+		sourceWorkspaceId: String,
+		path: String,
+	): Result<List<ImportFileChoice>> = withContext(Dispatchers.IO) {
+		runCatching {
+			val ws = repository.workspace(sourceWorkspaceId)
+			val dir = when (val resolution = ws.resolve(path)) {
+				is SessionWorkspace.Resolution.Ok -> resolution.file
+				is SessionWorkspace.Resolution.Rejected -> error(resolution.reason)
+			}
+			if (!dir.isDirectory) error("not a directory: $path")
+			dir.listFiles().orEmpty()
+				.filterNot { Files.isSymbolicLink(it.toPath()) }
+				.sortedWith(
+					compareByDescending<File> { it.isDirectory }
+						.thenBy { it.name.lowercase() },
+				)
+				.take(ws.limits.maxListEntries)
+				.map { file ->
+					ImportFileChoice(
+						name = file.name,
+						relativePath = ws.relativize(file),
+						isDirectory = file.isDirectory,
+						sizeBytes = if (file.isDirectory) 0 else file.length(),
+					)
+				}
+		}
+	}
+
+	/**
+	 * Copy one file from another workspace into the directory on screen.
+	 *
+	 * The copy is a snapshot: source unchanged, target independent, collision
+	 * numbered the same way a system import is. The per-file size, total and
+	 * free-space rules come from [WorkspaceCopy] -> [WorkspaceTransfer], not
+	 * from a second implementation here.
+	 */
+	fun importFromWorkspace(sourceWorkspaceId: String, sourceRelativePath: String) {
+		viewModelScope.launch {
+			val source = withContext(Dispatchers.IO) { repository.workspace(sourceWorkspaceId) }
+			val target = workspace()
+			if (target == null) {
+				_state.update {
+					it.copy(error = context.getString(R.string.files_error_workspace_missing))
+				}
+				return@launch
+			}
+			val outcome = withContext(Dispatchers.IO) {
+				WorkspaceCopy.file(
+					source = source,
+					sourceRelativePath = sourceRelativePath,
+					target = target,
+					targetDirectory = _state.value.currentPath,
+				)
+			}
+			when (outcome) {
+				is WorkspaceTransfer.Outcome.Failed -> {
+					Diag.w(
+						"files",
+						"workspace import failed source=${sourceRelativePath} reason=${outcome.reason}",
+					)
+					_state.update { it.copy(error = outcome.reason) }
+				}
+
+				is WorkspaceTransfer.Outcome.Ok -> {
+					Diag.i(
+						"files",
+						"workspace import path=${outcome.relativePath} bytes=${outcome.bytes}",
+					)
+					_state.update { it.copy(error = null) }
 				}
 			}
 			refresh()

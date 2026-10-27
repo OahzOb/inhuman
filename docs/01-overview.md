@@ -130,6 +130,10 @@ Confirmed by `README.md:17-29` and by the code:
   process (the third is refused rather than queued), and one tool at a time
   inside a turn. Subagents are not implemented, so their ceiling is zero
   ([06-agent-loop-ui.md](06-agent-loop-ui.md), [08-port-philosophy.md](08-port-philosophy.md) Q4).
+- A file can be copied from another workspace through Files. The source is
+  unchanged, the copy is a snapshot with the same quota and " (2)" naming rules
+  as an ordinary import, and nothing is mounted or shared
+  ([05-files-sandbox.md](05-files-sandbox.md)).
 - Answers can be retried. **Rewind** is the single restart control. **Answer
   again** keeps the tool **definitions** so the request prefix can still hit the
   context cache, but appends a transient system instruction forbidding a call;

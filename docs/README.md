@@ -96,7 +96,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 Latest run (2026-10-27, through `tools/ci.ps1`):
 
 ```
-BUILD SUCCESSFUL, 630 tests in 95 suites, 0 failures, 4 skipped
+BUILD SUCCESSFUL, 634 tests in 96 suites, 0 failures, 4 skipped
 warnings 0, errors 0
 ```
 
@@ -110,7 +110,7 @@ The skips are external-credential live tests: `DeepSeekWebLiveTest`,
 | Module | Suites | Tests |
 | --- | --- | --- |
 | `:core:ai` | 38 | 288 (3 skipped) |
-| `:core:files` | 7 | 68 |
+| `:core:files` | 8 | 72 |
 | `:app` | 25 | 174 |
 | `:core:common` | 2 | 16 |
 | `:core:db` | 5 | 17 |
@@ -174,6 +174,7 @@ repository root; `…/` stands for `src/main/kotlin/com/inhuman/`.
 | File tools' behaviour | `core/files/…/tools/FileTools.kt` |
 | Quotas and guarded reads/writes/lists | `core/files/…/WorkspaceTool.kt`, `WorkspaceLimits.kt` |
 | A path becoming a `File`; confinement | `core/files/…/SessionWorkspace.kt` |
+| Copying a file between workspaces | `core/files/…/WorkspaceCopy.kt` |
 | The startup fence check; what a failure removes | `core/files/…/WorkspaceSelfCheck.kt`, `app/…/AppCapabilities.kt` |
 | Resuming a turn a process death interrupted | `app/…/ui/chat/InterruptedTurn.kt`, `ChatViewModel.continueInterruptedTurn` |
 | Import/export and name collisions | `core/files/…/WorkspaceTransfer.kt` |

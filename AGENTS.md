@@ -341,6 +341,14 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   skipped, so a junction cannot loop or write the same bytes twice. The result
   carries `skipped` and the UI shows it; a zip that dropped a file must not look
   complete.
+- **A cross-workspace import is a copy, never a reference.** `WorkspaceCopy`
+  re-resolves the source path through the *source* workspace (only a regular
+  file), then hands the bytes to `WorkspaceTransfer.import` on the target, so
+  the per-file ceiling, total quota, file count, free-space reserve and " (2)"
+  naming are the ordinary import's rules. Do not add a mount or a shared file:
+  one conversation's rollback must not be able to write into another's
+  materials. The source browser filters symlinks, and workspace rules do not
+  apply to the owner's own copy.
 - **A failure chunk must be `trySend`-ed *before* `close()`.** A chunk sent
   after the channel closes is dropped and the collector sees a clean end, so
   the failure becomes indistinguishable from "the model said nothing".

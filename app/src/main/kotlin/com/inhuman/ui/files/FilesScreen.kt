@@ -35,12 +35,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material.icons.outlined.SaveAlt
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -80,9 +82,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.ui.common.formatBytes
 import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.design.Eyebrow
 import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.Layout
+import com.inhuman.core.design.WideDialog
 import com.inhuman.core.design.WorkbenchGrid
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.ui.chat.MarkdownText
@@ -145,6 +149,7 @@ fun FilesScreen(
 	var importError by remember { mutableStateOf<String?>(null) }
 	var showDownloadDialog by remember { mutableStateOf(false) }
 	var showPath by remember { mutableStateOf(false) }
+	var showWorkspaceImport by remember { mutableStateOf(false) }
 
 	// While the editor is open its own inline error is the right place for a
 	// save failure; another AlertDialog over the editor would hide the buffer
@@ -153,7 +158,7 @@ fun FilesScreen(
 
 	val anyDialogOpen = pendingDelete != null || importError != null ||
 		state.error != null || state.preview != null || state.editor != null ||
-		showDownloadDialog || showPath
+		showDownloadDialog || showPath || showWorkspaceImport
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
 	// Which file the export launcher was fired for.
@@ -246,6 +251,12 @@ fun FilesScreen(
 						}
 						IconButton(onClick = { showDownloadDialog = true }) {
 							Icon(Icons.Filled.Download, contentDescription = stringResource(R.string.download_title))
+						}
+						IconButton(onClick = { showWorkspaceImport = true }) {
+							Icon(
+								Icons.Outlined.ContentCopy,
+								contentDescription = stringResource(R.string.files_import_workspace),
+							)
 						}
 						IconButton(onClick = { importer.launch(arrayOf("*/*")) }) {
 							Icon(Icons.Filled.Upload, contentDescription = stringResource(R.string.files_import))
@@ -524,6 +535,209 @@ fun FilesScreen(
 			viewModel = viewModel,
 			onDismiss = { showDownloadDialog = false },
 		)
+	}
+
+	if (showWorkspaceImport) {
+		WorkspaceImportDialog(
+			viewModel = viewModel,
+			onDismiss = { showWorkspaceImport = false },
+		)
+	}
+}
+
+/**
+ * Pick a file from another workspace and copy it into the folder on screen.
+ *
+ * The source browser is a user view, not an agent view: workspace rules do not
+ * apply, and the dialog never exposes an absolute path. The copy itself goes
+ * through `WorkspaceCopy`, so it is a snapshot with the same naming and quota
+ * rules as a system import; the source is left alone.
+ */
+@Composable
+private fun WorkspaceImportDialog(
+	viewModel: FilesViewModel,
+	onDismiss: () -> Unit,
+) {
+	var workspaces by remember { mutableStateOf<List<WorkspaceChoice>?>(null) }
+	var selected by remember { mutableStateOf<WorkspaceChoice?>(null) }
+	var path by remember { mutableStateOf("") }
+	var entries by remember { mutableStateOf<List<ImportFileChoice>?>(null) }
+	var readError by remember { mutableStateOf(false) }
+	var listFailed by remember { mutableStateOf(false) }
+
+	LaunchedEffect(Unit) {
+		workspaces = runCatching { viewModel.otherWorkspaces() }
+			.onFailure {
+				Diag.w("files", "workspace list failed", it)
+				listFailed = true
+			}
+			.getOrElse { emptyList() }
+	}
+	LaunchedEffect(selected?.id, path) {
+		val source = selected ?: return@LaunchedEffect
+		entries = null
+		readError = false
+		viewModel.sourceFiles(source.id, path)
+			.onSuccess { entries = it }
+			.onFailure {
+				Diag.w("files", "source listing failed workspace=${source.id} path=$path", it)
+				readError = true
+			}
+	}
+
+	WideDialog(
+		onDismissRequest = onDismiss,
+		title = stringResource(R.string.files_import_workspace),
+		dismissLabel = stringResource(R.string.files_close),
+		maxBodyHeight = 460.dp,
+	) {
+		Text(
+			text = stringResource(R.string.files_import_note),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+
+		val source = selected
+		if (source == null) {
+			val list = workspaces
+			when {
+				listFailed -> Text(
+					text = stringResource(R.string.files_import_read_failed),
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.error,
+				)
+
+				list == null -> Box(
+					modifier = Modifier.fillMaxWidth().padding(16.dp),
+					contentAlignment = Alignment.Center,
+				) { CircularProgressIndicator(Modifier.size(20.dp)) }
+
+				list.isEmpty() -> Text(
+					text = stringResource(R.string.files_import_no_workspaces),
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+
+				else -> {
+					Text(
+						text = stringResource(R.string.files_import_choose_workspace),
+						style = MaterialTheme.typography.titleSmall,
+						color = MaterialTheme.colorScheme.onSurface,
+					)
+					list.forEachIndexed { index, choice ->
+						if (index > 0) Hairline()
+						Row(
+							modifier = Modifier
+								.fillMaxWidth()
+								.clickable {
+									selected = choice
+									path = ""
+								}
+								.padding(vertical = 10.dp),
+							verticalAlignment = Alignment.CenterVertically,
+						) {
+							Text(
+								text = choice.name,
+								style = MaterialTheme.typography.bodyLarge,
+								modifier = Modifier.weight(1f),
+							)
+							Text(
+								text = stringResource(
+									if (choice.isPermanent) {
+										R.string.files_import_permanent
+									} else {
+										R.string.files_import_temporary
+									},
+								),
+								style = MaterialTheme.typography.labelSmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+							)
+						}
+					}
+				}
+			}
+			return@WideDialog
+		}
+
+		Row(
+			modifier = Modifier.fillMaxWidth(),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			Text(
+				text = source.name,
+				style = MaterialTheme.typography.titleSmall,
+				modifier = Modifier.weight(1f),
+			)
+			TextButton(
+				onClick = {
+					selected = null
+					path = ""
+					entries = null
+				},
+			) { Text(stringResource(R.string.files_import_change)) }
+		}
+		if (path.isNotEmpty()) {
+			Text(
+				text = stringResource(R.string.files_import_up),
+				style = MaterialTheme.typography.bodyMedium,
+				modifier = Modifier
+					.fillMaxWidth()
+					.clickable {
+						path = if (path.contains('/')) path.substringBeforeLast('/') else ""
+					}
+					.padding(vertical = 8.dp),
+			)
+		}
+
+		when {
+			readError -> Text(
+				text = stringResource(R.string.files_import_read_failed),
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.error,
+			)
+
+			entries == null -> Box(
+				modifier = Modifier.fillMaxWidth().padding(16.dp),
+				contentAlignment = Alignment.Center,
+			) { CircularProgressIndicator(Modifier.size(20.dp)) }
+
+			entries.orEmpty().isEmpty() -> Text(
+				text = stringResource(R.string.files_import_empty_dir),
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+
+			else -> entries.orEmpty().forEachIndexed { index, entry ->
+				if (index > 0) Hairline()
+				Row(
+					modifier = Modifier
+						.fillMaxWidth()
+						.clickable {
+							if (entry.isDirectory) {
+								path = entry.relativePath
+							} else {
+								viewModel.importFromWorkspace(source.id, entry.relativePath)
+								onDismiss()
+							}
+						}
+						.padding(vertical = 10.dp),
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					Text(
+						text = entry.name,
+						style = MaterialTheme.typography.bodyLarge,
+						modifier = Modifier.weight(1f),
+					)
+					if (!entry.isDirectory) {
+						Text(
+							text = formatBytes(entry.sizeBytes),
+							style = MaterialTheme.typography.labelSmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+				}
+			}
+		}
 	}
 }
 

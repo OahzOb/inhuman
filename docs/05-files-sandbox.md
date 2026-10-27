@@ -309,6 +309,32 @@ read has to be a real path anyway (`:10-16`).
   disappears (`:125-147`). At `n > 200` it returns a name **without
   collision-checking it** (`:144`).
 
+### Workspace to workspace: `WorkspaceCopy`
+
+`core/files/src/main/kotlin/com/inhuman/core/files/WorkspaceCopy.kt` is the
+user's route between two workspaces. The Files screen's copy action opens a
+picker of every **other** workspace (permanent first, temporary ones too --
+rescuing a file before deleting its conversation is a real use), then a read-only
+browser of that workspace. Picking a file copies it into the directory currently
+on screen.
+
+- The source path is re-resolved through the **source** `SessionWorkspace`, not
+  trusted from the browser, and only a regular file is accepted. Directories are
+  refused rather than copied recursively: a recursive copy needs its own quota
+  walk and partial-failure semantics, and "copy this folder" is a separate
+  feature, not a quiet expansion of this one.
+- The bytes go through `WorkspaceTransfer.import` with the source's own stream,
+  so the per-file ceiling, total quota, file count, reserved free space and the
+  " (2)" naming rule are the **same ones** a system import gets.
+- The result is a **snapshot**: the source is unchanged, later edits there do not
+  follow, and there is no reference or mount. A reference would let one
+  conversation's rollback write into another's materials, which is the boundary
+  `docs/13-product.md` refuses.
+- Workspace rules are not consulted: those constrain the assistant, and this is
+  the owner acting on their own files. Neither absolute path reaches the model.
+- The source browser filters symlinks out; the source-side `resolve` would refuse
+  them on import anyway, and a row that always fails is worse than no row.
+
 ### Workspace export: `WorkspaceZip`
 
 `core/files/src/main/kotlin/com/inhuman/core/files/WorkspaceZip.kt`. This is the
@@ -465,3 +491,4 @@ real filesystem semantics rather than a device (`core/files/build.gradle`).
 | `FileToolsTest` | The interface lock (no absolute location in any description, and `path` present among the declared properties); **no tool asks for approval by default** — the gated set is asserted *empty*, and the `needsApproval` hook is pinned by reflection rather than by a tool using it; write→read round trip with line numbering; `../` refused with nothing written outside; `/etc/passwd` reinterpreted as relative; deleting `"."` refused and the root survives; move-into-itself refused; missing file names the path; missing required argument named; oversized read refused, not truncated; oversized write leaves nothing on disk; the file-count ceiling; truncation announced; free-space refusal at an injected 1024 bytes and success at 1 GiB; Created vs Replaced; append; move preserves content; `file_info` totals; empty listing says "empty". |
 | `ToolMutationClassificationTest` | The **exact tool-name set**, so a ninth tool fails loudly until it is classified; the three read tools are `mutates = false`; the five writes are `true`; and the flags are verified against the filesystem — `list_files` leaves `fileCount` unchanged, `write_file` increases it. |
 | `WorkspaceSelfCheckTest` | A healthy temp fence passes all six checks and leaves no probe files; a parent that is a file fails closed with an error; one failed check fails the report; a `Skipped` platform check does not. |
+| `WorkspaceCopyTest` | A second copy is numbered rather than overwriting; the source is unchanged; a copy lands in the browsed subdirectory; a crafted `../` source is refused; a directory is not copied as a file. |

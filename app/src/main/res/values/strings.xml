@@ -422,6 +422,16 @@
 	<string name="files_quota">%1$d/%2$d files · %3$s of %4$s</string>
 	<string name="files_workspace_location">Workspace location</string>
 	<string name="files_import">Import a file</string>
+	<string name="files_import_workspace">Import from another workspace</string>
+	<string name="files_import_note">Copies into the folder you are viewing. The source workspace is unchanged; later edits there do not follow.</string>
+	<string name="files_import_choose_workspace">Choose a source workspace</string>
+	<string name="files_import_no_workspaces">There is no other workspace.</string>
+	<string name="files_import_temporary">temporary</string>
+	<string name="files_import_permanent">permanent</string>
+	<string name="files_import_change">Change</string>
+	<string name="files_import_up">Up one folder</string>
+	<string name="files_import_empty_dir">This folder is empty.</string>
+	<string name="files_import_read_failed">Could not read that folder.</string>
 	<string name="files_empty_eyebrow">Workspace / Empty</string>
 	<string name="files_empty_title_rules">Nothing here yet.</string>
 	<string name="files_empty_title">This workspace is empty.</string>
