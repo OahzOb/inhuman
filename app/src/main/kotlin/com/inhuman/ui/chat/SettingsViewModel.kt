@@ -116,6 +116,8 @@ data class SettingsUiState(
 	val backupCanUndo: Boolean = false,
 	/** Reply from the built-in scripted source instead of DeepSeek. */
 	val demoMode: Boolean = false,
+	/** Whether replies end with follow-up suggestions. */
+	val adviceEnabled: Boolean = true,
 	/**
 	 * Global ceiling on assistant/tool rounds in one turn.
 	 *
@@ -248,6 +250,7 @@ class SettingsViewModel(
 		}.getOrNull()
 		_state.value = SettingsUiState(
 			demoMode = secure.get(SecureStore.KEY_DEMO_MODE) == "1",
+			adviceEnabled = secure.get(SecureStore.KEY_ADVICE_ENABLED) != "0",
 			toolRoundLimit = readToolRoundLimit(),
 			toolCallLimit = readToolCallLimit(),
 			layoutPreference = com.inhuman.core.design.LayoutPreference.fromStored(
@@ -803,6 +806,15 @@ class SettingsViewModel(
 		secure.get(SecureStore.KEY_TOOL_CALLS)?.toIntOrNull()
 			?.coerceIn(ChatViewModel.MIN_TOOL_CALLS, ChatViewModel.MAX_TOOL_CALLS)
 			?: ChatViewModel.DEFAULT_TOOL_CALLS
+
+	/**
+	 * A display preference, not a capability: it only decides whether the next
+	 * request asks for the suggestions block. Nothing already stored changes.
+	 */
+	fun setAdviceEnabled(enabled: Boolean) {
+		secure.put(SecureStore.KEY_ADVICE_ENABLED, if (enabled) "1" else "0")
+		_state.value = _state.value.copy(adviceEnabled = enabled)
+	}
 
 	fun setDemoMode(enabled: Boolean) {
 		secure.put(SecureStore.KEY_DEMO_MODE, if (enabled) "1" else "0")

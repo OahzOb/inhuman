@@ -757,6 +757,33 @@ fun SettingsScreen(
 						)
 					}
 				}
+				HorizontalDivider(
+					modifier = Modifier.padding(vertical = 8.dp),
+					color = MaterialTheme.colorScheme.outlineVariant,
+				)
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					horizontalArrangement = Arrangement.SpaceBetween,
+					verticalAlignment = Alignment.Top,
+				) {
+					Column(modifier = Modifier.weight(1f)) {
+						Text(
+							text = stringResource(R.string.settings_advice_title),
+							style = MaterialTheme.typography.titleMedium,
+							color = MaterialTheme.colorScheme.onBackground,
+						)
+						Text(
+							text = stringResource(R.string.settings_advice_body),
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+					WorkbenchSwitch(
+						checked = state.adviceEnabled,
+						onCheckedChange = viewModel::setAdviceEnabled,
+						modifier = Modifier.padding(start = 12.dp),
+					)
+				}
 			}
 
 			SettingsFold(

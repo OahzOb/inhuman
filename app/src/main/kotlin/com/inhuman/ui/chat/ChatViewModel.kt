@@ -183,6 +183,14 @@ class ChatViewModel(
 	 */
 	private val workspaceToolsEnabled: () -> Boolean = { true },
 	/**
+	 * Whether the model is asked for follow-up suggestions.
+	 *
+	 * A display preference, read per turn like the SSH switch: turning it off
+	 * stops asking, so the answer is a few lines shorter and nothing else
+	 * changes. It is never a capability: a suggestion only fills the composer.
+	 */
+	private val adviceEnabled: () -> Boolean = { true },
+	/**
 	 * Called whenever a stream starts or stops.
 	 *
 	 * The app layer owns the foreground service; the view model deliberately
@@ -2385,6 +2393,17 @@ class ChatViewModel(
 
 	fun onInputChange(text: String) = _state.update { it.copy(input = text) }
 
+	/**
+	 * Fill the composer with a suggested follow-up. Never sends it.
+	 *
+	 * A suggestion is an offer, not consent to spend another request. The user
+	 * can edit or discard the text, and pressing Send is still their act.
+	 */
+	fun useSuggestion(text: String) {
+		if (text.isBlank()) return
+		_state.update { it.copy(input = text) }
+	}
+
 	fun clearError() = _state.update { it.copy(error = null) }
 
 	fun stop() {
@@ -2574,9 +2593,20 @@ class ChatViewModel(
 				withContext(Dispatchers.IO) {
 					val policies = loadPolicies()
 					val tools = buildTools(policies)
+					// The preview is the request that would be sent, so it has
+					// to carry the same transient advice instruction the turn
+					// does -- otherwise the inspector shows a shorter request
+					// than the provider receives.
+					val history = buildWireHistory(includeCurrent = true).let { base ->
+						if (adviceEnabled()) {
+							base + ChatMessage(Role.System, ADVICE_INSTRUCTION)
+						} else {
+							base
+						}
+					}
 					val request = ChatRequest(
 						model = turnModel,
-						messages = buildWireHistory(includeCurrent = true),
+						messages = history,
 						tools = tools.map(::spec),
 						thinking = thinking,
 						reasoningEffort = reasoningEffort,
@@ -2896,6 +2926,7 @@ class ChatViewModel(
 		continuation: Boolean,
 	) {
 		val policies = loadPolicies()
+		val advice = adviceEnabled()
 		// A text-only retry keeps the tool definitions on a real provider so
 		// the request prefix still matches the context cache; a transient
 		// instruction and the engine's guard stop the call from running. Demo
@@ -2920,7 +2951,12 @@ class ChatViewModel(
 			} else {
 				base
 			}
-			if (continuation) retried + ChatMessage(Role.System, CONTINUE_INSTRUCTION) else retried
+			val continued = if (continuation) {
+				retried + ChatMessage(Role.System, CONTINUE_INSTRUCTION)
+			} else {
+				retried
+			}
+			if (advice) continued + ChatMessage(Role.System, ADVICE_INSTRUCTION) else continued
 		}
 
 		var currentId: String? = null
@@ -2962,7 +2998,7 @@ class ChatViewModel(
 			if (!force && now - publishedAt < STREAM_PUBLISH_INTERVAL_MS) return
 			publishedAt = now
 			if (firstTokenAt == null && currentText.isNotEmpty()) firstTokenAt = now
-			publishParts(id, currentReasoning, currentText, currentCalls, cursor, answerAfterCalls)
+			publishParts(id, currentReasoning, currentText, currentCalls, cursor, answerAfterCalls, advice)
 		}
 
 		val engine = ChatEngine(
@@ -3015,7 +3051,17 @@ class ChatViewModel(
 						firstTokenAt = null
 						_state.update {
 							it.copy(
-								messages = it.messages + ChatMessageUi(
+								// A new round retires the previous answer's
+								// suggestions: they were an offer about the
+								// composer as it was, not a property of the
+								// transcript.
+								messages = it.messages.map { old ->
+									if (old.suggestions.isEmpty()) {
+										old
+									} else {
+										old.copy(suggestions = emptyList())
+									}
+								} + ChatMessageUi(
 									id = replyId,
 									parentId = parent,
 									fromUser = false,
@@ -3082,11 +3128,22 @@ class ChatViewModel(
 						val message = currentAssistant
 						val calls = currentCalls.values.toList()
 						val usage = event.usage?.toUi(firstTokenAt, startedAt)
+						// The advice block is stripped before the row is written.
+						// A tool-calling round never carries suggestions, even if
+						// the model ignored the instruction: the turn is not
+						// finished, so there is nothing to offer yet.
+						val parsed = if (advice) {
+							Advice.parse(currentText.toString())
+						} else {
+							AdviceResult(currentText.toString(), emptyList())
+						}
+						val content = parsed.visibleText
+						val suggestions = if (calls.isEmpty()) parsed.suggestions else emptyList()
 						// A round that produced nothing is not a row. The legacy
 						// loop removed the empty placeholder, and persisting it
 						// here would put a blank assistant message on the wire
 						// for every failed provider request.
-						val hasPayload = message?.content?.isNotEmpty() == true ||
+						val hasPayload = content.isNotEmpty() ||
 							message?.reasoning?.isNotBlank() == true ||
 							calls.isNotEmpty()
 						if (hasPayload) {
@@ -3097,7 +3154,7 @@ class ChatViewModel(
 										conversationId = conversationId,
 										parentId = currentParent,
 										role = "assistant",
-										content = message?.content.orEmpty(),
+										content = content,
 										reasoning = message?.reasoning?.takeIf { it.isNotBlank() },
 										model = model,
 										finishReason = event.reason.describe(),
@@ -3116,11 +3173,17 @@ class ChatViewModel(
 							currentPersisted = true
 						}
 						replyDeltas.remove(id)?.close()
+						// Replace the streamed parts with the parsed answer: a
+						// sign-off after a closed block is restored here, and
+						// the raw marker is never in either the parts or the
+						// row.
+						updateParts(id, currentReasoning.toString(), content, calls, answerAfterCalls)
 						updateMessage(id) {
 							it.copy(
 								isStreaming = false,
 								finishReason = event.reason.describe(),
 								usage = usage,
+								suggestions = suggestions,
 							)
 						}
 						refreshContext()
@@ -3214,12 +3277,27 @@ class ChatViewModel(
 				runCatching {
 					publish(force = true)
 					var wroteRow = false
+					// The closing path may have seen only part of a suggestions
+					// block. Parse the final text once, store the answer without
+					// it, and never offer suggestions for a turn that failed or
+					// was stopped. Computed even when the round already wrote
+					// its row: the final UI update needs the same filtered text.
+					val parsed = if (advice) {
+						Advice.parse(currentText.toString())
+					} else {
+						AdviceResult(currentText.toString(), emptyList())
+					}
+					val text = parsed.visibleText
+					val reasoning = currentReasoning.toString()
+					val calls = currentCalls.values.toList()
+					val usage = currentUsage?.toUi(firstTokenAt, startedAt)
+					val suggestions = if (failure == null && !userStopped) {
+						parsed.suggestions
+					} else {
+						emptyList()
+					}
+					val hasPayload = text.isNotEmpty() || reasoning.isNotEmpty() || calls.isNotEmpty()
 					if (!currentPersisted) {
-						val text = currentText.toString()
-						val reasoning = currentReasoning.toString()
-						val calls = currentCalls.values.toList()
-						val usage = currentUsage?.toUi(firstTokenAt, startedAt)
-						val hasPayload = text.isNotEmpty() || reasoning.isNotEmpty() || calls.isNotEmpty()
 						withContext(NonCancellable) {
 							when {
 								hasPayload -> {
@@ -3306,10 +3384,14 @@ class ChatViewModel(
 						currentPersisted = true
 					}
 					replyDeltas.remove(id)?.close()
+					// The parts were published from the streaming filter; this
+					// restores a trailing sign-off after a closed block.
+					updateParts(id, currentReasoning.toString(), text, currentCalls.values.toList(), answerAfterCalls)
 					updateMessage(id) {
 						it.copy(
 							isStreaming = false,
 							error = it.error ?: failure ?: if (userStopped) STOPPED_MESSAGE else null,
+							suggestions = suggestions,
 						)
 					}
 					if (wroteRow) refreshContext()
@@ -4406,8 +4488,14 @@ class ChatViewModel(
 		calls: Map<Int, ToolCallUi>,
 		cursor: DeltaCursor,
 		answerAfterCalls: Boolean,
+		advice: Boolean,
 	) {
-		updateParts(id, reasoning.toString(), answer.toString(), calls.values.toList(), answerAfterCalls)
+		// Hide the suggestions block while it is arriving. The filtered string
+		// is monotonic -- once a character is visible it stays visible -- which
+		// is what `DeltaCursor` requires; the filter holds back only a trailing
+		// prefix of the marker.
+		val visible = if (advice) Advice.visible(answer.toString()) else answer.toString()
+		updateParts(id, reasoning.toString(), visible, calls.values.toList(), answerAfterCalls)
 
 		// Hand the *new* answer text to the incremental parser. Only the
 		// answer: reasoning is rendered as plain dimmed text in its own
@@ -4419,8 +4507,8 @@ class ChatViewModel(
 		// The channel carries accumulated snapshots, not slices; see
 		// replyDeltas. Sending the full answer is what makes a late first
 		// collector and an already-queued value safe to reconcile.
-		cursor.next(answer.toString())?.let { _ ->
-			replyDeltas[id]?.trySend(answer.toString())
+		cursor.next(visible)?.let { _ ->
+			replyDeltas[id]?.trySend(visible)
 		}
 	}
 

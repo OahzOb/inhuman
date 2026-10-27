@@ -365,6 +365,14 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   clones. Choosing an entry only fills the assistant's system-prompt field,
   which remains editable, and the assistant row keeps its own copy. Neither the
   title nor the text goes to diagnostics.
+- **Advice is a parse of the same answer, never a second call and never
+  consent.** The model appends a `<<<suggestions` block; `Advice.visible` hides
+  it while streaming (holding back a trailing marker prefix, monotonically) and
+  `Advice.parse` strips it before the row is written. Only a round with no tool
+  calls may set `ChatMessageUi.suggestions`, the list is cleared when the next
+  round starts, and it is not persisted. `useSuggestion` may only fill the
+  composer; it must never send, and a suggestion is not an approval or a grant.
+  The setting is a display preference, not a capability tier.
 - **A failure chunk must be `trySend`-ed *before* `close()`.** A chunk sent
   after the channel closes is dropped and the collector sees a clean end, so
   the failure becomes indistinguishable from "the model said nothing".

@@ -299,6 +299,8 @@
 	<string name="settings_layout_compact">Compact: single column, tighter spacing</string>
 	<string name="settings_layout_comfortable">Comfortable: wide shell and larger gutters</string>
 	<string name="settings_layout_body">Auto follows the current window, including rotation, split-screen and foldables. Compact forces one column on a tablet; Comfortable keeps the wide shell. This is a reading preference, not a screen-ratio selector.</string>
+	<string name="settings_advice_title">Suggest follow-ups</string>
+	<string name="settings_advice_body">After each answer, offer 2–3 follow-ups as chips. Choosing one fills the composer; it never sends, and it costs no extra request.</string>
 	<string name="settings_section_language">11 / Language</string>
 	<string name="settings_language_title">Language</string>
 	<string name="settings_language_chinese">中文</string>

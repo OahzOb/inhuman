@@ -142,6 +142,10 @@ Confirmed by `README.md:17-29` and by the code:
   assistant. The library is text the user wrote for assistants, not context:
   no tool reads or writes it, and choosing an entry only fills the prompt box,
   which stays editable ([04-data-persistence.md](04-data-persistence.md)).
+- Replies can end with two or three follow-up chips. Tapping one fills the
+  composer and never sends; the suggestions come from the same answer, with no
+  extra request, and the setting can turn them off
+  ([06-agent-loop-ui.md](06-agent-loop-ui.md)).
 - Answers can be retried. **Rewind** is the single restart control. **Answer
   again** keeps the tool **definitions** so the request prefix can still hit the
   context cache, but appends a transient system instruction forbidding a call;

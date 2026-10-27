@@ -497,6 +497,9 @@ private fun InhumanRoot(
 							)
 						},
 						workspaceToolsEnabled = { AppCapabilities.workspaceOk },
+						adviceEnabled = {
+							secure.get(SecureStore.KEY_ADVICE_ENABLED) != "0"
+						},
 						onTurnStatus = { status ->
 							TurnNotifications.update(context.applicationContext, status)
 						},

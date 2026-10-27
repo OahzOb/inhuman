@@ -283,6 +283,8 @@
 	<string name="settings_layout_compact">紧凑：单列布局，间距更小</string>
 	<string name="settings_layout_comfortable">舒适：宽布局，边距更大</string>
 	<string name="settings_layout_body">自动会跟随当前窗口，包括旋转、分屏和折叠屏。紧凑会在平板上强制单列；舒适会保留宽布局。这是阅读偏好，不是屏幕比例选择器。</string>
+	<string name="settings_advice_title">建议回复</string>
+	<string name="settings_advice_body">每条回答后给 2–3 个后续选项。点一下只填进输入框，不会自动发送，也不额外请求模型。</string>
 	<string name="settings_section_language">11 / 语言</string>
 	<string name="settings_language_title">语言</string>
 	<string name="settings_language_chinese">中文</string>

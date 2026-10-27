@@ -136,6 +136,7 @@ import com.inhuman.core.design.WideDialog
 import com.inhuman.core.design.WorkbenchGrid
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.ui.common.formatBytes
+import com.inhuman.ui.common.FlowRowCompat
 import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.RemoteBadge
 import com.inhuman.ui.common.RewindBadge
@@ -1334,6 +1335,7 @@ fun ChatScreen(
 								showRewindDialog = true
 							},
 							onRetry = viewModel::retryLastTurn,
+							onUseSuggestion = viewModel::useSuggestion,
 							// Both ids go up: the alternative being switched to is
 							// not on the active path, so the view model cannot find
 							// its parent by searching the transcript.
@@ -3219,6 +3221,7 @@ private fun MessageBubble(
 	onShowTurnWire: () -> Unit,
 	onShowRewind: () -> Unit,
 	onRetry: () -> Unit,
+	onUseSuggestion: (String) -> Unit,
 	onSelectBranch: (String?, String) -> Unit,
 ) {
 	val alignment = if (message.fromUser) Alignment.End else Alignment.Start
@@ -3519,6 +3522,26 @@ private fun MessageBubble(
 						strokeWidth = 2.dp,
 						color = MaterialTheme.colorScheme.primary,
 					)
+				}
+
+				// Follow-ups the model offered with this answer. They are chips,
+				// not a new kind of turn: a tap fills the composer through
+				// `useSuggestion`, and the Send button is still the user's.
+				if (!message.fromUser && !message.isStreaming && message.suggestions.isNotEmpty()) {
+					FlowRowCompat {
+						message.suggestions.forEach { suggestion ->
+							AssistChip(
+								onClick = { onUseSuggestion(suggestion) },
+								label = {
+									Text(
+										text = suggestion,
+										maxLines = 1,
+										overflow = TextOverflow.Ellipsis,
+									)
+								},
+							)
+						}
+					}
 				}
 			}
 		}

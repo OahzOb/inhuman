@@ -192,6 +192,16 @@ class SecureStore(
 		const val KEY_DEMO_MODE = "demo.mode"
 
 		/**
+		 * Whether the model is asked for follow-up suggestions.
+		 *
+		 * On unless stored as "0": the feature is a display preference, and
+		 * absence should mean the default, not the opt-out. Like demo mode it
+		 * is not a secret; it lives here only because this is the app's one
+		 * small key-value store.
+		 */
+		const val KEY_ADVICE_ENABLED = "chat.advice_enabled"
+
+		/**
 		 * Whether the SSH tool is available at all.
 		 *
 		 * Default off. This is the first of two gates: the assistant still has

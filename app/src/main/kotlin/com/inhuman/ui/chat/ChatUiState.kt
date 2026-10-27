@@ -354,6 +354,14 @@ data class ChatMessageUi(
 	val attachments: List<PendingAttachment> = emptyList(),
 	/** Files this turn changed, written after the turn; empty for reads. */
 	val changedFiles: List<WorkspaceChange> = emptyList(),
+	/**
+	 * Follow-ups the model offered with this answer.
+	 *
+	 * Deliberately transient: tapping one fills the composer, and a reopened
+	 * transcript has no composer context worth restoring them for. They are
+	 * stripped from the stored text, so they never reach a later request.
+	 */
+	val suggestions: List<String> = emptyList(),
 )
 
 /**

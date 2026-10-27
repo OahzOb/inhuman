@@ -105,6 +105,16 @@ class DemoProvider(
 				.any { it.role == Role.Tool } -> AFTER_TOOLS
 
 			else -> TEXT_ANSWER
+		} + if (
+			calls.isEmpty() &&
+			request.messages.any { it.role == Role.System && it.content.contains(ADVICE_MARKER) }
+		) {
+			// The demo has to be able to show the advice block, or the offline
+			// path cannot verify the feature that hides and parses it. This is
+			// the same shape the real instruction asks a model for.
+			"\n\n$ADVICE_MARKER\nContinue\nExplain the demo\n>>>"
+		} else {
+			""
 		}
 		for (piece in answer.split(" ")) {
 			emit(StreamChunk.TextDelta("$piece "))
@@ -208,12 +218,21 @@ class DemoProvider(
 	/** One call the script will make, as the name and the JSON it carries. */
 	private data class ScriptedCall(val name: String, val arguments: String)
 
-	private companion object {
+	internal companion object {
 		/** How much of an argument string arrives per chunk. */
 		const val ARGUMENT_FRAGMENT = 12
 
 		/** Put this in a message to get prose instead of a tool turn. */
 		const val PLAIN_MARKER = "plain"
+
+		/**
+		 * The opening marker of the follow-up block.
+		 *
+		 * Duplicated from the app's advice instruction because `:core:ai`
+		 * cannot see app code. The two strings are the contract; the parser in
+		 * `Advice.kt` is the other half.
+		 */
+		const val ADVICE_MARKER = "<<<suggestions"
 
 		/**
 		 * The file the script makes and then offers to delete.

@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -76,6 +77,30 @@ class DemoProviderTest {
 				argumentsJson = args[index]?.toString().orEmpty(),
 			)
 		}
+	}
+
+	@Test
+	fun `the demo appends the advice block only when the request asks for it`() = runTest {
+		val asked = request(
+			messages = listOf(
+				ChatMessage(Role.User, "plain"),
+				ChatMessage(
+					Role.System,
+					"After the final answer append:\n${DemoProvider.ADVICE_MARKER}\nContinue\n>>>",
+				),
+			),
+		)
+		val textAsked = noDelay.stream(asked).toList()
+			.filterIsInstance<StreamChunk.TextDelta>()
+			.joinToString("") { it.text }
+		assertTrue(textAsked.contains(DemoProvider.ADVICE_MARKER))
+		assertTrue(textAsked.contains("Continue"))
+
+		val plain = request(messages = listOf(ChatMessage(Role.User, "plain")))
+		val textPlain = noDelay.stream(plain).toList()
+			.filterIsInstance<StreamChunk.TextDelta>()
+			.joinToString("") { it.text }
+		assertFalse(textPlain.contains(DemoProvider.ADVICE_MARKER))
 	}
 
 	@Test

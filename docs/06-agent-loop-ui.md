@@ -525,6 +525,37 @@ A stopped turn is not an error banner: the partial answer keeps the
 It calls the same `regenerate()` path, so a deliberate Stop does not force the
 user to retype the message and does not re-run tools.
 
+### Follow-up suggestions
+
+When **Settings → Display → Suggest follow-ups** is on (the default),
+`runTurnWithEngine` appends a transient system instruction (`ADVICE_INSTRUCTION`)
+to the request. The model is asked to end its final answer with:
+
+```
+<<<suggestions
+Continue
+Explain the second point
+>>>
+```
+
+No second request and no tool definition are involved: advice is a few more
+lines of the same answer. `Advice.visible` hides the block while it streams and
+holds back a trailing prefix of the marker, so a marker split across deltas
+never flickers; the result is monotonic, which `DeltaCursor` requires.
+`Advice.parse` strips the block before the assistant row is written, keeps at
+most three suggestions, removes bullets/numbering, ignores an unclosed block,
+and keeps a sign-off that follows a closed block.
+
+Only a round with **no tool calls** may offer suggestions, even if the model
+ignored the instruction on a tool round: the turn is not finished, so there is
+nothing to offer yet. The list lives in `ChatMessageUi.suggestions`, is cleared
+when the next round starts, and is deliberately not persisted — a reopened
+transcript has no composer context worth restoring it for. Tapping a chip calls
+`useSuggestion`, which only fills the input; it never sends, and the Send button
+remains the user's act. Turning the setting off removes the instruction, so the
+answer is shorter and nothing else changes; it is a display preference, not a
+capability.
+
 ### Search and jump-to-message
 
 Home's search field searches conversation titles and user/assistant text through
