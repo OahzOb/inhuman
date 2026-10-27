@@ -107,10 +107,12 @@ private val chatMarkdownComponents = markdownComponents(
  *
  * ## Deliberately absent
  *
- * **No LaTeX.** The only viable Android renderer is JLaTeXMath; the licence is
- * not the obstacle (linking exception), but its fonts are GPLv2/OFL/Knuth and
- * shipping them means maintaining a `THIRD-PARTY-NOTICES` file. Rendering
- * `$x^2$` as literal text is worse than maths, and better than that upkeep.
+ * **No LaTeX yet.** It is planned (`docs/13-product.md`), not refused. The
+ * renderer's licence is not the obstacle (JLaTeXMath has a linking exception);
+ * the fonts are, because some are GPLv2, some OFL and some under the Knuth
+ * Licence, and shipping them means maintaining a `THIRD-PARTY-NOTICES` file.
+ * Rendering `$x^2$` as literal text is worse than maths, and better than that
+ * upkeep while it is unbuilt.
  * **No Mermaid** for weight rather than licence: it needs a JavaScript engine
  * in a WebView, and a WebView per diagram destroys scroll performance.
  */

@@ -597,10 +597,12 @@ which this setup does not use.
   gates the former behind justifications a chat app cannot honestly make. The
   user reaches a conversation's directory through the app's own `DocumentsProvider`
   and its import/export, which needs no such permission.
-- **Native Anthropic or Gemini protocol adapters are not implemented yet; they
-  are planned at lower priority.** Today, extra LLM providers are
-  OpenAI-compatible HTTPS profiles, chosen per assistant. A provider with a
-  different wire protocol needs a decoder, not just a base URL.
+- **Native Anthropic and Gemini adapters exist for text, images, tool calls and
+  usage; the rest of those protocols is planned.** Claude Pro/Max, ChatGPT,
+  Copilot and Kimi Code OAuth logins, OpenAI Responses, and thinking-signature
+  replay (Anthropic signed thinking blocks, Gemini thought signatures) are not
+  implemented. The replay needs an opaque provider-data field on the transcript
+  first; see [docs/01-overview.md](docs/01-overview.md).
 - **Remote connection details are not saved yet; saving them for convenience is
   planned.** It is not a security or privacy promise. Today the app has no host
   list and no credential store.
