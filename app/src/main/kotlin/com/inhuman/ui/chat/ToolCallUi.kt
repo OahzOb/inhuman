@@ -16,6 +16,8 @@ data class ToolCallUi(
 	val argumentsJson: String = "",
 	/** Gemini's opaque signature for this call, when the provider returned one. */
 	val thoughtSignature: String? = null,
+	/** OpenAI Responses' `fc_...` item id, when the provider returned one. */
+	val providerItemId: String? = null,
 	val state: State = State.Streaming,
 ) {
 	enum class State {

@@ -39,6 +39,14 @@ data class ToolCall(
 	 * travels with the call rather than in display state.
 	 */
 	val thoughtSignature: String? = null,
+	/**
+	 * OpenAI Responses' `fc_...` output-item id for this call.
+	 *
+	 * Distinct from [id], which is the `call_id` its result answers. A replayed
+	 * `function_call` input item must carry the item id; it is not derivable
+	 * from the call id.
+	 */
+	val providerItemId: String? = null,
 )
 
 /**
@@ -134,6 +142,16 @@ data class ChatMessage(
 	 * other provider and for turns recorded before signatures were stored.
 	 */
 	val reasoningSignature: String? = null,
+	/**
+	 * Opaque provider input items that must be replayed with this assistant
+	 * message.
+	 *
+	 * OpenAI Responses returns `reasoning` items carrying encrypted content when
+	 * `store=false`; a tool turn cannot continue without passing them back.
+	 * Stored as a JSON array of raw items so the app never parses provider
+	 * state; every other provider leaves it null.
+	 */
+	val providerState: String? = null,
 	/** Tool calls this assistant turn requested. */
 	val toolCalls: List<ToolCall> = emptyList(),
 	/**

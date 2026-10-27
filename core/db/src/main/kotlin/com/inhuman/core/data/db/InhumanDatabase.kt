@@ -567,13 +567,13 @@ interface SavedPromptDao {
 	],
 	// Bumped when columns were added for tool calls, again for measured
 	// latency, again for assistants, again for the approval rules, again for
-	// the approval audit, again for the saved-prompt library, and again for the
-	// Anthropic thinking signature. Room refuses to open a database whose
-	// schema hash does not match rather than guessing, which is how each was
-	// caught: the app crashed on launch with "Looks like you've changed schema
-	// but forgot to update the version number" instead of quietly losing
-	// conversations.
-	version = 17,
+	// the approval audit, again for the saved-prompt library, again for the
+	// Anthropic thinking signature, and again for OpenAI Responses provider
+	// state. Room refuses to open a database whose schema hash does not match
+	// rather than guessing, which is how each was caught: the app crashed on
+	// launch with "Looks like you've changed schema but forgot to update the
+	// version number" instead of quietly losing conversations.
+	version = 18,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -591,7 +591,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 		const val NAME = "inhuman.db"
 
 		/** Mirrors the Room annotation; backups record it without reflection. */
-		const val VERSION = 17
+		const val VERSION = 18
 
 		/**
 		 * 1 -> 2: tool-call columns.
@@ -1004,6 +1004,19 @@ abstract class InhumanDatabase : RoomDatabase() {
 		}
 
 		/**
+		 * 17 -> 18: opaque provider input state for OpenAI Responses.
+		 *
+		 * Nullable and additive. It is a JSON array of raw reasoning items; an
+		 * old row reads back null, and the Responses adapter simply replays no
+		 * state for it.
+		 */
+		val MIGRATION_17_18 = object : Migration(17, 18) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL("ALTER TABLE messages ADD COLUMN providerState TEXT")
+			}
+		}
+
+		/**
 		 * Every migration, in order.
 		 *
 		 * A host that builds the database itself must not copy this list. The
@@ -1029,6 +1042,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 			MIGRATION_14_15,
 			MIGRATION_15_16,
 			MIGRATION_16_17,
+			MIGRATION_17_18,
 		)
 
 		/**

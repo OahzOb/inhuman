@@ -20,10 +20,10 @@ Both hosts install the same `InhumanDatabase.MIGRATIONS` and
 `BundledSQLiteDriver`. The callback seeds the DeepSeek provider and the default
 assistant on create, so a desktop install is not a second, empty schema.
 
-## The schema, version 17
+## The schema, version 18
 
 `InhumanDatabase` (`core/db/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 17`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 18`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/db/schemas/` by KSP — configured in `core/db/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
@@ -47,6 +47,16 @@ replaying the block without it is rejected. Tool-call signatures (Gemini's
 `thoughtSignature`) live inside `toolCallsJson` per call rather than in a
 separate column, since they belong to the call records and the column is shared
 with the desktop host.
+
+### `messages.providerState` — added in 17→18
+
+A JSON array of opaque provider input items that belong to one assistant row.
+OpenAI Responses with `store=false` returns reasoning items whose
+`encrypted_content` must be passed back to continue a tool turn; the adapter
+writes those raw items here and replays them before the row's function calls
+when reasoning is enabled. The column is nullable and never interpreted by the
+app: Anthropic and Gemini use their own typed fields, and an old row has no
+state. It is not displayed and not logged.
 
 ### `saved_prompts` — added in 15→16
 
@@ -298,7 +308,7 @@ the messages explicitly before the row **even though the FK cascades** — the
 comment says that keeps the behaviour obvious if the cascade is ever switched
 off (`:496-502`).
 
-## Migration history 1 → 17
+## Migration history 1 → 18
 
 All hand-written. There is **no `fallbackToDestructiveMigration` anywhere** and
 the reason is stated at `MIGRATION_1_2`: it would delete every conversation on
@@ -328,6 +338,7 @@ order below.
 | 14→15 | `approval_audit` created, empty: an install that never sees a prompt has nothing to show, and an upgraded one has no old questions to import. The table has one index `(conversationId, askedAt)`, for the history dialogue, and a cascade on the conversation. |
 | 15→16 | `saved_prompts` created, empty, with a unique index on `title`. No existing row is interpreted; an install that never saves a prompt keeps a table nobody reads. |
 | 16→17 | `messages.reasoningSignature` added, nullable. Old rows read as null, which the Anthropic adapter treats as "do not enable thinking on this history"; an empty string would look like a signature and produce a 400. |
+| 17→18 | `messages.providerState` added, nullable: a JSON array of opaque OpenAI Responses reasoning items. It is additive, never interpreted by the app, and null on every old row and every other provider. |
 
 The 7→8 comment records a product change that is *not* in the migration:
 deletion no longer asks for approval, and that lives in `DeleteFileTool`, not

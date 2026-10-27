@@ -32,6 +32,7 @@ class ProviderCatalogTest {
 			ProviderFactory.ANTHROPIC_MESSAGES,
 			ProviderFactory.GOOGLE_GENERATIVE_AI,
 			ProviderFactory.QWEN_TOKEN_PLAN_CN,
+			ProviderFactory.OPENAI_RESPONSES,
 		)
 		ProviderCatalog.known.forEach { provider ->
 			assertTrue(provider.name, provider.kind in kinds)
@@ -51,6 +52,10 @@ class ProviderCatalogTest {
 		assertEquals(
 			ProviderFactory.OPENAI_CHAT,
 			ProviderCatalog.byId("openai")?.kind,
+		)
+		assertEquals(
+			ProviderFactory.OPENAI_RESPONSES,
+			ProviderCatalog.byId("openai-responses")?.kind,
 		)
 	}
 }

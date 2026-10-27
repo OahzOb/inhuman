@@ -23,6 +23,8 @@ object ProviderKinds {
 	const val ANTHROPIC_MESSAGES = "anthropic-messages"
 	/** Google Generative AI wire API (`generateContent` / `streamGenerateContent`). */
 	const val GOOGLE_GENERATIVE_AI = "google-generative-ai"
+	/** OpenAI's Responses API (`/v1/responses`, typed input items). */
+	const val OPENAI_RESPONSES = "openai-responses"
 }
 
 object ProviderReasoning {
@@ -396,6 +398,14 @@ data class MessageEntity(
 	 * this field existed, has no signature.
 	 */
 	val reasoningSignature: String? = null,
+	/**
+	 * Opaque provider input items to replay with this assistant message.
+	 *
+	 * OpenAI Responses reasoning items carry encrypted content that a tool turn
+	 * must pass back. Stored as JSON for the adapter that produced it; no other
+	 * part of the app interprets it.
+	 */
+	val providerState: String? = null,
 	val model: String? = null,
 	val finishReason: String? = null,
 	val createdAt: Long,

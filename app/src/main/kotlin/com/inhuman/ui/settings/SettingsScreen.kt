@@ -1469,6 +1469,19 @@ private fun ProviderEditorDialog(
 						},
 						label = { Text("Google Gemini") },
 					)
+					FilterChip(
+						selected = draft.kind == ProviderKinds.OPENAI_RESPONSES,
+						onClick = {
+							onUpdate {
+								it.copy(
+									kind = ProviderKinds.OPENAI_RESPONSES,
+									baseUrl = if (it.isNew) "https://api.openai.com/v1" else it.baseUrl,
+									reasoningMode = ProviderReasoning.NONE,
+								)
+							}
+						},
+						label = { Text("OpenAI Responses") },
+					)
 				}
 				OutlinedTextField(
 					value = draft.baseUrl,

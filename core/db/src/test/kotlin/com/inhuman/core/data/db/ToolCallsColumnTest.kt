@@ -26,6 +26,7 @@ class ToolCallsColumnTest {
 				name = "write_file",
 				argumentsJson = """{"path":"a b.txt","content":"line one\nline two"}""",
 				thoughtSignature = "opaque-signature",
+				providerItemId = "fc_1",
 			),
 		)
 

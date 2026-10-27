@@ -87,8 +87,8 @@ Confirmed by `README.md:17-29` and by the code:
   separate Qwen-compatible endpoint and key. A missing or unsupported backend
   leaves that tool absent rather than failing at call time.
 - Chat runs against a provider profile: the built-in DeepSeek endpoint, a
-  custom OpenAI-compatible HTTPS endpoint, Anthropic Messages, or Google
-  Gemini. Each assistant chooses a profile, and a conversation copies it at
+  custom OpenAI-compatible HTTPS endpoint, Anthropic Messages, Google Gemini, or
+  OpenAI Responses. Each assistant chooses a profile, and a conversation copies it at
   creation; model lists and keys are per provider. The conversation's model
   dialog can switch provider later. That switch is local to the conversation,
   clears model/effort/thinking, and leaves the assistant unchanged.
@@ -215,13 +215,15 @@ notes below explain what is still absent.
 - **No Linux desktop build.** Windows x64 is the desktop target; Linux packaging
   is not built or verified (see [12-desktop.md](12-desktop.md)).
 - **No `MANAGE_EXTERNAL_STORAGE`**, and no `READ/WRITE_EXTERNAL_STORAGE`.
-- **Native Anthropic/Gemini basics and thinking-signature replay exist; OpenAI
-  Responses and OAuth plan login do not.** The Anthropic Messages adapter keeps
-  the signed thinking block and replays it while thinking is enabled; Gemini
-  keeps per-call `thoughtSignature`s. A history with an unsigned old turn falls
-  back to thinking-off rather than a 400. Neither is verified against a real
-  account here (that needs a key). Claude Pro/Max, ChatGPT, Copilot and Kimi Code
-  OAuth are not implemented.
+- **Native Anthropic/Gemini basics, thinking-signature replay and OpenAI
+  Responses exist; OAuth plan login does not.** The Anthropic Messages adapter
+  keeps the signed thinking block and replays it while thinking is enabled;
+  Gemini keeps per-call `thoughtSignature`s. A history with an unsigned old turn
+  falls back to thinking-off rather than a 400. The Responses adapter sends typed
+  input items with `store=false`, requests encrypted reasoning when thinking is
+  on, and replays the opaque reasoning items before the earlier call. None is
+  verified against a real account here (that needs a key). Claude
+  Pro/Max, ChatGPT, Copilot and Kimi Code OAuth are not implemented.
 
 Two more that are stated as behaviour rather than as policy:
 

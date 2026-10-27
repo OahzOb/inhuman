@@ -408,23 +408,25 @@ Two more decoder details that are easy to lose in a refactor:
   something the decoder does not guarantee (`DeepSeekStreamDecoder.kt:57-62`,
   `164-172`).
 
-## Native Anthropic and Gemini adapters
+## Native Anthropic, Gemini and Responses adapters
 
 `ProviderFactory` (`ProviderFactory.kt`) maps the stored profile kind to one of
-three wire implementations:
+four wire implementations:
 
 | `provider_profiles.kind` | Adapter | Wire |
 | --- | --- | --- |
 | `deepseek`, `openai-compatible` | `DeepSeekProvider` | OpenAI Chat Completions |
 | `anthropic-messages` | `AnthropicProvider` | Anthropic Messages |
 | `google-generative-ai` | `GeminiProvider` | Gemini `generateContent` |
+| `openai-responses` | `OpenAiResponsesProvider` | OpenAI Responses |
 
 The database column stays a string so old profiles remain readable; no schema
-migration was needed for the two new kinds. The provider editor exposes the four
-choices as chips and sets the default base URL for each.
+migration was needed for the new kinds. The provider editor exposes the choices
+as chips and sets the default base URL for each.
 
 **Known providers** (`provider/ProviderCatalog.kt`) are the Pi-style shortcut:
-Anthropic, Google Gemini, OpenAI, Z.AI Coding (global/China), Qwen Token Plan
+Anthropic, Google Gemini, OpenAI (Chat Completions), OpenAI (Responses API),
+Z.AI Coding (global/China), Qwen Token Plan
 (global/China), Xiaomi MiMo and Token Plan, Kimi For Coding, MiniMax
 (global/China), OpenRouter, Groq, Mistral, Cerebras and xAI. Picking one fills
 the kind and base URL and asks only for the API key. "Customize endpoint" reveals
@@ -460,6 +462,24 @@ thought text part is stored on the message but not replayed. A conversation
 recorded before this field existed has no signature to echo; continuing such a
 Gemini tool turn may be rejected by the API, and the remedy is a new
 conversation. Not verified against a real Gemini account, which needs a key.
+
+**OpenAI Responses** (`provider/openai/`): `POST /v1/responses` with Bearer
+authentication. `instructions` carries the system prompt; `input` is a list of
+typed items (`message` with `input_text` / `input_image`, assistant `output_text`,
+`function_call` with `call_id`, `function_call_output`). The adapter sends
+`store = false` and never depends on `previous_response_id`: the app keeps the
+transcript, as it does for every other provider. The stream is decoded from
+`response.output_text.delta`, `response.function_call_arguments.delta` /
+`response.output_item.*` and `response.completed`, with the same start/delta/end
+neutral chunks. Function calls are mapped through their opaque `item_id` to a
+stable call index. Reasoning is requested when the assistant's thinking toggle or
+an effort level asks for it, with `include: ["reasoning.encrypted_content"]`;
+completed reasoning items are persisted as opaque `providerState` and replayed
+before the earlier call when reasoning is enabled, because `store = false`
+otherwise leaves a tool turn with nothing to continue from. Reasoning text is
+displayed as the summary; the encrypted content is never parsed or logged.
+`temperature` is omitted while reasoning is enabled. Old rows have no state to
+replay. Not verified against a real OpenAI account, which needs a key.
 
 **Qwen Token Plan** is the first capability bundle rather than one chat
 adapter. One `sk-sp-…` key serves several API families under
@@ -562,16 +582,18 @@ validated locally before the same `systemone` call.
 mp3/wav/opus through `WorkspaceTransfer`, then runs the same ASR call and shows
 the transcript; the file is left in `attachments/` and can be deleted normally.
 
-**Not implemented yet:** OpenAI Responses, OAuth subscription login
-(Claude Pro/Max, ChatGPT, Copilot, Kimi Code), custom per-provider headers, and
-managed Azure/Bedrock/Vertex credentials. `ProviderKinds.OPENAI_COMPATIBLE`
-still covers most API-key plans (ZAI, Qwen, Xiaomi, Kimi, OpenCode) when the
-base URL and key are entered manually.
+**Not implemented yet:** OAuth subscription login (Claude Pro/Max, ChatGPT,
+Copilot, Kimi Code), custom per-provider headers, and managed
+Azure/Bedrock/Vertex credentials. `ProviderKinds.OPENAI_COMPATIBLE` still covers
+most API-key plans (ZAI, Qwen, Xiaomi, Kimi, OpenCode) when the base URL and key
+are entered manually.
 
 Tests: `AnthropicMessagesTest` and `GeminiMessagesTest` pin request mapping,
 text/tool SSE decoding, usage, the tool block index, the signed-thinking block
-and the Gemini thought-signature round trip. `ChatEngineTest` checks that a
-signature streamed by a provider reaches the assistant message and the next
+and the Gemini thought-signature round trip. `OpenAiResponsesMessagesTest` pins
+the typed input items, the Responses event set, the reasoning parameter and the
+opaque provider-state replay. `ChatEngineTest` checks that a signature and
+provider state streamed by a provider reach the assistant message and the next
 request. `QwenTokenPlanLiveTest` verifies the real Qwen image and decision
 endpoints when its key is present. They are offline by default; no key is
 needed.

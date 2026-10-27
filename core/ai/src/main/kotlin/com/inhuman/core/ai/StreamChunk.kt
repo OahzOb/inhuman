@@ -73,6 +73,14 @@ sealed interface StreamChunk {
 		val index: Int,
 		val id: String? = null,
 		val name: String? = null,
+		/**
+		 * The provider's output-item id, when it has one distinct from [id].
+		 *
+		 * OpenAI Responses calls the item `fc_...` and the argument reference
+		 * `call_...`; a replayed `function_call` input item must carry the
+		 * former. Other providers leave this null.
+		 */
+		val itemId: String? = null,
 	) : StreamChunk
 
 	/**
@@ -103,6 +111,15 @@ sealed interface StreamChunk {
 	 * calls with different signatures.
 	 */
 	data class ToolCallSignature(val index: Int, val signature: String) : StreamChunk
+
+	/**
+	 * One opaque provider input item to replay with this assistant message.
+	 *
+	 * OpenAI Responses emits these when a reasoning item completes; the engine
+	 * collects them into [ChatMessage.providerState]. The app does not inspect
+	 * the JSON.
+	 */
+	data class ProviderState(val json: String) : StreamChunk
 
 	/** Token accounting, when the provider reports it. */
 	data class Usage(

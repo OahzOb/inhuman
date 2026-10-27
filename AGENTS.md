@@ -17,7 +17,7 @@ than implementation; the old feasibility studies are archived under
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
 | `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the per-tool media backends (image/video/speech/transcription/decision)**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)**, and the user-set `SshLimits` ceilings |
-| `docs/04-data-persistence.md` | Room schema v17, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup |
+| `docs/04-data-persistence.md` | Room schema v18, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the eight file tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
@@ -401,6 +401,14 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   rather than producing a 400; do not "fix" that by sending an empty signature.
   Signatures are opaque provider data: do not log them, parse them, or include
   them in prompts.
+- **OpenAI Responses reasoning state is opaque and replayed only with reasoning.**
+  The adapter sends typed input items with `store=false`, requests
+  `reasoning.encrypted_content` when thinking or an effort level is set, stores
+  completed reasoning items in `messages.providerState` (a JSON array of raw
+  items), and replays them before the earlier function call only when the next
+  request also enables reasoning. Never parse, display or log
+  `encrypted_content`; never send reasoning items on a non-reasoning request.
+  The transcript stays local; do not replace this with `previous_response_id`.
 - **A failure chunk must be `trySend`-ed *before* `close()`.** A chunk sent
   after the channel closes is dropped and the collector sees a clean end, so
   the failure becomes indistinguishable from "the model said nothing".

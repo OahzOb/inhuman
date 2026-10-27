@@ -288,6 +288,8 @@ data class ChatMessageUi(
 	val reasoningText: String = "",
 	/** Anthropic's opaque signature for [reasoningText], when one was stored. */
 	val reasoningSignature: String? = null,
+	/** OpenAI Responses input items to replay, as opaque JSON. */
+	val providerState: String? = null,
 	val isStreaming: Boolean = false,
 	/**
 	 * The deltas this reply is still arriving in, or null once it is complete.

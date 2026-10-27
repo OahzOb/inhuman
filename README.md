@@ -594,12 +594,14 @@ which this setup does not use.
   gates the former behind justifications a chat app cannot honestly make. The
   user reaches a conversation's directory through the app's own `DocumentsProvider`
   and its import/export, which needs no such permission.
-- **Native Anthropic and Gemini adapters exist for text, images, tool calls,
-  usage and thinking-signature replay.** Anthropic's signed thinking block and
-  Gemini's per-call `thoughtSignature` are persisted and replayed; an unsigned
-  old history falls back to thinking-off instead of a 400. Neither has been
-  verified against a real account here. Claude Pro/Max, ChatGPT, Copilot and
-  Kimi Code OAuth logins, and OpenAI Responses, are still planned.
+- **Native Anthropic, Gemini and OpenAI Responses adapters exist for text,
+  images, tool calls and usage.** Anthropic's signed thinking block and Gemini's
+  per-call `thoughtSignature` are persisted and replayed; an unsigned old history
+  falls back to thinking-off instead of a 400. Responses uses typed input items
+  with `store=false` and persists opaque encrypted reasoning items for replay
+  when reasoning is enabled. None of the three has been verified against a real
+  account here. Claude Pro/Max, ChatGPT, Copilot and Kimi Code OAuth logins are
+  still planned.
 - **Remote connection details are not saved yet; saving them for convenience is
   planned.** It is not a security or privacy promise. Today the app has no host
   list and no credential store.

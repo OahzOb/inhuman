@@ -27,8 +27,8 @@ not; `AGENTS.md` states the non-negotiable working rules. These files explain
 | --- | --- |
 | [01-overview.md](01-overview.md) | What this is, which module holds what, what the app does today, what is deliberately missing |
 | [02-architecture.md](02-architecture.md) | Module graph, dependency rule, start-up wiring, navigation, build toolchain, build/verify commands |
-| [03-ai-provider.md](03-ai-provider.md) | Provider interface and stream types, provider profiles, OpenAI-compatible adapter, SSE, demo mode, paid web tools, SSH tools and limits |
-| [04-data-persistence.md](04-data-persistence.md) | Room schema v17 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
+| [03-ai-provider.md](03-ai-provider.md) | Provider interface and stream types, provider profiles, OpenAI-compatible / Anthropic / Gemini / Responses adapters, SSE, demo mode, paid web tools, SSH tools and limits |
+| [04-data-persistence.md](04-data-persistence.md) | Room schema v18 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | Turn lifecycle, tool execution, approval gate, cancellation, context gauge, Compose layout |
 | [07-gotchas.md](07-gotchas.md) | Load-bearing invariants, and mistakes that already cost someone a day |
@@ -96,7 +96,7 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 Latest run (2026-10-27, through `tools/ci.ps1`):
 
 ```
-BUILD SUCCESSFUL, 683 tests in 101 suites, 0 failures, 4 skipped
+BUILD SUCCESSFUL, 690 tests in 102 suites, 0 failures, 4 skipped
 warnings 0, errors 0
 ```
 
@@ -109,7 +109,7 @@ The skips are external-credential live tests: `DeepSeekWebLiveTest`,
 
 | Module | Suites | Tests |
 | --- | --- | --- |
-| `:core:ai` | 38 | 294 (3 skipped) |
+| `:core:ai` | 39 | 301 (3 skipped) |
 | `:core:files` | 8 | 72 |
 | `:app` | 29 | 211 |
 | `:core:common` | 2 | 16 |
@@ -180,6 +180,7 @@ repository root; `…/` stands for `src/main/kotlin/com/inhuman/`.
 | Follow-up suggestions (the advice block) | `app/…/ui/chat/Advice.kt`, `ChatViewModel.kt`, `ChatScreen.kt` |
 | The backup reminder | `app/…/ui/backup/BackupReminder.kt`, `MainActivity.kt`, `ui/settings/SettingsScreen.kt` |
 | LaTeX rendering (rewrite + transformer) | `app/…/ui/chat/LatexMarkdown.kt`, `MathImageTransformer.kt` |
+| OpenAI Responses (typed items, reasoning state) | `core/ai/…/provider/openai/`, `messages.providerState` |
 | Thinking / thought signature replay | `core/db/…/MessageEntity.kt`, `ToolCallsColumn.kt`; `core/ai/provider/anthropic/AnthropicMessages.kt`, `gemini/GeminiMessages.kt` |
 | Third-party licences and font notices | `app/src/main/assets/THIRD-PARTY-NOTICES.md` |
 | The startup fence check; what a failure removes | `core/files/…/WorkspaceSelfCheck.kt`, `app/…/AppCapabilities.kt` |

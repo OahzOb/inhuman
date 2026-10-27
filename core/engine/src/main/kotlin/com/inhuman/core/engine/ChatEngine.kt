@@ -55,6 +55,7 @@ class ChatEngine(
 			var usage: EngineUsage? = null
 
 			var reasoningSignature: String? = null
+			val providerStates = mutableListOf<String>()
 
 			val request = ChatRequest(
 				model = turn.model,
@@ -82,6 +83,7 @@ class ChatEngine(
 						is StreamChunk.ToolCallStart -> {
 							builders.getOrPut(chunk.index) { CallBuilder(chunk.index) }.apply {
 								id = chunk.id ?: id
+								itemId = chunk.itemId ?: itemId
 								if (chunk.name != null) name.append(chunk.name)
 							}
 						}
@@ -99,6 +101,8 @@ class ChatEngine(
 							builders.getOrPut(chunk.index) { CallBuilder(chunk.index) }
 								.signature = chunk.signature
 						}
+
+						is StreamChunk.ProviderState -> providerStates += chunk.json
 
 						is StreamChunk.ToolCallEnd -> Unit
 
@@ -150,8 +154,16 @@ class ChatEngine(
 				content = text.toString(),
 				reasoning = reasoning.toString().ifBlank { null },
 				reasoningSignature = reasoningSignature,
+				providerState = providerStates.takeIf { it.isNotEmpty() }
+					?.joinToString(prefix = "[", separator = ",", postfix = "]"),
 				toolCalls = calls.map {
-					ToolCall(it.id, it.name, it.argumentsJson, it.thoughtSignature)
+					ToolCall(
+						it.id,
+						it.name,
+						it.argumentsJson,
+						it.thoughtSignature,
+						it.providerItemId,
+					)
 				},
 			)
 			history += assistant
@@ -306,6 +318,7 @@ data class EngineToolCall(
 	val name: String,
 	val argumentsJson: String,
 	val thoughtSignature: String? = null,
+	val providerItemId: String? = null,
 )
 
 data class EngineUsage(
@@ -404,6 +417,7 @@ private class CallBuilder(val index: Int) {
 	val name = StringBuilder()
 	val arguments = StringBuilder()
 	var signature: String? = null
+	var itemId: String? = null
 
 	fun toCall(round: Int) = EngineToolCall(
 		index = index,
@@ -411,5 +425,6 @@ private class CallBuilder(val index: Int) {
 		name = name.toString(),
 		argumentsJson = arguments.toString(),
 		thoughtSignature = signature,
+		providerItemId = itemId,
 	)
 }

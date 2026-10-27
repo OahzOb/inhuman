@@ -260,10 +260,12 @@ class ChatEngineTest {
 		val assistant = events.filterIsInstance<EngineEvent.AssistantMessage>().first().message
 		assertEquals("think-sig", assistant.reasoningSignature)
 		assertEquals("call-sig", assistant.toolCalls.single().thoughtSignature)
+		assertTrue(assistant.providerState?.contains("sealed-state") == true)
 
 		val sentBack = provider.secondRequest?.messages?.firstOrNull { it.role == Role.Assistant }
 		assertEquals("think-sig", sentBack?.reasoningSignature)
 		assertEquals("call-sig", sentBack?.toolCalls?.single()?.thoughtSignature)
+		assertTrue(sentBack?.providerState?.contains("sealed-state") == true)
 	}
 
 	/** Emits one signed call, then captures the request that replayed it. */
@@ -278,6 +280,7 @@ class ChatEngineTest {
 				emit(StreamChunk.ReasoningStart())
 				emit(StreamChunk.ReasoningDelta("thinking"))
 				emit(StreamChunk.ReasoningSignature("think-sig"))
+				emit(StreamChunk.ProviderState("""{"type":"reasoning","encrypted_content":"sealed-state"}"""))
 				emit(StreamChunk.ReasoningEnd())
 				emit(StreamChunk.ToolCallStart(0, "call-1", toolName))
 				emit(StreamChunk.ToolCallDelta(0, inputDelta = "{}"))

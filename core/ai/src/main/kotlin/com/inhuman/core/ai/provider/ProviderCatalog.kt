@@ -41,6 +41,12 @@ object ProviderCatalog {
 			baseUrl = "https://api.openai.com/v1",
 		),
 		KnownProvider(
+			id = "openai-responses",
+			name = "OpenAI (Responses API)",
+			kind = ProviderFactory.OPENAI_RESPONSES,
+			baseUrl = "https://api.openai.com/v1",
+		),
+		KnownProvider(
 			id = "zai",
 			name = "Z.AI Coding Plan",
 			kind = ProviderFactory.OPENAI_CHAT,

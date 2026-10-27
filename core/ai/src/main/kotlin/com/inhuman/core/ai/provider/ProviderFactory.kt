@@ -4,6 +4,7 @@ import com.inhuman.core.ai.ChatProvider
 import com.inhuman.core.ai.provider.anthropic.AnthropicProvider
 import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
 import com.inhuman.core.ai.provider.gemini.GeminiProvider
+import com.inhuman.core.ai.provider.openai.OpenAiResponsesProvider
 
 /**
  * Maps a stored profile kind to its wire adapter.
@@ -17,6 +18,7 @@ object ProviderFactory {
 	const val OPENAI_CHAT = "openai-chat"
 	const val ANTHROPIC_MESSAGES = "anthropic-messages"
 	const val GOOGLE_GENERATIVE_AI = "google-generative-ai"
+	const val OPENAI_RESPONSES = "openai-responses"
 	/** One key for chat, image, video, decision and speech. */
 	const val QWEN_TOKEN_PLAN_CN = "qwen-token-plan-cn"
 
@@ -34,6 +36,11 @@ object ProviderFactory {
 			id = id,
 		)
 		GOOGLE_GENERATIVE_AI -> GeminiProvider(
+			apiKey = apiKey,
+			baseUrl = baseUrl.trimEnd('/'),
+			id = id,
+		)
+		OPENAI_RESPONSES -> OpenAiResponsesProvider(
 			apiKey = apiKey,
 			baseUrl = baseUrl.trimEnd('/'),
 			id = id,

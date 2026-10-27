@@ -57,6 +57,8 @@ class CurrentSchemaMigrationTest {
 			// v17 added messages.reasoningSignature; the column exists and old
 			// rows are readable with null.
 			assertTrue(db.messages().all("none").isEmpty())
+			// v18 added messages.providerState; same additive shape.
+			assertTrue(db.messages().all("none").isEmpty())
 		} finally {
 			db.close()
 		}
