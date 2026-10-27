@@ -15,6 +15,9 @@ import com.inhuman.core.ai.provider.openai.OpenAiResponsesProvider
  */
 object ProviderFactory {
 
+	/** How the credential is presented. OAuth uses a bearer access token. */
+	enum class Auth { ApiKey, OAuth }
+
 	const val OPENAI_CHAT = "openai-chat"
 	const val ANTHROPIC_MESSAGES = "anthropic-messages"
 	const val GOOGLE_GENERATIVE_AI = "google-generative-ai"
@@ -29,16 +32,19 @@ object ProviderFactory {
 		id: String,
 		reasoningMode: String,
 		includeStreamUsage: Boolean,
+		auth: Auth = Auth.ApiKey,
 	): ChatProvider = when (kind) {
 		ANTHROPIC_MESSAGES -> AnthropicProvider(
 			apiKey = apiKey,
 			baseUrl = baseUrl.trimEnd('/'),
 			id = id,
+			auth = auth,
 		)
 		GOOGLE_GENERATIVE_AI -> GeminiProvider(
 			apiKey = apiKey,
 			baseUrl = baseUrl.trimEnd('/'),
 			id = id,
+			auth = auth,
 		)
 		OPENAI_RESPONSES -> OpenAiResponsesProvider(
 			apiKey = apiKey,

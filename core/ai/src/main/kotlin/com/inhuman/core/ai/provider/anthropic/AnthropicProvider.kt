@@ -4,6 +4,7 @@ import com.inhuman.core.ai.ChatProvider
 import com.inhuman.core.ai.ChatRequest
 import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.ai.StreamChunk
+import com.inhuman.core.ai.provider.ProviderFactory
 import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
 import com.inhuman.core.ai.stream.SseParser
 import com.inhuman.core.common.diag.Diag
@@ -34,22 +35,32 @@ import java.io.IOException
 /**
  * Anthropic Messages provider.
  *
- * Authentication is `x-api-key` plus the version header; a proxy that expects a
- * bearer token should use the OpenAI-compatible adapter instead until a generic
- * header field exists.
+ * API keys use `x-api-key`; an OAuth access token uses `Authorization: Bearer`
+ * plus the beta header Anthropic requires for subscription tokens. The two are
+ * separate credentials and the caller names which one it holds.
  */
 class AnthropicProvider(
 	private val apiKey: String,
 	private val baseUrl: String,
 	override val id: String,
+	private val auth: ProviderFactory.Auth = ProviderFactory.Auth.ApiKey,
 	private val client: OkHttpClient = DeepSeekProvider.shared,
 ) : ChatProvider {
+
+	private fun Request.Builder.authenticate(): Request.Builder = apply {
+		header("anthropic-version", AnthropicWire.API_VERSION)
+		if (auth == ProviderFactory.Auth.OAuth) {
+			header("Authorization", "Bearer $apiKey")
+			header("anthropic-beta", "oauth-2025-04-20")
+		} else {
+			header("x-api-key", apiKey)
+		}
+	}
 
 	override suspend fun listModels(): List<RemoteModel> = withContext(Dispatchers.IO) {
 		val request = Request.Builder()
 			.url(AnthropicWire.endpoint(baseUrl, "/models?limit=100"))
-			.header("x-api-key", apiKey)
-			.header("anthropic-version", AnthropicWire.API_VERSION)
+			.authenticate()
 			.header("Accept", "application/json")
 			.build()
 		client.newCall(request).execute().use { response ->
@@ -75,8 +86,7 @@ class AnthropicProvider(
 		val body = AnthropicWire.requestBody(request).toString()
 		val httpRequest = Request.Builder()
 			.url(AnthropicWire.endpoint(baseUrl, "/messages"))
-			.header("x-api-key", apiKey)
-			.header("anthropic-version", AnthropicWire.API_VERSION)
+			.authenticate()
 			.header("Accept", "text/event-stream")
 			.header("Content-Type", "application/json")
 			.post(body.toRequestBody(JSON_MEDIA_TYPE))

@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -91,7 +92,9 @@ import com.inhuman.core.ai.provider.ProviderCatalog
 import com.inhuman.core.ai.provider.ProviderFactory
 import com.inhuman.diagnostics.AppDiagnostics
 import com.inhuman.updates.UpdateInfo
+import com.inhuman.core.ai.oauth.OAuthProtocol
 import com.inhuman.ui.chat.ProviderDraft
+import com.inhuman.ui.chat.OAuthLoginUi
 import com.inhuman.ui.chat.SettingsViewModel
 import com.inhuman.ui.chat.MediaCapability
 import com.inhuman.ui.chat.MediaMode
@@ -119,9 +122,17 @@ fun SettingsScreen(
 	/** Open with the backup section expanded, for the home reminder's action. */
 	startBackup: Boolean = false,
 	onBackupStarted: () -> Unit = {},
+	/** An `inhuman://oauth` callback delivered by the activity. */
+	oauthCallback: String? = null,
+	onOAuthConsumed: () -> Unit = {},
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	val context = LocalContext.current
+	LaunchedEffect(oauthCallback) {
+		val callback = oauthCallback ?: return@LaunchedEffect
+		viewModel.completeOAuth(callback)
+		onOAuthConsumed()
+	}
 	LaunchedEffect(startBackup) {
 		if (startBackup) onBackupStarted()
 	}
@@ -227,6 +238,9 @@ fun SettingsScreen(
 						baseUrl = provider.baseUrl,
 						hasKey = viewModel.hasProviderKey(provider.id),
 						onClick = { viewModel.editProvider(provider) },
+						onOAuth = if (provider.isBuiltIn) null else {
+							{ viewModel.openOAuth(provider) }
+						},
 					)
 					Hairline()
 				}
@@ -1151,6 +1165,17 @@ fun SettingsScreen(
 		)
 	}
 
+	state.oauthLogin?.let { login ->
+		OAuthLoginDialog(
+			ui = login,
+			onUpdate = viewModel::updateOAuthLogin,
+			onBegin = viewModel::beginOAuth,
+			onSignOut = viewModel::signOutOAuth,
+			onConsumeUrl = viewModel::consumeOAuthUrl,
+			onDismiss = viewModel::closeOAuth,
+		)
+	}
+
 	state.mediaDraft?.let { draft ->
 		MediaToolDialog(
 			draft = draft,
@@ -1306,6 +1331,7 @@ private fun ProviderRow(
 	baseUrl: String,
 	hasKey: Boolean,
 	onClick: () -> Unit,
+	onOAuth: (() -> Unit)? = null,
 ) {
 	Row(
 		modifier = Modifier
@@ -1347,6 +1373,17 @@ private fun ProviderRow(
 				MaterialTheme.colorScheme.error
 			},
 		)
+		if (onOAuth != null) {
+			TextButton(
+				onClick = onOAuth,
+				contentPadding = PaddingValues(horizontal = 8.dp),
+			) {
+				Text(
+					text = stringResource(R.string.settings_oauth_action),
+					style = MaterialTheme.typography.labelSmall,
+				)
+			}
+		}
 		Icon(
 			Icons.AutoMirrored.Filled.KeyboardArrowRight,
 			contentDescription = null,
@@ -1354,6 +1391,142 @@ private fun ProviderRow(
 			modifier = Modifier.size(18.dp),
 		)
 	}
+}
+
+@Composable
+private fun OAuthLoginDialog(
+	ui: OAuthLoginUi,
+	onUpdate: ((OAuthLoginUi) -> OAuthLoginUi) -> Unit,
+	onBegin: () -> Unit,
+	onSignOut: () -> Unit,
+	onConsumeUrl: () -> Unit,
+	onDismiss: () -> Unit,
+) {
+	val context = LocalContext.current
+	val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+	val openFailed = stringResource(R.string.settings_oauth_open_failed)
+	LaunchedEffect(Unit) {
+		// A tap that opens the dialog can land on the field now underneath it;
+		// start with no focus so the keyboard does not cover the instructions.
+		focusManager.clearFocus()
+	}
+	LaunchedEffect(ui.authorizeUrl) {
+		val url = ui.authorizeUrl ?: return@LaunchedEffect
+		val opened = runCatching {
+			context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+		}.isSuccess
+		if (!opened) {
+			onUpdate {
+				it.copy(
+					status = openFailed,
+					statusIsError = true,
+				)
+			}
+		}
+		onConsumeUrl()
+	}
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text(stringResource(R.string.settings_oauth_title, ui.providerName)) },
+		text = {
+			Column(
+				modifier = Modifier
+					.heightIn(max = 360.dp)
+					.verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(8.dp),
+			) {
+				Text(
+					text = stringResource(R.string.settings_oauth_detail),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				OutlinedTextField(
+					value = ui.authorizationEndpoint,
+					onValueChange = { value -> onUpdate { it.copy(authorizationEndpoint = value) } },
+					modifier = Modifier.fillMaxWidth(),
+					label = { Text(stringResource(R.string.settings_oauth_authorization)) },
+					singleLine = true,
+				)
+				OutlinedTextField(
+					value = ui.tokenEndpoint,
+					onValueChange = { value -> onUpdate { it.copy(tokenEndpoint = value) } },
+					modifier = Modifier.fillMaxWidth(),
+					label = { Text(stringResource(R.string.settings_oauth_token)) },
+					singleLine = true,
+				)
+				OutlinedTextField(
+					value = ui.clientId,
+					onValueChange = { value -> onUpdate { it.copy(clientId = value) } },
+					modifier = Modifier.fillMaxWidth(),
+					label = { Text(stringResource(R.string.settings_oauth_client_id)) },
+					singleLine = true,
+				)
+				OutlinedTextField(
+					value = ui.scopes,
+					onValueChange = { value -> onUpdate { it.copy(scopes = value) } },
+					modifier = Modifier.fillMaxWidth(),
+					label = { Text(stringResource(R.string.settings_oauth_scopes)) },
+					singleLine = true,
+				)
+				OutlinedTextField(
+					value = ui.clientSecret,
+					onValueChange = { value -> onUpdate { it.copy(clientSecret = value) } },
+					modifier = Modifier.fillMaxWidth(),
+					label = { Text(stringResource(R.string.settings_oauth_secret)) },
+					singleLine = true,
+					visualTransformation = PasswordVisualTransformation(),
+				)
+				Text(
+					text = stringResource(
+						R.string.settings_oauth_redirect,
+						OAuthProtocol.DEFAULT_REDIRECT_URI,
+					),
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				if (ui.signedIn) {
+					Text(
+						text = stringResource(R.string.settings_oauth_signed_in),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.secondary,
+					)
+				}
+				ui.status?.let { status ->
+					Text(
+						text = status,
+						style = MaterialTheme.typography.bodySmall,
+						color = if (ui.statusIsError) {
+							MaterialTheme.colorScheme.error
+						} else {
+							MaterialTheme.colorScheme.onSurfaceVariant
+						},
+					)
+				}
+			}
+		},
+		confirmButton = {
+			if (ui.signedIn) {
+				TextButton(onClick = onSignOut) {
+					Text(stringResource(R.string.settings_oauth_sign_out))
+				}
+			} else {
+				TextButton(onClick = onBegin, enabled = ui.canBegin && !ui.busy) {
+					Text(
+						if (ui.busy) {
+							stringResource(R.string.settings_oauth_busy)
+						} else {
+							stringResource(R.string.settings_oauth_sign_in)
+						},
+					)
+				}
+			}
+		},
+		dismissButton = {
+			TextButton(onClick = onDismiss) {
+				Text(stringResource(R.string.common_cancel))
+			}
+		},
+	)
 }
 
 @Composable

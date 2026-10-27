@@ -484,6 +484,13 @@ Secret Service binding with the same key names.
   authorizes a paid search. The backend preferences are not secrets but live here
   for the same reason `demo.mode` does: one place owns persisted settings with a
   secrecy requirement.
+- OAuth uses three more slots: `oauth.config.<provider>` (the user's
+  registration), `oauth.tokens.<provider>` (access and refresh tokens) and
+  `oauth.pending` (state and PKCE verifier for the one in-flight sign-in). They
+  are never included in a backup and never logged. A provider key and an OAuth
+  token are alternatives: saving a key forgets the OAuth session, and signing in
+  leaves the key unused while the token is present. Deleting the provider
+  deletes both.
 
 ## The files outside Room
 

@@ -4,6 +4,7 @@ import com.inhuman.core.ai.ChatProvider
 import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.ai.model.ModelCapability
 import com.inhuman.core.ai.model.ModelTagCodec
+import com.inhuman.core.data.oauth.OAuthSession
 import com.inhuman.core.ai.provider.ProviderFactory
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.InhumanDatabase
@@ -103,7 +104,12 @@ class AgentRepository(
 		else "provider.$providerId.api_key"
 
 	fun hasKey(providerId: String): Boolean =
-		secure.hasUsable(apiKeySlot(providerId))
+		oauth.status(providerId).signedIn || secure.hasUsable(apiKeySlot(providerId))
+
+	private val oauth = OAuthSession(secure)
+
+	/** The shared sign-in store, for the provider editor and the callback. */
+	fun oauthSession(): OAuthSession = oauth
 
 	/**
 	 * Insert or update a profile and, when supplied, its key.
@@ -115,6 +121,9 @@ class AgentRepository(
 	suspend fun saveProvider(profile: ProviderProfileEntity, apiKey: String?) {
 		db.providers().upsert(profile)
 		if (apiKey != null) {
+			// A profile has one credential, not two. Saving a key forgets an OAuth
+			// session rather than leaving a stale token to win later.
+			oauth.forget(profile.id)
 			if (apiKey.isBlank()) secure.remove(apiKeySlot(profile.id))
 			else secure.put(apiKeySlot(profile.id), apiKey.trim())
 		}
@@ -166,12 +175,16 @@ class AgentRepository(
 		}
 		db.providers().delete(id)
 		secure.remove(apiKeySlot(id))
+		oauth.forget(id)
 		invalidateModels()
 		return Result.success(Unit)
 	}
 
 	suspend fun providerFromRow(profile: ProviderProfileEntity): ChatProvider? {
-		val key = secure.get(apiKeySlot(profile.id))?.takeIf { it.isNotBlank() } ?: return null
+		val token = oauth.accessToken(profile.id)
+		val key = token
+			?: secure.get(apiKeySlot(profile.id))?.takeIf { it.isNotBlank() }
+			?: return null
 		return ProviderFactory.create(
 			kind = profile.kind,
 			apiKey = key,
@@ -179,6 +192,7 @@ class AgentRepository(
 			id = profile.id,
 			reasoningMode = profile.reasoningMode,
 			includeStreamUsage = profile.includeStreamUsage,
+			auth = if (token != null) ProviderFactory.Auth.OAuth else ProviderFactory.Auth.ApiKey,
 		)
 	}
 

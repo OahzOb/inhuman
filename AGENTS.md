@@ -409,6 +409,15 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   request also enables reasoning. Never parse, display or log
   `encrypted_content`; never send reasoning items on a non-reasoning request.
   The transcript stays local; do not replace this with `previous_response_id`.
+- **OAuth tokens are secrets and no provider client is bundled.** The provider
+  row's OAuth dialog is a generic authorization-code + PKCE flow for a
+  user-registered public client; the app ships no Claude/ChatGPT/Copilot/Kimi
+  client ID and must not start. `oauth.config.<id>`, `oauth.tokens.<id>` and
+  `oauth.pending` live only in `SecureStore`, never in a backup, log or prompt.
+  The callback is a public `inhuman://oauth` intent: verify the scheme, host and
+  state, keep the pending flow on a forged callback, and exchange the code with
+  the stored verifier. Refresh before expiry; do not add a webview, cookie jar or
+  password field. A key and an OAuth token are alternatives, not two grants.
 - **A failure chunk must be `trySend`-ed *before* `close()`.** A chunk sent
   after the channel closes is dropped and the collector sees a clean end, so
   the failure becomes indistinguishable from "the model said nothing".

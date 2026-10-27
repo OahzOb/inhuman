@@ -600,8 +600,10 @@ which this setup does not use.
   falls back to thinking-off instead of a 400. Responses uses typed input items
   with `store=false` and persists opaque encrypted reasoning items for replay
   when reasoning is enabled. None of the three has been verified against a real
-  account here. Claude Pro/Max, ChatGPT, Copilot and Kimi Code OAuth logins are
-  still planned.
+  account here. **OAuth subscription sign-in is a generic PKCE flow** with a
+  user-registered public client and the `inhuman://oauth` callback; no
+  Claude/ChatGPT/Copilot/Kimi client ID is bundled, and the flow has not been
+  verified against a real registration or account.
 - **Remote connection details are not saved yet; saving them for convenience is
   planned.** It is not a security or privacy promise. Today the app has no host
   list and no credential store.

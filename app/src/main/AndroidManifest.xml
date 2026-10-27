@@ -74,6 +74,18 @@
 				<data android:mimeType="image/*" />
 				<data android:mimeType="application/*" />
 			</intent-filter>
+			<!--
+				PKCE callback for a user-registered OAuth client. The scheme is
+				public and any app can invoke it; OAuthSession checks the state
+				and keeps the pending flow on a mismatch. No token travels in
+				this URI — only the short-lived code.
+			-->
+			<intent-filter>
+				<action android:name="android.intent.action.VIEW" />
+				<category android:name="android.intent.category.DEFAULT" />
+				<category android:name="android.intent.category.BROWSABLE" />
+				<data android:scheme="inhuman" android:host="oauth" />
+			</intent-filter>
 		</activity>
 
 		<service

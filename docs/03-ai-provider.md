@@ -582,8 +582,22 @@ validated locally before the same `systemone` call.
 mp3/wav/opus through `WorkspaceTransfer`, then runs the same ASR call and shows
 the transcript; the file is left in `attachments/` and can be deleted normally.
 
-**Not implemented yet:** OAuth subscription login (Claude Pro/Max, ChatGPT,
-Copilot, Kimi Code), custom per-provider headers, and managed
+**OAuth subscription login is a generic PKCE flow, not bundled provider clients.**
+The provider row's OAuth button opens a dialog for a user-registered public
+client: authorization endpoint, token endpoint, client ID, optional scopes and
+client secret. The redirect is `inhuman://oauth`; the state and verifier live in
+the encrypted store between the browser launch and the callback, and the
+authorization code is exchanged with PKCE. Access and refresh tokens are stored
+per provider in `SecureStore`, refreshed sixty seconds before expiry, and
+removed by **Sign out** while the registration stays for a later sign-in.
+Deleting the provider forgets both. A callback whose state does not match does
+not cancel the pending flow; otherwise any app could abort a sign-in with a
+forged intent. No Claude/ChatGPT/Copilot/Kimi client IDs are shipped: those are
+registrations tied to a particular app and redirect URI, so a provider that only
+offers its first-party client is not turnkey here. The flow is unverified
+against a real account or registration.
+
+**Not implemented yet:** custom per-provider headers and managed
 Azure/Bedrock/Vertex credentials. `ProviderKinds.OPENAI_COMPATIBLE` still covers
 most API-key plans (ZAI, Qwen, Xiaomi, Kimi, OpenCode) when the base URL and key
 are entered manually.
@@ -592,8 +606,11 @@ Tests: `AnthropicMessagesTest` and `GeminiMessagesTest` pin request mapping,
 text/tool SSE decoding, usage, the tool block index, the signed-thinking block
 and the Gemini thought-signature round trip. `OpenAiResponsesMessagesTest` pins
 the typed input items, the Responses event set, the reasoning parameter and the
-opaque provider-state replay. `ChatEngineTest` checks that a signature and
-provider state streamed by a provider reach the assistant message and the next
+opaque provider-state replay. `OAuthProtocolTest` pins PKCE challenges, URL
+building, callback/state parsing and token/error parsing; `OAuthSessionTest`
+pins the exchange, storage, forged-state behavior, refresh and sign-out with a
+fake token endpoint. `ChatEngineTest` checks that a signature and provider
+state streamed by a provider reach the assistant message and the next
 request. `QwenTokenPlanLiveTest` verifies the real Qwen image and decision
 endpoints when its key is present. They are offline by default; no key is
 needed.

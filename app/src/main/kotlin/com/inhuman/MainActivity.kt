@@ -32,6 +32,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.inhuman.core.ai.oauth.OAuthProtocol
 import com.inhuman.core.ai.ssh.SshClient
 import com.inhuman.core.ai.ssh.SshLimits
 import com.inhuman.core.common.diag.Diag
@@ -80,6 +81,9 @@ class MainActivity : ComponentActivity() {
 	/** An `ACTION_SEND` item from the share sheet, consumed by the root. */
 	private val pendingShare = mutableStateOf<SharedContent?>(null)
 
+	/** An `inhuman://oauth` callback, consumed after the settings screen uses it. */
+	private val pendingOAuth = mutableStateOf<String?>(null)
+
 	/**
 	 * Make the first frame the default language.
 	 *
@@ -113,6 +117,7 @@ class MainActivity : ComponentActivity() {
 		// extras, so a handled share is not offered again after a later
 		// recreate.
 		pendingShare.value = sharedContentFrom(this, intent)
+		oauthCallbackFrom(intent)?.let { pendingOAuth.value = it }
 		setContent {
 			InhumanTheme {
 				// Named Root, not InhumanApp: InhumanApp is the Application
@@ -130,6 +135,8 @@ class MainActivity : ComponentActivity() {
 							handled.action = null
 						}
 					},
+					oauthCallback = pendingOAuth.value,
+					onOAuthConsumed = { pendingOAuth.value = null },
 				)
 			}
 		}
@@ -141,6 +148,7 @@ class MainActivity : ComponentActivity() {
 		val conversation = intent.getStringExtra(TurnNotifications.EXTRA_CONVERSATION_ID)
 		if (conversation != null) pendingConversationId.value = conversation
 		sharedContentFrom(this, intent)?.let { pendingShare.value = it }
+		oauthCallbackFrom(intent)?.let { pendingOAuth.value = it }
 	}
 }
 
@@ -158,6 +166,8 @@ private fun InhumanRoot(
 	onDeepLinkConsumed: () -> Unit,
 	shared: SharedContent?,
 	onSharedConsumed: () -> Unit,
+	oauthCallback: String?,
+	onOAuthConsumed: () -> Unit,
 ) {
 	val context = androidx.compose.ui.platform.LocalContext.current
 	// One store and one repository for the process. The Keystore lookup inside
@@ -223,6 +233,12 @@ private fun InhumanRoot(
 	var openWorkspaceId by rememberSaveable { mutableStateOf<String?>(null) }
 	/** Open Settings with the backup fold expanded, from the home reminder. */
 	var startBackupSection by rememberSaveable { mutableStateOf(false) }
+
+	// A sign-in callback is useless unless the provider editor is visible to
+	// complete it. Show Settings; the screen consumes the URI once.
+	LaunchedEffect(oauthCallback) {
+		if (oauthCallback != null) showSettings = true
+	}
 	/** Non-null while the home screen is showing a due-backup prompt. */
 	var backupReminder by remember { mutableStateOf<BackupReminderUi?>(null) }
 	/** Files opened from a workspace rather than from a chat. */
@@ -427,6 +443,8 @@ private fun InhumanRoot(
 				onLayoutPreferenceChange = { layoutPreference = it },
 				startBackup = startBackupSection,
 				onBackupStarted = { startBackupSection = false },
+				oauthCallback = oauthCallback,
+				onOAuthConsumed = onOAuthConsumed,
 			)
 		}
 
@@ -725,6 +743,21 @@ private fun ShareDestinationDialog(
 			}
 		}
 	}
+}
+
+/**
+ * The `inhuman://oauth?code=...&state=...` callback, or null.
+ *
+ * The manifest filter is deliberately narrow, but an exported activity can be
+ * started with any intent; the state check and the pending flow live in
+ * `OAuthSession`, not here.
+ */
+private fun oauthCallbackFrom(intent: Intent?): String? {
+	val data = intent?.data ?: return null
+	return data.takeIf {
+		it.scheme == OAuthProtocol.CALLBACK_SCHEME &&
+			it.host == OAuthProtocol.CALLBACK_HOST
+	}?.toString()
 }
 
 /**

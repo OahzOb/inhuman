@@ -5,6 +5,7 @@ import com.inhuman.core.ai.ChatRequest
 import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.ai.StreamChunk
 import com.inhuman.core.ai.provider.deepseek.DeepSeekProvider
+import com.inhuman.core.ai.provider.ProviderFactory
 import com.inhuman.core.ai.stream.SseParser
 import com.inhuman.core.common.diag.Diag
 import kotlinx.coroutines.CancellationException
@@ -33,20 +34,30 @@ import okhttp3.Response
 import java.io.IOException
 
 /**
- * Google Generative AI provider. Gemini API keys use `x-goog-api-key`; the
- * project id/Vertex credentials are not portable to a phone and are left out.
+ * Google Generative AI provider. Gemini API keys use `x-goog-api-key`; an OAuth
+ * access token is presented as a bearer token instead. The project id/Vertex
+ * credentials are not portable to a phone and are left out.
  */
 class GeminiProvider(
 	private val apiKey: String,
 	private val baseUrl: String,
 	override val id: String,
+	private val auth: ProviderFactory.Auth = ProviderFactory.Auth.ApiKey,
 	private val client: OkHttpClient = DeepSeekProvider.shared,
 ) : ChatProvider {
+
+	private fun Request.Builder.authenticate(): Request.Builder = apply {
+		if (auth == ProviderFactory.Auth.OAuth) {
+			header("Authorization", "Bearer $apiKey")
+		} else {
+			header("x-goog-api-key", apiKey)
+		}
+	}
 
 	override suspend fun listModels(): List<RemoteModel> = withContext(Dispatchers.IO) {
 		val request = Request.Builder()
 			.url("${GeminiWire.base(baseUrl)}/models?pageSize=1000")
-			.header("x-goog-api-key", apiKey)
+			.authenticate()
 			.header("Accept", "application/json")
 			.build()
 		client.newCall(request).execute().use { response ->
@@ -76,7 +87,7 @@ class GeminiProvider(
 		val body = GeminiWire.requestBody(request).toString()
 		val httpRequest = Request.Builder()
 			.url(GeminiWire.modelPath(baseUrl, request.model) + ":streamGenerateContent?alt=sse")
-			.header("x-goog-api-key", apiKey)
+			.authenticate()
 			.header("Accept", "text/event-stream")
 			.header("Content-Type", "application/json")
 			.post(body.toRequestBody(JSON_MEDIA_TYPE))

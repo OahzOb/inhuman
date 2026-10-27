@@ -9,6 +9,8 @@ import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.capability.ProviderCapabilities
 import com.inhuman.core.ai.model.ModelCapabilities
 import com.inhuman.core.common.diag.Diag
+import com.inhuman.core.ai.oauth.OAuthConfig
+import com.inhuman.core.ai.oauth.OAuthProtocol
 import com.inhuman.core.ai.provider.KnownProvider
 import com.inhuman.core.ai.provider.ProviderCatalog
 import com.inhuman.core.ai.provider.ProviderFactory
@@ -23,6 +25,7 @@ import com.inhuman.core.data.db.ProviderKinds
 import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.db.ProviderReasoning
 import com.inhuman.core.data.db.UsageRow
+import com.inhuman.core.data.oauth.OAuthSession
 import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.ui.backup.BackupReminderPolicy
 import com.inhuman.diagnostics.AppDiagnostics
@@ -78,12 +81,51 @@ data class ProviderDraft(
 	val statusIsError: Boolean = false,
 )
 
+/**
+ * The sign-in dialog's state.
+ *
+ * A custom scheme callback is a public entry point, so this is only a view of
+ * [OAuthSession]'s pending state; the verifier and tokens never enter this
+ * object, and the state check happens in the repository.
+ */
+data class OAuthLoginUi(
+	val profileId: String,
+	val providerName: String,
+	val clientId: String = "",
+	val authorizationEndpoint: String = "",
+	val tokenEndpoint: String = "",
+	val scopes: String = "",
+	val clientSecret: String = "",
+	val configured: Boolean = false,
+	val signedIn: Boolean = false,
+	val expiresAt: Long? = null,
+	val busy: Boolean = false,
+	val status: String? = null,
+	val statusIsError: Boolean = false,
+	/** Set once, for the UI to hand to the browser; cleared by the UI. */
+	val authorizeUrl: String? = null,
+) {
+	val canBegin: Boolean get() = !busy && clientId.isNotBlank() &&
+		authorizationEndpoint.startsWith("https://") &&
+		tokenEndpoint.startsWith("https://")
+
+	fun toConfig(): OAuthConfig = OAuthConfig(
+		authorizationEndpoint = authorizationEndpoint.trim(),
+		tokenEndpoint = tokenEndpoint.trim(),
+		clientId = clientId.trim(),
+		scopes = scopes.split(' ', ',', '\n').map { it.trim() }.filter { it.isNotEmpty() },
+		redirectUri = OAuthProtocol.DEFAULT_REDIRECT_URI,
+		clientSecret = clientSecret.takeIf { it.isNotBlank() },
+	)
+}
+
 data class SettingsUiState(
 	/** Result of the last demo/SSH action. */
 	val status: String? = null,
 	val statusIsError: Boolean = false,
 	val providers: List<ProviderProfileEntity> = emptyList(),
 	val editingProvider: ProviderDraft? = null,
+	val oauthLogin: OAuthLoginUi? = null,
 	val providerStatus: String? = null,
 	val providerStatusIsError: Boolean = false,
 	val webSearchBackend: String = "deepseek",
@@ -223,6 +265,9 @@ class SettingsViewModel(
 		.connectTimeout(8, TimeUnit.SECONDS)
 		.readTimeout(30, TimeUnit.SECONDS)
 		.build()
+
+	/** PKCE sign-in state; tokens are stored through SecureStore. */
+	private val oauth = OAuthSession(secure)
 
 	/** The verified download waiting for the Install button. */
 	private var downloadedApk: File? = null
@@ -972,10 +1017,135 @@ class SettingsViewModel(
 				includeStreamUsage = profile.includeStreamUsage,
 				manualModels = profile.manualModels,
 				keyInput = key,
-				hasKey = key.isNotBlank(),
+				hasKey = key.isNotBlank() || oauth.status(profile.id).signedIn,
 				isPreset = isPreset,
 			),
 		)
+	}
+
+	/**
+	 * Open the PKCE sign-in dialog for a saved provider.
+	 *
+	 * The editor is closed because the browser leaves the app and a second
+	 * dialog would hide the instructions. The client id and endpoints are
+	 * user-supplied: no first-party registration ships with the app.
+	 */
+	fun openOAuth(profile: ProviderProfileEntity) {
+		val config = oauth.config(profile.id)
+		val status = oauth.status(profile.id)
+		_state.value = _state.value.copy(
+			editingProvider = null,
+			oauthLogin = OAuthLoginUi(
+				profileId = profile.id,
+				providerName = profile.name,
+				clientId = config?.clientId.orEmpty(),
+				authorizationEndpoint = config?.authorizationEndpoint.orEmpty(),
+				tokenEndpoint = config?.tokenEndpoint.orEmpty(),
+				scopes = config?.scopes?.joinToString(" ").orEmpty(),
+				clientSecret = config?.clientSecret.orEmpty(),
+				configured = status.configured,
+				signedIn = status.signedIn,
+				expiresAt = status.expiresAt,
+			),
+		)
+	}
+
+	fun updateOAuthLogin(transform: (OAuthLoginUi) -> OAuthLoginUi) {
+		val ui = _state.value.oauthLogin ?: return
+		_state.value = _state.value.copy(oauthLogin = transform(ui))
+	}
+
+	fun closeOAuth() {
+		_state.value = _state.value.copy(oauthLogin = null)
+	}
+
+	fun beginOAuth() {
+		val ui = _state.value.oauthLogin ?: return
+		if (!ui.canBegin) {
+			updateOAuthLogin {
+				it.copy(
+					status = context.getString(R.string.settings_oauth_incomplete),
+					statusIsError = true,
+				)
+			}
+			return
+		}
+		updateOAuthLogin { it.copy(busy = true, status = null, statusIsError = false) }
+		viewModelScope.launch {
+			val result = runCatching { oauth.begin(ui.profileId, ui.toConfig()) }
+			updateOAuthLogin {
+				result.fold(
+					onSuccess = { url ->
+						it.copy(
+							busy = false,
+							configured = true,
+							authorizeUrl = url,
+							status = context.getString(R.string.settings_oauth_waiting),
+						)
+					},
+					onFailure = { failure ->
+						it.copy(
+							busy = false,
+							status = failure.message ?: context.getString(R.string.settings_oauth_failed),
+							statusIsError = true,
+						)
+					},
+				)
+			}
+		}
+	}
+
+	/** Finish a sign-in delivered by the `inhuman://oauth` callback. */
+	fun completeOAuth(callbackUri: String) {
+		viewModelScope.launch {
+			val result = runCatching { oauth.complete(callbackUri).getOrThrow() }
+			result.fold(
+				onSuccess = { profileId ->
+					val status = oauth.status(profileId)
+					_state.value = _state.value.copy(
+						oauthLogin = _state.value.oauthLogin?.takeIf { it.profileId == profileId }
+							?.copy(
+								signedIn = status.signedIn,
+								configured = status.configured,
+								expiresAt = status.expiresAt,
+								busy = false,
+								status = context.getString(R.string.settings_oauth_signed_in),
+								statusIsError = false,
+							),
+						editingProvider = _state.value.editingProvider?.takeIf { it.id == profileId }
+							?.copy(hasKey = true),
+					)
+					Diag.i("oauth", "sign-in completed")
+				},
+				onFailure = { failure ->
+					_state.value = _state.value.copy(
+						oauthLogin = _state.value.oauthLogin?.copy(
+							busy = false,
+							status = failure.message ?: context.getString(R.string.settings_oauth_failed),
+							statusIsError = true,
+						),
+					)
+				},
+			)
+		}
+	}
+
+	/** Clear the one-shot URL after the UI has handed it to a browser. */
+	fun consumeOAuthUrl() {
+		updateOAuthLogin { it.copy(authorizeUrl = null) }
+	}
+
+	fun signOutOAuth() {
+		val ui = _state.value.oauthLogin ?: return
+		oauth.signOut(ui.profileId)
+		updateOAuthLogin {
+			it.copy(
+				signedIn = false,
+				expiresAt = null,
+				status = context.getString(R.string.settings_oauth_signed_out),
+				statusIsError = false,
+			)
+		}
 	}
 
 	fun updateProviderDraft(transform: (ProviderDraft) -> ProviderDraft) {
@@ -1022,7 +1192,16 @@ class SettingsViewModel(
 				createdAt = existing?.createdAt ?: now,
 				updatedAt = now,
 			)
-			agents.saveProvider(profile, draft.keyInput)
+			// An empty key field while OAuth is signed in means "keep the
+			// token"; passing "" would clear the very session the user just
+			// created. With no OAuth session, blank still clears an old key.
+			val hasOAuth = oauth.status(profile.id).signedIn
+			val keyToStore = when {
+				draft.keyInput.isNotBlank() -> draft.keyInput
+				hasOAuth -> null
+				else -> ""
+			}
+			agents.saveProvider(profile, keyToStore)
 			Diag.i("settings", "provider saved id=${Diag.shortId(profile.id)}")
 			_state.value = _state.value.copy(
 				editingProvider = null,
@@ -1058,10 +1237,11 @@ class SettingsViewModel(
 
 	fun testProvider() {
 		val draft = _state.value.editingProvider ?: return
-		val key = draft.keyInput.trim().ifBlank {
+		val typedKey = draft.keyInput.trim().ifBlank {
 			secure.get(agents.apiKeySlot(draft.id)).orEmpty()
 		}
-		if (key.isBlank()) {
+		val hasOAuth = oauth.status(draft.id).signedIn
+		if (typedKey.isBlank() && !hasOAuth) {
 			updateProviderDraft {
 				it.copy(
 					status = context.getString(R.string.settings_error_save_key_first),
@@ -1078,6 +1258,17 @@ class SettingsViewModel(
 			)
 		}
 		viewModelScope.launch {
+			val key = if (typedKey.isNotBlank()) typedKey else oauth.accessToken(draft.id)
+			if (key == null) {
+				updateProviderDraft {
+					it.copy(
+						testing = false,
+						status = context.getString(R.string.settings_oauth_needs_sign_in),
+						statusIsError = true,
+					)
+				}
+				return@launch
+			}
 			val result = runCatching {
 				ProviderFactory.create(
 					kind = draft.kind,
@@ -1086,6 +1277,11 @@ class SettingsViewModel(
 					id = draft.id,
 					reasoningMode = draft.reasoningMode,
 					includeStreamUsage = draft.includeStreamUsage,
+					auth = if (typedKey.isNotBlank()) {
+						ProviderFactory.Auth.ApiKey
+					} else {
+						ProviderFactory.Auth.OAuth
+					},
 				).listModels()
 			}
 			result.fold(
