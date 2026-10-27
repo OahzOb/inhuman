@@ -360,6 +360,16 @@ class SettingsViewModel(
 		return normalized
 	}
 
+	/**
+	 * The answer to one manifest fetch, plus whatever verified APK was already
+	 * waiting in the cache for that version.
+	 */
+	private data class UpdateCheck(
+		val info: UpdateInfo,
+		val newer: Boolean,
+		val cached: File?,
+	)
+
 	fun checkForUpdates() {
 		if (_state.value.updateChecking) return
 		val base = requireServerUrl()
@@ -371,35 +381,66 @@ class SettingsViewModel(
 			return
 		}
 		Diag.i("update", "check requested current=${_state.value.currentVersionCode}")
+		// Do not clear updateInfo/downloadedApk here. A verified APK already in
+		// cache is the right answer until the manifest says otherwise, and a
+		// failed check must not throw away a download the user already waited
+		// for. The state is replaced only after the manifest answers.
 		_state.value = _state.value.copy(
 			updateChecking = true,
 			updateStatus = null,
 			updateStatusIsError = false,
-			updateInfo = null,
-			updateReadyToInstall = false,
-			updateProgress = null,
 		)
-		downloadedApk = null
 		viewModelScope.launch {
-			val result = withContext(Dispatchers.IO) { runCatching { fetchUpdate(base) } }
-			result.onSuccess { info ->
-				val newer = isNewerVersion(info.versionCode, _state.value.currentVersionCode)
+			val result = withContext(Dispatchers.IO) {
+				runCatching {
+					val info = fetchUpdate(base)
+					val newer = isNewerVersion(
+						info.versionCode,
+						_state.value.currentVersionCode,
+					)
+					UpdateCheck(
+						info = info,
+						newer = newer,
+						// Hashing a 60 MB APK is not a main-thread job. Doing it
+						// here also means a stale file is removed before the UI
+						// is told the update is available again.
+						cached = if (newer) cachedApk(info) else null,
+					)
+				}
+			}
+			result.onSuccess { check ->
 				Diag.i(
 					"update",
-					"check ok remote=${info.versionCode} current=${_state.value.currentVersionCode} newer=$newer",
+					"check ok remote=${check.info.versionCode} " +
+						"current=${_state.value.currentVersionCode} " +
+						"newer=${check.newer} cached=${check.cached != null}",
 				)
+				downloadedApk = check.cached
 				_state.value = _state.value.copy(
 					updateChecking = false,
-					updateInfo = info.takeIf { newer },
-					updateStatus = if (newer) {
-						context.getString(R.string.settings_update_available, info.versionName)
-					} else {
-						context.getString(R.string.settings_update_uptodate)
+					updateInfo = check.info.takeIf { check.newer },
+					updateReadyToInstall = check.cached != null,
+					updateProgress = if (check.cached != null) 100 else null,
+					updateStatus = when {
+						!check.newer -> context.getString(R.string.settings_update_uptodate)
+						check.cached != null -> context.getString(R.string.settings_update_ready)
+						else -> context.getString(
+							R.string.settings_update_available,
+							check.info.versionName,
+						)
 					},
 					updateStatusIsError = false,
 				)
+				if (!check.newer) {
+					// The installed version caught up; the cached APK has no
+					// remaining use and would only hold cache space.
+					withContext(Dispatchers.IO) { clearUpdateCache() }
+				}
 			}.onFailure { failure ->
 				Diag.w("update", "check failed ${failure::class.simpleName}")
+				// Leave updateInfo, downloadedApk, updateReadyToInstall and
+				// updateProgress untouched: the Install button must survive a
+				// failed re-check.
 				_state.value = _state.value.copy(
 					updateChecking = false,
 					updateStatus = context.getString(
@@ -464,68 +505,134 @@ class SettingsViewModel(
 				)
 			}.onFailure { failure ->
 				Diag.w("update", "download failed ${failure::class.simpleName}")
+				// A failed retry must not erase a verified APK that is still in
+				// cache; otherwise the next check would download it again.
+				val restored = withContext(Dispatchers.IO) {
+					runCatching { cachedApk(info) }.getOrNull()
+				}
+				downloadedApk = restored
 				_state.value = _state.value.copy(
 					updateDownloading = false,
-					updateProgress = null,
-					updateReadyToInstall = false,
-					updateStatus = context.getString(
-						R.string.settings_update_failed,
-						networkFailureMessage(failure),
-					),
-					updateStatusIsError = true,
+					updateProgress = if (restored != null) 100 else null,
+					updateReadyToInstall = restored != null,
+					updateStatus = if (restored != null) {
+						context.getString(R.string.settings_update_ready)
+					} else {
+						context.getString(
+							R.string.settings_update_failed,
+							networkFailureMessage(failure),
+						)
+					},
+					updateStatusIsError = restored == null,
 				)
 			}
 		}
 	}
 
 	private fun download(info: UpdateInfo): File {
+		// Another check or a retry may already have produced a verified copy.
+		// Reuse it instead of downloading the same release again.
+		cachedApk(info)?.let { return it }
+
 		val dir = File(context.cacheDir, "updates").apply { mkdirs() }
-		dir.listFiles()?.forEach { runCatching { it.delete() } }
-		val target = File(dir, "inhuman-${info.versionCode}.apk")
+		val target = updateCacheFile(info.versionCode)
+		val partial = File(dir, "inhuman-${info.versionCode}.apk.part")
+		runCatching { partial.delete() }
+		// Keep a verified target from another check; only stale versions and a
+		// previous partial file are removed before this download.
+		dir.listFiles()
+			?.filter { it != target && it != partial }
+			?.forEach { runCatching { it.delete() } }
+
 		val request = Request.Builder().url(info.apkUrl).build()
-		http.newCall(request).execute().use { response ->
-			if (!response.isSuccessful) error("HTTP ${response.code}")
-			val body = response.body
-			val total = body.contentLength()
-			body.byteStream().use { input ->
-				target.outputStream().use { output ->
-					val buffer = ByteArray(64 * 1024)
-					var written = 0L
-					var lastPercent = -1
-					while (true) {
-						val read = input.read(buffer)
-						if (read <= 0) break
-						output.write(buffer, 0, read)
-						written += read
-						if (total > 0) {
-							val percent = ((written * 100) / total).toInt().coerceIn(0, 100)
-							if (percent != lastPercent) {
-								lastPercent = percent
-								_state.value = _state.value.copy(
-									updateProgress = percent,
-									updateStatus = context.getString(
-										R.string.settings_update_downloading,
-										percent,
-									),
-								)
+		try {
+			http.newCall(request).execute().use { response ->
+				if (!response.isSuccessful) error("HTTP ${response.code}")
+				val body = response.body
+				val total = body.contentLength()
+				body.byteStream().use { input ->
+					partial.outputStream().use { output ->
+						val buffer = ByteArray(64 * 1024)
+						var written = 0L
+						var lastPercent = -1
+						while (true) {
+							val read = input.read(buffer)
+							if (read <= 0) break
+							output.write(buffer, 0, read)
+							written += read
+							if (total > 0) {
+								val percent = ((written * 100) / total).toInt().coerceIn(0, 100)
+								if (percent != lastPercent) {
+									lastPercent = percent
+									_state.value = _state.value.copy(
+										updateProgress = percent,
+										updateStatus = context.getString(
+											R.string.settings_update_downloading,
+											percent,
+										),
+									)
+								}
 							}
 						}
 					}
 				}
 			}
-		}
-		val actual = UpdateInstaller.sha256(target)
-		if (!actual.equals(info.sha256, ignoreCase = true)) {
+			val actual = UpdateInstaller.sha256(partial)
+			if (!actual.equals(info.sha256, ignoreCase = true)) {
+				partial.delete()
+				error("SHA-256 mismatch")
+			}
+			val mismatch = UpdateInstaller.verify(context, partial, info.versionCode)
+			if (mismatch != null) {
+				partial.delete()
+				error(mismatch)
+			}
+			// Move only after verification: a killed process can leave a
+			// `.part` file, but never a half-written file that looks installable.
 			target.delete()
-			error("SHA-256 mismatch")
+			if (!partial.renameTo(target)) {
+				error("could not move the downloaded APK into place")
+			}
+			dir.listFiles()
+				?.filter { it != target }
+				?.forEach { runCatching { it.delete() } }
+			Diag.i("update", "download verified version=${info.versionCode} bytes=${target.length()}")
+			return target
+		} catch (failure: Throwable) {
+			partial.delete()
+			throw failure
 		}
-		val mismatch = UpdateInstaller.verify(context, target, info.versionCode)
-		if (mismatch != null) {
-			target.delete()
-			error(mismatch)
-		}
-		Diag.i("update", "download verified version=${info.versionCode} bytes=${target.length()}")
-		return target
+	}
+
+	private fun updateCacheFile(versionCode: Long): File =
+		File(File(context.cacheDir, "updates"), "inhuman-$versionCode.apk")
+
+	/**
+	 * The cached APK for [info], only if its bytes and signature still match.
+	 *
+	 * Runs off the main thread: hashing a release APK is tens of megabytes.
+	 * A mismatch deletes the file, because leaving a stale build next to a valid
+	 * manifest is how the app would later offer an install that the system
+	 * rejects.
+	 */
+	private fun cachedApk(info: UpdateInfo): File? {
+		val target = updateCacheFile(info.versionCode)
+		if (!target.isFile || target.length() == 0L) return null
+		return runCatching {
+			if (!UpdateInstaller.sha256(target).equals(info.sha256, ignoreCase = true)) {
+				target.delete()
+				return null
+			}
+			if (UpdateInstaller.verify(context, target, info.versionCode) != null) {
+				target.delete()
+				return null
+			}
+			target
+		}.getOrNull()
+	}
+
+	private fun clearUpdateCache() {
+		File(context.cacheDir, "updates").listFiles()?.forEach { runCatching { it.delete() } }
 	}
 
 	fun installUpdate() {

@@ -489,7 +489,7 @@ Then:
 
 If the properties file is absent, the release build falls back to the debug
 signing key so a fresh clone can still build; that build cannot update a
-production signing identity. The release version is `0.7.0` / versionCode 26.
+production signing identity. The release version is `0.7.1` / versionCode 27.
 `lintVital` is skipped in this offline environment (`checkReleaseBuilds =
 false`); run lint separately when the network is available.
 
@@ -525,8 +525,10 @@ HTTPS.
 The install itself is still the system's: the app verifies the SHA-256, package
 name, version code and signing certificate, then hands the APK to
 `PackageInstaller`, which asks for confirmation. There is no silent update.
-All future builds must use the same key, which is why the release keystore
-above matters before the first distributed APK.
+A verified download is kept in the app cache; checking again reuses it, including
+after a restart, until the manifest names a different build or the installed
+version catches up. All future builds must use the same key, which is why the
+release keystore above matters before the first distributed APK.
 
 The updater and log upload are app-level, user-initiated features, not tools;
 the agent still has no network path.
