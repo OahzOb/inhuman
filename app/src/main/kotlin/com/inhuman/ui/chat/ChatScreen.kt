@@ -64,6 +64,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.List
 import androidx.compose.material.icons.outlined.Search
@@ -116,10 +117,12 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.R
 import com.inhuman.core.ai.tools.ToolCatalog
+import com.inhuman.core.data.ApprovalRecord
 import com.inhuman.core.data.Branches
 import com.inhuman.core.data.SnapshotStats
 import com.inhuman.core.data.SnapshotTurn
 import com.inhuman.core.data.WorkspaceChange
+import com.inhuman.core.data.db.ApprovalDecision
 import com.inhuman.core.design.Eyebrow
 import com.inhuman.core.design.currentWindowFrame
 import com.inhuman.core.design.Hairline
@@ -465,6 +468,21 @@ fun ChatScreen(
 	LaunchedEffect(wire) {
 		if (wire?.preview == true) showWireDialog = true
 	}
+	// Audit history is loaded when the dialogue opens, not kept in the state
+	// flow: it is a read-only view of rows that only change while a turn runs,
+	// and a Flow would republish it on every token.
+	var showApprovalHistory by remember { mutableStateOf(false) }
+	var approvalHistory by remember { mutableStateOf<List<ApprovalRecord>?>(null) }
+	var approvalHistoryFailed by remember { mutableStateOf(false) }
+	LaunchedEffect(showApprovalHistory) {
+		if (showApprovalHistory) {
+			approvalHistory = null
+			approvalHistoryFailed = false
+			val loaded = viewModel.approvalHistory()
+			approvalHistory = loaded.orEmpty()
+			approvalHistoryFailed = loaded == null
+		}
+	}
 	var turnWireMessages by remember { mutableStateOf<List<ChatMessageUi>?>(null) }
 	var showToolLimitDialog by remember { mutableStateOf(false) }
 	var showToolsDialog by remember { mutableStateOf(false) }
@@ -480,6 +498,7 @@ fun ChatScreen(
 		pendingSshConsent != null || rollbackTarget != null || showRewindDialog ||
 		showCompactPreview || showCompactionSummary ||
 		showSnapshotDialog || showToolLimitDialog || showRenameDialog || showWireDialog ||
+		showApprovalHistory ||
 		turnWireMessages != null || showToolsDialog || showTurnPicker ||
 			showSaveWorkspaceDialog || showExportDialog
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
@@ -907,6 +926,20 @@ fun ChatScreen(
 									onClick = {
 										showChatMenu = false
 										showSnapshotDialog = true
+									},
+								)
+								DropdownMenuItem(
+									text = { Text(stringResource(R.string.chat_approval_history)) },
+									leadingIcon = {
+										Icon(
+											Icons.Outlined.History,
+											contentDescription = null,
+											modifier = Modifier.size(18.dp),
+										)
+									},
+									onClick = {
+										showChatMenu = false
+										showApprovalHistory = true
 									},
 								)
 								DropdownMenuItem(
@@ -1655,6 +1688,21 @@ fun ChatScreen(
 							if (entry.mutates) RewindBadge(canRewind = entry.reversible)
 						}
 					}
+					pending.rule?.let { rule ->
+						Text(
+							text = stringResource(R.string.chat_allow_rule, rule),
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+					Text(
+						text = stringResource(
+							R.string.chat_allow_timeout,
+							ChatViewModel.APPROVAL_TIMEOUT_MINUTES,
+						),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
 					if (!pending.details.isNullOrBlank() || pending.call.argumentsJson.isNotBlank()) {
 						Text(
 							text = pending.details ?: pending.call.argumentsJson,
@@ -1691,6 +1739,14 @@ fun ChatScreen(
 			consent = consent,
 			onAllow = viewModel::allowSshConsent,
 			onDeny = viewModel::denySshConsent,
+		)
+	}
+
+	if (showApprovalHistory) {
+		ApprovalHistoryDialog(
+			records = approvalHistory,
+			failed = approvalHistoryFailed,
+			onDismiss = { showApprovalHistory = false },
 		)
 	}
 
@@ -2536,6 +2592,112 @@ private fun ChatWelcome(
 		}
 	}
 }
+
+/**
+ * The conversation's approval questions, newest first.
+ *
+ * Deliberately read-only and deliberately not a transcript row: the model is
+ * never shown this, and rewinding a turn does not erase it. [records] is null
+ * while the first query runs, which is a different state from "no approvals".
+ */
+@Composable
+private fun ApprovalHistoryDialog(
+	records: List<ApprovalRecord>?,
+	failed: Boolean,
+	onDismiss: () -> Unit,
+) {
+	WideDialog(
+		onDismissRequest = onDismiss,
+		title = stringResource(R.string.approval_history_title),
+		dismissLabel = stringResource(R.string.chat_close),
+		maxBodyHeight = 460.dp,
+	) {
+		when {
+			failed -> Text(
+				text = stringResource(R.string.approval_history_error),
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.error,
+			)
+			records == null -> Box(
+				modifier = Modifier.fillMaxWidth().padding(24.dp),
+				contentAlignment = Alignment.Center,
+			) {
+				CircularProgressIndicator()
+			}
+			records.isEmpty() -> Text(
+				text = stringResource(R.string.approval_history_empty),
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			else -> records.forEachIndexed { index, record ->
+				if (index > 0) Hairline()
+				Column(
+					modifier = Modifier.fillMaxWidth().padding(vertical = Layout.Space.InMessage),
+					verticalArrangement = Arrangement.spacedBy(2.dp),
+				) {
+					Text(
+						text = stringResource(
+							R.string.approval_history_summary,
+							approvalHistoryTime(record.askedAt),
+							approvalDecisionLabel(record.decision),
+						),
+						style = MaterialTheme.typography.bodyLarge,
+					)
+					Text(
+						text = buildString {
+							append(record.toolName)
+							record.path?.let { append(" · ").append(it) }
+						},
+						style = MaterialTheme.typography.bodySmall,
+						fontFamily = FontFamily.Monospace,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					Text(
+						text = stringResource(
+							R.string.approval_history_rule,
+							approvalRuleLabel(record.rule),
+						),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun approvalDecisionLabel(decision: ApprovalDecision): String = stringResource(
+	when (decision) {
+		ApprovalDecision.Asked -> R.string.approval_decision_asked
+		ApprovalDecision.Allowed -> R.string.approval_decision_allowed
+		ApprovalDecision.Declined -> R.string.approval_decision_declined
+		ApprovalDecision.TimedOut -> R.string.approval_decision_timed_out
+	},
+)
+
+@Composable
+private fun approvalRuleLabel(stored: String): String {
+	val join = stringResource(R.string.approval_rule_join)
+	return stored.split(',')
+		.map { it.trim() }
+		.filter { it.isNotEmpty() }
+		.map { source ->
+			when (source) {
+				"global" -> stringResource(R.string.approval_rule_global)
+				"assistant" -> stringResource(R.string.approval_rule_assistant)
+				"path" -> stringResource(R.string.approval_rule_path)
+				"tool" -> stringResource(R.string.approval_rule_tool)
+				// A source this build does not know: show the stored name
+				// rather than dropping the only clue to why the call asked.
+				else -> source
+			}
+		}
+		.joinToString(join)
+}
+
+private fun approvalHistoryTime(ms: Long): String =
+	DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(ms))
 
 @Composable
 private fun SshConsentDialog(

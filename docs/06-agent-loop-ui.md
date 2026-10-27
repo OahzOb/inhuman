@@ -101,8 +101,9 @@ Before every call the engine asks the host. `gateEngineCall` runs, in order:
    suspends. Allow persists `conversations.sshAllowed` and continues; Cancel
    returns `Deny(declined = true)` and ends the turn.
 7. Ordinary approval (`policy == Ask` or `tool.needsApproval(parsed)`):
-   `pendingApproval` and `awaitApproval()`. For SSH the dialog carries a
-   `details` string built without credentials.
+   `pendingApproval`, an `asked` audit row, and `awaitApproval()`. For SSH the
+   dialog carries a `details` string built without credentials. Ten minutes
+   without an answer is `timed_out`: the call does not run and the turn ends.
 8. `mutates`: an irreversible tool flags the turn; a reversible one captures the
    `start` checkpoint, and a capture failure refuses the call.
 9. `Running`, then `Allow`; the engine executes on `Dispatchers.IO`.
@@ -119,10 +120,18 @@ One `CancellableContinuation<Boolean>` field, set by `awaitApproval()`.
 `approvePendingCall` / `declinePendingCall` clear `pendingApproval` and resume
 the continuation only if it is still active.
 
-Two things to know: **the `pending: PendingApproval` parameter of
-`continueAfterApproval` is never read**, so approval is not matched against the
-call it names — and because `pendingApproval` is a single field, several
-approval-needing calls produce **sequential dialogs**, not a collected batch.
+`awaitApproval()` returns `Allowed`, `Declined` or `TimedOut`; the third comes
+from `withTimeoutOrNull` around the suspension, so a dialogue nobody answers
+cannot hold the turn (and its foreground-service notification) forever. Before
+`pendingApproval` is published, the gate writes an `asked` row to
+`approval_audit`; each answer moves that row to its terminal value, guarded in
+SQL by `decision = 'asked'`. Both writes are best-effort -- a failed audit never
+changes the decision. The dialog names the winning rule(s) from
+`PolicySet.resolve`, and the same names go into the audit row.
+
+Because `pendingApproval` is a single field, several approval-needing calls
+produce **sequential dialogs**, not a collected batch. The audit is readable
+from the chat menu (**Approval history**).
 
 ### The SSH consent plumbing
 
@@ -528,7 +537,7 @@ in-flight/last request, not another copy of the transcript. The assistant raw
 view is reconstructed from the already-persisted `toolCallsJson`, so it survives
 a reload.
 
-### The approval dialog (`:423-456`)
+### The approval dialog
 
 Modal. `onDismissRequest = declinePendingCall`, so Back and an outside tap both
 **decline** rather than leaving the call pending. The body is a sentence from
@@ -539,6 +548,12 @@ user can see what a call will actually do. For the SSH tools the view model
 supplies `PendingApproval.details` instead: host, port, user, auth **type** and
 the operation (command or the two transfer paths), never the password or private
 key.
+
+The dialog also names the rule that produced it (`PendingApproval.rule`,
+localised from `PolicySet.resolve`) and states the ten-minute timeout. Before
+this, "why is it asking?" and "how long will it wait?" had no answer on screen;
+a user who walked away came back to a turn that had been spinning for as long as
+the process lived.
 
 `describeCall` special-cases `delete_file`, `write_file`, `web_search`,
 `web_fetch`, `ssh_exec`, `ssh_upload` and `ssh_download`; the web tools also say

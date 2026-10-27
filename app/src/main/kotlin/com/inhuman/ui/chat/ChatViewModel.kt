@@ -18,6 +18,7 @@ import com.inhuman.core.ai.StreamChunk
 import com.inhuman.core.ai.Tool
 import com.inhuman.core.ai.ToolSpec
 import com.inhuman.core.ai.policy.PolicySet
+import com.inhuman.core.ai.policy.PolicySource
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.capability.ProviderCapabilities
 import com.inhuman.core.ai.capability.ProviderCapability
@@ -32,6 +33,7 @@ import com.inhuman.core.engine.EngineToolCall
 import com.inhuman.core.engine.EngineTurn
 import com.inhuman.core.engine.EngineUsage
 import com.inhuman.core.data.AgentRepository
+import com.inhuman.core.data.ApprovalRecord
 import com.inhuman.core.data.Branches
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.SnapshotStore
@@ -39,6 +41,7 @@ import com.inhuman.core.data.SnapshotStats
 import com.inhuman.core.data.SnapshotTurn
 import com.inhuman.core.data.WorkspaceChange
 import com.inhuman.core.data.db.AgentEntity
+import com.inhuman.core.data.db.ApprovalDecision
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.MessageEntity
@@ -174,6 +177,16 @@ class ChatViewModel(
 	 * knows nothing about Android services or notifications.
 	 */
 	private val onTurnStatus: (TurnStatus) -> Unit = {},
+	/**
+	 * How long an approval dialogue may wait before the call is refused.
+	 *
+	 * A parameter rather than a bare constant so the timeout can be shortened
+	 * by a test without waiting ten minutes. Zero or negative means "one
+	 * minute", not "wait forever": no answer must never turn into execution,
+	 * and an accidentally negative value is not a reason to reintroduce the
+	 * unbounded wait this replaced.
+	 */
+	private val approvalTimeoutMinutes: Int = APPROVAL_TIMEOUT_MINUTES,
 ) : ViewModel() {
 
 	private val _state = MutableStateFlow(ChatUiState())
@@ -2306,6 +2319,12 @@ class ChatViewModel(
 		Diag.i("turn", "stop requested streaming=${_state.value.isStreaming}")
 		streamJob?.cancel()
 		streamJob = null
+		// Stopping while a dialogue is open must also release the gate's
+		// continuation. Cancelling the stream job usually gets there first, but
+		// leaving the field pointing at a dead continuation made the next
+		// question look like it already had an answer.
+		approvalContinuation?.cancel()
+		approvalContinuation = null
 		sshConsentContinuation?.cancel()
 		sshConsentContinuation = null
 		_state.update { s ->
@@ -2324,16 +2343,33 @@ class ChatViewModel(
 
 	fun approvePendingCall() {
 		val pending = _state.value.pendingApproval ?: return
-		Diag.i("approval", "allow tool=${pending.call.displayName} summary=${pending.summary}")
+		Diag.i("approval", "allow tool=${pending.call.displayName} rule=${pending.rule ?: "-"}")
 		_state.update { it.copy(pendingApproval = null) }
-		viewModelScope.launch { continueAfterApproval(pending, approved = true) }
+		viewModelScope.launch { continueAfterApproval(approved = true) }
 	}
 
 	fun declinePendingCall() {
 		val pending = _state.value.pendingApproval ?: return
-		Diag.i("approval", "decline tool=${pending.call.displayName} summary=${pending.summary}")
+		Diag.i("approval", "decline tool=${pending.call.displayName} rule=${pending.rule ?: "-"}")
 		_state.update { it.copy(pendingApproval = null) }
-		viewModelScope.launch { continueAfterApproval(pending, approved = false) }
+		viewModelScope.launch { continueAfterApproval(approved = false) }
+	}
+
+	/**
+	 * The conversation's approval questions, newest first, or null when the
+	 * read failed.
+	 *
+	 * Null is distinct from an empty list on purpose: "no approvals" and "the
+	 * database could not be read" are different claims, and showing the first
+	 * for the second would make the audit lie.
+	 */
+	suspend fun approvalHistory(): List<ApprovalRecord>? = try {
+		repository.approvals().forConversation(conversationId)
+	} catch (cancelled: kotlinx.coroutines.CancellationException) {
+		throw cancelled
+	} catch (failure: Exception) {
+		Diag.w("approval", "history read failed", failure)
+		null
 	}
 
 	// --- sending -------------------------------------------------------------
@@ -3270,7 +3306,8 @@ class ChatViewModel(
 		}
 
 		val policyPath = resolvedPolicyPath(parsed)
-		val policy = policies.effective(tool.name, policyPath)
+		val decision = policies.resolve(tool.name, policyPath)
+		val policy = decision.policy
 		if (policy == ToolPolicy.Deny || policy == ToolPolicy.Blind) {
 			Diag.i("policy", "refused tool=${tool.name} path=${policyPath ?: "-"} policy=$policy")
 			return EngineDecision.Deny(
@@ -3339,35 +3376,73 @@ class ChatViewModel(
 			}
 		}
 
-		if (policy == ToolPolicy.Ask || tool.needsApproval(parsed)) {
+		val toolAsks = tool.needsApproval(parsed)
+		if (policy == ToolPolicy.Ask || toolAsks) {
 			val ui = call.toUi()
 			val summary = describeCall(ui, parsed)
+			val rule = approvalRuleLabel(
+				sources = if (policy == ToolPolicy.Ask) decision.sources else emptySet(),
+				toolAsked = toolAsks,
+			)
 			Diag.i(
 				"approval",
-				"ask tool=${tool.name} path=${policyPath ?: "-"} " +
-					"rule=${if (policy == ToolPolicy.Ask) "policy" else "tool"} " +
+				"ask tool=${tool.name} path=${policyPath ?: "-"} rule=${rule ?: "-"} " +
 					"args=${parsed.toString().length}B",
 			)
+			// Recorded before the dialogue is shown, not after the answer: a
+			// process death while it is open must leave evidence that the
+			// question was asked. The write is best-effort -- failing to audit
+			// is not a reason to decide anything differently.
+			val auditId = try {
+				repository.approvals().asked(
+					conversationId = conversationId,
+					messageId = id,
+					callId = call.id,
+					toolName = tool.name,
+					path = policyPath,
+					sources = if (policy == ToolPolicy.Ask) decision.sources else emptySet(),
+					toolAsked = toolAsks,
+				)
+			} catch (cancelled: kotlinx.coroutines.CancellationException) {
+				throw cancelled
+			} catch (failure: Exception) {
+				Diag.w("approval", "audit asked failed", failure)
+				null
+			}
 			_state.update {
 				it.copy(
 					pendingApproval = PendingApproval(
 						messageId = id,
 						call = ui,
 						summary = summary,
+						rule = rule,
 						// The ordinary dialogue must never show a credential,
 						// even when a rule makes an SSH call ask.
 						details = if (remote) sshApprovalDetails(tool.name, parsed) else null,
 					),
 				)
 			}
-			val approved = awaitApproval()
-			if (!approved) {
-				markCall(id, call.index, ToolCallUi.State.Declined)
-				return EngineDecision.Deny(
-					DECLINED_MARKER + " The user declined this call.",
-					stopTurn = true,
-					declined = true,
-				)
+			when (awaitApproval()) {
+				ApprovalAnswer.Allowed -> recordApprovalDecision(auditId, ApprovalDecision.Allowed)
+				ApprovalAnswer.Declined -> {
+					recordApprovalDecision(auditId, ApprovalDecision.Declined)
+					markCall(id, call.index, ToolCallUi.State.Declined)
+					return EngineDecision.Deny(
+						DECLINED_MARKER + " The user declined this call.",
+						stopTurn = true,
+						declined = true,
+					)
+				}
+				ApprovalAnswer.TimedOut -> {
+					recordApprovalDecision(auditId, ApprovalDecision.TimedOut)
+					_state.update { it.copy(pendingApproval = null) }
+					markCall(id, call.index, ToolCallUi.State.Declined)
+					return EngineDecision.Deny(
+						DECLINED_MARKER + " The approval request timed out; the call was not run.",
+						stopTurn = true,
+						declined = true,
+					)
+				}
 			}
 		}
 
@@ -3482,15 +3557,72 @@ class ChatViewModel(
 		Diag.i("ssh", "consent revoked")
 	}
 
-	private suspend fun awaitApproval(): Boolean =
-		kotlinx.coroutines.suspendCancellableCoroutine { cont ->
-			approvalContinuation = cont
-		}
+	private suspend fun awaitApproval(): ApprovalAnswer {
+		// The timeout is the whole answer to "what if nobody is there". Before
+		// this, the turn waited forever: the foreground service stayed up, the
+		// notification kept saying "waiting for approval", and the conversation
+		// could not be used. Timing out as a refusal is the only outcome that
+		// neither executes an unanswered call nor leaves the turn wedged.
+		val answered = withTimeoutOrNull(
+			approvalTimeoutMinutes.coerceAtLeast(1) * 60_000L,
+		) {
+			kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { cont ->
+				approvalContinuation = cont
+				cont.invokeOnCancellation {
+					if (approvalContinuation === cont) approvalContinuation = null
+				}
+			}
+		} ?: return ApprovalAnswer.TimedOut
+		return if (answered) ApprovalAnswer.Allowed else ApprovalAnswer.Declined
+	}
 
-	private suspend fun continueAfterApproval(pending: PendingApproval, approved: Boolean) {
+	private fun continueAfterApproval(approved: Boolean) {
 		approvalContinuation?.let { cont ->
 			approvalContinuation = null
 			if (cont.isActive) cont.resumeWith(Result.success(approved))
+		}
+	}
+
+	private enum class ApprovalAnswer { Allowed, Declined, TimedOut }
+
+	/**
+	 * The question's reason, in the user's language.
+	 *
+	 * Returns null only when neither a policy rule nor the tool itself asked,
+	 * which cannot happen at a call site that is showing this dialogue. The
+	 * caller passes the sources that actually won, not every rule present: a
+	 * global Ask that a path Blind overrides is not why the user is being
+	 * asked.
+	 */
+	private fun approvalRuleLabel(sources: Set<PolicySource>, toolAsked: Boolean): String? {
+		val parts = buildList {
+			sources.forEach { source ->
+				add(
+					context.getString(
+						when (source) {
+							PolicySource.Global -> R.string.approval_rule_global
+							PolicySource.Assistant -> R.string.approval_rule_assistant
+							PolicySource.Path -> R.string.approval_rule_path
+						},
+					),
+				)
+			}
+			if (toolAsked) add(context.getString(R.string.approval_rule_tool))
+		}.distinct()
+		if (parts.isEmpty()) return null
+		return parts.joinToString(context.getString(R.string.approval_rule_join))
+	}
+
+	private suspend fun recordApprovalDecision(auditId: String?, decision: ApprovalDecision) {
+		if (auditId == null) return
+		try {
+			repository.approvals().decided(auditId, decision)
+		} catch (cancelled: kotlinx.coroutines.CancellationException) {
+			// A cancelled turn must stay cancelled. `runCatching` here would
+			// swallow this and let the gate continue to the tool call.
+			throw cancelled
+		} catch (failure: Exception) {
+			Diag.w("approval", "audit decision failed", failure)
 		}
 	}
 
@@ -4312,6 +4444,18 @@ class ChatViewModel(
 		const val DEFAULT_TOOL_CALLS = 32
 		const val MIN_TOOL_CALLS = 1
 		const val MAX_TOOL_CALLS = 256
+
+		/**
+		 * How long an approval dialogue waits before the call is refused.
+		 *
+		 * Not a setting. Ten minutes is long enough for a person who was
+		 * notified to come back, and short enough that a forgotten dialogue
+		 * does not hold a foreground service and a conversation indefinitely.
+		 * The outcome is refusal, never execution: an unanswered question must
+		 * not become a yes, and a timeout must not silently cancel the whole
+		 * turn without saying so in the transcript.
+		 */
+		const val APPROVAL_TIMEOUT_MINUTES = 10
 
 		/**
 		 * Appended only to a final-answer retry, not stored.

@@ -169,19 +169,33 @@ effective = strictest( 用户规则, agent 规则 )
 `Deny` 与 `Blind` 排在 `needsApproval` 之前处理（`ChatViewModel.gateEngineCall`，
 拒绝文案带 `REFUSED_MARKER`）。这样就不需要每个工具各自记得查一次策略。
 
-### 5.3 审批决定应当进会话日志
+### 5.3 审批决定进会话审计
 
 按 08 的 Q5（日志给用户看、要更详细），每一次"问了、用户答了什么"都应当是
 **持久事件**，而不是只活在内存里的 UI 状态。
 
-**这一条还没做。** 决定目前只活在两处：`pendingApproval` 的 UI 状态，以及被拒绝
-调用写下的那条 `[declined]` 工具结果。没有事件日志可以追加 `approval/asked` /
-`approval/decided`，所以会话重新加载之后，"为什么问过、答了什么"只剩下工具结果
-那一句。
+**已做（schema 14 → 15）。** 提问之前先写一行 `approval_audit`：会话、消息、
+工具调用 id、工具名、规范化后的相对路径、规则来源、`askedAt`。拿到答案后把
+同一行改成 `allowed` / `declined` / `timed_out` 并写 `decidedAt`；SQL 带
+`WHERE decision = 'asked'`，所以超时和迟到的点击不会互相覆盖，先到的终态生效。
+会话删除时级联删除；**回退某个回合不会删掉审计行**，因为 `messageId` 不是外键——
+审计记的是"问过没有"，不是消息内容。
 
-B4 已经用另一条路修掉了：拒绝第一个调用后，engine 会给同一轮里每个未执行的调用
-各写一条 `[skipped]` 结果（`EngineEvent.ToolCallSkipped`；Stop 路径同样如此），
-不再是"有调用、没结果"。事件化仍然值得做，但它不再是修 B4 的前提。
+**规则来源也进审计，并显示在弹窗里**：`global` / `assistant` / `path` 来自
+`PolicySet.resolve`，取最严时并列的来源全部列出；工具自身的 `needsApproval`
+记为 `tool`。`PolicySet.effective` 仍然只有一个答案，两个函数不会分叉。
+
+**等待有超时。** 10 分钟无人回答，按拒绝处理：审计记 `timed_out`，提示条
+清掉，调用不执行，回合结束。不是"一直等"，也不是"超时后自动放行"——不回答
+永远不等于同意。超时时间不是设置项，理由见 §8。
+
+**审计写失败不改变任何决定**：两次写库都包在 `runCatching` 里，失败只进
+诊断日志。审计是记录，不是闸门；让一个写不进库的日志去决定调用是否发生，
+等于把审计变成第二个权限系统。
+
+会话菜单 → **审批历史** 可以读这张表（最新的在前），显示时间、工具、路径、
+规则和结果。SSH 首次授权不写这张表：它是能力授予，持久状态是
+`conversations.sshAllowed`，另有诊断日志，两者不是同一个问题（§7）。
 
 ---
 
@@ -212,7 +226,8 @@ path_policy(conversationId TEXT, relPath TEXT, policy TEXT NOT NULL,
 
 **已实现**：
 
-- `ToolPolicy` + `PolicySet`（`:core:ai/policy/`）—— 四档策略与"取最严"合成，**14 个测试**
+- `ToolPolicy` + `PolicySet`（`:core:ai/policy/`）—— 四档策略与"取最严"合成，
+  `resolve` 同时给出生效来源，**19 个测试**
 - 存储：schema **7 → 8**，三张新表（`approval_defaults`、`agent_approval`、`path_policy`），
   **未改动任何既有表**
 - `PolicyRepository` —— 装载与写入
@@ -229,6 +244,9 @@ path_policy(conversationId TEXT, relPath TEXT, policy TEXT NOT NULL,
   不是 `needsApproval`。`ChatViewModel.gateEngineCall` 在普通策略分支之前处理它；
   `SshExecTool.needsApproval` 返回 `false`。授权后按普通策略执行，撤销/全局关闭
   会清掉持久授权；全局关闭后再打开，下一次 SSH 调用必须重新授权。
+- **审批审计**（schema 14→15 的 `approval_audit`）：提问前写 `asked`，回答后写
+  `allowed` / `declined` / `timed_out` 与 `decidedAt`；规则来源一并存储。10 分钟
+  无回答按 `timed_out` 拒绝。会话菜单可读历史。写库失败只记诊断，不改变决定。
 
 三个不在 diff 里显眼的细节：
 
@@ -401,10 +419,13 @@ WAL            0 bytes    （已 checkpoint）
 1. **审批疲劳。** 这不是默认状态的问题（默认不问），而是**用户配了要问之后**
    的问题：一次覆盖 10 个文件会问 10 次。要不要"同一 turn 内对同一目录的同类动作
    批量确认"？我倾向**先不做**，等有人真的这么配了再说。
-2. **超时。** 用户不回答怎么办？现在就是一直等：`awaitApproval` 挂起，直到
-   `approvePendingCall` / `declinePendingCall` 恢复它，没有超时。**"绝不不能不回答
-   就执行"这一点是满足的**；要定的是超时之后算拒绝、算取消，还是回到一个可以继续
-   的 pending 状态。
-3. **用户规则与 agent 规则的冲突展示。** 取最严是规则，但用户看不到"为什么这次
-   问了"。要不要在审批对话框上说明是哪条规则触发的？我倾向要——否则用户会以为
-   是 bug。
+2. **超时。已定：10 分钟，算拒绝。** 用户不回答时，`awaitApproval` 用
+   `withTimeoutOrNull` 结束等待，审计记 `timed_out`，调用不执行，回合结束。
+   不选"取消"是因为取消在 UI 上和"用户按了停止"分不开；不选"回到 pending"
+   是因为那只是把一直等改成每一轮都来问一次。**"不回答就执行"从未是一个选项。**
+   10 分钟不是设置项：设置项会变成一个新的档位，而这里要的不是可调策略，是
+   一个不会永远挂起的默认值；被通知到的用户十分钟足够回到对话框。
+3. **用户规则与 agent 规则的冲突展示。已做。** 审批弹窗显示生效规则的本地化
+   来源（全局设置 / 助手设置 / 路径规则 / 工具本身），并列时全部列出；
+   `PolicySet.resolve` 是唯一来源映射，`effective` 由它派生，所以弹窗说的和
+   裁决用的是同一个答案。审计行存的是同样的来源名。

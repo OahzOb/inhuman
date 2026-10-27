@@ -49,6 +49,9 @@ class CurrentSchemaMigrationTest {
 			// v14 added `modelTags` to the provider row; reading it proves the
 			// column exists and that an upgrade defaults it to empty.
 			assertTrue(db.providers().all().all { it.modelTags.isEmpty() })
+			// v15 added the approval audit; this both proves the table exists
+			// and that an upgraded install starts with no rows.
+			assertTrue(db.approvals().count("none") == 0)
 		} finally {
 			db.close()
 		}

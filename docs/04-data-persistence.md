@@ -20,20 +20,40 @@ Both hosts install the same `InhumanDatabase.MIGRATIONS` and
 `BundledSQLiteDriver`. The callback seeds the DeepSeek provider and the default
 assistant on create, so a desktop install is not a second, empty schema.
 
-## The schema, version 14
+## The schema, version 15
 
 `InhumanDatabase` (`core/db/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 14`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 15`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/db/schemas/` by KSP — configured in `core/db/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
 spot.
 
-Nine entities in four files: `ProviderProfileEntity`, `WorkspaceEntity`,
+Ten entities in three files: `ProviderProfileEntity`, `WorkspaceEntity`,
 `ConversationEntity`, `MessageEntity`, `AgentEntity` and
-`ContextSummaryEntity` in `db/Entities.kt`, plus the three approval-policy tables
+`ContextSummaryEntity` in `db/Entities.kt`, the three approval-policy tables
 (`ApprovalDefaultEntity`, `AgentApprovalEntity`, `PathPolicyEntity`) in
-`db/PolicyEntities.kt`, added by migration 7→8.
+`db/PolicyEntities.kt` (added by migration 7→8), and the approval audit
+(`ApprovalAuditEntity`) in `db/ApprovalAuditEntity.kt` (added by 14→15).
+
+### `approval_audit` — added in 14→15
+
+| Column | Meaning |
+| --- | --- |
+| `id` | Row UUID; the same row moves from asked to its terminal answer. |
+| `conversationId` | Foreign key, cascade on conversation delete. |
+| `messageId`, `callId` | The assistant row and the provider's tool-call id; deliberately **not** foreign keys. |
+| `toolName`, `path` | What was asked; `path` is the normalised workspace-relative path, or null. |
+| `rule` | Comma-joined sources: `global`, `assistant`, `path`, `tool`. |
+| `decision` | `asked`, `allowed`, `declined`, `timed_out`. |
+| `askedAt`, `decidedAt` | Milliseconds; `decidedAt` is null while the dialogue is open. |
+
+The audit is deliberately outside `messages`: it is not sent to the model, not
+searchable as conversation content, and has no branch position. Retention
+follows the conversation, not the message, so rewinding a turn does not erase
+the record that its call was asked about. The update is guarded by
+`decision = 'asked'`, so the first terminal answer wins even if a timeout and a
+late tap race.
 
 ### `provider_profiles.modelTags` — added in 13→14
 
@@ -251,7 +271,7 @@ the messages explicitly before the row **even though the FK cascades** — the
 comment says that keeps the behaviour obvious if the cascade is ever switched
 off (`:496-502`).
 
-## Migration history 1 → 14
+## Migration history 1 → 15
 
 All hand-written. There is **no `fallbackToDestructiveMigration` anywhere** and
 the reason is stated at `MIGRATION_1_2`: it would delete every conversation on
@@ -278,6 +298,7 @@ order below.
 | 11→12 | `provider_profiles` created and the built-in `deepseek` row seeded with `baseUrl = https://api.deepseek.com` and `reasoningMode = deepseek`; `agents.providerId` and `conversations.providerId` added with default `deepseek`. The legacy chat key slot is reused, so no key is copied and no key is lost. |
 | 12→13 | `context_summaries` created, empty: a derived projection, so an upgraded install starts with no compaction and the full transcript. |
 | 13→14 | `provider_profiles` gains `modelTags TEXT NOT NULL DEFAULT ''`, so an upgraded install has every model untagged and the picker falls back to the name-based guess. |
+| 14→15 | `approval_audit` created, empty: an install that never sees a prompt has nothing to show, and an upgraded one has no old questions to import. The table has one index `(conversationId, askedAt)`, for the history dialogue, and a cascade on the conversation. |
 
 The 7→8 comment records a product change that is *not* in the migration:
 deletion no longer asks for approval, and that lives in `DeleteFileTool`, not

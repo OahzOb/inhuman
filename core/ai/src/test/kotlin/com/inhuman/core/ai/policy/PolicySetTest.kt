@@ -160,4 +160,63 @@ class PolicySetTest {
 		assertFalse(PolicySet(global = mapOf("x" to ToolPolicy.Free)).isEmpty)
 		assertFalse(PolicySet(paths = mapOf("d" to ToolPolicy.Free)).isEmpty)
 	}
+
+	@Test
+	fun `resolve names the rule that produced the decision`() {
+		val rules = PolicySet(global = mapOf("delete_file" to ToolPolicy.Ask))
+
+		val decision = rules.resolve("delete_file", "notes.md")
+
+		assertEquals(ToolPolicy.Ask, decision.policy)
+		assertEquals(setOf(PolicySource.Global), decision.sources)
+	}
+
+	@Test
+	fun `resolve names every source that ties for strictest`() {
+		// The composition rule has no single winner when two sources agree.
+		// Reporting one of them would send the user to the wrong setting.
+		val rules = PolicySet(
+			global = mapOf("write_file" to ToolPolicy.Ask),
+			assistant = mapOf("write_file" to ToolPolicy.Ask),
+		)
+
+		val decision = rules.resolve("write_file", "a.txt")
+
+		assertEquals(ToolPolicy.Ask, decision.policy)
+		assertEquals(
+			setOf(PolicySource.Global, PolicySource.Assistant),
+			decision.sources,
+		)
+	}
+
+	@Test
+	fun `resolve reports only the strictest source, not every rule present`() {
+		val rules = PolicySet(
+			global = mapOf("write_file" to ToolPolicy.Ask),
+			paths = mapOf("vault" to ToolPolicy.Blind),
+		)
+
+		val decision = rules.resolve("write_file", "vault/k.md")
+
+		assertEquals(ToolPolicy.Blind, decision.policy)
+		assertEquals(setOf(PolicySource.Path), decision.sources)
+	}
+
+	@Test
+	fun `resolve names the path rule for a descendant`() {
+		val rules = PolicySet(paths = mapOf("private" to ToolPolicy.Deny))
+
+		val decision = rules.resolve("read_file", "private/deep.md")
+
+		assertEquals(ToolPolicy.Deny, decision.policy)
+		assertEquals(setOf(PolicySource.Path), decision.sources)
+	}
+
+	@Test
+	fun `resolve has no source when no rule applies`() {
+		val decision = PolicySet.None.resolve("read_file", "notes.md")
+
+		assertEquals(ToolPolicy.Free, decision.policy)
+		assertTrue(decision.sources.isEmpty())
+	}
 }

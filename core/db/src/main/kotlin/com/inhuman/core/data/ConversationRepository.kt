@@ -329,6 +329,16 @@ class ConversationRepository(
 
 	private val policyRepository by lazy { PolicyRepository(db) }
 
+	/**
+	 * The approval audit.
+	 *
+	 * Reached through this repository for the same reason as [policies]: both
+	 * share the one `InhumanDatabase` the host opened.
+	 */
+	fun approvals(): ApprovalAuditRepository = approvalRepository
+
+	private val approvalRepository by lazy { ApprovalAuditRepository(db) }
+
 	suspend fun rename(id: String, title: String) {
 		val now = System.currentTimeMillis()
 		db.conversations().rename(id, title, now)

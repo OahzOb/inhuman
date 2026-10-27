@@ -43,11 +43,36 @@ data class PolicySet(
 	 * so this function must not be handed a raw argument.
 	 */
 	fun effective(tool: String, relativePath: String? = null): ToolPolicy =
-		ToolPolicy.strictest(
-			global[tool],
-			assistant[tool],
-			relativePath?.let { pathPolicyFor(it) },
+		resolve(tool, relativePath).policy
+
+	/**
+	 * The policy for one call **and which rules produced it**.
+	 *
+	 * The approval dialogue has to say why it appeared; "a rule somewhere"
+	 * leaves the user unable to fix or trust it. [sources] is every source
+	 * whose rule has the winning strictness -- more than one when two rules
+	 * agree, which is the honest answer rather than picking a favourite.
+	 *
+	 * [effective] is this function's policy, so the two cannot disagree.
+	 */
+	fun resolve(tool: String, relativePath: String? = null): PolicyDecision {
+		val candidates = buildList {
+			global[tool]?.let { add(PolicySource.Global to it) }
+			assistant[tool]?.let { add(PolicySource.Assistant to it) }
+			relativePath?.let { pathPolicyFor(it) }?.let { add(PolicySource.Path to it) }
+		}
+		if (candidates.isEmpty()) {
+			return PolicyDecision(ToolPolicy.Free, emptySet())
+		}
+		val strictest = candidates.maxByOrNull { it.second.strictness }!!.second
+		return PolicyDecision(
+			policy = strictest,
+			sources = candidates
+				.filter { it.second == strictest }
+				.map { it.first }
+				.toSet(),
 		)
+	}
 
 	/**
 	 * The strictest rule covering [relativePath], including its ancestors.
@@ -80,6 +105,32 @@ data class PolicySet(
 		val None = PolicySet()
 	}
 }
+
+/**
+ * Where a winning rule came from.
+ *
+ * [stored] is the value written to the approval audit. It is a name rather than
+ * an ordinal for the same reason [com.inhuman.core.ai.policy.ToolPolicy] stores
+ * names: reordering an enum must not silently rewrite history.
+ */
+enum class PolicySource(val stored: String) {
+	Global("global"),
+	Assistant("assistant"),
+	Path("path"),
+}
+
+/**
+ * The policy for one call and the sources that produced it.
+ *
+ * [sources] is empty only when no rule applies and the policy is
+ * [ToolPolicy.Free]. When two sources set the same winning policy, both are
+ * listed: the composition rule takes the strictest, not the first, so there is
+ * no single "winner" to name.
+ */
+data class PolicyDecision(
+	val policy: ToolPolicy,
+	val sources: Set<PolicySource>,
+)
 
 /**
  * The policy for a call that has no arguments worth restricting.

@@ -52,6 +52,17 @@ data class PendingApproval(
 	/** What the call would do, phrased for a human rather than for a model. */
 	val summary: String,
 	/**
+	 * Which rule produced this question, already localised, or null when the
+	 * tool's own requirement is the only reason and the caller chose not to
+	 * name it.
+	 *
+	 * The user has to be able to tell a global rule from an assistant rule from
+	 * a path rule: "a rule somewhere" is not actionable, and the three are
+	 * edited on different screens. When two sources tie, all of them are named
+	 * because the composition rule has no single winner.
+	 */
+	val rule: String? = null,
+	/**
 	 * Redacted arguments for the dialog, when the raw JSON contains a secret.
 	 *
 	 * SSH arguments can carry a password or private key. The approval dialog

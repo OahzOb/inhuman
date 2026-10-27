@@ -495,6 +495,36 @@ interface PolicyDao {
 	suspend fun defaultCount(): Int
 }
 
+/**
+ * The approval audit, newest first.
+ *
+ * The update is guarded by `decision = 'asked'`: a timeout and a late tap can
+ * race, and the first terminal answer must win. Without the guard, a user who
+ * comes back after the timeout could make the record say `allowed` for a call
+ * that never ran.
+ */
+@Dao
+interface ApprovalAuditDao {
+
+	@Insert(onConflict = OnConflictStrategy.REPLACE)
+	suspend fun insert(row: ApprovalAuditEntity)
+
+	@Query(
+		"UPDATE approval_audit SET decision = :decision, decidedAt = :decidedAt " +
+			"WHERE id = :id AND decision = 'asked'",
+	)
+	suspend fun decide(id: String, decision: String, decidedAt: Long)
+
+	@Query(
+		"SELECT * FROM approval_audit WHERE conversationId = :conversationId " +
+			"ORDER BY askedAt DESC, id ASC",
+	)
+	suspend fun forConversation(conversationId: String): List<ApprovalAuditEntity>
+
+	@Query("SELECT COUNT(*) FROM approval_audit WHERE conversationId = :conversationId")
+	suspend fun count(conversationId: String): Int
+}
+
 @Database(
 	entities = [
 		ProviderProfileEntity::class,
@@ -506,14 +536,15 @@ interface PolicyDao {
 		ApprovalDefaultEntity::class,
 		AgentApprovalEntity::class,
 		PathPolicyEntity::class,
+		ApprovalAuditEntity::class,
 	],
 	// Bumped when columns were added for tool calls, again for measured
-	// latency, again for assistants, and again for the approval rules. Room
-	// refuses to open a database whose schema hash does not match rather than
-	// guessing, which is how each was caught: the app crashed on launch with
-	// "Looks like you've changed schema but forgot to update the version number"
-	// instead of quietly losing conversations.
-	version = 14,
+	// latency, again for assistants, again for the approval rules, and again for
+	// the approval audit. Room refuses to open a database whose schema hash does
+	// not match rather than guessing, which is how each was caught: the app
+	// crashed on launch with "Looks like you've changed schema but forgot to
+	// update the version number" instead of quietly losing conversations.
+	version = 15,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -524,12 +555,13 @@ abstract class InhumanDatabase : RoomDatabase() {
 	abstract fun contextSummaries(): ContextSummaryDao
 	abstract fun agents(): AgentDao
 	abstract fun policies(): PolicyDao
+	abstract fun approvals(): ApprovalAuditDao
 
 	companion object {
 		const val NAME = "inhuman.db"
 
 		/** Mirrors the Room annotation; backups record it without reflection. */
-		const val VERSION = 14
+		const val VERSION = 15
 
 		/**
 		 * 1 -> 2: tool-call columns.
@@ -865,6 +897,42 @@ abstract class InhumanDatabase : RoomDatabase() {
 		}
 
 		/**
+		 * 14 -> 15: the approval audit.
+		 *
+		 * Additive: an install that never sees an approval prompt keeps an
+		 * empty table. The foreign key is the conversation, not the message, so
+		 * rewinding a turn does not erase the record that its call was asked
+		 * about -- see `ApprovalAuditEntity` for why that is deliberate.
+		 */
+		val MIGRATION_14_15 = object : Migration(14, 15) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"""
+					CREATE TABLE IF NOT EXISTS approval_audit (
+						id TEXT NOT NULL,
+						conversationId TEXT NOT NULL,
+						messageId TEXT NOT NULL,
+						callId TEXT NOT NULL,
+						toolName TEXT NOT NULL,
+						path TEXT,
+						rule TEXT NOT NULL,
+						decision TEXT NOT NULL,
+						askedAt INTEGER NOT NULL,
+						decidedAt INTEGER,
+						PRIMARY KEY(id),
+						FOREIGN KEY(conversationId) REFERENCES conversations(id)
+							ON UPDATE NO ACTION ON DELETE CASCADE
+					)
+					""".trimIndent(),
+				)
+				connection.execSQL(
+					"CREATE INDEX IF NOT EXISTS index_approval_audit_conversationId_askedAt " +
+						"ON approval_audit (conversationId, askedAt)",
+				)
+			}
+		}
+
+		/**
 		 * Every migration, in order.
 		 *
 		 * A host that builds the database itself must not copy this list. The
@@ -887,6 +955,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 			MIGRATION_11_12,
 			MIGRATION_12_13,
 			MIGRATION_13_14,
+			MIGRATION_14_15,
 		)
 
 		/**

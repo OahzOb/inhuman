@@ -112,8 +112,10 @@ Confirmed by `README.md:17-29` and by the code:
   the set; the next turn picks it up
   ([11-conversation-tools.md](11-conversation-tools.md)).
 - Approval rules can tighten what the assistant may do, per tool, per assistant
-  or per path; the default asks nothing, including for deletion
-  ([09-approvals.md](09-approvals.md)).
+  or per path; the default asks nothing, including for deletion. Every question
+  and answer is written to the conversation's approval audit, the dialog names
+  the rule that won, and an unanswered question times out as a refusal after ten
+  minutes ([09-approvals.md](09-approvals.md)).
 - Answers can be retried. **Rewind** is the single restart control. **Answer
   again** keeps the tool **definitions** so the request prefix can still hit the
   context cache, but appends a transient system instruction forbidding a call;

@@ -489,11 +489,12 @@ message:
 
 Still open, each re-verified in the code as of this pass:
 
-- **`pendingApproval` is a single field** (`ChatUiState.kt:40`), written at one
-  place (`ChatViewModel.kt:1216`) against a single `approvalContinuation`
-  (`:1327`), so several approval-needing calls produce **sequential** dialogs
-  rather than a collected batch. The `pending` parameter of
-  `continueAfterApproval` is accepted and never read (`:1334`).
+- **`pendingApproval` is a single field** (`ChatUiState.kt`), written at one
+  place (`ChatViewModel.gateEngineCall`) against a single `approvalContinuation`,
+  so several approval-needing calls produce **sequential** dialogs rather than a
+  collected batch. The old note that `continueAfterApproval` accepted a `pending`
+  parameter it never read no longer applies: it now takes only the answer, and
+  the audit row is the record of which call was asked about.
 - **Dead code, verified repo-wide** (`grep` over every `.kt`, excluding `build/`
   and `_research/`): five fields of `TurnOutcome` are constructed and never read
   — `text`, `reasoning`, `usage`, `finish`, `failure` (`ChatViewModel.kt:764-772`;
