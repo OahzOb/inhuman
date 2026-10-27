@@ -156,7 +156,7 @@ MSI 已用 `.signing/inhuman-dev.pfx` 自签名。该证书是开发证书，根
 tools\sign-msi.ps1 -Msi <msi> -Pfx <real.pfx> -Password <password> -TimestampUrl <url>
 ```
 
-桌面端当前版本是 `0.2.0`（Android 端为 `0.7.1`；两端版本号独立）。`upgradeUuid` 已配置；后续发版需要提升版本号才能覆盖升级。
+桌面端当前版本是 `0.2.0`（Android 端为 `0.7.2`；两端版本号独立）。`upgradeUuid` 已配置；后续发版需要提升版本号才能覆盖升级。
 
 ## 8. 已知限制
 
