@@ -96,7 +96,12 @@ class ConversationsViewModel(
 						conversations = list,
 						loaded = true,
 						selectedIds = current.selectedIds.intersect(ids),
-						selecting = current.selecting && current.selectedIds.any { it in ids },
+						// Keep selection mode while nothing is checked yet. The
+						// old test required a selected id, so a background turn
+						// updating a conversation dismissed the checkboxes before
+						// the user had picked anything.
+						selecting = current.selecting &&
+							(current.selectedIds.isEmpty() || current.selectedIds.any { it in ids }),
 					)
 				}
 			}

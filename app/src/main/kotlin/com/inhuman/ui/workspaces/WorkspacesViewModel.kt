@@ -53,7 +53,10 @@ class WorkspacesViewModel(
 							workspaces = rows,
 							loading = false,
 							selectedIds = current.selectedIds.intersect(ids),
-							selecting = current.selecting && current.selectedIds.any { it in ids },
+							// Same rule as the conversation list: an emission with
+							// no selection yet must not dismiss the checkboxes.
+							selecting = current.selecting &&
+								(current.selectedIds.isEmpty() || current.selectedIds.any { it in ids }),
 						)
 					}
 				}

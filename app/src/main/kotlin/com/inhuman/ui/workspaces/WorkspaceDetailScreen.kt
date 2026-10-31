@@ -220,10 +220,17 @@ fun WorkspaceDetailScreen(
 				.padding(inner)
 				.verticalScroll(rememberScrollState())
 				.padding(horizontal = comfortableGutter()),
+			// The capped rows below were left-hugging on a tablet while the
+			// home and chat columns centre; this keeps the whole detail page on
+			// one axis.
+			horizontalAlignment = Alignment.CenterHorizontally,
 			verticalArrangement = Arrangement.spacedBy(12.dp),
 		) {
 			state.error?.let { message ->
-				Row(verticalAlignment = Alignment.CenterVertically) {
+				Row(
+					modifier = Modifier.widthIn(max = Layout.ReadableMeasure).fillMaxWidth(),
+					verticalAlignment = Alignment.CenterVertically,
+				) {
 					Text(
 						text = message,
 						style = MaterialTheme.typography.bodySmall,
@@ -431,6 +438,10 @@ fun WorkspaceDetailScreen(
 	}
 }
 
+// Built once, not per row per composition.
+private val conversationDateFormat: DateFormat =
+	DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+
 @Composable
 private fun ConversationRow(conversation: ConversationEntity, onClick: () -> Unit) {
 	Column(
@@ -447,8 +458,7 @@ private fun ConversationRow(conversation: ConversationEntity, onClick: () -> Uni
 			overflow = TextOverflow.Ellipsis,
 		)
 		Text(
-			text = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-				.format(Date(conversation.updatedAt)),
+			text = conversationDateFormat.format(Date(conversation.updatedAt)),
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)

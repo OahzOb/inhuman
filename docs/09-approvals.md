@@ -115,10 +115,11 @@ effective = strictest( 用户规则, agent 规则 )
 现在没有任何工具的内置钩子要求审批，`FileToolsTest` 把"默认要问的工具集为空"
 写成了断言。
 
-**付费披露不是审批门。** `web_search` 和 `web_fetch` 默认仍是 `Free`；`PAID`
-徽标只负责让成本可见（[08-port-philosophy.md](08-port-philosophy.md) §1.4），
-要不要先问由这里的规则决定。不要把"付费"做成默认 `Ask`：那会同时破坏
-"默认不打断"和"审批只在用户真的要求时出现"这两条。
+**付费披露不是审批门。** `web_search`、`web_fetch` 以及图片/视频/语音/转写/决策
+这组媒体工具默认仍是 `Free`；`PAID` 徽标只负责让成本可见
+（[08-port-philosophy.md](08-port-philosophy.md) §1.4），要不要先问由这里的规则
+决定。不要把"付费"做成默认 `Ask`：那会同时破坏"默认不打断"和"审批只在用户真的
+要求时出现"这两条。
 
 ### 4.2 用户可收紧任何一项
 

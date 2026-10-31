@@ -340,9 +340,12 @@ fun WireRequestDialog(snapshot: WireSnapshot, onDismiss: () -> Unit) {
 	val view = remember(snapshot.requestJson) {
 		runCatching { parseRequest(snapshot.requestJson) }
 	}
+	val notSent = stringResource(R.string.wire_not_sent)
 	WireDialog(
-		title = if (snapshot.preview) "Next request preview" else "Provider request",
-		subtitle = "${snapshot.model} · ${if (snapshot.preview) "not sent" else formatTime(snapshot.capturedAt)}",
+		title = stringResource(
+			if (snapshot.preview) R.string.wire_next_request else R.string.wire_provider_request,
+		),
+		subtitle = "${snapshot.model} · ${if (snapshot.preview) notSent else formatTime(snapshot.capturedAt)}",
 		request = view.getOrNull(),
 		assistants = emptyList(),
 		rawJson = redactImageData(view.getOrNull()?.rawJson ?: snapshot.requestJson),
@@ -432,7 +435,10 @@ private fun WireDialog(
 							onClick = { raw = !raw },
 							contentPadding = PaddingValues(horizontal = 8.dp),
 						) {
-							Text(if (raw) "Sheet" else "Raw JSON", style = MaterialTheme.typography.labelMedium)
+							Text(
+								stringResource(if (raw) R.string.wire_sheet else R.string.wire_raw_json),
+								style = MaterialTheme.typography.labelMedium,
+							)
 						}
 						IconButton(onClick = onDismiss) {
 							Icon(
@@ -630,7 +636,9 @@ private fun WireToolCard(tool: WireTool) {
 				modifier = Modifier.height(28.dp),
 			) {
 				Text(
-					if (showSchema) "Hide schema JSON" else "Raw schema JSON",
+					stringResource(
+						if (showSchema) R.string.wire_hide_schema else R.string.wire_raw_schema,
+					),
 					style = MaterialTheme.typography.labelSmall,
 				)
 			}
@@ -836,7 +844,7 @@ private fun WireLongText(
 				verticalAlignment = Alignment.CenterVertically,
 			) {
 				Text(
-					"Expanded",
+					stringResource(R.string.wire_expanded),
 					style = MaterialTheme.typography.labelSmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)

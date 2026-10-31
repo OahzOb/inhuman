@@ -8,7 +8,6 @@ import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -24,7 +23,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -483,6 +481,9 @@ fun ChatScreen(
 	var pendingCompaction by remember { mutableStateOf<CompactionPlan?>(null) }
 	var showCompactionSummary by remember { mutableStateOf(false) }
 	var showSnapshotDialog by remember { mutableStateOf(false) }
+	// Lowering the retention deletes checkpoints immediately, so the number is
+	// staged here until the user confirms it.
+	var pendingRetention by remember { mutableStateOf<Int?>(null) }
 	var showWireDialog by remember { mutableStateOf(false) }
 	LaunchedEffect(wire) {
 		if (wire?.preview == true) showWireDialog = true
@@ -762,7 +763,7 @@ fun ChatScreen(
 								onDismissRequest = { showChatMenu = false },
 							) {
 								DropdownMenuItem(
-									text = { Text(stringResource(R.string.chat_transcribe_audio_file)) },
+									text = { PaidMenuLabel(stringResource(R.string.chat_transcribe_audio_file)) },
 									leadingIcon = {
 										Icon(
 											Icons.Outlined.PlayArrow,
@@ -776,7 +777,7 @@ fun ChatScreen(
 									},
 								)
 								DropdownMenuItem(
-									text = { Text(stringResource(R.string.chat_text_to_speech)) },
+									text = { PaidMenuLabel(stringResource(R.string.chat_text_to_speech)) },
 									leadingIcon = {
 										Icon(
 											Icons.Outlined.PlayArrow,
@@ -790,7 +791,7 @@ fun ChatScreen(
 									},
 								)
 								DropdownMenuItem(
-									text = { Text(stringResource(R.string.chat_generate_video)) },
+									text = { PaidMenuLabel(stringResource(R.string.chat_generate_video)) },
 									leadingIcon = {
 										Icon(
 											Icons.Outlined.PlayArrow,
@@ -804,7 +805,7 @@ fun ChatScreen(
 									},
 								)
 								DropdownMenuItem(
-									text = { Text(stringResource(R.string.chat_decision)) },
+									text = { PaidMenuLabel(stringResource(R.string.chat_decision)) },
 									leadingIcon = {
 										Icon(
 											Icons.Outlined.DataObject,
@@ -818,7 +819,7 @@ fun ChatScreen(
 									},
 								)
 								DropdownMenuItem(
-									text = { Text(stringResource(R.string.chat_generate_image)) },
+									text = { PaidMenuLabel(stringResource(R.string.chat_generate_image)) },
 									leadingIcon = {
 										Icon(
 											Icons.Outlined.Image,
@@ -1238,8 +1239,12 @@ fun ChatScreen(
 				}
 			}
 
+			// `fillMaxWidth` is what makes the centring real. The Box used to
+			// wrap its 900dp child, and a Column places a wrap-content child at
+			// the start, so on a 1280dp tablet the transcript sat against the
+			// left edge while the composer below it was centred.
 			Box(
-				modifier = Modifier.weight(1f),
+				modifier = Modifier.weight(1f).fillMaxWidth(),
 				contentAlignment = Alignment.TopCenter,
 			) {
 				if (messages.isEmpty()) {
@@ -1291,6 +1296,7 @@ fun ChatScreen(
 								configured = configured,
 								onEnableDemo = viewModel::enableDemoMode,
 								onOpenFiles = onOpenFiles,
+								onOpenSettings = onOpenSettings,
 								modifier = Modifier
 									.widthIn(max = 760.dp)
 									.fillMaxWidth()
@@ -1318,6 +1324,11 @@ fun ChatScreen(
 						MessageBubble(
 							message = message,
 							highlighted = message.id == highlightedMessageId,
+							// The strip above the composer already shows this
+							// exact failure with Retry / Settings / Dismiss. The
+							// bubble keeps it only after the strip is dismissed,
+							// where it is the transcript's own record.
+							hideError = error != null && message.error == error,
 							isLatestAssistant = isLastAssistant,
 							isStreaming = isStreaming,
 							showRewind = showRewind,
@@ -2052,28 +2063,57 @@ fun ChatScreen(
 							}
 						}
 					}
-					Row(horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed)) {
+					Text(
+						text = stringResource(R.string.chat_snapshot_keep_label),
+						style = MaterialTheme.typography.labelLarge,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					// Chips carry `selected` semantics, so the current value is
+					// no longer communicated by colour alone. Lowering the value
+					// stages a confirmation because pruning is immediate.
+					FlowRowCompat {
 						listOf(1, 3, 5, 10).forEach { turns ->
-							TextButton(
-								onClick = { viewModel.setSnapshotRetention(turns) },
-								contentPadding = PaddingValues(horizontal = 8.dp),
-							) {
-								Text(
-									text = "$turns",
-									style = MaterialTheme.typography.labelLarge,
-									color = if (turns == snapshotRetention) {
-										MaterialTheme.colorScheme.primary
+							FilterChip(
+								selected = turns == snapshotRetention,
+								onClick = {
+									if (turns < snapshotRetention) {
+										pendingRetention = turns
 									} else {
-										MaterialTheme.colorScheme.onSurfaceVariant
-									},
-								)
-							}
+										viewModel.setSnapshotRetention(turns)
+									}
+								},
+								label = { Text("$turns") },
+							)
 						}
 					}
 				}
 			},
 			confirmButton = {
 				TextButton(onClick = { showSnapshotDialog = false }) { Text(stringResource(R.string.chat_close)) }
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+
+	pendingRetention?.let { keep ->
+		AlertDialog(
+			onDismissRequest = { pendingRetention = null },
+			title = { Text(stringResource(R.string.chat_snapshot_keep_title)) },
+			text = { Text(stringResource(R.string.chat_snapshot_keep_body)) },
+			confirmButton = {
+				TextButton(
+					onClick = {
+						pendingRetention = null
+						viewModel.setSnapshotRetention(keep)
+					},
+				) { Text(stringResource(R.string.chat_snapshot_keep_confirm, keep)) }
+			},
+			dismissButton = {
+				TextButton(onClick = { pendingRetention = null }) {
+					Text(stringResource(R.string.common_cancel))
+				}
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -2596,6 +2636,7 @@ private fun ChatWelcome(
 	configured: Boolean,
 	onEnableDemo: () -> Unit,
 	onOpenFiles: () -> Unit,
+	onOpenSettings: () -> Unit,
 	modifier: Modifier = Modifier,
 ) {
 	Column(
@@ -2633,10 +2674,11 @@ private fun ChatWelcome(
 			workspaceName,
 			Modifier.widthIn(max = Layout.UserBubbleMeasure),
 		)
-		Row(
-			horizontalArrangement = Arrangement.spacedBy(8.dp),
-			modifier = Modifier.padding(top = 4.dp),
-		) {
+		Spacer(Modifier.height(4.dp))
+		// Three actions do not fit on one 360dp line at large font, and the
+		// "add a key" action was missing entirely: the composer's placeholder
+		// told the user to add one with no control that goes there.
+		FlowRowCompat {
 			if (!configured) {
 				Button(
 					onClick = onEnableDemo,
@@ -2644,6 +2686,13 @@ private fun ChatWelcome(
 					contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
 				) {
 					Text(stringResource(R.string.chat_try_demo), style = MaterialTheme.typography.labelLarge)
+				}
+				OutlinedButton(
+					onClick = onOpenSettings,
+					shape = MaterialTheme.shapes.small,
+					contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+				) {
+					Text(stringResource(R.string.chat_add_key), style = MaterialTheme.typography.labelLarge)
 				}
 			}
 			OutlinedButton(
@@ -3086,6 +3135,41 @@ private fun BranchSwitcher(
 }
 
 /**
+ * A menu label that carries the PAID badge beside the action.
+ *
+ * The media actions in this menu call the same paid backends as the tool list,
+ * but the menu had no marker and no notice: the cost was visible only in
+ * Settings. The tool list's notice cannot travel into a dropdown, so the badge
+ * sits on the entry itself, which is the point of choice.
+ */
+@Composable
+private fun PaidMenuLabel(text: String) {
+	Row(verticalAlignment = Alignment.CenterVertically) {
+		Text(text)
+		Spacer(Modifier.width(8.dp))
+		PaidBadge()
+	}
+}
+
+/** The compact billing line above a manual media dialog's fields. */
+@Composable
+private fun PaidActionNotice() {
+	Row(
+		modifier = Modifier.fillMaxWidth(),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(8.dp),
+	) {
+		PaidBadge()
+		Text(
+			text = stringResource(R.string.chat_paid_action_notice),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			modifier = Modifier.weight(1f),
+		)
+	}
+}
+
+/**
  * One tool call, inside the collapsed section.
  *
  * Shows the name, the argument that identifies it, and what happened -- which is
@@ -3230,6 +3314,7 @@ private fun toolResultSummary(
 private fun MessageBubble(
 	message: ChatMessageUi,
 	highlighted: Boolean = false,
+	hideError: Boolean = false,
 	isLatestAssistant: Boolean,
 	isStreaming: Boolean,
 	showRewind: Boolean,
@@ -3567,7 +3652,7 @@ private fun MessageBubble(
 			}
 		}
 
-		message.error?.let {
+		if (!hideError) message.error?.let {
 			Row(
 				modifier = Modifier.padding(top = 4.dp),
 				verticalAlignment = Alignment.CenterVertically,
@@ -3865,6 +3950,31 @@ private fun Composer(
 		if (granted) beginRecording() else voiceError = permissionVoice
 	}
 
+	/**
+	 * The button path: start if idle, stop if already recording.
+	 *
+	 * This used to exist only as a raw press-and-hold gesture behind an
+	 * `onClick = {}`. TalkBack, Switch Access and Voice Access activate the
+	 * semantics click and never reach `detectTapGestures`, so the microphone
+	 * was a button that did nothing for them. A tap is also the discoverable
+	 * gesture: nothing on screen says "hold".
+	 */
+	fun toggleVoice() {
+		if (recording) {
+			stopAndTranscribe()
+			return
+		}
+		if (!costAcknowledged) {
+			showVoiceCost = true
+			return
+		}
+		if (!recorder.hasPermission()) {
+			permission.launch(Manifest.permission.RECORD_AUDIO)
+			return
+		}
+		beginRecording()
+	}
+
 	val voiceStatus = when {
 		recording -> "${elapsedSeconds}s · $identity"
 		voiceBusy -> voiceBusyLabel
@@ -3887,7 +3997,7 @@ private fun Composer(
 	if (showVoiceCost) {
 		AlertDialog(
 			onDismissRequest = { showVoiceCost = false },
-			title = { Text(stringResource(R.string.chat_voice_hold)) },
+			title = { Text(stringResource(R.string.chat_voice_start)) },
 			text = { Text(stringResource(R.string.chat_voice_cost)) },
 			confirmButton = {
 				TextButton(
@@ -3956,14 +4066,16 @@ private fun Composer(
 							overflow = TextOverflow.Ellipsis,
 							modifier = Modifier.widthIn(max = 200.dp),
 						)
-						IconButton(
-							onClick = { onRemoveAttachment(attachment) },
-							modifier = Modifier.size(28.dp),
-						) {
-							Text(
-								text = "✕",
-								style = MaterialTheme.typography.labelLarge,
-								color = MaterialTheme.colorScheme.error,
+						// A 28dp box around a text glyph was both too small to
+						// hit and announced as "multiplication sign" by a screen
+						// reader. The icon names the action; the button keeps
+						// Material's 48dp target.
+						IconButton(onClick = { onRemoveAttachment(attachment) }) {
+							Icon(
+								Icons.Filled.Close,
+								contentDescription = stringResource(R.string.chat_remove_attachment),
+								tint = MaterialTheme.colorScheme.error,
+								modifier = Modifier.size(16.dp),
 							)
 						}
 					}
@@ -3997,32 +4109,15 @@ private fun Composer(
 		) {
 			if (voiceEnabled) {
 				IconButton(
-					onClick = {},
+					onClick = { toggleVoice() },
 					enabled = enabled && !isStreaming && !isCompacting && !voiceBusy,
-					modifier = Modifier
-						.padding(bottom = 4.dp)
-						.pointerInput(enabled, isStreaming, isCompacting, voiceBusy, costAcknowledged) {
-							detectTapGestures(onPress = {
-								if (!enabled || isStreaming || isCompacting || voiceBusy) {
-									return@detectTapGestures
-								}
-								if (!costAcknowledged) {
-									showVoiceCost = true
-									return@detectTapGestures
-								}
-								if (!recorder.hasPermission()) {
-									permission.launch(Manifest.permission.RECORD_AUDIO)
-									return@detectTapGestures
-								}
-								beginRecording()
-								tryAwaitRelease()
-								if (recorder.isRecording) stopAndTranscribe()
-							})
-						},
+					modifier = Modifier.padding(bottom = 4.dp),
 				) {
 					Icon(
 						Icons.Filled.Mic,
-						contentDescription = stringResource(R.string.chat_voice_hold),
+						contentDescription = stringResource(
+							if (recording) R.string.chat_voice_stop else R.string.chat_voice_start,
+						),
 						tint = if (recording) {
 							MaterialTheme.colorScheme.primary
 						} else {
@@ -4286,6 +4381,7 @@ private fun GenerateImageDialog(
 		title = { Text(stringResource(R.string.chat_generate_image_title)) },
 		text = {
 			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
+				PaidActionNotice()
 				OutlinedTextField(
 					value = prompt,
 					onValueChange = { prompt = it },
@@ -4384,6 +4480,7 @@ private fun DecisionDialog(
 		title = { Text(stringResource(R.string.chat_decision)) },
 		text = {
 			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
+				PaidActionNotice()
 				Text(
 					stringResource(R.string.chat_decision_presets),
 					style = MaterialTheme.typography.labelLarge,
@@ -4492,6 +4589,7 @@ private fun SpeechDialog(
 		title = { Text(stringResource(R.string.chat_tts_title)) },
 		text = {
 			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
+				PaidActionNotice()
 				OutlinedTextField(
 					value = text,
 					onValueChange = { text = it },
@@ -4596,6 +4694,7 @@ private fun VideoDialog(
 		title = { Text(stringResource(R.string.chat_generate_video)) },
 		text = {
 			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
+				PaidActionNotice()
 				OutlinedTextField(
 					value = prompt,
 					onValueChange = { prompt = it },

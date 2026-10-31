@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Label
@@ -31,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.inhuman.core.ai.model.ModelCapabilities
 import com.inhuman.core.ai.model.ModelCapability
@@ -196,7 +198,7 @@ fun ModelPickerDialog(
 					) {
 						CircularProgressIndicator(strokeWidth = 2.dp)
 						Text(
-							text = "Loading models…",
+							text = stringResource(R.string.model_picker_loading),
 							style = MaterialTheme.typography.bodyMedium,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
@@ -267,8 +269,7 @@ fun ModelPickerDialog(
 						// above was made reachable.
 						if (models.isEmpty() && error == null) {
 							Text(
-								text = "The provider listed no models. Check the key in " +
-									"settings, or turn on demo mode there.",
+								text = stringResource(R.string.model_picker_no_models),
 								style = MaterialTheme.typography.bodyMedium,
 								color = MaterialTheme.colorScheme.onSurfaceVariant,
 							)
@@ -276,6 +277,22 @@ fun ModelPickerDialog(
 						chatModels.forEach { m ->
 							val caps = capabilitiesOf(m)
 							val suffix = capabilitySuffix(caps)
+							// Resolved before the builder: stringResource is a
+							// composable call, and keeping it out of buildString
+							// makes the read obvious to the next editor.
+							val contextText = m.contextWindow?.let {
+								stringResource(R.string.model_picker_context, it / 1024)
+							}
+							val visionText = stringResource(
+								if (m.supportsVision) {
+									R.string.model_picker_text_and_images
+								} else {
+									R.string.model_picker_text_only
+								},
+							)
+							val effortText = m.defaultEffortLevel?.let {
+								stringResource(R.string.model_picker_default_effort, it)
+							}
 							ModelOption(
 								// The display name, not the id: "DeepSeek-V4.1-Flash"
 								// is what the provider calls it, and "deepseek-flash"
@@ -283,11 +300,11 @@ fun ModelPickerDialog(
 								// is not a cosmetic choice.
 								label = m.displayName?.takeIf { it.isNotBlank() } ?: m.id,
 								detail = buildString {
-									m.contextWindow?.let { append("${it / 1024}K context") }
+									contextText?.let { append(it) }
 									append(" · ")
-									append(if (m.supportsVision) "text and images" else "text only")
+									append(visionText)
 									append(suffix)
-									m.defaultEffortLevel?.let { append(" · default effort $it") }
+									effortText?.let { append(" · "); append(it) }
 								},
 								selected = currentModel == m.id,
 								onClick = {
@@ -345,37 +362,47 @@ fun ModelPickerDialog(
 					// default everywhere: reasoning tokens are billed, and for
 					// most messages there is nothing to reason about.
 					Row(
-						modifier = Modifier.fillMaxWidth(),
+						modifier = Modifier
+							.fillMaxWidth()
+							// The whole row is the switch. A label that does not
+							// toggle is the usual reason a settings row feels
+							// broken on a phone, and it leaves TalkBack with a
+							// small unlabelled target.
+							.toggleable(
+								value = currentThinking,
+								role = Role.Switch,
+								onValueChange = { chat.setThinking(it) },
+							),
 						horizontalArrangement = Arrangement.SpaceBetween,
 						verticalAlignment = Alignment.CenterVertically,
 					) {
 						Column(modifier = Modifier.weight(1f)) {
 							Text(
-								text = "Thinking",
+								text = stringResource(R.string.model_picker_thinking),
 								style = MaterialTheme.typography.bodyLarge,
 								color = MaterialTheme.colorScheme.onSurface,
 							)
 							Text(
-								text = "Lets the model reason before answering, at extra cost.",
+								text = stringResource(R.string.model_picker_thinking_detail),
 								style = MaterialTheme.typography.labelLarge,
 								color = MaterialTheme.colorScheme.onSurfaceVariant,
 							)
 						}
 						WorkbenchSwitch(
 							checked = currentThinking,
-							onCheckedChange = { chat.setThinking(it) },
+							onCheckedChange = null,
 						)
 					}
 
 					if (currentThinking) {
 						Text(
-							text = "Reasoning effort",
+							text = stringResource(R.string.model_picker_effort),
 							style = MaterialTheme.typography.labelLarge,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
 						if (levels.isEmpty()) {
 							Text(
-								text = "This model reports no effort levels, so the provider decides.",
+								text = stringResource(R.string.model_picker_effort_none),
 								style = MaterialTheme.typography.labelLarge,
 								color = MaterialTheme.colorScheme.onSurfaceVariant,
 							)
@@ -398,10 +425,16 @@ fun ModelPickerDialog(
 									// unnamed one, unable to tell whether they
 									// just picked it.
 									label = {
+										val defaultLevel = selected?.defaultEffortLevel
 										Text(
-											selected?.defaultEffortLevel
-												?.let { "default ($it)" }
-												?: "model default",
+											if (defaultLevel != null) {
+												stringResource(
+													R.string.model_picker_effort_default_named,
+													defaultLevel,
+												)
+											} else {
+												stringResource(R.string.model_picker_effort_default)
+											},
 										)
 									},
 								)

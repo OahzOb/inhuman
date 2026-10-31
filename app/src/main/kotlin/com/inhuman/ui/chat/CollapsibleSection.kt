@@ -25,8 +25,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import com.inhuman.R
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.design.Layout
 import com.inhuman.ui.common.PaidBadge
@@ -132,7 +134,9 @@ fun CollapsibleSection(
 					// the few glyphs whose meaning is directional.
 					Icons.AutoMirrored.Filled.KeyboardArrowRight
 				},
-				contentDescription = if (expanded) "Collapse" else "Expand",
+				contentDescription = stringResource(
+					if (expanded) R.string.chat_collapse_section else R.string.chat_expand_section,
+				),
 				tint = MaterialTheme.colorScheme.onSurfaceVariant,
 				modifier = Modifier.size(16.dp),
 			)

@@ -55,6 +55,8 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -79,6 +81,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.inhuman.ui.common.FlowRowCompat
 import com.inhuman.ui.common.formatBytes
 import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
@@ -296,23 +299,50 @@ fun FilesScreen(
 					) {
 						Eyebrow(stringResource(R.string.files_empty_eyebrow))
 						Text(
-							text = if (state.rulesEnabled) {
-								stringResource(R.string.files_empty_title_rules)
-							} else {
-								stringResource(R.string.files_empty_title)
+							text = when {
+								// An empty subfolder used to say the whole
+								// workspace was empty, which is both wrong and
+								// confusing when the user has just navigated in.
+								state.currentPath.isNotEmpty() ->
+									stringResource(R.string.files_empty_subdir_title)
+
+								state.rulesEnabled ->
+									stringResource(R.string.files_empty_title_rules)
+
+								else -> stringResource(R.string.files_empty_title)
 							},
 							style = MaterialTheme.typography.headlineMedium,
 							color = MaterialTheme.colorScheme.onBackground,
 						)
 						Text(
-							text = if (state.rulesEnabled) {
-								stringResource(R.string.files_empty_body_rules)
-							} else {
-								stringResource(R.string.files_empty_body)
+							text = when {
+								state.currentPath.isNotEmpty() ->
+									stringResource(R.string.files_empty_subdir_body)
+
+								state.rulesEnabled ->
+									stringResource(R.string.files_empty_body_rules)
+
+								else -> stringResource(R.string.files_empty_body)
 							},
 							style = MaterialTheme.typography.bodyMedium,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
+						// The old copy pointed at four icon-only toolbar buttons.
+						// Put the two real actions where the sentence is.
+						FlowRowCompat {
+							Button(
+								onClick = { importer.launch(arrayOf("*/*")) },
+								shape = MaterialTheme.shapes.small,
+							) {
+								Text(stringResource(R.string.files_import))
+							}
+							OutlinedButton(
+								onClick = { showDownloadDialog = true },
+								shape = MaterialTheme.shapes.small,
+							) {
+								Text(stringResource(R.string.download_title))
+							}
+						}
 					}
 				}
 

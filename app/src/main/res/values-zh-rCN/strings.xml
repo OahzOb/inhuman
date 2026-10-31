@@ -100,6 +100,7 @@
 	<string name="home_role_title">标题</string>
 	<string name="home_conversation_title">对话标题</string>
 	<string name="home_conversation_actions">对话操作</string>
+	<string name="home_pinned_state">已置顶</string>
 	<string name="home_pin">置顶</string>
 	<string name="home_unpin">取消置顶</string>
 	<string name="home_just_now">刚刚</string>
@@ -252,8 +253,11 @@
 	<string name="settings_usage_period_week">7 天</string>
 	<string name="settings_usage_period_month">30 天</string>
 	<string name="settings_usage_period_all">全部</string>
-	<string name="settings_usage_in">输入</string>
-	<string name="settings_usage_out">输出</string>
+	<string name="settings_layout_auto_short">自动</string>
+	<string name="settings_layout_compact_short">紧凑</string>
+	<string name="settings_layout_comfortable_short">舒适</string>
+	<string name="settings_usage_in">输入 tokens</string>
+	<string name="settings_usage_out">输出 tokens</string>
 	<string name="settings_usage_cached">缓存</string>
 	<string name="settings_usage_reasoning">推理</string>
 	<string name="settings_usage_paid">付费调用</string>
@@ -446,7 +450,7 @@
 	<string name="badge_remote">远程</string>
 	<string name="badge_rewind">可回退</string>
 	<string name="badge_no_rewind">不可回退</string>
-	<string name="notice_paid_tools">web_search 和 web_fetch 会调用设置中选定的搜索/抓取服务，这个服务按调用计费；其他工具不会调用付费服务。</string>
+	<string name="notice_paid_tools">web_search 和 web_fetch 会调用设置中选定的搜索/抓取服务；图片、视频、语音、转写和决策工具会调用各自配置的后端。它们都按调用计费；没有 PAID 标记的工具不会调用付费服务。</string>
 	<string name="notice_remote_tools">SSH 工具可以读取、传输远端文件；只有显式选中 ssh_exec 才会执行命令。应用不配置主机，也不保存凭据，助手使用你提供的信息。远端的损坏可能无法撤销。使用前需要在设置中打开 SSH 开关，每个对话还要授权一次。</string>
 
 
@@ -474,6 +478,8 @@
 	<string name="files_empty_title">这个工作区是空的。</string>
 	<string name="files_empty_body_rules">让助手创建一个文件，或使用上方的导入、下载。</string>
 	<string name="files_empty_body">导入文件、从 URL 下载，或在这个工作区里开始一段对话。</string>
+	<string name="files_empty_subdir_title">这个文件夹是空的。</string>
+	<string name="files_empty_subdir_body">在这里导入文件，或返回上一级。</string>
 	<string name="files_edit">编辑</string>
 	<string name="files_open_with_ellipsis">打开方式…</string>
 	<string name="files_not_ready">工作区还没准备好。</string>
@@ -503,6 +509,9 @@
 	<string name="files_policy_blind">对助手隐藏</string>
 	<string name="files_open_with_chooser">打开方式</string>
 	<string name="files_no_app">没有可以打开这个文件的应用。</string>
+	<string name="files_preview_binary">（二进制文件，或超过读取上限——请用其他应用打开）</string>
+	<string name="chat_collapse_section">收起</string>
+	<string name="chat_expand_section">展开</string>
 
 
 	<!-- 文件：从 URL 下载。 -->
@@ -652,6 +661,7 @@
 	<string name="tool_blurb_create_directory">在文件夹里创建子文件夹</string>
 	<string name="tool_blurb_move_file">移动或重命名文件夹里的内容</string>
 	<string name="tool_blurb_delete_file">从文件夹中删除</string>
+	<string name="tool_blurb_run_javascript">在隔离、无网络的沙箱里运行一段短 JavaScript 计算</string>
 	<string name="chat_rename">重命名对话</string>
 	<string name="chat_save_workspace">保存为永久工作区</string>
 	<string name="chat_save_workspace_detail">删除对话后保留文件</string>
@@ -817,15 +827,18 @@
 	<string name="chat_cannot_read_images">当前模型无法读取图片</string>
 	<string name="chat_message_hint">给助手发消息…</string>
 	<string name="chat_voice_empty">没有录到内容，或转写失败。</string>
-	<string name="chat_voice_hold">按住说话</string>
-	<string name="chat_voice_recording">正在录音…松开转写</string>
+	<string name="chat_voice_recording">正在录音…再点一下停止并转写</string>
 	<string name="chat_voice_busy">正在转写…</string>
-	<string name="chat_voice_cancel">松开取消</string>
 	<string name="chat_voice_cost">语音输入会使用已配置的转写服务，可能按调用计费。</string>
 	<string name="chat_voice_permission">语音输入需要麦克风权限。</string>
 	<string name="chat_voice_failed">语音输入失败：%1$s</string>
 	<string name="chat_voice_too_long">录音达到 2 分钟上限。</string>
 	<string name="chat_voice_not_configured">请先在设置中配置转写后端。</string>
+	<string name="chat_voice_stop">停止并转写</string>
+	<string name="chat_voice_start">语音输入</string>
+	<string name="chat_remove_attachment">移除附件</string>
+	<string name="chat_add_key">添加 API 密钥</string>
+	<string name="chat_paid_action_notice">此操作调用已配置的付费后端，按调用计费。</string>
 	<string name="chat_add_key_hint">添加 API 密钥后开始</string>
 	<string name="chat_stop">停止</string>
 	<string name="chat_send">发送</string>
@@ -848,6 +861,10 @@
 	<plurals name="chat_snapshot_checkpoints">
 		<item quantity="other">%d 个快照</item>
 	</plurals>
+	<string name="chat_snapshot_keep_label">保留回合</string>
+	<string name="chat_snapshot_keep_title">只保留更少的快照？</string>
+	<string name="chat_snapshot_keep_body">较早回合的还原点会立即删除，且无法撤销。</string>
+	<string name="chat_snapshot_keep_confirm">保留 %1$d</string>
 	<string name="chat_tool_limit_body">一个回合最多能跑多少次模型往返。一轮是一次模型响应及它发起的工具调用；调高这个数值不会改变可用的工具。这是全局设置，适用于所有对话。单独的调用总数预算在“设置 → 04 / 轮次上限”。</string>
 	<string name="chat_tool_limit_current">当前：每回合 %1$d 次</string>
 	<string name="chat_close">关闭</string>
@@ -991,16 +1008,47 @@
 	<string name="context_gauge_desc_percent">上下文已使用 %1$d%%。%2$s</string>
 	<string name="context_gauge_desc_window">上下文窗口 %1$s 个 token，尚未测量</string>
 	<string name="context_gauge_desc_unknown">上下文用量未知</string>
+	<string name="context_gauge_no_window">该模型不报告上下文窗口。</string>
+	<string name="context_gauge_last_request">上次请求：%1$s tokens</string>
+	<string name="context_gauge_window_only">上下文窗口：%1$s tokens</string>
+	<string name="context_gauge_nothing_measured">还没有测量数据——先发一条消息。</string>
+	<string name="context_gauge_percent">已用上下文窗口的 %1$d%%</string>
+	<string name="context_gauge_used_of">已用 %1$s / %2$s tokens</string>
+	<string name="context_gauge_left">剩余 %1$s</string>
+	<string name="context_gauge_measured_from_last">按上一次请求测得。</string>
+	<string name="context_gauge_summarizing">正在总结较早的回合…</string>
+	<string name="context_gauge_summarized">%1$d 条较早消息在请求中以摘要代替；这里的记录是完整的。</string>
+	<string name="model_picker_loading">正在加载模型…</string>
+	<string name="model_picker_no_models">服务商没有返回任何模型。请检查设置里的密钥，或在设置中打开演示模式。</string>
+	<string name="model_picker_context">%1$dK 上下文</string>
+	<string name="model_picker_text_and_images">文本与图片</string>
+	<string name="model_picker_text_only">仅文本</string>
+	<string name="model_picker_default_effort">默认强度 %1$s</string>
+	<string name="model_picker_thinking">思考</string>
+	<string name="model_picker_thinking_detail">让模型在回答前先推理，会额外计费。</string>
+	<string name="model_picker_effort">推理强度</string>
+	<string name="model_picker_effort_none">该模型没有报告推理强度档位，由服务商决定。</string>
+	<string name="model_picker_effort_default">模型默认</string>
+	<string name="model_picker_effort_default_named">默认（%1$s）</string>
 	<string name="model_picker_title">模型</string>
 	<string name="model_picker_done">完成</string>
 	<string name="model_picker_timeout">加载模型超时。请检查连接后重试。</string>
 	<string name="model_picker_load_failed">无法加载模型列表。</string>
+	<string name="model_picker_no_key">还没有为 %1$s 设置 API 密钥。</string>
 	<string name="wire_copy_json">复制 JSON</string>
 	<string name="wire_show_more">显示更多</string>
 	<string name="wire_show_less">收起</string>
 	<string name="wire_clip_label">原始 JSON</string>
 	<string name="wire_close_view">关闭 JSON 面板</string>
 	<string name="wire_turn_title">本轮原始 JSON</string>
+	<string name="wire_next_request">下一次请求预览</string>
+	<string name="wire_provider_request">发给服务商的请求</string>
+	<string name="wire_not_sent">未发送</string>
+	<string name="wire_sheet">分栏</string>
+	<string name="wire_raw_json">原始 JSON</string>
+	<string name="wire_raw_schema">原始 schema JSON</string>
+	<string name="wire_hide_schema">隐藏 schema JSON</string>
+	<string name="wire_expanded">已展开</string>
 	<plurals name="wire_turn_rounds">
 		<item quantity="other">%1$d 轮 · 内容 · 推理 · tool_calls</item>
 	</plurals>

@@ -49,14 +49,21 @@ data class FileEntryUi(
 		get() = when {
 			isDirectory -> ""
 			sizeBytes < 1024 -> "$sizeBytes B"
-			sizeBytes < 1024 * 1024 -> "${sizeBytes / 1024} KB"
+			// The shared formatter says KiB/MiB. This getter used to divide by
+			// 1024 and still call the result "KB", which was the one size label
+			// that disagreed with the rest of the app.
 			else -> formatBytes(sizeBytes)
 		}
 
 	val readableDate: String
-		get() = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-			.format(Date(modifiedAt))
+		get() = fileDateFormat.format(Date(modifiedAt))
 }
+
+// One formatter for every row. `DateFormat.getDateTimeInstance` builds a new
+// instance on each call, and the getter ran for every visible row on every
+// recomposition. The home list already hoists its formatter for this reason.
+private val fileDateFormat: DateFormat =
+	DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
 
 data class FilesUiState(
 	/** Path being shown, relative to the workspace root. Empty is the root. */
@@ -330,7 +337,7 @@ class FilesViewModel(
 						FilePreview(
 							name = path.substringAfterLast('/'),
 							relativePath = path,
-							text = "(binary or larger than the read limit — open it with another app)",
+							text = context.getString(R.string.files_preview_binary),
 							mimeType = mime,
 							editable = false,
 						)

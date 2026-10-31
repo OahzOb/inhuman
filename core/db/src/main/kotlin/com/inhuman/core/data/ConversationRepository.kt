@@ -318,13 +318,14 @@ class ConversationRepository(
 	 * workspace along with files the user may have spent hours producing; that is
 	 * a separate, explicit action if it is ever added.
 	 */
-	suspend fun deleteWorkspace(workspace: WorkspaceEntity): Boolean {
-		if (!workspace.isPermanent) return false
-		if (db.workspaces().conversationCount(workspace.id) > 0) return false
-		paths.workspaceDir(workspace.id).deleteRecursively()
-		db.workspaces().delete(workspace.id)
-		return true
-	}
+	suspend fun deleteWorkspace(workspace: WorkspaceEntity): Boolean =
+		withContext(Dispatchers.IO) {
+			if (!workspace.isPermanent) return@withContext false
+			if (db.workspaces().conversationCount(workspace.id) > 0) return@withContext false
+			paths.workspaceDir(workspace.id).deleteRecursively()
+			db.workspaces().delete(workspace.id)
+			true
+		}
 
 	/**
 	 * The approval rules.
@@ -478,7 +479,11 @@ class ConversationRepository(
 	 * at a directory that is already gone, and a file tool would then fail on a
 	 * conversation the user can still open.
 	 */
-	suspend fun delete(conversation: ConversationEntity) {
+	suspend fun delete(conversation: ConversationEntity) = withContext(Dispatchers.IO) {
+		// The filesystem walk is the expensive part: a workspace may hold
+		// thousands of files. This used to run on the caller's dispatcher, which
+		// for the view models is Main, so deleting a large conversation could
+		// block the frame -- or trip an ANR -- before the row disappeared.
 		val workspace = db.workspaces().byId(conversation.workspaceId)
 		val temporary = workspace == null || !workspace.isPermanent
 		if (temporary) {
@@ -511,34 +516,35 @@ class ConversationRepository(
 	 * conversations (their rollback snapshots included), the workspace
 	 * directories, and finally the workspace rows.
 	 */
-	suspend fun deleteWorkspaces(workspaces: List<WorkspaceEntity>): WorkspaceBulkDelete {
-		val targets = workspaces.filter { it.isPermanent }.distinctBy { it.id }
-		val ids = targets.mapTo(mutableSetOf()) { it.id }
-		if (ids.isEmpty()) return WorkspaceBulkDelete(0, 0)
-		val conversations = db.conversations().all().filter { it.workspaceId in ids }
-		var deletedWorkspaces = 0
-		var deletedConversations = 0
-		targets.forEach { workspace ->
-			var clean = true
-			conversations.filter { it.workspaceId == workspace.id }.forEach { conversation ->
-				runCatching { delete(conversation) }
-					.onSuccess { deletedConversations++ }
+	suspend fun deleteWorkspaces(workspaces: List<WorkspaceEntity>): WorkspaceBulkDelete =
+		withContext(Dispatchers.IO) {
+			val targets = workspaces.filter { it.isPermanent }.distinctBy { it.id }
+			val ids = targets.mapTo(mutableSetOf()) { it.id }
+			if (ids.isEmpty()) return@withContext WorkspaceBulkDelete(0, 0)
+			val conversations = db.conversations().all().filter { it.workspaceId in ids }
+			var deletedWorkspaces = 0
+			var deletedConversations = 0
+			targets.forEach { workspace ->
+				var clean = true
+				conversations.filter { it.workspaceId == workspace.id }.forEach { conversation ->
+					runCatching { delete(conversation) }
+						.onSuccess { deletedConversations++ }
+						.onFailure {
+							clean = false
+							Diag.w("workspace", "bulk delete conversation failed id=${conversation.id}", it)
+						}
+				}
+				if (!clean) return@forEach
+				runCatching {
+					paths.workspaceDir(workspace.id).deleteRecursively()
+					db.workspaces().delete(workspace.id)
+				}.onSuccess { deletedWorkspaces++ }
 					.onFailure {
-						clean = false
-						Diag.w("workspace", "bulk delete conversation failed id=${conversation.id}", it)
+						Diag.w("workspace", "bulk delete failed id=${workspace.id}", it)
 					}
 			}
-			if (!clean) return@forEach
-			runCatching {
-				paths.workspaceDir(workspace.id).deleteRecursively()
-				db.workspaces().delete(workspace.id)
-			}.onSuccess { deletedWorkspaces++ }
-				.onFailure {
-					Diag.w("workspace", "bulk delete failed id=${workspace.id}", it)
-				}
+			WorkspaceBulkDelete(deletedWorkspaces, deletedConversations)
 		}
-		return WorkspaceBulkDelete(deletedWorkspaces, deletedConversations)
-	}
 
 
 	/**

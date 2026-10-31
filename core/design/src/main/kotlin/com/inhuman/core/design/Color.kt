@@ -40,4 +40,7 @@ val Paper100 = Color(0xFFF3EFE5)   // app background
 val Paper200 = Color(0xFFEAE4D8)   // surface
 val Paper300 = Color(0xFFD8CFBF)   // raised surface / outline
 val PaperInk = Color(0xFF1B1A17)
-val PaperMuted = Color(0xFF6F685D)
+// Secondary text on Paper100 *and* Paper200. The old value (0xFF6F685D) was
+// 4.35:1 on the dialog surface -- below AA for body text -- while passing on
+// the page background; every dialog uses the surface. This step is ~5.8:1.
+val PaperMuted = Color(0xFF5E574D)

@@ -147,8 +147,10 @@ Voice is an **Android-only composer feature**, not a tool:
 
 - a microphone button beside the composer; permission is requested on first use
   and a denied permission means the button explains why, not a silent no-op;
-- press-and-hold to record, release to transcribe; a visible elapsed time and a
-  warning before the 120-second cap; cancel discards the file;
+- tap to start recording, tap again to stop and transcribe; a visible elapsed
+  time and a warning before the 120-second cap; cancel discards the file. Tap
+  rather than press-and-hold, because an accessibility click invokes `onClick`
+  and never reaches a raw press gesture;
 - recording uses `AudioRecord`: 16 kHz mono PCM wrapped in a WAV container, held
   **only in memory**. There is no `cacheDir` file, no workspace entry and no
   transcript copy; `stop()` returns the bytes and the caller drops them after the

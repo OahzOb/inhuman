@@ -43,5 +43,6 @@ fun toolBlurb(entry: ToolCatalog.Entry): String = when (entry.name) {
 	"create_directory" -> stringResource(R.string.tool_blurb_create_directory)
 	"move_file" -> stringResource(R.string.tool_blurb_move_file)
 	"delete_file" -> stringResource(R.string.tool_blurb_delete_file)
+	"run_javascript" -> stringResource(R.string.tool_blurb_run_javascript)
 	else -> entry.blurb
 }

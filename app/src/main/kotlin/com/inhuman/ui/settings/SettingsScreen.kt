@@ -63,6 +63,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -77,6 +79,8 @@ import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.ProviderKinds
 import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.db.ProviderReasoning
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import com.inhuman.core.design.Eyebrow
 import com.inhuman.core.design.Hairline
@@ -106,6 +110,8 @@ import com.inhuman.ui.common.FlowRowCompat
 import com.inhuman.ui.common.toolBlurb
 import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.PaidToolsNotice
+import com.inhuman.ui.common.RemoteBadge
+import com.inhuman.ui.common.RemoteToolsNotice
 
 /**
  * Provider configuration.
@@ -426,7 +432,13 @@ fun SettingsScreen(
 				verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
 			) {
 				Row(
-					modifier = Modifier.fillMaxWidth(),
+					modifier = Modifier
+						.fillMaxWidth()
+						.toggleable(
+							value = state.demoMode,
+							role = Role.Switch,
+							onValueChange = viewModel::setDemoMode,
+						),
 					horizontalArrangement = Arrangement.SpaceBetween,
 					verticalAlignment = Alignment.Top,
 				) {
@@ -451,7 +463,7 @@ fun SettingsScreen(
 					}
 					WorkbenchSwitch(
 						checked = state.demoMode,
-						onCheckedChange = viewModel::setDemoMode,
+						onCheckedChange = null,
 						modifier = Modifier.padding(top = 2.dp),
 					)
 				}
@@ -471,7 +483,13 @@ fun SettingsScreen(
 				verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
 			) {
 				Row(
-					modifier = Modifier.fillMaxWidth(),
+					modifier = Modifier
+						.fillMaxWidth()
+						.toggleable(
+							value = state.sshToolEnabled,
+							role = Role.Switch,
+							onValueChange = viewModel::setSshToolEnabled,
+						),
 					horizontalArrangement = Arrangement.SpaceBetween,
 					verticalAlignment = Alignment.Top,
 				) {
@@ -489,7 +507,7 @@ fun SettingsScreen(
 					}
 					WorkbenchSwitch(
 						checked = state.sshToolEnabled,
-						onCheckedChange = viewModel::setSshToolEnabled,
+						onCheckedChange = null,
 						modifier = Modifier.padding(top = 2.dp),
 					)
 				}
@@ -544,7 +562,7 @@ fun SettingsScreen(
 						FilterChip(
 							selected = state.sshLimits.outputCeilingBytes == bytes,
 							onClick = { viewModel.setSshOutputBytes(bytes) },
-							label = { Text("${bytes / 1000}k") },
+							label = { Text("${bytes / 1000} kB") },
 						)
 					}
 				}
@@ -565,7 +583,7 @@ fun SettingsScreen(
 						FilterChip(
 							selected = state.sshLimits.readCeilingBytes == bytes.toLong(),
 							onClick = { viewModel.setSshReadBytes(bytes) },
-							label = { Text("${kib}K") },
+							label = { Text("$kib KiB") },
 						)
 					}
 				}
@@ -839,7 +857,22 @@ fun SettingsScreen(
 								viewModel.setLayoutPreference(preference)
 								onLayoutPreferenceChange(preference)
 							},
-							label = { Text(preference.name) },
+							label = {
+								Text(
+									stringResource(
+										when (preference) {
+											com.inhuman.core.design.LayoutPreference.Auto ->
+												R.string.settings_layout_auto_short
+
+											com.inhuman.core.design.LayoutPreference.Compact ->
+												R.string.settings_layout_compact_short
+
+											com.inhuman.core.design.LayoutPreference.Comfortable ->
+												R.string.settings_layout_comfortable_short
+										},
+									),
+								)
+							},
 						)
 					}
 				}
@@ -848,7 +881,13 @@ fun SettingsScreen(
 					color = MaterialTheme.colorScheme.outlineVariant,
 				)
 				Row(
-					modifier = Modifier.fillMaxWidth(),
+					modifier = Modifier
+						.fillMaxWidth()
+						.toggleable(
+							value = state.adviceEnabled,
+							role = Role.Switch,
+							onValueChange = viewModel::setAdviceEnabled,
+						),
 					horizontalArrangement = Arrangement.SpaceBetween,
 					verticalAlignment = Alignment.Top,
 				) {
@@ -866,7 +905,7 @@ fun SettingsScreen(
 					}
 					WorkbenchSwitch(
 						checked = state.adviceEnabled,
-						onCheckedChange = viewModel::setAdviceEnabled,
+						onCheckedChange = null,
 						modifier = Modifier.padding(start = 12.dp),
 					)
 				}
@@ -1347,30 +1386,41 @@ private fun SavedSshHostDialog(
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
+				// The message sits at the top of the scrolled form. It used to
+				// be the last child, below seven fields: tapping Save on a short
+				// window scrolled the error out of sight, so the button looked
+				// dead.
+				error?.let {
+					Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+				}
 				OutlinedTextField(
 					value = host,
-					onValueChange = { host = it },
+					onValueChange = { host = it; error = null },
 					label = { Text(stringResource(R.string.settings_saved_host_host)) },
 					singleLine = true,
+					isError = error != null && host.isBlank(),
+					keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
 					modifier = Modifier.fillMaxWidth(),
 				)
 				OutlinedTextField(
 					value = port,
-					onValueChange = { port = it.filter(Char::isDigit) },
+					onValueChange = { port = it.filter(Char::isDigit); error = null },
 					label = { Text(stringResource(R.string.settings_saved_host_port)) },
 					singleLine = true,
+					keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
 					modifier = Modifier.fillMaxWidth(),
 				)
 				OutlinedTextField(
 					value = username,
-					onValueChange = { username = it },
+					onValueChange = { username = it; error = null },
 					label = { Text(stringResource(R.string.settings_saved_host_user)) },
 					singleLine = true,
+					isError = error != null && username.isBlank(),
 					modifier = Modifier.fillMaxWidth(),
 				)
 				OutlinedTextField(
 					value = password,
-					onValueChange = { password = it },
+					onValueChange = { password = it; error = null },
 					label = { Text(stringResource(R.string.settings_saved_host_password)) },
 					singleLine = true,
 					visualTransformation = PasswordVisualTransformation(),
@@ -1378,13 +1428,13 @@ private fun SavedSshHostDialog(
 				)
 				OutlinedTextField(
 					value = privateKey,
-					onValueChange = { privateKey = it },
+					onValueChange = { privateKey = it; error = null },
 					label = { Text(stringResource(R.string.settings_saved_host_key)) },
 					modifier = Modifier.fillMaxWidth(),
 				)
 				OutlinedTextField(
 					value = passphrase,
-					onValueChange = { passphrase = it },
+					onValueChange = { passphrase = it; error = null },
 					label = { Text(stringResource(R.string.settings_saved_host_passphrase)) },
 					singleLine = true,
 					visualTransformation = PasswordVisualTransformation(),
@@ -1392,14 +1442,11 @@ private fun SavedSshHostDialog(
 				)
 				OutlinedTextField(
 					value = fingerprint,
-					onValueChange = { fingerprint = it },
+					onValueChange = { fingerprint = it; error = null },
 					label = { Text(stringResource(R.string.settings_saved_host_fingerprint)) },
 					singleLine = true,
 					modifier = Modifier.fillMaxWidth(),
 				)
-				error?.let {
-					Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-				}
 			}
 		},
 		confirmButton = {
@@ -2302,8 +2349,8 @@ private fun shareDiagnostics(
 @Composable
 private fun formatLogSize(bytes: Long): String = when {
 	bytes <= 0L -> stringResource(R.string.settings_no_log)
-	bytes < 1024L -> "$bytes B"
-	bytes < 1024L * 1024L -> "${bytes / 1024L} KB"
+	// The shared formatter says KiB/MiB; the local "KB" for the same binary
+	// division was the one label that disagreed with every other size.
 	else -> formatBytes(bytes)
 }
 
@@ -2346,6 +2393,9 @@ private fun ApprovalRulesSection(
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 		PaidToolsNotice(modifier = Modifier.padding(vertical = 2.dp))
+		if (sshToolEnabled) {
+			RemoteToolsNotice(modifier = Modifier.padding(bottom = 2.dp))
+		}
 
 		for (entry in ToolCatalog.visible(
 			sshToolEnabled,
@@ -2358,6 +2408,7 @@ private fun ApprovalRulesSection(
 				blurb = toolBlurb(entry),
 				changesFiles = entry.mutates,
 				paid = entry.paid,
+				remote = entry.remote,
 				policy = current,
 				onSelect = { onRuleChange(entry.name, it) },
 			)
@@ -2383,6 +2434,7 @@ private fun ApprovalRuleRow(
 	blurb: String,
 	changesFiles: Boolean,
 	paid: Boolean,
+	remote: Boolean,
 	policy: ToolPolicy,
 	onSelect: (ToolPolicy) -> Unit,
 ) {
@@ -2397,7 +2449,10 @@ private fun ApprovalRuleRow(
 				color = MaterialTheme.colorScheme.onBackground,
 			)
 			// Beside the name, where a reader scanning the list cannot miss it.
+			// Remote is marked here too: this is the screen where an SSH tool's
+			// policy is chosen, and a plain name made it look local.
 			if (paid) PaidBadge()
+			if (remote) RemoteBadge()
 		}
 		Text(
 			text = if (changesFiles) {
@@ -2408,10 +2463,10 @@ private fun ApprovalRuleRow(
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
-		Row(
-			horizontalArrangement = Arrangement.spacedBy(8.dp),
-			verticalAlignment = Alignment.CenterVertically,
-		) {
+		// Four chips do not fit on one line at 1.5x font on a phone; a plain
+		// Row clipped the last one. FlowRowCompat is the same fix the provider
+		// and media editors already use.
+		FlowRowCompat {
 			for (option in ToolPolicy.entries) {
 				FilterChip(
 					selected = option == policy,

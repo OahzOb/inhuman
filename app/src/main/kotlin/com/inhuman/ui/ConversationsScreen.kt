@@ -62,6 +62,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -494,8 +496,10 @@ private fun CreateSheet(
 		var choosingWorkspace by remember { mutableStateOf(false) }
 		Column(
 			modifier = Modifier
-				.fillMaxWidth()
+				// Constrain first, fill second: `fillMaxWidth` consumes the
+				// incoming maximum, so the 640dp cap was inert on a tablet.
 				.widthIn(max = 640.dp)
+				.fillMaxWidth()
 				.padding(horizontal = 24.dp)
 				.padding(bottom = 24.dp),
 			verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
@@ -685,6 +689,23 @@ private fun HomeHeader(
 						Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.home_more_destinations))
 					}
 					DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+						// Create lives here when the header collapsed: at large
+						// font the three destinations become one menu, and a
+						// Comfortable preference also removes the FAB, so
+						// without this entry that combination had no way to
+						// start a conversation.
+						if (showCreate) {
+							DropdownMenuItem(
+								text = { Text(stringResource(R.string.common_create)) },
+								leadingIcon = {
+									Icon(Icons.Filled.Add, contentDescription = null)
+								},
+								onClick = {
+									menu = false
+									onCreate()
+								},
+							)
+						}
 						DropdownMenuItem(
 							text = { Text(stringResource(R.string.workspaces_title)) },
 							leadingIcon = { Icon(Icons.Outlined.FolderOpen, contentDescription = null) },
@@ -903,8 +924,11 @@ private fun ConversationPanel(
 	modifier: Modifier = Modifier,
 ) {
 	val compact = compactLayout
+	// `fillMaxSize` here, not only at the single-pane call site: in the
+	// two-pane branch the default modifier let the Box wrap its 760dp child,
+	// so the list sat against the rail instead of centring in the pane.
 	Box(
-		modifier = modifier,
+		modifier = modifier.fillMaxSize(),
 		contentAlignment = Alignment.TopCenter,
 	) {
 		if (conversations.isEmpty()) {
@@ -1218,6 +1242,10 @@ private fun ConversationRow(
 	onDelete: () -> Unit,
 ) {
 	var menu by remember { mutableStateOf(false) }
+	// The pin was a 13dp undescribed icon and a tinted index number, so a
+	// screen reader had no way to know the row was pinned. The state belongs on
+	// the row, where the whole label is read.
+	val pinnedState = stringResource(R.string.home_pinned_state)
 	Row(
 		modifier = Modifier
 			.fillMaxWidth()
@@ -1225,6 +1253,9 @@ private fun ConversationRow(
 				if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
 				else androidx.compose.ui.graphics.Color.Transparent,
 			)
+			.semantics {
+				if (conversation.pinned) stateDescription = pinnedState
+			}
 			.combinedClickable(
 				onClick = { if (selecting) onToggleSelection() else onClick() },
 				onLongClick = { if (selecting) onToggleSelection() else onBeginSelection() },
@@ -1233,10 +1264,11 @@ private fun ConversationRow(
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		if (selecting) {
+			// No explicit size: Material's minimum interactive size is 48dp, and
+			// 42dp was both below the guideline and unnecessary.
 			Checkbox(
 				checked = selected,
 				onCheckedChange = { onToggleSelection() },
-				modifier = Modifier.size(42.dp),
 			)
 		} else {
 			Text(

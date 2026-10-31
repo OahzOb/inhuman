@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,7 +29,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.inhuman.R
-import com.inhuman.core.design.Layout
+import com.inhuman.ui.common.FlowRowCompat
 
 /**
  * How full the context window is, as a ring.
@@ -92,25 +93,34 @@ fun ContextGauge(
 			Spacer(Modifier.size(4.dp))
 		}
 
+		// The clickable area is the ring and its label, not the whole strip.
+		// It used to be `fillMaxWidth().clickable()`, which made an invisible
+		// full-width band open the panel on any tap near the composer's top
+		// edge, and it was only 28dp tall. The outer row lays it out to the
+		// end; the inner row is the 48dp target.
 		Row(
-			modifier = Modifier
-				.fillMaxWidth()
-				.clip(RoundedCornerShape(8.dp))
-				.clickable(onClick = onToggle)
-				.padding(horizontal = 6.dp, vertical = 4.dp)
-				.semantics { contentDescription = gaugeDescription },
+			modifier = Modifier.fillMaxWidth(),
 			horizontalArrangement = Arrangement.End,
-			verticalAlignment = Alignment.CenterVertically,
 		) {
-			usage.summary?.let { summary ->
-				Text(
-					text = summary,
-					style = MaterialTheme.typography.labelMedium,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-				Spacer(Modifier.size(6.dp))
+			Row(
+				modifier = Modifier
+					.clip(RoundedCornerShape(8.dp))
+					.clickable(onClick = onToggle)
+					.heightIn(min = 48.dp)
+					.padding(horizontal = 6.dp, vertical = 4.dp)
+					.semantics { contentDescription = gaugeDescription },
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				usage.summary?.let { summary ->
+					Text(
+						text = summary,
+						style = MaterialTheme.typography.labelMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					Spacer(Modifier.size(6.dp))
+				}
+				Ring(fraction = usage.fraction, arc = arc, track = track)
 			}
-			Ring(fraction = usage.fraction, arc = arc, track = track)
 		}
 	}
 }
@@ -186,20 +196,28 @@ private fun ContextDetail(
 			window == null -> {
 				// No denominator, so no percentage is offered at all rather
 				// than one computed against a guess.
-				Detail("This model does not report a context window.")
-				used?.let { Detail("Last request: ${TokenFormat.exact(it)} tokens") }
+				Detail(stringResource(R.string.context_gauge_no_window))
+				used?.let {
+					Detail(stringResource(R.string.context_gauge_last_request, TokenFormat.exact(it)))
+				}
 			}
 
 			used == null -> {
-				Detail("Context window: ${TokenFormat.exact(window.toLong())} tokens")
-				Detail("Nothing measured yet — send a message.")
+				Detail(stringResource(R.string.context_gauge_window_only, TokenFormat.exact(window.toLong())))
+				Detail(stringResource(R.string.context_gauge_nothing_measured))
 			}
 
 			else -> {
-				Detail("$percent% of the context window")
-				Detail("${TokenFormat.exact(used)} of ${TokenFormat.exact(window.toLong())} tokens")
+				Detail(stringResource(R.string.context_gauge_percent, percent ?: 0))
+				Detail(
+					stringResource(
+						R.string.context_gauge_used_of,
+						TokenFormat.exact(used),
+						TokenFormat.exact(window.toLong()),
+					),
+				)
 				usage.remainingTokens?.let {
-					Detail("${TokenFormat.exact(it)} left")
+					Detail(stringResource(R.string.context_gauge_left, TokenFormat.exact(it)))
 				}
 			}
 		}
@@ -207,19 +225,13 @@ private fun ContextDetail(
 		// Said out loud, because the number is a measurement of the previous
 		// request and someone watching it during a long turn will otherwise
 		// read the lag as a bug.
-		Detail("Measured from the last reply sent.", faint = true)
+		Detail(stringResource(R.string.context_gauge_measured_from_last), faint = true)
 
 		if (isCompacting) {
-			Detail("Summarizing earlier turns…")
+			Detail(stringResource(R.string.context_gauge_summarizing))
 		} else if (compaction != null) {
-			Detail(
-				"${compaction.omittedMessages} earlier messages are summarized " +
-					"for requests. The transcript here is complete.",
-			)
-			Row(
-				horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
-				verticalAlignment = Alignment.CenterVertically,
-			) {
+			Detail(stringResource(R.string.context_gauge_summarized, compaction.omittedMessages))
+			FlowRowCompat {
 				onCompact?.let {
 					TextButton(
 						onClick = onCompact,
@@ -265,11 +277,11 @@ private fun Detail(text: String, faint: Boolean = false) {
 	Text(
 		text = text,
 		style = MaterialTheme.typography.labelMedium,
-		color = if (faint) {
-			MaterialTheme.colorScheme.onSurfaceVariant
-		} else {
-			MaterialTheme.colorScheme.onSurfaceVariant
-		},
+		// `faint` used to pick the same colour on both branches, so the one
+		// line that exists to say "this is a caveat" read like every other.
+		color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+			alpha = if (faint) 0.9f else 1f,
+		),
 	)
 }
 

@@ -564,8 +564,20 @@ class ChatViewModel(
 	 * effective model, so blocking the picker on a forced refetch made a fast
 	 * dialog depend on a slow network for no new information.
 	 */
-	suspend fun models(force: Boolean = false): Result<List<RemoteModel>> =
-		agents.models(providerId = providerId, force = force)
+	suspend fun models(force: Boolean = false): Result<List<RemoteModel>> {
+		val result = agents.models(providerId = providerId, force = force)
+		// The repository is platform-free, so its missing-key failure is an
+		// English exception. This is the line the picker prints; resolve it
+		// here, where the resources are.
+		val failure = result.exceptionOrNull()
+		if (failure != null && !hasProviderKey(providerId)) {
+			val name = providerProfiles().firstOrNull { it.id == providerId }?.name ?: providerId
+			return Result.failure(
+				IllegalStateException(context.getString(R.string.model_picker_no_key, name)),
+			)
+		}
+		return result
+	}
 
 	/** The models already held in memory, without making a request. */
 	suspend fun cachedModels(): List<RemoteModel> =

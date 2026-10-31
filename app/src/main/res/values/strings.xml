@@ -109,6 +109,7 @@
 	<string name="home_role_title">Title</string>
 	<string name="home_conversation_title">Conversation title</string>
 	<string name="home_conversation_actions">Conversation actions</string>
+	<string name="home_pinned_state">Pinned</string>
 	<string name="home_pin">Pin</string>
 	<string name="home_unpin">Unpin</string>
 	<string name="home_just_now">just now</string>
@@ -266,8 +267,11 @@
 	<string name="settings_usage_period_week">7 days</string>
 	<string name="settings_usage_period_month">30 days</string>
 	<string name="settings_usage_period_all">All</string>
-	<string name="settings_usage_in">In</string>
-	<string name="settings_usage_out">Out</string>
+	<string name="settings_layout_auto_short">Auto</string>
+	<string name="settings_layout_compact_short">Compact</string>
+	<string name="settings_layout_comfortable_short">Comfortable</string>
+	<string name="settings_usage_in">Input tokens</string>
+	<string name="settings_usage_out">Output tokens</string>
 	<string name="settings_usage_cached">Cached</string>
 	<string name="settings_usage_reasoning">Reasoning</string>
 	<string name="settings_usage_paid">Paid calls</string>
@@ -275,8 +279,8 @@
 		<item quantity="one">%d paid call</item>
 		<item quantity="other">%d paid calls</item>
 	</plurals>
-	<string name="settings_usage_in_value">In %1$s</string>
-	<string name="settings_usage_out_value">Out %1$s</string>
+	<string name="settings_usage_in_value">Input %1$s</string>
+	<string name="settings_usage_out_value">Output %1$s</string>
 	<string name="settings_usage_by_day">By day</string>
 	<string name="settings_usage_by_conversation">By conversation</string>
 	<string name="settings_usage_empty">Nothing recorded in this period.</string>
@@ -465,7 +469,7 @@
 	<string name="badge_remote">REMOTE</string>
 	<string name="badge_rewind">REWIND</string>
 	<string name="badge_no_rewind">NO REWIND</string>
-	<string name="notice_paid_tools">web_search and web_fetch call the search/fetch service configured in Settings. They are billed per call by that provider; the other tools do not call a paid service.</string>
+	<string name="notice_paid_tools">web_search and web_fetch call the search/fetch service configured in Settings; the image, video, speech, transcription and decision tools call their configured backends. Each is billed per call by its provider. Tools without the PAID badge do not call a paid service.</string>
 	<string name="notice_remote_tools">The SSH tools can read and move files on another machine; commands run only if ssh_exec is selected. The app does not configure hosts or keep a credential store; the agent uses what you give it. Damage at the remote end can be irreversible. They also require the SSH tool switch in Settings and consent once per conversation.</string>
 
 
@@ -493,6 +497,8 @@
 	<string name="files_empty_title">This workspace is empty.</string>
 	<string name="files_empty_body_rules">Ask the assistant to create a file, or use the import and download actions above.</string>
 	<string name="files_empty_body">Import a file, download from a URL, or start a conversation in this workspace.</string>
+	<string name="files_empty_subdir_title">This folder is empty.</string>
+	<string name="files_empty_subdir_body">Import a file here, or go up one level.</string>
 	<string name="files_edit">Edit</string>
 	<string name="files_open_with_ellipsis">Open with…</string>
 	<string name="files_not_ready">Workspace is not ready yet.</string>
@@ -522,6 +528,9 @@
 	<string name="files_policy_blind">Hidden from the agent</string>
 	<string name="files_open_with_chooser">Open with</string>
 	<string name="files_no_app">No app can open this file.</string>
+	<string name="files_preview_binary">(binary or larger than the read limit — open it with another app)</string>
+	<string name="chat_collapse_section">Collapse</string>
+	<string name="chat_expand_section">Expand</string>
 
 
 	<!-- Files: download from a URL. -->
@@ -672,6 +681,7 @@
 	<string name="tool_blurb_create_directory">Make a folder inside the folder</string>
 	<string name="tool_blurb_move_file">Move or rename something in the folder</string>
 	<string name="tool_blurb_delete_file">Delete from the folder</string>
+	<string name="tool_blurb_run_javascript">Run a short JavaScript calculation in an isolated, no-network sandbox</string>
 	<string name="chat_rename">Rename conversation</string>
 	<string name="chat_save_workspace">Save workspace as permanent</string>
 	<string name="chat_save_workspace_detail">Keep its files after this conversation is deleted</string>
@@ -839,15 +849,18 @@
 	<string name="chat_cannot_read_images">This model cannot read images</string>
 	<string name="chat_message_hint">Message the assistant…</string>
 	<string name="chat_voice_empty">The recording was empty or could not be transcribed.</string>
-	<string name="chat_voice_hold">Hold to speak</string>
-	<string name="chat_voice_recording">Recording… release to transcribe</string>
+	<string name="chat_voice_recording">Recording… tap to stop and transcribe</string>
 	<string name="chat_voice_busy">Transcribing…</string>
-	<string name="chat_voice_cancel">Release here to cancel</string>
 	<string name="chat_voice_cost">Voice input uses your configured transcription service, which may bill per call.</string>
 	<string name="chat_voice_permission">Microphone permission is needed for voice input.</string>
 	<string name="chat_voice_failed">Voice input failed: %1$s</string>
 	<string name="chat_voice_too_long">The recording reached the 2-minute limit.</string>
 	<string name="chat_voice_not_configured">Configure a transcription backend in Settings first.</string>
+	<string name="chat_voice_stop">Stop and transcribe</string>
+	<string name="chat_voice_start">Record voice input</string>
+	<string name="chat_remove_attachment">Remove attachment</string>
+	<string name="chat_add_key">Add an API key</string>
+	<string name="chat_paid_action_notice">This calls the configured paid backend and is billed per call.</string>
 	<string name="chat_add_key_hint">Add an API key to start</string>
 	<string name="chat_stop">Stop</string>
 	<string name="chat_send">Send</string>
@@ -872,6 +885,10 @@
 		<item quantity="one">%d checkpoint</item>
 		<item quantity="other">%d checkpoints</item>
 	</plurals>
+	<string name="chat_snapshot_keep_label">Keep turns</string>
+	<string name="chat_snapshot_keep_title">Keep fewer snapshots?</string>
+	<string name="chat_snapshot_keep_body">Older turn checkpoints will be deleted now. This cannot be undone.</string>
+	<string name="chat_snapshot_keep_confirm">Keep %1$d</string>
 	<string name="chat_tool_limit_body">How many model round trips one turn may run before it stops. A round is one model response plus the tool calls it asked for; raising this does not change which tools are allowed. This is global: it applies to every conversation. The separate total-call budget is in Settings → 04 / Turn limits.</string>
 	<string name="chat_tool_limit_current">Current: %1$d per turn</string>
 	<string name="chat_close">Close</string>
@@ -1015,16 +1032,47 @@
 	<string name="context_gauge_desc_percent">Context %1$d percent full. %2$s</string>
 	<string name="context_gauge_desc_window">Context window %1$s tokens, nothing measured yet</string>
 	<string name="context_gauge_desc_unknown">Context usage unknown</string>
+	<string name="context_gauge_no_window">This model does not report a context window.</string>
+	<string name="context_gauge_last_request">Last request: %1$s tokens</string>
+	<string name="context_gauge_window_only">Context window: %1$s tokens</string>
+	<string name="context_gauge_nothing_measured">Nothing measured yet — send a message.</string>
+	<string name="context_gauge_percent">%1$d%% of the context window</string>
+	<string name="context_gauge_used_of">%1$s of %2$s tokens</string>
+	<string name="context_gauge_left">%1$s left</string>
+	<string name="context_gauge_measured_from_last">Measured from the last reply sent.</string>
+	<string name="context_gauge_summarizing">Summarizing earlier turns…</string>
+	<string name="context_gauge_summarized">%1$d earlier messages are summarized for requests. The transcript here is complete.</string>
+	<string name="model_picker_loading">Loading models…</string>
+	<string name="model_picker_no_models">The provider listed no models. Check the key in settings, or turn on demo mode there.</string>
+	<string name="model_picker_context">%1$dK context</string>
+	<string name="model_picker_text_and_images">text and images</string>
+	<string name="model_picker_text_only">text only</string>
+	<string name="model_picker_default_effort">default effort %1$s</string>
+	<string name="model_picker_thinking">Thinking</string>
+	<string name="model_picker_thinking_detail">Lets the model reason before answering, at extra cost.</string>
+	<string name="model_picker_effort">Reasoning effort</string>
+	<string name="model_picker_effort_none">This model reports no effort levels, so the provider decides.</string>
+	<string name="model_picker_effort_default">model default</string>
+	<string name="model_picker_effort_default_named">default (%1$s)</string>
 	<string name="model_picker_title">Model</string>
 	<string name="model_picker_done">Done</string>
 	<string name="model_picker_timeout">Loading models timed out. Check the connection and try again.</string>
 	<string name="model_picker_load_failed">Could not load the model list.</string>
+	<string name="model_picker_no_key">No API key is set for %1$s.</string>
 	<string name="wire_copy_json">Copy JSON</string>
 	<string name="wire_show_more">Show more</string>
 	<string name="wire_show_less">Show less</string>
 	<string name="wire_clip_label">Wire JSON</string>
 	<string name="wire_close_view">Close wire view</string>
 	<string name="wire_turn_title">Turn wire</string>
+	<string name="wire_next_request">Next request preview</string>
+	<string name="wire_provider_request">Provider request</string>
+	<string name="wire_not_sent">not sent</string>
+	<string name="wire_sheet">Sheet</string>
+	<string name="wire_raw_json">Raw JSON</string>
+	<string name="wire_raw_schema">Raw schema JSON</string>
+	<string name="wire_hide_schema">Hide schema JSON</string>
+	<string name="wire_expanded">Expanded</string>
 	<plurals name="wire_turn_rounds">
 		<item quantity="one">%1$d round · content · reasoning · tool_calls</item>
 		<item quantity="other">%1$d rounds · content · reasoning · tool_calls</item>

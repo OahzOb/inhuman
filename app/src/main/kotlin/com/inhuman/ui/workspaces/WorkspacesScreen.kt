@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -150,6 +149,9 @@ fun WorkspacesScreen(
 			modifier = Modifier
 				.fillMaxSize()
 				.padding(inner),
+			// Capped columns centre on a tablet; without this they sat against
+			// the left edge while the empty state above was centred.
+			horizontalAlignment = Alignment.CenterHorizontally,
 			verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 		) {
 			state.error?.let { message ->
@@ -300,6 +302,10 @@ fun WorkspacesScreen(
 	}
 }
 
+// Built once, not per row per composition.
+private val workspaceDateFormat: DateFormat =
+	DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+
 @Composable
 private fun WorkspaceListRow(
 	row: WorkspaceRowUi,
@@ -323,7 +329,6 @@ private fun WorkspaceListRow(
 			Checkbox(
 				checked = selected,
 				onCheckedChange = { onClick() },
-				modifier = Modifier.size(42.dp),
 			)
 		}
 		Column(
@@ -341,8 +346,7 @@ private fun WorkspaceListRow(
 					R.plurals.workspaces_conversation_count,
 					row.conversationCount,
 					row.conversationCount,
-				) + " · " + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-					.format(Date(row.workspace.updatedAt)),
+				) + " · " + workspaceDateFormat.format(Date(row.workspace.updatedAt)),
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
