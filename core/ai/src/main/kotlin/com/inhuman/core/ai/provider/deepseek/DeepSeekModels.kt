@@ -45,6 +45,7 @@ internal object DeepSeekModels {
 			val request = Request.Builder()
 				.url("$baseUrl/models")
 				.header("Authorization", "Bearer $apiKey")
+				.header("User-Agent", USER_AGENT)
 				.get()
 				.build()
 
@@ -86,6 +87,14 @@ internal object DeepSeekModels {
 	private const val MODELS_CALL_TIMEOUT_SECONDS = 20L
 
 	/**
+	 * The client name sent to every compatible provider.
+	 *
+	 * OpenCode Go asks for a product user agent rather than a generic SDK name,
+	 * and there is no reason to be anonymous anywhere else.
+	 */
+	private const val USER_AGENT = "inhuman"
+
+	/**
 	 * Read a `/models` body.
 	 *
 	 * Split out from the request so it can be tested against the provider's real
@@ -117,6 +126,12 @@ internal object DeepSeekModels {
 			// accepts images.
 			val architecture = obj["architecture"]
 				?.let { runCatching { it.jsonObject }.getOrNull() }
+			// OpenCode's gateway (Zen/Go) describes the same facts under
+			// `limit` and `modalities` instead of DeepSeek's flat fields. Reading
+			// both is not cosmetic: without it every OpenCode model would look
+			// text-only and with no context window.
+			val limit = obj["limit"]?.let { runCatching { it.jsonObject }.getOrNull() }
+			val modalities = obj["modalities"]?.let { runCatching { it.jsonObject }.getOrNull() }
 			RemoteModel(
 				id = id,
 				// `name` is the human-facing label ("DeepSeek-V4.1-Flash") while
@@ -125,12 +140,17 @@ internal object DeepSeekModels {
 				// would be rejected.
 				displayName = obj["name"].asStringOrNull(),
 				contextWindow = obj["context_window"].asIntOrNull()
-					?: architecture?.get("context_length").asIntOrNull(),
-				maxOutputTokens = obj["max_output_tokens"].asIntOrNull(),
+					?: architecture?.get("context_length").asIntOrNull()
+					?: limit?.get("context").asIntOrNull(),
+				maxOutputTokens = obj["max_output_tokens"].asIntOrNull()
+					?: limit?.get("output").asIntOrNull(),
 				inputModalities = obj["input_modalities"]
 					?.let { runCatching { it.jsonArray }.getOrNull() }
 					?.mapNotNull { it.asStringOrNull() }
 					?: architecture?.get("input_modalities")
+						?.let { runCatching { it.jsonArray }.getOrNull() }
+						?.mapNotNull { it.asStringOrNull() }
+					?: modalities?.get("input")
 						?.let { runCatching { it.jsonArray }.getOrNull() }
 						?.mapNotNull { it.asStringOrNull() }
 					.orEmpty(),

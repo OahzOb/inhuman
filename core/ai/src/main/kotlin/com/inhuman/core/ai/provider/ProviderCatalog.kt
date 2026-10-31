@@ -46,6 +46,22 @@ object ProviderCatalog {
 			kind = ProviderFactory.OPENAI_RESPONSES,
 			baseUrl = "https://api.openai.com/v1",
 		),
+		// OpenCode's two gateways are the same OpenAI-compatible wire API with
+		// different base paths: Zen is pay-as-you-go, Go is the subscription.
+		// Both expose `/models`, so the model list is fetched rather than
+		// hardcoded and a new model appears without an app release.
+		KnownProvider(
+			id = "opencode-zen",
+			name = "OpenCode Zen",
+			kind = ProviderFactory.OPENAI_CHAT,
+			baseUrl = "https://opencode.ai/zen/v1",
+		),
+		KnownProvider(
+			id = "opencode-go",
+			name = "OpenCode Go",
+			kind = ProviderFactory.OPENAI_CHAT,
+			baseUrl = "https://opencode.ai/zen/go/v1",
+		),
 		KnownProvider(
 			id = "zai",
 			name = "Z.AI Coding Plan",

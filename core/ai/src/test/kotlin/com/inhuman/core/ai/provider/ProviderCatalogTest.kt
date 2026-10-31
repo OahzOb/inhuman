@@ -58,4 +58,15 @@ class ProviderCatalogTest {
 			ProviderCatalog.byId("openai-responses")?.kind,
 		)
 	}
+
+	@Test
+	fun opencodeZenAndGoAreOpenAiCompatiblePresets() {
+		val zen = ProviderCatalog.byId("opencode-zen")
+		val go = ProviderCatalog.byId("opencode-go")
+
+		assertEquals(ProviderFactory.OPENAI_CHAT, zen?.kind)
+		assertEquals(ProviderFactory.OPENAI_CHAT, go?.kind)
+		assertEquals("https://opencode.ai/zen/v1", zen?.baseUrl)
+		assertEquals("https://opencode.ai/zen/go/v1", go?.baseUrl)
+	}
 }

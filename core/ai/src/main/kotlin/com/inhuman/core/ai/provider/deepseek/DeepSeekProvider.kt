@@ -68,6 +68,8 @@ class DeepSeekProvider(
 	private val includeStreamUsage: Boolean = true,
 ) : ChatProvider {
 
+
+
 	override suspend fun listModels(): List<RemoteModel> =
 		DeepSeekModels.fetch(client, baseUrl, apiKey)
 
@@ -114,6 +116,10 @@ class DeepSeekProvider(
 			.url("$baseUrl/chat/completions")
 			.header("Authorization", "Bearer $apiKey")
 			.header("Accept", "text/event-stream")
+			// OpenCode's gateways ask clients to identify themselves rather than
+			// arrive as a generic HTTP library; a stable product token is also
+			// honest for every other compatible endpoint.
+			.header("User-Agent", USER_AGENT)
 			.post(requestBody)
 			.build()
 
@@ -261,6 +267,9 @@ class DeepSeekProvider(
 
 	companion object {
 		const val DEFAULT_BASE_URL = "https://api.deepseek.com"
+
+		/** Sent as the User-Agent; see `DeepSeekModels.USER_AGENT`. */
+		const val USER_AGENT = "inhuman"
 
 		private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 

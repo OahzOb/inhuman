@@ -426,7 +426,8 @@ as chips and sets the default base URL for each.
 
 **Known providers** (`provider/ProviderCatalog.kt`) are the Pi-style shortcut:
 Anthropic, Google Gemini, OpenAI (Chat Completions), OpenAI (Responses API),
-Z.AI Coding (global/China), Qwen Token Plan
+OpenCode Zen (pay-as-you-go) and OpenCode Go (subscription), Z.AI Coding
+(global/China), Qwen Token Plan
 (global/China), Xiaomi MiMo and Token Plan, Kimi For Coding, MiniMax
 (global/China), OpenRouter, Groq, Mistral, Cerebras and xAI. Picking one fills
 the kind and base URL and asks only for the API key. "Customize endpoint" reveals
@@ -434,6 +435,15 @@ the base URL and manual-model fields for a proxy or an unlisted service. Account
 / web login is deliberately absent; every catalog entry is API-key
 authenticated. Most entries fetch `/models`; if a plan endpoint does not expose
 it, Customize accepts manual model IDs.
+
+OpenCode Zen is `https://opencode.ai/zen/v1` and OpenCode Go is
+`https://opencode.ai/zen/go/v1`; both use the OpenAI Chat Completions adapter and
+both expose `/models`. Their `/models` shape describes context and modalities
+under `limit` and `modalities`, which `DeepSeekModels` reads as a fallback. Go
+asks clients to send a product User-Agent; the app sends `inhuman`. It also asks
+for a per-conversation `x-opencode-session`, which is not sent because the
+provider has no conversation id, so routing and prompt-cache optimisation may be
+less precise than OpenCode's own client.
 
 **Anthropic** (`provider/anthropic/`): `POST /v1/messages`, `x-api-key`,
 `anthropic-version: 2023-06-01`, system as a separate field, `tool_use` /

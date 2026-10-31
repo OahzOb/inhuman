@@ -191,6 +191,29 @@ class DeepSeekModelsTest {
 	}
 
 	@Test
+	fun `opencode limit and modalities are read`() {
+		// Modelled on a live GET https://opencode.ai/zen/go/v1/models; the
+		// fields the parser reads are copied verbatim. The gateway describes
+		// context and modalities under `limit` and `modalities` rather than
+		// DeepSeek's flat fields. Without this fallback every OpenCode model
+		// would look text-only and with no context window.
+		val body = """
+			{"object":"list","data":[{
+			  "id":"gpt-6-luna","object":"model","name":"GPT 6 Luna","type":"chat",
+			  "modalities":{"input":["text","image"],"output":["text"]},
+			  "limit":{"context":272000,"output":32000}
+			}]}
+		""".trimIndent()
+
+		val model = DeepSeekModels.parse(body).single()
+
+		assertEquals("GPT 6 Luna", model.displayName)
+		assertEquals(272000, model.contextWindow)
+		assertEquals(32000, model.maxOutputTokens)
+		assertTrue(model.supportsVision)
+	}
+
+	@Test
 	fun `an empty list is empty rather than an error`() {
 		// Compared by size: JUnit's assertEquals is heavily overloaded and
 		// inference cannot resolve a bare emptyList() on either side.
