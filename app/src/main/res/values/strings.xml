@@ -529,6 +529,19 @@
 	<string name="files_open_with_chooser">Open with</string>
 	<string name="files_no_app">No app can open this file.</string>
 	<string name="files_preview_binary">(binary or larger than the read limit — open it with another app)</string>
+	<string name="files_search">Search files</string>
+	<string name="files_search_close">Close search</string>
+	<string name="files_search_placeholder">Search this folder</string>
+	<string name="files_search_clear">Clear search</string>
+	<string name="files_search_no_matches">No files match “%1$s”.</string>
+	<string name="files_search_no_matches_hint">Try a shorter name, or clear the search.</string>
+	<string name="files_sort">Sort by</string>
+	<string name="files_sort_name">Name (A–Z)</string>
+	<string name="files_sort_modified">Newest first</string>
+	<string name="files_sort_size">Largest first</string>
+	<string name="files_more_actions">File actions</string>
+	<string name="files_preview_image_failed">This image could not be previewed.</string>
+	<string name="files_preview_image_loading">Loading image…</string>
 	<string name="chat_collapse_section">Collapse</string>
 	<string name="chat_expand_section">Expand</string>
 
@@ -861,6 +874,11 @@
 	<string name="chat_remove_attachment">Remove attachment</string>
 	<string name="chat_add_key">Add an API key</string>
 	<string name="chat_paid_action_notice">This calls the configured paid backend and is billed per call.</string>
+	<string name="chat_menu_media">Media</string>
+	<string name="chat_menu_files">Files &amp; export</string>
+	<string name="chat_menu_inspect">Inspect &amp; settings</string>
+	<string name="chat_menu_conversation">Conversation</string>
+	<string name="chat_change_model">Change model</string>
 	<string name="chat_add_key_hint">Add an API key to start</string>
 	<string name="chat_stop">Stop</string>
 	<string name="chat_send">Send</string>

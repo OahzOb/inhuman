@@ -956,11 +956,12 @@ restore/regenerate entry points.
 
 ### Files
 
-`FilesScreen.kt` / `FilesViewModel.kt`. Browse, preview text (binary and oversize
-are *reported*, not rendered as mojibake, `FilesViewModel.kt:146-177`), import via
-`OpenDocument`, export via `CreateDocument`, delete with a dialog, and a header
-showing the workspace quota as `files · bytes`. All paths go through
-`SessionWorkspace.resolve` (`:96-100`, `:189-198`).
+`FilesScreen.kt` / `FilesViewModel.kt`. Browse, preview text and images (binary
+and oversize are *reported*, not rendered as mojibake), search the current
+folder, sort by name/modified/size, import via `OpenDocument`, export via
+`CreateDocument`, delete with a dialog, and a header showing the workspace quota
+as `files · bytes`. A row's export and delete live behind one overflow menu. All
+paths go through `SessionWorkspace.resolve`.
 
 The same screen opens from a chat (conversation-scoped path rules) and from a
 workspace detail (no conversation, so no path-rule control). Its **Workspace

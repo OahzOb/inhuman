@@ -510,6 +510,19 @@
 	<string name="files_open_with_chooser">打开方式</string>
 	<string name="files_no_app">没有可以打开这个文件的应用。</string>
 	<string name="files_preview_binary">（二进制文件，或超过读取上限——请用其他应用打开）</string>
+	<string name="files_search">搜索文件</string>
+	<string name="files_search_close">关闭搜索</string>
+	<string name="files_search_placeholder">搜索当前文件夹</string>
+	<string name="files_search_clear">清除搜索</string>
+	<string name="files_search_no_matches">没有匹配“%1$s”的文件。</string>
+	<string name="files_search_no_matches_hint">换个短一点的名字，或清除搜索。</string>
+	<string name="files_sort">排序方式</string>
+	<string name="files_sort_name">名称（A–Z）</string>
+	<string name="files_sort_modified">最近修改</string>
+	<string name="files_sort_size">从大到小</string>
+	<string name="files_more_actions">文件操作</string>
+	<string name="files_preview_image_failed">无法预览这张图片。</string>
+	<string name="files_preview_image_loading">正在加载图片…</string>
 	<string name="chat_collapse_section">收起</string>
 	<string name="chat_expand_section">展开</string>
 
@@ -839,6 +852,11 @@
 	<string name="chat_remove_attachment">移除附件</string>
 	<string name="chat_add_key">添加 API 密钥</string>
 	<string name="chat_paid_action_notice">此操作调用已配置的付费后端，按调用计费。</string>
+	<string name="chat_menu_media">媒体</string>
+	<string name="chat_menu_files">文件与导出</string>
+	<string name="chat_menu_inspect">检查与设置</string>
+	<string name="chat_menu_conversation">会话</string>
+	<string name="chat_change_model">更改模型</string>
 	<string name="chat_add_key_hint">添加 API 密钥后开始</string>
 	<string name="chat_stop">停止</string>
 	<string name="chat_send">发送</string>

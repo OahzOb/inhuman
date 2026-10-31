@@ -318,7 +318,7 @@ fun WorkspaceDetailScreen(
 				horizontalArrangement = Arrangement.SpaceBetween,
 			) {
 				Text(stringResource(R.string.workspace_conversations), style = MaterialTheme.typography.titleSmall)
-				TextButton(onClick = viewModel::startNewConversation) {
+				TextButton(onClick = { viewModel.startNewConversation(onOpenConversation) }) {
 					Text(stringResource(R.string.workspace_new_conversation))
 				}
 			}

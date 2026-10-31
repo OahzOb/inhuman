@@ -85,6 +85,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -139,6 +140,7 @@ import com.inhuman.core.design.WideDialog
 import com.inhuman.core.design.WorkbenchGrid
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.ui.common.formatBytes
+import com.inhuman.ui.common.highlightSnippet
 import com.inhuman.ui.common.FlowRowCompat
 import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.RemoteBadge
@@ -225,6 +227,7 @@ fun ChatScreen(
 	// is read inside the list's own lambda. What is left reading at the top is
 	// the handful of values the chrome genuinely depends on.
 	val defaultTitle = stringResource(R.string.chat_title_fallback)
+	val changeModelLabel = stringResource(R.string.chat_change_model)
 	// Read here rather than at the call site: the audio launcher's failure path
 	// runs inside a `launch`, where `stringResource` is not available.
 	val transcriptionFailedText = stringResource(R.string.chat_transcription_failed)
@@ -677,15 +680,31 @@ fun ChatScreen(
 						// visible without being in the way -- which matters because
 						// they change what an answer costs.
 						Column(
-							modifier = Modifier.clickable { showModelPicker = true },
+							// The label is what TalkBack says; the chevron is the
+							// visual cue that this text is a control. Without
+							// either, the only way to change the model was to
+							// guess that the title was tappable.
+							modifier = Modifier.clickable(onClickLabel = changeModelLabel) {
+								showModelPicker = true
+							},
 							verticalArrangement = Arrangement.spacedBy(2.dp),
 						) {
-							Text(
-								text = displayTitle,
-								style = MaterialTheme.typography.titleMedium,
-								maxLines = 1,
-								overflow = TextOverflow.Ellipsis,
-							)
+							Row(verticalAlignment = Alignment.CenterVertically) {
+								Text(
+									text = displayTitle,
+									style = MaterialTheme.typography.titleMedium,
+									maxLines = 1,
+									overflow = TextOverflow.Ellipsis,
+									modifier = Modifier.weight(1f, fill = false),
+								)
+								Spacer(Modifier.width(4.dp))
+								Icon(
+									Icons.Filled.KeyboardArrowDown,
+									contentDescription = null,
+									tint = MaterialTheme.colorScheme.onSurfaceVariant,
+									modifier = Modifier.size(16.dp),
+								)
+							}
 							Row(
 								verticalAlignment = Alignment.CenterVertically,
 								horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
@@ -762,6 +781,7 @@ fun ChatScreen(
 								expanded = showChatMenu,
 								onDismissRequest = { showChatMenu = false },
 							) {
+								MenuSectionLabel(stringResource(R.string.chat_menu_media))
 								DropdownMenuItem(
 									text = { PaidMenuLabel(stringResource(R.string.chat_transcribe_audio_file)) },
 									leadingIcon = {
@@ -832,6 +852,8 @@ fun ChatScreen(
 										showGenerateImage = true
 									},
 								)
+								HorizontalDivider()
+								MenuSectionLabel(stringResource(R.string.chat_menu_files))
 								DropdownMenuItem(
 									text = { Text(stringResource(R.string.files_title)) },
 									leadingIcon = {
@@ -877,6 +899,8 @@ fun ChatScreen(
 										)
 									},
 								)
+								HorizontalDivider()
+								MenuSectionLabel(stringResource(R.string.chat_menu_inspect))
 								DropdownMenuItem(
 									text = { Text(stringResource(R.string.chat_provider_keys)) },
 									leadingIcon = {
@@ -963,6 +987,8 @@ fun ChatScreen(
 										showApprovalHistory = true
 									},
 								)
+								HorizontalDivider()
+								MenuSectionLabel(stringResource(R.string.chat_menu_conversation))
 								DropdownMenuItem(
 									text = {
 										Column {
@@ -2440,7 +2466,7 @@ private fun ChatSearchDialog(
 								modifier = Modifier.width(84.dp),
 							)
 							Text(
-								text = match.snippet,
+								text = highlightSnippet(match.snippet, query),
 								style = MaterialTheme.typography.bodyMedium,
 								maxLines = 3,
 								overflow = TextOverflow.Ellipsis,
@@ -3149,6 +3175,17 @@ private fun PaidMenuLabel(text: String) {
 		Spacer(Modifier.width(8.dp))
 		PaidBadge()
 	}
+}
+
+/** A quiet group heading inside the chat overflow menu. */
+@Composable
+private fun MenuSectionLabel(text: String) {
+	Text(
+		text = text.uppercase(),
+		style = MaterialTheme.typography.labelSmall,
+		color = MaterialTheme.colorScheme.onSurfaceVariant,
+		modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp),
+	)
 }
 
 /** The compact billing line above a manual media dialog's fields. */
@@ -4703,32 +4740,54 @@ private fun VideoDialog(
 					minLines = 3,
 					enabled = !running,
 				)
-				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-					OutlinedTextField(
-						value = resolution,
-						onValueChange = { resolution = it },
-						modifier = Modifier.weight(1f),
-						label = { Text(stringResource(R.string.chat_video_resolution)) },
-						singleLine = true,
-						enabled = !running,
-					)
-					OutlinedTextField(
-						value = ratio,
-						onValueChange = { ratio = it },
-						modifier = Modifier.weight(1f),
-						label = { Text(stringResource(R.string.chat_video_ratio)) },
-						singleLine = true,
-						enabled = !running,
-					)
-				}
-				OutlinedTextField(
-					value = duration,
-					onValueChange = { duration = it.filter(Char::isDigit) },
-					modifier = Modifier.fillMaxWidth(),
-					label = { Text(stringResource(R.string.chat_video_seconds)) },
-					singleLine = true,
-					enabled = !running,
+				// The backend accepts 480P/720P/1080P, 16:9/9:16/1:1 and
+				// 2–30 seconds. These were free-text fields, so a typo only
+				// surfaced as a provider error after the request was billed.
+				Text(
+					text = stringResource(R.string.chat_video_resolution),
+					style = MaterialTheme.typography.labelLarge,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
+				FlowRowCompat {
+					listOf("480P", "720P", "1080P").forEach { value ->
+						FilterChip(
+							selected = resolution == value,
+							onClick = { resolution = value },
+							label = { Text(value) },
+							enabled = !running,
+						)
+					}
+				}
+				Text(
+					text = stringResource(R.string.chat_video_ratio),
+					style = MaterialTheme.typography.labelLarge,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				FlowRowCompat {
+					listOf("16:9", "9:16", "1:1").forEach { value ->
+						FilterChip(
+							selected = ratio == value,
+							onClick = { ratio = value },
+							label = { Text(value) },
+							enabled = !running,
+						)
+					}
+				}
+				Text(
+					text = stringResource(R.string.chat_video_seconds),
+					style = MaterialTheme.typography.labelLarge,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				FlowRowCompat {
+					listOf(5, 10, 15, 30).forEach { value ->
+						FilterChip(
+							selected = duration == value.toString(),
+							onClick = { duration = value.toString() },
+							label = { Text("${value}s") },
+							enabled = !running,
+						)
+					}
+				}
 				status?.let {
 					Row(
 						verticalAlignment = Alignment.CenterVertically,

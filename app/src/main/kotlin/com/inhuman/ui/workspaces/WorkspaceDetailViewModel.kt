@@ -109,13 +109,13 @@ class WorkspaceDetailViewModel(
 		}
 	}
 
-	fun startNewConversation() {
+	fun startNewConversation(onCreated: (String) -> Unit = {}) {
 		viewModelScope.launch {
 			val available = agents.all()
-			if (available.isEmpty()) {
-				create(null)
-			} else {
-				_state.update { it.copy(choosingAgent = available) }
+			when {
+				available.isEmpty() -> create(null, onCreated)
+				available.size == 1 -> create(available.first(), onCreated)
+				else -> _state.update { it.copy(choosingAgent = available) }
 			}
 		}
 	}

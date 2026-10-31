@@ -86,6 +86,7 @@ import com.inhuman.core.design.Wordmark
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.core.design.prefersFabForPrimaryAction
 import com.inhuman.ui.backup.BackupReminderUi
+import com.inhuman.ui.common.highlightSnippet
 import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
@@ -275,7 +276,7 @@ fun ConversationsScreen(
 			onDismiss = { showCreateSheet = false },
 			onConversation = { workspaceId ->
 				showCreateSheet = false
-				viewModel.startNewConversation(workspaceId)
+				viewModel.startNewConversation(workspaceId, onOpenConversation)
 			},
 			onNewWorkspace = {
 				showCreateSheet = false
@@ -1135,7 +1136,7 @@ private fun SearchResults(
 				results,
 				key = { _, hit -> "${hit.conversationId}:${hit.messageId ?: "title"}" },
 			) { _, hit ->
-				SearchResultRow(hit = hit, onOpen = { onOpen(hit) })
+				SearchResultRow(hit = hit, query = query, onOpen = { onOpen(hit) })
 				Hairline()
 			}
 		}
@@ -1145,6 +1146,7 @@ private fun SearchResults(
 @Composable
 private fun SearchResultRow(
 	hit: ConversationSearchHit,
+	query: String,
 	onOpen: () -> Unit,
 ) {
 	Column(
@@ -1175,9 +1177,11 @@ private fun SearchResultRow(
 		}
 		Text(
 			text = if (hit.messageId == null) {
-				stringResource(R.string.home_conversation_title)
+				androidx.compose.ui.text.AnnotatedString(
+					stringResource(R.string.home_conversation_title),
+				)
 			} else {
-				hit.snippet
+				highlightSnippet(hit.snippet, query)
 			},
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,

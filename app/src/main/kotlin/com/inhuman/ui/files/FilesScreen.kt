@@ -5,11 +5,14 @@ import android.content.ClipboardManager
 import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -32,8 +36,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
@@ -41,6 +48,7 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material.icons.outlined.SaveAlt
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -65,11 +73,16 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -96,8 +109,11 @@ import com.inhuman.ui.chat.MarkdownText
 import com.inhuman.ui.common.WorkbenchBackButton
 import com.inhuman.ui.common.openWorkspaceInFiles
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.io.IOException
 
 /**
@@ -110,6 +126,23 @@ import java.io.IOException
  */
 internal fun isMarkdownName(name: String): Boolean =
 	name.substringAfterLast('.', "").lowercase() in setOf("md", "markdown")
+
+/** The sort option's own word, in the current language. */
+@Composable
+private fun sortLabel(sort: FileSort): String = stringResource(
+	when (sort) {
+		FileSort.Name -> R.string.files_sort_name
+		FileSort.Modified -> R.string.files_sort_modified
+		FileSort.Size -> R.string.files_sort_size
+	},
+)
+
+/** The preview decode, as three states so a failure does not spin forever. */
+private sealed interface ImagePreviewState {
+	data object Loading : ImagePreviewState
+	data object Failed : ImagePreviewState
+	data class Ready(val image: ImageBitmap) : ImagePreviewState
+}
 
 /**
  * The conversation's workspace.
@@ -153,6 +186,27 @@ fun FilesScreen(
 	var showDownloadDialog by remember { mutableStateOf(false) }
 	var showPath by remember { mutableStateOf(false) }
 	var showWorkspaceImport by remember { mutableStateOf(false) }
+	var searchOpen by remember { mutableStateOf(false) }
+	var query by rememberSaveable { mutableStateOf("") }
+	var sortName by rememberSaveable { mutableStateOf(FileSort.Name.name) }
+	var sortMenu by remember { mutableStateOf(false) }
+	var actionsMenu by remember { mutableStateOf(false) }
+	val sort = FileSort.entries.firstOrNull { it.name == sortName } ?: FileSort.Name
+	val visibleEntries = remember(state.entries, query, sort) {
+		orderedFiles(state.entries, query, sort)
+	}
+	// A search belongs to the folder it was typed in. Keeping it across a
+	// navigation would show "no matches" in a folder the user just entered.
+	LaunchedEffect(state.currentPath) {
+		query = ""
+		searchOpen = false
+	}
+	// Back closes the search before it leaves Files. Registered here rather
+	// than in the root handler because this screen owns the field.
+	BackHandler(enabled = searchOpen) {
+		searchOpen = false
+		query = ""
+	}
 
 	// While the editor is open its own inline error is the right place for a
 	// save failure; another AlertDialog over the editor would hide the buffer
@@ -249,20 +303,93 @@ fun FilesScreen(
 						)
 					},
 					actions = {
-						IconButton(onClick = { showPath = true }) {
-							Icon(Icons.Outlined.Folder, contentDescription = stringResource(R.string.files_workspace_location))
-						}
-						IconButton(onClick = { showDownloadDialog = true }) {
-							Icon(Icons.Filled.Download, contentDescription = stringResource(R.string.download_title))
-						}
-						IconButton(onClick = { showWorkspaceImport = true }) {
+						IconButton(
+							onClick = {
+								if (searchOpen) {
+									searchOpen = false
+									query = ""
+								} else {
+									searchOpen = true
+								}
+							},
+						) {
 							Icon(
-								Icons.Outlined.ContentCopy,
-								contentDescription = stringResource(R.string.files_import_workspace),
+								if (searchOpen) Icons.Filled.Close else Icons.Outlined.Search,
+								contentDescription = stringResource(
+									if (searchOpen) R.string.files_search_close else R.string.files_search,
+								),
 							)
 						}
 						IconButton(onClick = { importer.launch(arrayOf("*/*")) }) {
 							Icon(Icons.Filled.Upload, contentDescription = stringResource(R.string.files_import))
+						}
+						// The other three actions and the sort order live here.
+						// Four separate icons on a phone left the quota line
+						// wrapping to three lines, and the row action bar had
+						// the same problem.
+						Box {
+							IconButton(onClick = { actionsMenu = true }) {
+								Icon(
+									Icons.Filled.MoreVert,
+									contentDescription = stringResource(R.string.files_more_actions),
+								)
+							}
+							DropdownMenu(
+								expanded = actionsMenu,
+								onDismissRequest = { actionsMenu = false },
+							) {
+								Text(
+									text = stringResource(R.string.files_sort).uppercase(),
+									style = MaterialTheme.typography.labelSmall,
+									color = MaterialTheme.colorScheme.onSurfaceVariant,
+									modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp),
+								)
+								FileSort.entries.forEach { option ->
+									DropdownMenuItem(
+										text = { Text(sortLabel(option)) },
+										onClick = {
+											sortName = option.name
+											actionsMenu = false
+										},
+										trailingIcon = {
+											if (sort == option) {
+												Icon(Icons.Filled.Check, contentDescription = null)
+											}
+										},
+									)
+								}
+								HorizontalDivider()
+								DropdownMenuItem(
+									text = { Text(stringResource(R.string.files_workspace_location)) },
+									leadingIcon = {
+										Icon(Icons.Outlined.Folder, contentDescription = null)
+									},
+									onClick = {
+										actionsMenu = false
+										showPath = true
+									},
+								)
+								DropdownMenuItem(
+									text = { Text(stringResource(R.string.download_title)) },
+									leadingIcon = {
+										Icon(Icons.Filled.Download, contentDescription = null)
+									},
+									onClick = {
+										actionsMenu = false
+										showDownloadDialog = true
+									},
+								)
+								DropdownMenuItem(
+									text = { Text(stringResource(R.string.files_import_workspace)) },
+									leadingIcon = {
+										Icon(Icons.Outlined.ContentCopy, contentDescription = null)
+									},
+									onClick = {
+										actionsMenu = false
+										showWorkspaceImport = true
+									},
+								)
+							}
 						}
 					},
 					colors = TopAppBarDefaults.topAppBarColors(
@@ -272,6 +399,44 @@ fun FilesScreen(
 						actionIconContentColor = MaterialTheme.colorScheme.onBackground,
 					),
 				)
+				if (searchOpen) {
+					Box(
+						modifier = Modifier.fillMaxWidth(),
+						contentAlignment = Alignment.TopCenter,
+					) {
+						OutlinedTextField(
+							value = query,
+							onValueChange = { query = it },
+							modifier = Modifier
+								.widthIn(max = Layout.ReadableMeasure)
+								.fillMaxWidth()
+								.padding(horizontal = comfortableGutter(), vertical = 6.dp),
+							singleLine = true,
+							shape = MaterialTheme.shapes.small,
+							placeholder = { Text(stringResource(R.string.files_search_placeholder)) },
+							leadingIcon = {
+								Icon(
+									Icons.Outlined.Search,
+									contentDescription = null,
+									modifier = Modifier.size(18.dp),
+								)
+							},
+							trailingIcon = if (query.isNotEmpty()) {
+								{
+									IconButton(onClick = { query = "" }) {
+										Icon(
+											Icons.Filled.Close,
+											contentDescription = stringResource(R.string.files_search_clear),
+											modifier = Modifier.size(18.dp),
+										)
+									}
+								}
+							} else {
+								null
+							},
+						)
+					}
+				}
 				Hairline()
 			}
 		},
@@ -280,7 +445,10 @@ fun FilesScreen(
 		Box(
 			modifier = Modifier
 				.fillMaxSize()
-				.padding(inner)
+				.padding(inner),
+			// The capped list is centred like the empty state above it; a
+			// wrap-content Box in a Column would sit against the left edge.
+			contentAlignment = Alignment.TopCenter,
 		) {
 			when {
 				state.loading -> Unit
@@ -346,6 +514,35 @@ fun FilesScreen(
 					}
 				}
 
+				visibleEntries.isEmpty() -> Box(
+					modifier = Modifier.fillMaxSize(),
+					contentAlignment = Alignment.TopCenter,
+				) {
+					WorkbenchGrid(Modifier.fillMaxSize())
+					Column(
+						modifier = Modifier
+							.widthIn(max = 640.dp)
+							.fillMaxWidth()
+							.padding(horizontal = comfortableGutter(), vertical = 32.dp),
+						verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
+					) {
+						Eyebrow(stringResource(R.string.files_search))
+						Text(
+							text = stringResource(R.string.files_search_no_matches, query.trim()),
+							style = MaterialTheme.typography.headlineMedium,
+							color = MaterialTheme.colorScheme.onBackground,
+						)
+						Text(
+							text = stringResource(R.string.files_search_no_matches_hint),
+							style = MaterialTheme.typography.bodyMedium,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+						TextButton(onClick = { query = "" }) {
+							Text(stringResource(R.string.files_search_clear))
+						}
+					}
+				}
+
 				else -> LazyColumn(
 					modifier = Modifier
 						// Constrain first, fill second: `fillMaxSize()` is greedy
@@ -359,7 +556,7 @@ fun FilesScreen(
 					),
 					verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
 				) {
-					items(state.entries, key = { it.relativePath }) { entry ->
+					items(visibleEntries, key = { it.relativePath }) { entry ->
 						FileRow(
 							entry = entry,
 							onOpen = { viewModel.open(entry.relativePath, entry.isDirectory) },
@@ -384,6 +581,7 @@ fun FilesScreen(
 
 	state.preview?.let { preview ->
 		val markdown = isMarkdownName(preview.name)
+		val image = preview.mimeType.startsWith("image/")
 		// Rendered is the default: the point of saving a note as .md is that it
 		// is readable, not that its asterisks are visible. Source stays one tap
 		// away for the cases where the raw file is what matters (a fence that
@@ -418,7 +616,13 @@ fun FilesScreen(
 							},
 						) { Text(stringResource(R.string.files_open_with_ellipsis)) }
 					}
-					if (markdown && !showSource) {
+					if (image) {
+						PreviewImage(
+							absolutePath = state.absolutePath,
+							relativePath = preview.relativePath,
+							name = preview.name,
+						)
+					} else if (markdown && !showSource) {
 						MarkdownText(
 							text = preview.text,
 							modifier = Modifier
@@ -1274,6 +1478,72 @@ private fun FileEditorDialog(
 	}
 }
 
+/**
+ * A downsampled image preview.
+ *
+ * The list already knows the absolute workspace path for the user; decoding is
+ * off the main thread and bounded to roughly 1600px on the long edge, because a
+ * phone photo is not a bitmap anyone needs at full resolution in a dialog.
+ */
+@Composable
+private fun PreviewImage(absolutePath: String, relativePath: String, name: String) {
+	val preview by produceState<ImagePreviewState>(
+		initialValue = ImagePreviewState.Loading,
+		absolutePath,
+		relativePath,
+	) {
+		value = withContext(Dispatchers.IO) {
+			runCatching {
+				if (absolutePath.isBlank()) return@runCatching ImagePreviewState.Failed
+				val file = File(absolutePath, relativePath)
+				if (!file.isFile) return@runCatching ImagePreviewState.Failed
+				val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+				BitmapFactory.decodeFile(file.absolutePath, bounds)
+				if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+					return@runCatching ImagePreviewState.Failed
+				}
+				var sample = 1
+				while (bounds.outWidth / sample > 1600 || bounds.outHeight / sample > 1600) {
+					sample *= 2
+				}
+				val decoded = BitmapFactory.decodeFile(
+					file.absolutePath,
+					BitmapFactory.Options().apply { inSampleSize = sample },
+				) ?: return@runCatching ImagePreviewState.Failed
+				ImagePreviewState.Ready(decoded.asImageBitmap())
+			}.getOrDefault(ImagePreviewState.Failed)
+		}
+	}
+	when (val current = preview) {
+		ImagePreviewState.Loading -> Row(
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
+		) {
+			CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+			Text(
+				text = stringResource(R.string.files_preview_image_loading),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+
+		ImagePreviewState.Failed -> Text(
+			text = stringResource(R.string.files_preview_image_failed),
+			style = MaterialTheme.typography.bodyMedium,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+
+		is ImagePreviewState.Ready -> Image(
+			bitmap = current.image,
+			contentDescription = name,
+			contentScale = ContentScale.Fit,
+			modifier = Modifier
+				.fillMaxWidth()
+				.heightIn(max = 420.dp),
+		)
+	}
+}
+
 @Composable
 private fun FileRow(
 	entry: FileEntryUi,
@@ -1283,6 +1553,7 @@ private fun FileRow(
 	onRuleChange: ((ToolPolicy) -> Unit)?,
 ) {
 	var ruleMenuOpen by remember { mutableStateOf(false) }
+	var actionsMenuOpen by remember { mutableStateOf(false) }
 
 	Row(
 		modifier = Modifier
@@ -1335,16 +1606,6 @@ private fun FileRow(
 			}
 		}
 
-		if (onExport != null) {
-			IconButton(onClick = onExport) {
-				Icon(
-					Icons.Outlined.SaveAlt,
-					contentDescription = stringResource(R.string.files_save_copy),
-					modifier = Modifier.size(18.dp),
-				)
-			}
-		}
-
 		// What the agent may do with this file. A workspace opened without a
 		// conversation has no conversation-scoped rules, so the control is absent
 		// rather than showing a policy that would not be consulted.
@@ -1377,18 +1638,50 @@ private fun FileRow(
 			}
 		}
 
-		IconButton(onClick = onDelete) {
-			Icon(
-				Icons.Outlined.Delete,
-				contentDescription = stringResource(R.string.common_delete),
-				// `outline` was used here first and the button was effectively
-				// invisible: it is a near-background grey by design, meant for
-				// hairlines rather than glyphs, and at roughly 2:1 contrast the
-				// icon simply did not appear. A destructive control that cannot
-				// be seen is worse than one that is too prominent.
-				tint = MaterialTheme.colorScheme.error,
-				modifier = Modifier.size(18.dp),
-			)
+		// Export and delete live behind one menu instead of two always-visible
+		// icons. The delete icon was the brightest thing on every row, and a
+		// destructive action one tap away from the row that opens a file is a
+		// mis-tap waiting to happen.
+		Box {
+			IconButton(onClick = { actionsMenuOpen = true }) {
+				Icon(
+					Icons.Filled.MoreVert,
+					contentDescription = stringResource(R.string.files_more_actions),
+					tint = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier.size(18.dp),
+				)
+			}
+			DropdownMenu(
+				expanded = actionsMenuOpen,
+				onDismissRequest = { actionsMenuOpen = false },
+			) {
+				if (onExport != null) {
+					DropdownMenuItem(
+						text = { Text(stringResource(R.string.files_save_copy)) },
+						leadingIcon = {
+							Icon(Icons.Outlined.SaveAlt, contentDescription = null)
+						},
+						onClick = {
+							actionsMenuOpen = false
+							onExport()
+						},
+					)
+				}
+				DropdownMenuItem(
+					text = { Text(stringResource(R.string.common_delete)) },
+					leadingIcon = {
+						Icon(
+							Icons.Outlined.Delete,
+							contentDescription = null,
+							tint = MaterialTheme.colorScheme.error,
+						)
+					},
+					onClick = {
+						actionsMenuOpen = false
+						onDelete()
+					},
+				)
+			}
 		}
 	}
 }

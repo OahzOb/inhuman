@@ -138,18 +138,30 @@ class ConversationsViewModel(
 	 * @param workspaceId an existing permanent workspace, or null for a new
 	 *   temporary one.
 	 */
-	fun startNewConversation(workspaceId: String? = null) {
+	fun startNewConversation(
+		workspaceId: String? = null,
+		onCreated: (String) -> Unit = {},
+	) {
 		pendingWorkspaceId = workspaceId
 		viewModelScope.launch {
 			val available = agents.all()
-			if (available.isEmpty()) {
-				// Nothing to choose from: create with no assistant rather than
-				// blocking. The default is seeded on database creation, so this
-				// is only reachable if something went wrong there.
-				pendingWorkspaceId = null
-				create(null, workspaceId)
-			} else {
-				_state.update { it.copy(choosingAgent = available) }
+			when {
+				available.isEmpty() -> {
+					// Nothing to choose from: create with no assistant rather
+					// than blocking. The default is seeded on database creation,
+					// so this is only reachable if something went wrong there.
+					pendingWorkspaceId = null
+					create(null, workspaceId, onCreated)
+				}
+
+				available.size == 1 -> {
+					// One assistant is not a choice. Asking anyway was a tap
+					// that only confirmed there was nothing to decide.
+					pendingWorkspaceId = null
+					create(available.first(), workspaceId, onCreated)
+				}
+
+				else -> _state.update { it.copy(choosingAgent = available) }
 			}
 		}
 	}
