@@ -440,10 +440,9 @@ OpenCode Zen is `https://opencode.ai/zen/v1` and OpenCode Go is
 `https://opencode.ai/zen/go/v1`; both use the OpenAI Chat Completions adapter and
 both expose `/models`. Their `/models` shape describes context and modalities
 under `limit` and `modalities`, which `DeepSeekModels` reads as a fallback. Go
-asks clients to send a product User-Agent; the app sends `inhuman`. It also asks
-for a per-conversation `x-opencode-session`, which is not sent because the
-provider has no conversation id, so routing and prompt-cache optimisation may be
-less precise than OpenCode's own client.
+requires a per-conversation `x-opencode-session`; the app sends the existing
+`ChatRequest.userId` (the conversation id, also used by DeepSeek for cache
+isolation), and a product `User-Agent` of `inhuman`.
 
 **Anthropic** (`provider/anthropic/`): `POST /v1/messages`, `x-api-key`,
 `anthropic-version: 2023-06-01`, system as a separate field, `tool_use` /

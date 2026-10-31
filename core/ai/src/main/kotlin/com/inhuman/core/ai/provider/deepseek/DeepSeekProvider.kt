@@ -50,6 +50,19 @@ import java.util.concurrent.TimeUnit
  * what makes cancellation immediate. Retrofit would be worse still -- its
  * converter model fights incremental bodies.
  */
+/**
+ * The `x-opencode-session` value, or null for a non-OpenCode endpoint.
+ *
+ * Split out because the header is a hard requirement on Go, and the decision
+ * (conversation id first, profile id only as a fallback) is the part worth
+ * testing without a socket.
+ */
+internal fun openCodeSessionHeader(baseUrl: String, userId: String?, profileId: String): String? =
+	if (baseUrl.contains(OPENCODE_HOST)) userId ?: profileId else null
+
+/** Both OpenCode gateways live under this host. */
+private const val OPENCODE_HOST = "opencode.ai/zen"
+
 class DeepSeekProvider(
 	private val apiKey: String,
 	private val baseUrl: String = DEFAULT_BASE_URL,
@@ -112,7 +125,7 @@ class DeepSeekProvider(
 		)
 		val requestBody = payload.toRequestBody(JSON_MEDIA_TYPE)
 
-		val httpRequest = Request.Builder()
+		val httpRequestBuilder = Request.Builder()
 			.url("$baseUrl/chat/completions")
 			.header("Authorization", "Bearer $apiKey")
 			.header("Accept", "text/event-stream")
@@ -121,7 +134,14 @@ class DeepSeekProvider(
 			// honest for every other compatible endpoint.
 			.header("User-Agent", USER_AGENT)
 			.post(requestBody)
-			.build()
+		// OpenCode Go rejects a request without this header (HTTP 400
+		// MissingSessionID). `ChatRequest.userId` is already the conversation's
+		// stable id, used by DeepSeek for cache isolation, so it is the right
+		// value; the profile id is only a fallback for a request that has none.
+		openCodeSessionHeader(baseUrl, request.userId, id)?.let { session ->
+			httpRequestBuilder.header("x-opencode-session", session)
+		}
+		val httpRequest = httpRequestBuilder.build()
 
 		val call = client.newCall(httpRequest)
 		val parser = SseParser()
@@ -270,6 +290,8 @@ class DeepSeekProvider(
 
 		/** Sent as the User-Agent; see `DeepSeekModels.USER_AGENT`. */
 		const val USER_AGENT = "inhuman"
+
+
 
 		private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
