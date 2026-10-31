@@ -101,7 +101,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -417,6 +419,10 @@ fun ChatScreen(
 	// so this is the whole of the fix.
 	val lastMessageId by fieldOf(viewModel.state, null) { it.messages.lastOrNull()?.id }
 	val isStreaming by fieldOf(viewModel.state, false) { it.isStreaming }
+	// The bottom strip only needs to know whether the transcript is empty, not
+	// every token in it. Reading the size keeps the demo strip correct without
+	// subscribing the composer to the streaming list.
+	val messageCount by fieldOf(viewModel.state, 0) { it.messages.size }
 	// The foreground service can keep working without this grant; asking for it
 	// is about making the ongoing notice visible, not about correctness.
 	LaunchedEffect(isStreaming) {
@@ -667,6 +673,47 @@ fun ChatScreen(
 		val messages = viewModel.state.value.messages
 		lastAssistantId = messages.lastOrNull { !it.fromUser && !it.isToolResult }?.id
 		lastUserId = messages.lastOrNull { it.fromUser }?.id
+	}
+
+	// One remembered object for every composer callback. The content lambda
+	// still recomposes on a streamed token, but this object does not change, so
+	// `ChatBottomBar` can skip the rebuild instead of invalidating the text
+	// field and the send button several times a second.
+	val currentOnOpenSettings by rememberUpdatedState(onOpenSettings)
+	val composerActions = remember(viewModel, importer, compaction) {
+		ChatComposerActions(
+			onSend = {
+				// Sending is an explicit request to show the new turn. If the
+				// reader had scrolled up, re-arm following before it is laid out.
+				followLatest = true
+				viewModel.send()
+			},
+			onStop = viewModel::stop,
+			onInputChange = viewModel::onInputChange,
+			onAttach = { importer.launch(arrayOf("image/*")) },
+			onRemoveAttachment = viewModel::removeAttachment,
+			onTranscribeVoice = viewModel::transcribeVoice,
+			onVoiceText = viewModel::appendVoiceText,
+			onToggleContextDetail = { showContextDetail = !showContextDetail },
+			onCompact = {
+				// The first compaction keeps two turns for continuity; a second
+				// pass keeps one, which is the escape hatch when the recent
+				// turns are themselves huge.
+				pendingCompaction = viewModel.compactionPlan(if (compaction == null) 2 else 1)
+				showCompactPreview = true
+			},
+			onViewCompaction = { showCompactionSummary = true },
+			onClearCompaction = viewModel::clearCompaction,
+			onClearError = viewModel::clearError,
+			onRetry = viewModel::retryLastTurn,
+			onCompactAndRetry = viewModel::compactAndRetry,
+			onOpenSettings = { currentOnOpenSettings() },
+			onContinue = {
+				followLatest = true
+				viewModel.continueInterruptedTurn()
+			},
+			onEnableDemo = viewModel::enableDemoMode,
+		)
 	}
 
 	Scaffold(
@@ -1120,20 +1167,15 @@ fun ChatScreen(
 			// invalidates the list rather than the whole screen. See the note
 			// above the state reads.
 			val messages by fieldOf(viewModel.state, emptyList()) { it.messages }
-			// A turn whose last saved message is not a finished answer can be
-			// resumed. Computed from the same list the transcript draws, so the
-			// banner cannot appear over a turn that is already complete.
-			val interrupted = remember(messages, isStreaming) {
-				isInterruptedTurn(messages, isStreaming)
-			}
-			// Turn boundaries and their summed usage. Computed from the same
-			// list the transcript renders, so a footer cannot describe a turn
-			// that is no longer on the active path.
-			val turns = remember(messages) { turnSummariesOf(messages) }
-			// The user rows are the navigation targets. They are a separate
-			// grouping from `turns`: a jump lands on the question, not on the
-			// footer of the answer it produced.
-			val userTurns = remember(messages) { userTurnsOf(messages) }
+			// The turn index is derived once per publish in the view model, off
+			// the main thread. Reading the same list here would walk it three
+			// times for every streamed token. It comes from the same `messages`
+			// list, so the banner and footers cannot describe a different
+			// transcript.
+			val transcriptIndex by viewModel.transcriptIndex.collectAsStateWithLifecycle()
+			val interrupted = transcriptIndex.interrupted
+			val turns = transcriptIndex.turns
+			val userTurns = transcriptIndex.userTurns
 			// The two banners above the transcript occupy list items of their
 			// own; every index taken from `messages` has to add them back.
 			val leadingItems = (if (compaction != null) 1 else 0) + (if (isCompacting) 1 else 0)
@@ -1503,155 +1545,24 @@ fun ChatScreen(
 				)
 			}
 
-			// The bottom strip, centred on the same measure as the bubbles
-			// above it. Both children fill the cap and the column centres them.
-			Column(
-				modifier = Modifier.fillMaxWidth(),
-				horizontalAlignment = Alignment.CenterHorizontally,
-			) {
-				// Demo mode is otherwise buried in Settings. The welcome panel
-				// already offers it on an empty transcript; this strip is for a
-				// conversation that has messages and still has no key.
-				if (!configured && messages.isNotEmpty()) {
-					TextButton(
-						onClick = viewModel::enableDemoMode,
-						modifier = Modifier
-							.widthIn(max = Layout.ReadableMeasure)
-							.fillMaxWidth()
-							.padding(horizontal = comfortableGutter()),
-					) {
-						Text(stringResource(R.string.chat_try_demo_strip))
-					}
-				}
-
-				error?.let { message ->
-					Column(
-						modifier = Modifier
-							.widthIn(max = Layout.ChatMeasure)
-							.fillMaxWidth()
-							.padding(horizontal = comfortableGutter(), vertical = 4.dp),
-					) {
-						Row(
-							modifier = Modifier.fillMaxWidth(),
-							verticalAlignment = Alignment.CenterVertically,
-						) {
-							Text(
-								text = message,
-								style = MaterialTheme.typography.bodyMedium,
-								color = MaterialTheme.colorScheme.error,
-								modifier = Modifier.weight(1f),
-							)
-							TextButton(onClick = viewModel::clearError) { Text(stringResource(R.string.chat_dismiss)) }
-						}
-						Row(
-							horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
-							verticalAlignment = Alignment.CenterVertically,
-						) {
-							when (errorAction) {
-								ChatErrorAction.Retry -> TextButton(
-									onClick = viewModel::retryLastTurn,
-								) { Text(stringResource(R.string.chat_retry)) }
-
-								ChatErrorAction.CompactAndRetry -> TextButton(
-									onClick = viewModel::compactAndRetry,
-								) { Text(stringResource(R.string.chat_compact_retry)) }
-
-								ChatErrorAction.OpenProviderSettings -> TextButton(
-									onClick = {
-										viewModel.clearError()
-										onOpenSettings()
-									},
-								) { Text(stringResource(R.string.chat_provider_settings)) }
-
-								null -> Unit
-							}
-							TextButton(
-								onClick = {
-									val clipboard = ctx.getSystemService(
-										ClipboardManager::class.java,
-									)
-									clipboard.setPrimaryClip(
-										ClipData.newPlainText(
-											ctx.getString(R.string.chat_clip_error),
-											message,
-										),
-									)
-								},
-							) { Text(stringResource(R.string.chat_copy_details)) }
-						}
-					}
-				}
-
-				// Search replaces the composer rather than sitting above it.
-				// With the IME open a two-row search bar, the turn strip, the
-				// composer and the keyboard left no transcript on a 731dp-tall
-				// phone; the matches were searchable and invisible.
-				if (!searchOpen) {
-					if (interrupted && configured) {
-						ContinueTurnBanner(
-							onContinue = {
-								// Resuming is a request to see the new part, like
-								// sending; re-arm following before it is laid out.
-								followLatest = true
-								viewModel.continueInterruptedTurn()
-							},
-						)
-					}
-					Composer(
-					value = input,
-					onValueChange = viewModel::onInputChange,
-					onSend = {
-						// Sending is an explicit request to show the new turn.
-						// If the reader had scrolled up, this re-arms following
-						// before the new message is laid out.
-						followLatest = true
-						viewModel.send()
-					},
-					onStop = viewModel::stop,
-					isStreaming = isStreaming,
-					enabled = configured,
-					attachments = pendingAttachments,
-					canAttachImages = modelSupportsVision,
-					onAttach = { importer.launch(arrayOf("image/*")) },
-					onRemoveAttachment = viewModel::removeAttachment,
-					voiceEnabled = voiceReady,
-					onTranscribeVoice = viewModel::transcribeVoice,
-					onVoiceText = { text ->
-						viewModel.onInputChange(
-							if (input.isBlank()) text else input.trimEnd() + " " + text,
-						)
-					},
-					context = usage,
-					showContextDetail = showContextDetail,
-					onToggleContextDetail = { showContextDetail = !showContextDetail },
-					compaction = compaction,
-					isCompacting = isCompacting,
-					onCompact = {
-						// The first compaction keeps two turns for continuity;
-						// a second pass keeps one, which is the escape hatch when
-						// the recent turns are themselves huge.
-						pendingCompaction = planContextCompaction(
-							messages,
-							keepTurns = if (compaction == null) 2 else 1,
-						)
-						showCompactPreview = true
-					},
-					onViewCompaction = { showCompactionSummary = true },
-					onClearCompaction = viewModel::clearCompaction,
-					// ## The modifier order is load-bearing
-					//
-					// `fillMaxWidth()` is greedy: it takes the whole incoming
-					// maximum. Put it *before* `widthIn` and the cap never
-					// binds -- the field stretches to 2208px on a 1280dp tablet
-					// while the messages above it stop at 1232. Constraining
-					// first and filling second is what makes the maximum mean
-					// anything.
-					modifier = Modifier
-						.widthIn(max = Layout.ChatMeasure)
-						.fillMaxWidth(),
-					)
-				}
-			}
+			ChatBottomBar(
+				configured = configured,
+				messageCount = messageCount,
+				interrupted = interrupted,
+				error = error,
+				errorAction = errorAction,
+				input = input,
+				isStreaming = isStreaming,
+				isCompacting = isCompacting,
+				pendingAttachments = pendingAttachments,
+				modelSupportsVision = modelSupportsVision,
+				voiceReady = voiceReady,
+				usage = usage,
+				showContextDetail = showContextDetail,
+				compaction = compaction,
+				showComposer = !searchOpen,
+				actions = composerActions,
+			)
 		}
 	}
 
@@ -3886,6 +3797,173 @@ private fun ContinueTurnBanner(onContinue: () -> Unit) {
 	}
 }
 
+/**
+ * The composer's callbacks, as one stable value.
+ *
+ * The chat content lambda is recomposed by every streamed token because the
+ * transcript lives in it. Passing a freshly built set of lambdas down would
+ * rebuild the text field and the send button on every tick even though neither
+ * changed. This object is remembered once per conversation/model state, so the
+ * bottom bar can skip that work.
+ */
+@Immutable
+private class ChatComposerActions(
+	val onSend: () -> Unit,
+	val onStop: () -> Unit,
+	val onInputChange: (String) -> Unit,
+	val onAttach: () -> Unit,
+	val onRemoveAttachment: (PendingAttachment) -> Unit,
+	val onTranscribeVoice: suspend (ByteArray) -> Result<String>,
+	val onVoiceText: (String) -> Unit,
+	val onToggleContextDetail: () -> Unit,
+	val onCompact: () -> Unit,
+	val onViewCompaction: () -> Unit,
+	val onClearCompaction: () -> Unit,
+	val onClearError: () -> Unit,
+	val onRetry: () -> Unit,
+	val onCompactAndRetry: () -> Unit,
+	val onOpenSettings: () -> Unit,
+	val onContinue: () -> Unit,
+	val onEnableDemo: () -> Unit,
+)
+
+@Composable
+private fun ChatBottomBar(
+	configured: Boolean,
+	messageCount: Int,
+	interrupted: Boolean,
+	error: String?,
+	errorAction: ChatErrorAction?,
+	input: String,
+	isStreaming: Boolean,
+	isCompacting: Boolean,
+	pendingAttachments: List<PendingAttachment>,
+	modelSupportsVision: Boolean,
+	voiceReady: Boolean,
+	usage: ContextUsage,
+	showContextDetail: Boolean,
+	compaction: ContextCompactionUi?,
+	showComposer: Boolean,
+	actions: ChatComposerActions,
+) {
+	val ctx = LocalContext.current
+	Column(
+		modifier = Modifier.fillMaxWidth(),
+		horizontalAlignment = Alignment.CenterHorizontally,
+	) {
+		// Demo mode is otherwise buried in Settings. The welcome panel already
+		// offers it on an empty transcript; this strip is for a conversation
+		// that has messages and still has no key.
+		if (!configured && messageCount > 0) {
+			TextButton(
+				onClick = actions.onEnableDemo,
+				modifier = Modifier
+					.widthIn(max = Layout.ReadableMeasure)
+					.fillMaxWidth()
+					.padding(horizontal = comfortableGutter()),
+			) {
+				Text(stringResource(R.string.chat_try_demo_strip))
+			}
+		}
+
+		error?.let { message ->
+			Column(
+				modifier = Modifier
+					.widthIn(max = Layout.ChatMeasure)
+					.fillMaxWidth()
+					.padding(horizontal = comfortableGutter(), vertical = 4.dp),
+			) {
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					Text(
+						text = message,
+						style = MaterialTheme.typography.bodyMedium,
+						color = MaterialTheme.colorScheme.error,
+						modifier = Modifier.weight(1f),
+					)
+					TextButton(onClick = actions.onClearError) {
+						Text(stringResource(R.string.chat_dismiss))
+					}
+				}
+				Row(
+					horizontalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					when (errorAction) {
+						ChatErrorAction.Retry -> TextButton(
+							onClick = actions.onRetry,
+						) { Text(stringResource(R.string.chat_retry)) }
+
+						ChatErrorAction.CompactAndRetry -> TextButton(
+							onClick = actions.onCompactAndRetry,
+						) { Text(stringResource(R.string.chat_compact_retry)) }
+
+						ChatErrorAction.OpenProviderSettings -> TextButton(
+							onClick = {
+								actions.onClearError()
+								actions.onOpenSettings()
+							},
+						) { Text(stringResource(R.string.chat_provider_settings)) }
+
+						null -> Unit
+					}
+					TextButton(
+						onClick = {
+							val clipboard = ctx.getSystemService(
+								ClipboardManager::class.java,
+							)
+							clipboard.setPrimaryClip(
+								ClipData.newPlainText(
+									ctx.getString(R.string.chat_clip_error),
+									message,
+								),
+							)
+						},
+					) { Text(stringResource(R.string.chat_copy_details)) }
+				}
+			}
+		}
+
+		// Search replaces the composer rather than sitting above it. With the
+		// IME open a two-row search bar, the turn strip, the composer and the
+		// keyboard left no transcript on a 731dp-tall phone; the matches were
+		// searchable and invisible.
+		if (showComposer) {
+			if (interrupted && configured) {
+				ContinueTurnBanner(onContinue = actions.onContinue)
+			}
+			Composer(
+				value = input,
+				onValueChange = actions.onInputChange,
+				onSend = actions.onSend,
+				onStop = actions.onStop,
+				isStreaming = isStreaming,
+				enabled = configured,
+				attachments = pendingAttachments,
+				canAttachImages = modelSupportsVision,
+				onAttach = actions.onAttach,
+				onRemoveAttachment = actions.onRemoveAttachment,
+				voiceEnabled = voiceReady,
+				onTranscribeVoice = actions.onTranscribeVoice,
+				onVoiceText = actions.onVoiceText,
+				context = usage,
+				showContextDetail = showContextDetail,
+				onToggleContextDetail = actions.onToggleContextDetail,
+				compaction = compaction,
+				isCompacting = isCompacting,
+				onCompact = actions.onCompact,
+				onViewCompaction = actions.onViewCompaction,
+				onClearCompaction = actions.onClearCompaction,
+				modifier = Modifier
+					.widthIn(max = Layout.ChatMeasure)
+					.fillMaxWidth(),
+			)
+		}
+	}
+}
+
 @Composable
 private fun Composer(
 	value: String,
@@ -4409,6 +4487,11 @@ private fun GenerateImageDialog(
 	val context = LocalContext.current
 	var prompt by remember { mutableStateOf("") }
 	var size by remember { mutableStateOf("1024*1024") }
+	// The backend accepts sizes the app cannot enumerate for every model, so
+	// the common ones are chips and anything else stays a text field. A fixed
+	// list would make a valid size unreachable; free text alone made a typo a
+	// paid failure.
+	var customSize by remember { mutableStateOf(false) }
 	var generating by remember { mutableStateOf(false) }
 	var saved by remember { mutableStateOf<String?>(null) }
 	var error by remember { mutableStateOf<String?>(null) }
@@ -4427,14 +4510,43 @@ private fun GenerateImageDialog(
 					minLines = 3,
 					enabled = !generating,
 				)
-				OutlinedTextField(
-					value = size,
-					onValueChange = { size = it },
-					modifier = Modifier.fillMaxWidth(),
-					label = { Text(stringResource(R.string.chat_image_size)) },
-					singleLine = true,
-					enabled = !generating,
+				Text(
+					text = stringResource(R.string.chat_image_size),
+					style = MaterialTheme.typography.labelLarge,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
+				FlowRowCompat {
+					listOf("1024*1024", "768*1344", "1344*768").forEach { value ->
+						FilterChip(
+							selected = !customSize && size == value,
+							onClick = {
+								size = value
+								customSize = false
+							},
+							label = { Text(value) },
+							enabled = !generating,
+						)
+					}
+					FilterChip(
+						selected = customSize,
+						onClick = { customSize = true },
+						label = { Text(stringResource(R.string.chat_image_size_custom)) },
+						enabled = !generating,
+					)
+				}
+				if (customSize) {
+					OutlinedTextField(
+						value = size,
+						onValueChange = { size = it },
+						modifier = Modifier.fillMaxWidth(),
+						label = { Text(stringResource(R.string.chat_image_size)) },
+						supportingText = {
+							Text(stringResource(R.string.chat_image_size_hint))
+						},
+						singleLine = true,
+						enabled = !generating,
+					)
+				}
 				if (generating) {
 					Row(
 						verticalAlignment = Alignment.CenterVertically,
@@ -4461,7 +4573,7 @@ private fun GenerateImageDialog(
 		},
 		confirmButton = {
 			TextButton(
-				enabled = prompt.isNotBlank() && !generating,
+				enabled = prompt.isNotBlank() && size.isNotBlank() && !generating,
 				onClick = {
 					generating = true
 					error = null

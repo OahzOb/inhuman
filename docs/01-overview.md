@@ -193,12 +193,13 @@ Confirmed by `README.md:17-29` and by the code:
   counts, export time) before replacing anything, and keeps the replaced data
   for one **Undo last import**.
 - A local diagnostic log records turns, tool calls, HTTP failures and crashes;
-  Settings → Diagnostics can show its size, share it, upload it or clear it
+  Settings → Diagnostics can show its size, share it or clear it, and
+  **Upload log** sits in Settings → Updates and logs beside the server URL
   ([10-diagnostics.md](10-diagnostics.md)).
 - The Android app can check a user-run LAN/Tailscale server for an update,
   verify the APK's hash, package, version and signing certificate, then hand it
   to `PackageInstaller`; the system still asks before installing. The same
-  server can receive an explicit **Upload log** POST from Diagnostics.
+  server can receive an explicit **Upload log** POST from Updates and logs.
 
 Phases 0–5 in `README.md:17-24` are all marked done. Work since then has been
 incremental and is visible in `git log`.

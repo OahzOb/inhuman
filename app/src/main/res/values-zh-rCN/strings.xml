@@ -148,6 +148,11 @@
 
 	<!-- 设置：分区、服务商列表、网络密钥、运行时、上限、备份。 -->
 	<string name="common_back">返回</string>
+	<string name="settings_search">搜索设置</string>
+	<string name="settings_search_placeholder">搜索设置区块</string>
+	<string name="settings_search_clear">清除搜索</string>
+	<string name="settings_search_no_matches">没有匹配“%1$s”的设置区块。</string>
+	<string name="settings_search_matching">只显示匹配的区块。</string>
 	<string name="settings_section_models">01 / 模型</string>
 	<string name="settings_providers_title">服务商</string>
 	<string name="settings_providers_detail">每个助手选择一个服务商。密钥保存在 Android Keystore 中，只会发送给对应的服务商。</string>
@@ -981,6 +986,8 @@
 	<string name="chat_generate_image_title">生成图片</string>
 	<string name="chat_image_prompt">图片应该是什么内容？</string>
 	<string name="chat_image_size">尺寸</string>
+	<string name="chat_image_size_custom">自定义</string>
+	<string name="chat_image_size_hint">例如 1024*1024</string>
 	<string name="chat_generating">生成中…</string>
 	<string name="chat_image_saved">已保存到 %1$s</string>
 	<string name="common_generate">生成</string>

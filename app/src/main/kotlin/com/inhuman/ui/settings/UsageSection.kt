@@ -63,6 +63,8 @@ internal fun UsageSection(
 	report: UsageReport?,
 	period: UsagePeriod,
 	failed: Boolean,
+	initiallyExpanded: Boolean = false,
+	visible: Boolean = true,
 	onPeriodChange: (UsagePeriod) -> Unit,
 	onRetry: () -> Unit,
 ) {
@@ -70,6 +72,8 @@ internal fun UsageSection(
 		code = stringResource(R.string.settings_section_usage),
 		title = stringResource(R.string.settings_usage_title),
 		summary = usageSummary(report, failed),
+		initiallyExpanded = initiallyExpanded,
+		visible = visible,
 	) {
 		FlowRowCompat {
 			UsagePeriod.entries.forEach { candidate ->

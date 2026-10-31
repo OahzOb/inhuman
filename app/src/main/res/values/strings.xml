@@ -162,6 +162,11 @@
 
 	<!-- Settings: sections, provider list, web keys, runtime, limits, backup. -->
 	<string name="common_back">Back</string>
+	<string name="settings_search">Search settings</string>
+	<string name="settings_search_placeholder">Search sections</string>
+	<string name="settings_search_clear">Clear search</string>
+	<string name="settings_search_no_matches">No settings section matches “%1$s”.</string>
+	<string name="settings_search_matching">Showing matching sections.</string>
 	<string name="settings_section_models">01 / Models</string>
 	<string name="settings_providers_title">Providers</string>
 	<string name="settings_providers_detail">Each assistant chooses a provider. Keys are stored with the Android Keystore and sent only to that provider.</string>
@@ -1005,6 +1010,8 @@
 	<string name="chat_generate_image_title">Generate image</string>
 	<string name="chat_image_prompt">What should the image show?</string>
 	<string name="chat_image_size">Size</string>
+	<string name="chat_image_size_custom">Custom</string>
+	<string name="chat_image_size_hint">For example 1024*1024</string>
 	<string name="chat_generating">Generating…</string>
 	<string name="chat_image_saved">Saved to %1$s</string>
 	<string name="common_generate">Generate</string>

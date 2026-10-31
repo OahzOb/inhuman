@@ -11,6 +11,7 @@ import android.os.Process
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -33,6 +34,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
@@ -164,6 +167,78 @@ fun SettingsScreen(
 	var backupPassphrase by remember { mutableStateOf("") }
 	var backupPassphraseConfirm by remember { mutableStateOf("") }
 	var showProviderPicker by remember { mutableStateOf(false) }
+	var query by rememberSaveable { mutableStateOf("") }
+
+	// The text a section is searched by. Built once per composition because
+	// every string is localized; the list is also the answer to "did the
+	// search match anything", so the empty state does not have to guess.
+	fun matches(section: SettingsSectionText): Boolean {
+		val needle = query.trim()
+		return needle.isEmpty() ||
+			listOf(section.code, section.title, section.summary).any {
+				it.contains(needle, ignoreCase = true)
+			}
+	}
+	val modelsText = SettingsSectionText(
+		stringResource(R.string.settings_section_models),
+		stringResource(R.string.settings_providers_title),
+		stringResource(R.string.settings_providers_detail),
+	)
+	val webText = SettingsSectionText(
+		stringResource(R.string.settings_section_web),
+		stringResource(R.string.settings_web_title),
+		stringResource(R.string.settings_web_summary),
+	)
+	val runtimeText = SettingsSectionText(
+		stringResource(R.string.settings_section_runtime),
+		stringResource(R.string.settings_runtime_title),
+		stringResource(R.string.settings_runtime_summary),
+	)
+	val limitsText = SettingsSectionText(
+		stringResource(R.string.settings_section_limits),
+		stringResource(R.string.settings_limits_title),
+		stringResource(R.string.settings_limits_body),
+	)
+	val usageText = SettingsSectionText(
+		stringResource(R.string.settings_section_usage),
+		stringResource(R.string.settings_usage_title),
+		stringResource(R.string.settings_usage_body),
+	)
+	val backupText = SettingsSectionText(
+		stringResource(R.string.settings_section_backup),
+		stringResource(R.string.settings_backup_title),
+		stringResource(R.string.settings_backup_summary),
+	)
+	val approvalsText = SettingsSectionText(
+		stringResource(R.string.settings_section_approvals),
+		stringResource(R.string.settings_approvals_title),
+		stringResource(R.string.settings_approvals_none),
+	)
+	val diagnosticsText = SettingsSectionText(
+		stringResource(R.string.settings_section_diagnostics),
+		stringResource(R.string.settings_diagnostics_title),
+		stringResource(R.string.settings_diagnostics_summary),
+	)
+	val localText = SettingsSectionText(
+		stringResource(R.string.settings_section_local),
+		stringResource(R.string.settings_local_title),
+		stringResource(R.string.settings_local_summary),
+	)
+	val displayText = SettingsSectionText(
+		stringResource(R.string.settings_section_display),
+		stringResource(R.string.settings_display_title),
+		stringResource(R.string.settings_layout_body),
+	)
+	val languageText = SettingsSectionText(
+		stringResource(R.string.settings_section_language),
+		stringResource(R.string.settings_language_title),
+		stringResource(R.string.settings_language_body),
+	)
+	val sectionTexts = listOf(
+		modelsText, webText, runtimeText, limitsText, usageText, backupText,
+		approvalsText, diagnosticsText, localText, displayText, languageText,
+	)
+	val anySectionMatches = sectionTexts.any { matches(it) }
 
 	val exportLauncher = rememberLauncherForActivityResult(
 		ActivityResultContracts.CreateDocument("application/octet-stream"),
@@ -208,6 +283,42 @@ fun SettingsScreen(
 						navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
 					),
 				)
+				Box(
+					modifier = Modifier.fillMaxWidth(),
+					contentAlignment = Alignment.TopCenter,
+				) {
+					OutlinedTextField(
+						value = query,
+						onValueChange = { query = it },
+						modifier = Modifier
+							.widthIn(max = Layout.ReadableMeasure)
+							.fillMaxWidth()
+							.padding(horizontal = comfortableGutter(), vertical = 6.dp),
+						singleLine = true,
+						shape = MaterialTheme.shapes.small,
+						placeholder = { Text(stringResource(R.string.settings_search_placeholder)) },
+						leadingIcon = {
+							Icon(
+								Icons.Outlined.Search,
+								contentDescription = null,
+								modifier = Modifier.size(18.dp),
+							)
+						},
+						trailingIcon = if (query.isNotEmpty()) {
+							{
+								IconButton(onClick = { query = "" }) {
+									Icon(
+										Icons.Filled.Close,
+										contentDescription = stringResource(R.string.settings_search_clear),
+										modifier = Modifier.size(18.dp),
+									)
+								}
+							}
+						} else {
+							null
+						},
+					)
+				}
 				Hairline()
 			}
 		},
@@ -226,6 +337,25 @@ fun SettingsScreen(
 			horizontalAlignment = Alignment.CenterHorizontally,
 			verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 		) {
+			if (query.isNotBlank()) {
+				Text(
+					text = if (anySectionMatches) {
+						stringResource(R.string.settings_search_matching)
+					} else {
+						stringResource(R.string.settings_search_no_matches, query.trim())
+					},
+					style = MaterialTheme.typography.bodySmall,
+					color = if (anySectionMatches) {
+						MaterialTheme.colorScheme.onSurfaceVariant
+					} else {
+						MaterialTheme.colorScheme.error
+					},
+					modifier = Modifier
+						.widthIn(max = Layout.ReadableMeasure)
+						.fillMaxWidth(),
+				)
+			}
+			if (matches(modelsText)) {
 			Column(
 				modifier = Modifier
 					// Constrain first, fill second. `fillMaxWidth()` is greedy and
@@ -269,11 +399,14 @@ fun SettingsScreen(
 					)
 				}
 			}
+			}
 
 			Hairline(Modifier.padding(vertical = 14.dp))
 
 			SettingsFold(
 				code = stringResource(R.string.settings_section_web),
+				initiallyExpanded = query.isNotBlank(),
+				visible = matches(webText),
 				title = stringResource(R.string.settings_web_title),
 				summary = stringResource(R.string.settings_web_summary),
 			) {
@@ -414,6 +547,8 @@ fun SettingsScreen(
 
 			SettingsFold(
 				code = stringResource(R.string.settings_section_runtime),
+				initiallyExpanded = query.isNotBlank(),
+				visible = matches(runtimeText),
 				title = stringResource(R.string.settings_runtime_title),
 				summary = stringResource(R.string.settings_runtime_summary),
 			) {
@@ -592,6 +727,8 @@ fun SettingsScreen(
 
 			SettingsFold(
 				code = stringResource(R.string.settings_section_limits),
+				initiallyExpanded = query.isNotBlank(),
+				visible = matches(limitsText),
 				title = stringResource(R.string.settings_limits_title),
 				summary = stringResource(
 					R.string.settings_limits_summary,
@@ -640,6 +777,8 @@ fun SettingsScreen(
 				report = state.usage,
 				period = state.usagePeriod,
 				failed = state.usageFailed,
+				initiallyExpanded = query.isNotBlank(),
+				visible = matches(usageText),
 				onPeriodChange = viewModel::setUsagePeriod,
 				onRetry = viewModel::refreshUsage,
 			)
@@ -648,7 +787,8 @@ fun SettingsScreen(
 				code = stringResource(R.string.settings_section_backup),
 				title = stringResource(R.string.settings_backup_title),
 				summary = stringResource(R.string.settings_backup_summary),
-				initiallyExpanded = startBackup,
+				initiallyExpanded = startBackup || query.isNotBlank(),
+				visible = matches(backupText),
 			) {
 			Text(
 				text = stringResource(R.string.settings_backup_body),
@@ -772,6 +912,8 @@ fun SettingsScreen(
 
 			SettingsFold(
 				code = stringResource(R.string.settings_section_approvals),
+				initiallyExpanded = query.isNotBlank(),
+				visible = matches(approvalsText),
 				title = stringResource(R.string.settings_approvals_title),
 				summary = if (state.approvalRules.isEmpty()) {
 					stringResource(R.string.settings_approvals_none)
@@ -792,15 +934,12 @@ fun SettingsScreen(
 
 			SettingsFold(
 				code = stringResource(R.string.settings_section_diagnostics),
+				initiallyExpanded = query.isNotBlank(),
+				visible = matches(diagnosticsText),
 				title = stringResource(R.string.settings_diagnostics_title),
 				summary = stringResource(R.string.settings_diagnostics_summary),
 			) {
-				DiagnosticsSection(
-					uploading = state.logUploading,
-					status = state.logUploadStatus,
-					statusIsError = state.logUploadStatusIsError,
-					onUploadLog = viewModel::uploadLog,
-				)
+				DiagnosticsSection()
 				OutlinedButton(
 					onClick = { showNotices = true },
 					shape = MaterialTheme.shapes.small,
@@ -811,6 +950,8 @@ fun SettingsScreen(
 
 			SettingsFold(
 				code = stringResource(R.string.settings_section_local),
+				initiallyExpanded = query.isNotBlank(),
+				visible = matches(localText),
 				title = stringResource(R.string.settings_local_title),
 				summary = stringResource(R.string.settings_local_summary),
 			) {
@@ -825,15 +966,21 @@ fun SettingsScreen(
 					readyToInstall = state.updateReadyToInstall,
 					status = state.updateStatus,
 					statusIsError = state.updateStatusIsError,
+					uploading = state.logUploading,
+					logStatus = state.logUploadStatus,
+					logStatusIsError = state.logUploadStatusIsError,
 					onServerUrlChange = viewModel::onLocalServerUrlChange,
 					onCheck = viewModel::checkForUpdates,
 					onDownload = viewModel::downloadUpdate,
 					onInstall = viewModel::installUpdate,
+					onUploadLog = viewModel::uploadLog,
 				)
 			}
 
 			SettingsFold(
 				code = stringResource(R.string.settings_section_display),
+				initiallyExpanded = query.isNotBlank(),
+				visible = matches(displayText),
 				title = stringResource(R.string.settings_display_title),
 				summary = when (state.layoutPreference) {
 					com.inhuman.core.design.LayoutPreference.Auto ->
@@ -913,6 +1060,8 @@ fun SettingsScreen(
 
 			SettingsFold(
 				code = stringResource(R.string.settings_section_language),
+				initiallyExpanded = query.isNotBlank(),
+				visible = matches(languageText),
 				title = stringResource(R.string.settings_language_title),
 				summary = if (appLanguage == "en") {
 					stringResource(R.string.settings_language_english)
@@ -2012,15 +2161,30 @@ private fun ProviderEditorDialog(
  * `rememberSaveable` preserves the open group across rotation; the state is a
  * reading preference, not an edit.
  */
+/** The localized words a settings search can match for one section. */
+private data class SettingsSectionText(
+	val code: String,
+	val title: String,
+	val summary: String,
+)
+
 @Composable
 internal fun SettingsFold(
 	code: String,
 	title: String,
 	summary: String,
 	initiallyExpanded: Boolean = false,
+	/** False while a settings search excludes this section. */
+	visible: Boolean = true,
 	content: @Composable ColumnScope.() -> Unit,
 ) {
+	if (!visible) return
 	var expanded by rememberSaveable { mutableStateOf(initiallyExpanded) }
+	// A search opens what it matched. `rememberSaveable` keeps the user's fold
+	// state otherwise, so this only pushes open, never closed.
+	LaunchedEffect(initiallyExpanded) {
+		if (initiallyExpanded) expanded = true
+	}
 	Column(
 		modifier = Modifier
 			.widthIn(max = Layout.ReadableMeasure)
@@ -2088,10 +2252,14 @@ private fun LocalNetworkSection(
 	readyToInstall: Boolean,
 	status: String?,
 	statusIsError: Boolean,
+	uploading: Boolean,
+	logStatus: String?,
+	logStatusIsError: Boolean,
 	onServerUrlChange: (String) -> Unit,
 	onCheck: () -> Unit,
 	onDownload: () -> Unit,
 	onInstall: () -> Unit,
+	onUploadLog: () -> Unit,
 ) {
 	val focus = LocalFocusManager.current
 	Column(
@@ -2186,6 +2354,25 @@ private fun LocalNetworkSection(
 			}
 		}
 
+		// Uploading the log belongs here, not in Diagnostics: this section owns
+		// the server URL the upload uses, and the old split left the button in
+		// one fold and the address it needs in another.
+		TextButton(
+			onClick = {
+				focus.clearFocus()
+				onUploadLog()
+			},
+			enabled = !uploading,
+		) {
+			Text(
+				if (uploading) {
+					stringResource(R.string.settings_log_uploading)
+				} else {
+					stringResource(R.string.settings_log_upload)
+				},
+			)
+		}
+
 		status?.let {
 			Text(
 				text = it,
@@ -2197,16 +2384,22 @@ private fun LocalNetworkSection(
 				},
 			)
 		}
+		logStatus?.let {
+			Text(
+				text = it,
+				style = MaterialTheme.typography.bodySmall,
+				color = if (logStatusIsError) {
+					MaterialTheme.colorScheme.error
+				} else {
+					MaterialTheme.colorScheme.primary
+				},
+			)
+		}
 	}
 }
 
 @Composable
-private fun DiagnosticsSection(
-	uploading: Boolean,
-	status: String?,
-	statusIsError: Boolean,
-	onUploadLog: () -> Unit,
-) {
+private fun DiagnosticsSection() {
 	val context = LocalContext.current
 	var bytes by remember { mutableStateOf(AppDiagnostics.sizeBytes()) }
 	var confirmingClear by remember { mutableStateOf(false) }
@@ -2270,34 +2463,11 @@ private fun DiagnosticsSection(
 				Text(shareLog)
 			}
 			TextButton(
-				onClick = onUploadLog,
-				enabled = bytes > 0 && !uploading,
-			) {
-				Text(
-					if (uploading) {
-						stringResource(R.string.settings_log_uploading)
-					} else {
-						stringResource(R.string.settings_log_upload)
-					},
-				)
-			}
-			TextButton(
 				onClick = { confirmingClear = true },
 				enabled = bytes > 0,
 			) {
 				Text(stringResource(R.string.settings_clear))
 			}
-		}
-		status?.let {
-			Text(
-				text = it,
-				style = MaterialTheme.typography.bodySmall,
-				color = if (statusIsError) {
-					MaterialTheme.colorScheme.error
-				} else {
-					MaterialTheme.colorScheme.primary
-				},
-			)
 		}
 	}
 

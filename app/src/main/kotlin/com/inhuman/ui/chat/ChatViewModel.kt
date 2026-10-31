@@ -91,6 +91,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -133,6 +134,18 @@ import java.util.UUID
  * generate forever at the user's expense, and every iteration re-sends the
  * whole transcript, so an unbounded loop grows quadratically.
  */
+/**
+ * The turn-level view of the transcript, derived once per publish.
+ *
+ * Empty until the first message list arrives; the screen renders an empty
+ * transcript, which is also what the initial state means.
+ */
+internal data class TranscriptIndex(
+	val turns: Map<String, TurnSummary> = emptyMap(),
+	val userTurns: List<UserTurn> = emptyList(),
+	val interrupted: Boolean = false,
+)
+
 class ChatViewModel(
 	private val context: Context,
 	private val repository: ConversationRepository,
@@ -226,6 +239,18 @@ class ChatViewModel(
 	private val _state = MutableStateFlow(ChatUiState())
 	val state: StateFlow<ChatUiState> = _state.asStateFlow()
 
+	/**
+	 * The transcript's turn index, computed once per publish.
+	 *
+	 * The screen used to walk the whole message list three times on the main
+	 * thread for every streamed tick: turn summaries, user-turn jump targets and
+	 * the interrupted check. They are derived here on `Dispatchers.Default`
+	 * instead, from the same list the transcript draws, so the values cannot
+	 * describe a different transcript.
+	 */
+	private val _transcriptIndex = MutableStateFlow(TranscriptIndex())
+	internal val transcriptIndex: StateFlow<TranscriptIndex> = _transcriptIndex.asStateFlow()
+
 	/** The last actual provider body, for the read-only wire inspector. */
 	private val _wire = MutableStateFlow<WireSnapshot?>(null)
 	val wire: StateFlow<WireSnapshot?> = _wire.asStateFlow()
@@ -233,6 +258,20 @@ class ChatViewModel(
 	private var turnStartedAt = 0L
 
 	init {
+		viewModelScope.launch {
+			_state.map { it.messages to it.isStreaming }
+				.distinctUntilChanged()
+				.collectLatest { (messages, streaming) ->
+					val index = withContext(Dispatchers.Default) {
+						TranscriptIndex(
+							turns = turnSummariesOf(messages),
+							userTurns = userTurnsOf(messages),
+							interrupted = isInterruptedTurn(messages, streaming),
+						)
+					}
+					_transcriptIndex.value = index
+				}
+		}
 		viewModelScope.launch {
 			_state.map { notificationStatus() }
 				.distinctUntilChanged()
@@ -2439,6 +2478,21 @@ class ChatViewModel(
 	private fun demoEnabled(): Boolean = secure.get(SecureStore.KEY_DEMO_MODE) == "1"
 
 	fun onInputChange(text: String) = _state.update { it.copy(input = text) }
+
+	/**
+	 * Append a transcribed phrase to the composer.
+	 *
+	 * Kept in the view model rather than a screen lambda so the composer's
+	 * action object can be remembered without capturing the current input.
+	 */
+	fun appendVoiceText(text: String) {
+		val current = _state.value.input
+		onInputChange(if (current.isBlank()) text else current.trimEnd() + " " + text)
+	}
+
+	/** The next compaction plan, from the transcript currently shown. */
+	internal fun compactionPlan(keepTurns: Int): CompactionPlan? =
+		planContextCompaction(_state.value.messages, keepTurns)
 
 	/**
 	 * Fill the composer with a suggested follow-up. Never sends it.

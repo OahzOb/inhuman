@@ -29,15 +29,16 @@ owns, which survives the process and a crash.
 
 - `app.log` is live; at 1 MB it becomes `app.1.log` and older archives shift
   down. Three archives plus the live file: at most about 4 MB.
-- **Settings → Diagnostics** shows the current size and has three actions:
-  **Share log** (a `FileProvider` URI into the system share sheet),
-  **Upload log** (an explicit POST to the user-configured LAN/Tailscale server),
-  and **Clear** (confirmed, because the moment before clearing is exactly when
-  the record matters).
+- **Settings → Diagnostics** shows the current size and has two actions:
+  **Share log** (a `FileProvider` URI into the system share sheet) and
+  **Clear** (confirmed, because the moment before clearing is exactly when the
+  record matters). **Upload log** is in **Settings → Updates and logs**, beside
+  the server URL it uses; the old split put the button and its address in two
+  different folds.
 - **Upload log** sends the same text to `<server>/log`, where
   `tools/dev-server.py` saves it under `logs/`. The server URL is set in
-  **Settings → Local** and shared with the in-app updater. It is a user action,
-  not polling: nothing is uploaded until the button is pressed.
+  **Settings → Updates and logs** and shared with the in-app updater. It is a
+  user action, not polling: nothing is uploaded until the button is pressed.
 - Debug builds can also be read directly:
 
   ```powershell
@@ -51,7 +52,8 @@ owns, which survives the process and a crash.
   ```
 
 Release builds are not debuggable, so `run-as` is unavailable there; Settings →
-**Share log** or **Upload log** is the supported path.
+Diagnostics → **Share log**, or Updates and logs → **Upload log**, is the
+supported path.
 
 ## What is recorded
 
