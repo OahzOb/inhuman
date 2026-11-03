@@ -20,10 +20,10 @@ Both hosts install the same `InhumanDatabase.MIGRATIONS` and
 `BundledSQLiteDriver`. The callback seeds the DeepSeek provider and the default
 assistant on create, so a desktop install is not a second, empty schema.
 
-## The schema, version 18
+## The schema, version 21
 
 `InhumanDatabase` (`core/db/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 18`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 21`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/db/schemas/` by KSP — configured in `core/db/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
@@ -57,6 +57,33 @@ writes those raw items here and replays them before the row's function calls
 when reasoning is enabled. The column is nullable and never interpreted by the
 app: Anthropic and Gemini use their own typed fields, and an old row has no
 state. It is not displayed and not logged.
+
+### `agents.suggestion*` — added in 18→19
+
+Four columns on the assistant, all nullable except the format: the provider
+profile, model, prompt and output shape for `suggest_replies`. Null means
+"inherit the assistant's own provider/model/prompt", so an upgraded install has
+no second configuration to explain and the tool is inert until someone selects
+it. `suggestionFormat` defaults to `'tool'` and an unknown stored value reads as
+`tool`; the suggestion model is given no tools either way, and the format only
+chooses how its output is parsed.
+
+### `conversations.workspaceInstructions` — added in 20→21
+
+The rendered `AGENTS.md` block pinned for the conversation, stored whole so the
+system message is not rebuilt from a file that may have changed. Three states:
+
+| Value | Meaning |
+| --- | --- |
+| `NULL` | Not pinned yet. The first request pins the file (or `""` if there is none); a preview reads the file live but does not pin. |
+| `''` | Pinned with no instructions: the file was missing, blank or unreadable at pin time. Adding one later requires the chat menu's reload -- it is not picked up automatically. |
+| block text | Pinned instructions. The app sends this exact string; editing the file does not change the conversation. |
+
+The block includes its header and `BEGIN/END AGENTS.md` markers. Nullable and
+additive: an upgraded row is unpinned and pins on its next request; a new
+conversation pins on its first. It is configuration, not a message, so it does
+not appear in the conversation Markdown export; the encrypted backup carries it
+with the row, and the workspace zip carries the file itself.
 
 ### `saved_prompts` — added in 15→16
 
@@ -308,7 +335,7 @@ the messages explicitly before the row **even though the FK cascades** — the
 comment says that keeps the behaviour obvious if the cascade is ever switched
 off (`:496-502`).
 
-## Migration history 1 → 18
+## Migration history 1 → 21
 
 All hand-written. There is **no `fallbackToDestructiveMigration` anywhere** and
 the reason is stated at `MIGRATION_1_2`: it would delete every conversation on
@@ -339,6 +366,9 @@ order below.
 | 15→16 | `saved_prompts` created, empty, with a unique index on `title`. No existing row is interpreted; an install that never saves a prompt keeps a table nobody reads. |
 | 16→17 | `messages.reasoningSignature` added, nullable. Old rows read as null, which the Anthropic adapter treats as "do not enable thinking on this history"; an empty string would look like a signature and produce a 400. |
 | 17→18 | `messages.providerState` added, nullable: a JSON array of opaque OpenAI Responses reasoning items. It is additive, never interpreted by the app, and null on every old row and every other provider. |
+| 18→19 | `agents` gains the four `suggestion*` columns: provider, model and prompt nullable, format `TEXT NOT NULL DEFAULT 'tool'`. Complete by construction — every assistant has an inert default until `suggest_replies` is selected. |
+| 19→20 | Data only, no schema change: `provider_profiles` rows whose `baseUrl` is an OpenCode Zen/Go endpoint and whose `reasoningMode` is still the old default `none` become `opencode`. Without it the effort chips appear but `reasoning_effort` is dropped on the wire. A non-`none` mode on the same URL is a deliberate choice and is left alone. |
+| 20→21 | `conversations` gains nullable `workspaceInstructions TEXT`: the rendered `AGENTS.md` block pinned on the conversation's first request. Null means unpinned and the first turn pins the file (or `""` if there is none); an upgraded row is unpinned by construction. The column is configuration, not a message, so it is not in the Markdown export but is in the encrypted database backup. |
 
 The 7→8 comment records a product change that is *not* in the migration:
 deletion no longer asks for approval, and that lives in `DeleteFileTool`, not

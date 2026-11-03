@@ -30,6 +30,17 @@ class ToolCatalogVisibilityTest {
 	}
 
 	@Test
+	fun suggestionToolIsAbsentUntilItsGlobalSwitchIsOn() {
+		// Same rule as SSH: while the switch is off the row is absent, not
+		// greyed. A visible disabled row still advertises the capability.
+		val off = ToolCatalog.visible(includeSsh = false).map { it.name }
+		assertFalse("suggest_replies" in off)
+
+		val on = ToolCatalog.visible(includeSsh = false, includeSuggestions = true).map { it.name }
+		assertTrue("suggest_replies" in on)
+	}
+
+	@Test
 	fun workspaceToolsAreAbsentWhenTheFenceCheckFailed() {
 		val visible = ToolCatalog.visible(
 			includeSsh = true,

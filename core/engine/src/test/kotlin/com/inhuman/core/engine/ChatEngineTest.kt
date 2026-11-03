@@ -399,4 +399,47 @@ class ChatEngineTest {
 			return ToolResult.ok("ok")
 		}
 	}
+
+	@Test
+	fun `a terminal tool ends the turn without another request`() = runBlocking {
+		// The loop used to always send the tool result back. A terminal tool is
+		// the exception that makes the suggestion call cost one request rather
+		// than two: its result is the last thing the turn needs, so asking the
+		// model to read it back would only produce a redundant round.
+		val requests = AtomicInteger()
+		val provider = object : ChatProvider {
+			override val id = "terminal"
+			override suspend fun listModels(): List<RemoteModel> = emptyList()
+			override fun stream(request: ChatRequest): Flow<StreamChunk> = flow {
+				requests.incrementAndGet()
+				emit(StreamChunk.TextDelta("an answer"))
+				emit(StreamChunk.ToolCallStart(index = 0, id = "call-0", name = "suggest_replies"))
+				emit(StreamChunk.ToolCallDelta(index = 0, inputDelta = "{}"))
+				emit(StreamChunk.ToolCallEnd(index = 0))
+				emit(StreamChunk.Finish(FinishReason.ToolCalls, "response", "model"))
+			}
+		}
+		val tool = object : Tool {
+			override val name = "suggest_replies"
+			override val description = "suggest"
+			override val parameters: Map<String, Any?> = mapOf("type" to "object")
+			override val mutates = false
+			override val endsTurn = true
+			override suspend fun execute(arguments: JsonObject): ToolResult =
+				ToolResult.ok("""{"suggestions":["Continue"]}""")
+		}
+
+		val events = ChatEngine(provider).run(
+			EngineTurn(
+				model = "model",
+				messages = listOf(ChatMessage(Role.User, "q")),
+				tools = listOf(tool),
+			),
+		).toList()
+
+		assertEquals(1, requests.get())
+		assertTrue(events.any { it is EngineEvent.ToolCallResult })
+		assertTrue(events.any { it is EngineEvent.Finished })
+		assertTrue(events.none { it is EngineEvent.Failed })
+	}
 }

@@ -9,17 +9,22 @@ import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -55,6 +60,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -111,6 +117,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -124,6 +131,10 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.AppCapabilities
 import com.inhuman.R
+import com.inhuman.core.common.diag.Diag
+import com.mikepenz.markdown.model.parseMarkdown
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.data.ApprovalRecord
 import com.inhuman.core.data.Branches
@@ -156,6 +167,7 @@ import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import java.text.DateFormat
 import java.util.Date
 
@@ -265,6 +277,10 @@ fun ChatScreen(
 	LaunchedEffect(Unit) { voiceReady = viewModel.canTranscribe() }
 
 	val listState = rememberLazyListState()
+	// Finished Markdown is parsed off the composition, so a row entering the
+	// list does not pay the parse on the frame that measures it. The map is read
+	// by MessageBubble; a miss falls back to the immediate parse.
+	val parsedMarkdown = remember { mutableStateMapOf<String, com.mikepenz.markdown.model.State>() }
 	val scope = rememberCoroutineScope()
 	var showModelPicker by remember { mutableStateOf(false) }
 	// Whether the context figures are open. Screen state rather than view model
@@ -437,15 +453,23 @@ fun ChatScreen(
 	}
 	val sshAllowed by fieldOf(viewModel.state, false) { it.sshAllowed }
 	val sshToolEnabled by fieldOf(viewModel.state, false) { it.sshToolEnabled }
+	val suggestionsEnabled by fieldOf(viewModel.state, false) { it.suggestionsEnabled }
 	val agentTools by fieldOf(viewModel.state, null) { it.agentTools }
 	val conversationTools by fieldOf(viewModel.state, null) { it.conversationTools }
 	val toolsKnown by fieldOf(viewModel.state, false) { it.toolsKnown }
-	val toolPlan = remember(agentTools, conversationTools, sshToolEnabled) {
+	val workspaceInstructionsPinned by fieldOf(viewModel.state, false) {
+		it.workspaceInstructionsPinned
+	}
+	val workspaceInstructionsChars by fieldOf(viewModel.state, 0) {
+		it.workspaceInstructionsChars
+	}
+	val toolPlan = remember(agentTools, conversationTools, sshToolEnabled, suggestionsEnabled) {
 		conversationToolPlan(
 			sshEnabled = sshToolEnabled,
 			agentTools = agentTools,
 			conversationTools = conversationTools,
 			workspaceToolsEnabled = AppCapabilities.workspaceOk,
+			suggestionsEnabled = suggestionsEnabled,
 		)
 	}
 	val rollbackAvailable by fieldOf(viewModel.state, false) { it.rollbackAvailable }
@@ -626,6 +650,25 @@ fun ChatScreen(
 			}
 		}
 	}
+	// A user drag always ends following, even when the fling's nested-scroll
+	// event does not look like one.
+	//
+	// `onPreScroll` above is the primary signal, but it depends on a non-zero
+	// vertical delta and on a source other than `SideEffect`. A fling that is
+	// reported with a zero first delta, or a drag whose nested event arrives
+	// from a source the connection treats as ours, left `followLatest` true.
+	// Then a reply finishing while the reader was scrolled up changed the
+	// layout, the observer below saw "not at bottom", and pulled the list to
+	// the newest turn -- the reported jump to the next/previous turn. The
+	// list's own interaction source is the reliable signal: programmatic
+	// `scrollToItem`/`scrollBy` do not emit a `DragInteraction`.
+	LaunchedEffect(listState) {
+		listState.interactionSource.interactions.collect { interaction ->
+			if (interaction is DragInteraction.Start) {
+				followLatest = false
+			}
+		}
+	}
 	// One layout observer, not a LaunchedEffect keyed on geometry. The old keys
 	// changed *because of* the programmatic scroll itself, so each scroll
 	// cancelled and restarted the effect -- the visible jump/skip. This
@@ -671,8 +714,20 @@ fun ChatScreen(
 	var lastUserId by remember { mutableStateOf<String?>(null) }
 	LaunchedEffect(lastMessageId) {
 		val messages = viewModel.state.value.messages
+		Diag.i(
+			"scroll",
+			"tail last=${Diag.shortId(lastMessageId)} size=${messages.size} " +
+				"streaming=${viewModel.state.value.isStreaming}",
+		)
 		lastAssistantId = messages.lastOrNull { !it.fromUser && !it.isToolResult }?.id
 		lastUserId = messages.lastOrNull { it.fromUser }?.id
+	}
+	LaunchedEffect(isStreaming) {
+		Diag.i(
+			"scroll",
+			"streaming=$isStreaming last=${Diag.shortId(lastMessageId)} " +
+				"first=${listState.firstVisibleItemIndex} follow=$followLatest",
+		)
 	}
 
 	// One remembered object for every composer callback. The content lambda
@@ -1077,6 +1132,44 @@ fun ChatScreen(
 									},
 								)
 								DropdownMenuItem(
+									text = {
+										Column {
+											Text(
+												if (workspaceInstructionsPinned) {
+													stringResource(
+														R.string.chat_workspace_instructions_pinned,
+														workspaceInstructionsChars,
+													)
+												} else {
+													stringResource(R.string.chat_workspace_instructions_unpinned)
+												},
+											)
+											if (workspaceInstructionsPinned) {
+												Text(
+													text = stringResource(
+														R.string.chat_workspace_instructions_reload_detail,
+													),
+													style = MaterialTheme.typography.bodySmall,
+													color = MaterialTheme.colorScheme.onSurfaceVariant,
+												)
+											}
+										}
+									},
+									// A status line, not an action: the state is what
+									// explains why editing the file no longer changes
+									// this conversation.
+									enabled = false,
+									onClick = {},
+								)
+								DropdownMenuItem(
+									text = { Text(stringResource(R.string.chat_workspace_instructions_reload)) },
+									enabled = toolsKnown && !isStreaming,
+									onClick = {
+										showChatMenu = false
+										viewModel.reloadWorkspaceInstructions()
+									},
+								)
+								DropdownMenuItem(
 									text = { Text(stringResource(R.string.chat_rename)) },
 									onClick = {
 										showChatMenu = false
@@ -1167,6 +1260,24 @@ fun ChatScreen(
 			// invalidates the list rather than the whole screen. See the note
 			// above the state reads.
 			val messages by fieldOf(viewModel.state, emptyList()) { it.messages }
+			LaunchedEffect(messages) {
+				val texts = messages.asSequence()
+					.filter { !it.fromUser && !it.isToolResult }
+					.flatMap { it.parts.asSequence() }
+					.filter { it.kind == AssistantPart.Kind.Text && it.text.isNotBlank() }
+					.map { it.text }
+					.distinct()
+					.toList()
+				val missing = texts.filter { !parsedMarkdown.containsKey(it) }
+				val parsed = withContext(Dispatchers.Default) {
+					missing.mapNotNull { text ->
+						runCatching {
+							text to parseMarkdown(LatexMarkdown.transform(text, finished = true))
+						}.getOrNull()
+					}
+				}
+				parsed.forEach { (text, state) -> parsedMarkdown[text] = state }
+			}
 			// The turn index is derived once per publish in the view model, off
 			// the main thread. Reading the same list here would walk it three
 			// times for every streamed token. It comes from the same `messages`
@@ -1204,6 +1315,12 @@ fun ChatScreen(
 			// silently do nothing.
 			LaunchedEffect(jumpToMessageId, messages.size) {
 				val targetId = jumpToMessageId ?: return@LaunchedEffect
+				Diag.i(
+					"scroll",
+					"jump effect target=${Diag.shortId(targetId)} " +
+						"first=${listState.firstVisibleItemIndex} " +
+						"total=${listState.layoutInfo.totalItemsCount}",
+				)
 				if (messages.isEmpty()) return@LaunchedEffect
 				val index = messages.indexOfFirst { it.id == targetId }
 				if (index < 0) {
@@ -1215,6 +1332,11 @@ fun ChatScreen(
 					delay(50)
 				}
 				if (listState.layoutInfo.totalItemsCount > index + leadingItems) {
+					Diag.i(
+						"scroll",
+						"jump apply target=${Diag.shortId(targetId)} " +
+							"index=$index leading=$leadingItems",
+					)
 					// An older message is a deliberate move away from the
 					// newest reply; do not let the follow observer pull it
 					// back to the bottom.
@@ -1235,6 +1357,11 @@ fun ChatScreen(
 			// finished when it clears itself.
 			LaunchedEffect(focusMessageId, messages.size) {
 				val targetId = focusMessageId ?: return@LaunchedEffect
+				Diag.i(
+					"scroll",
+					"focus effect target=${Diag.shortId(targetId)} " +
+						"first=${listState.firstVisibleItemIndex}",
+				)
 				// The transcript starts empty while Room loads. Do not consume the
 				// focus yet: `messages.size` changes when the rows arrive and this
 				// effect runs again.
@@ -1249,6 +1376,11 @@ fun ChatScreen(
 					delay(50)
 				}
 				if (listState.layoutInfo.totalItemsCount > index + leadingItems) {
+					Diag.i(
+						"scroll",
+						"focus apply target=${Diag.shortId(targetId)} " +
+							"index=$index leading=$leadingItems",
+					)
 					followLatest = false
 					programmaticScroll = true
 					try {
@@ -1282,7 +1414,14 @@ fun ChatScreen(
 							.fillMaxWidth(),
 					) {
 						AssistChip(
-							onClick = { showTurnPicker = true },
+							onClick = {
+								Diag.i(
+									"scroll",
+									"turn picker open turn=${currentTurnIndex + 1}/${userTurns.size} " +
+										"first=${listState.firstVisibleItemIndex}",
+								)
+								showTurnPicker = true
+							},
 							label = {
 								Text(
 									stringResource(
@@ -1391,6 +1530,7 @@ fun ChatScreen(
 							)
 						MessageBubble(
 							message = message,
+							parsedMarkdown = parsedMarkdown,
 							highlighted = message.id == highlightedMessageId,
 							// The strip above the composer already shows this
 							// exact failure with Retry / Settings / Dismiss. The
@@ -1498,6 +1638,12 @@ fun ChatScreen(
 									},
 								)
 								.clickable {
+									Diag.i(
+										"scroll",
+										"turn picker choose=${index + 1}/${userTurns.size} " +
+											"target=${Diag.shortId(turn.messageId)} " +
+											"first=${listState.firstVisibleItemIndex}",
+									)
 									showTurnPicker = false
 									jumpToMessageId = turn.messageId
 								}
@@ -1538,6 +1684,11 @@ fun ChatScreen(
 					onQueryChange = { searchQuery = it },
 					matches = searchMatches,
 					onSelect = { match ->
+						Diag.i(
+							"scroll",
+							"search jump target=${Diag.shortId(match.messageId)} " +
+								"first=${listState.firstVisibleItemIndex}",
+						)
 						closeSearch()
 						jumpToMessageId = match.messageId
 					},
@@ -3261,6 +3412,7 @@ private fun toolResultSummary(
 @Composable
 private fun MessageBubble(
 	message: ChatMessageUi,
+	parsedMarkdown: Map<String, com.mikepenz.markdown.model.State>,
 	highlighted: Boolean = false,
 	hideError: Boolean = false,
 	isLatestAssistant: Boolean,
@@ -3521,6 +3673,7 @@ private fun MessageBubble(
 						} else {
 							MarkdownText(
 								text = text,
+								parsed = parsedMarkdown[text],
 								deltas = message.deltas,
 								isStreaming = message.isStreaming,
 							)
@@ -4139,20 +4292,20 @@ private fun Composer(
 
 	Column(modifier = modifier) {
 		Hairline()
-		// Above the field and right-aligned, so it reads as a status of the
-		// conversation rather than as a control on the message being written.
-		// It draws nothing at all when the provider reports nothing to draw.
-		ContextGauge(
-			usage = context,
-			expanded = showContextDetail,
-			onToggle = onToggleContextDetail,
-			compaction = compaction,
-			isCompacting = isCompacting,
-			onCompact = onCompact,
-			onViewCompaction = onViewCompaction,
-			onClearCompaction = onClearCompaction,
-			modifier = Modifier.padding(horizontal = comfortableGutter(), vertical = 4.dp),
-		)
+		// The figures, and only when the ring was tapped. The compact state is
+		// the ring in the input's trailing slot: a permanent row above the field
+		// cost the height of the composer to say one proportion.
+		if (showContextDetail) {
+			ContextDetailPanel(
+				usage = context,
+				compaction = compaction,
+				isCompacting = isCompacting,
+				onCompact = onCompact,
+				onViewCompaction = onViewCompaction,
+				onClearCompaction = onClearCompaction,
+				modifier = Modifier.padding(horizontal = comfortableGutter(), vertical = 4.dp),
+			)
+		}
 
 		// Staged images sit above the field, so they read as part of the message
 		// being written rather than as a toolbar beside it.
@@ -4215,105 +4368,157 @@ private fun Composer(
 			)
 		}
 
-		Row(
+		// ## One surface, text above actions
+		//
+		// The field used to be an OutlinedTextField with the context ring in
+		// its trailing slot, and the attach, microphone and send buttons in the
+		// same row. On a 360dp phone with a microphone configured that left the
+		// text about 70dp wide -- five characters a line -- and the trailing
+		// slot reserved a 48dp column for the full height of the field, so a
+		// wrapped message sat beside a blank strip as tall as itself. The
+		// controls now share one row under the text: every line gets the
+		// field's whole width, and a multi-line message has no reserved column
+		// beside it.
+		val fieldInteraction = remember { MutableInteractionSource() }
+		val fieldFocused by fieldInteraction.collectIsFocusedAsState()
+		val inputEnabled = enabled && !isStreaming && !isCompacting
+		val fieldBorder = when {
+			!inputEnabled -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+			fieldFocused -> MaterialTheme.colorScheme.primary
+			else -> MaterialTheme.colorScheme.outline
+		}
+		Box(
 			modifier = Modifier
 				.fillMaxWidth()
-				.padding(horizontal = comfortableGutter(), vertical = 10.dp),
-			verticalAlignment = Alignment.Bottom,
-			horizontalArrangement = Arrangement.spacedBy(8.dp),
+				.padding(horizontal = comfortableGutter(), vertical = 6.dp)
+				.clip(MaterialTheme.shapes.small)
+				.border(1.dp, fieldBorder, MaterialTheme.shapes.small),
 		) {
-			if (voiceEnabled) {
-				IconButton(
-					onClick = { toggleVoice() },
-					enabled = enabled && !isStreaming && !isCompacting && !voiceBusy,
-					modifier = Modifier.padding(bottom = 4.dp),
+			Column(modifier = Modifier.fillMaxWidth()) {
+				BasicTextField(
+					value = value,
+					onValueChange = onValueChange,
+					modifier = Modifier
+						.fillMaxWidth()
+						.padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 2.dp),
+					textStyle = MaterialTheme.typography.bodyLarge.copy(
+						color = MaterialTheme.colorScheme.onSurface,
+					),
+					enabled = inputEnabled,
+					maxLines = 6,
+					keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+					keyboardActions = KeyboardActions(),
+					cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+					interactionSource = fieldInteraction,
+					decorationBox = { field ->
+						Box(modifier = Modifier.fillMaxWidth()) {
+							if (value.isEmpty()) {
+								Text(
+									text = if (enabled) {
+										stringResource(R.string.chat_message_hint)
+									} else {
+										stringResource(R.string.chat_add_key_hint)
+									},
+									style = MaterialTheme.typography.bodyLarge,
+									color = MaterialTheme.colorScheme.onSurfaceVariant,
+								)
+							}
+							field()
+						}
+					},
+				)
+
+				Row(
+					modifier = Modifier
+						.fillMaxWidth()
+						.height(48.dp)
+						.padding(horizontal = 2.dp),
+					verticalAlignment = Alignment.CenterVertically,
 				) {
-					Icon(
-						Icons.Filled.Mic,
-						contentDescription = stringResource(
-							if (recording) R.string.chat_voice_stop else R.string.chat_voice_start,
-						),
-						tint = if (recording) {
-							MaterialTheme.colorScheme.primary
-						} else {
-							MaterialTheme.colorScheme.onSurfaceVariant
-						},
-					)
+					if (voiceEnabled) {
+						IconButton(
+							onClick = { toggleVoice() },
+							enabled = enabled && !isStreaming && !isCompacting && !voiceBusy,
+						) {
+							Icon(
+								Icons.Filled.Mic,
+								contentDescription = stringResource(
+									if (recording) R.string.chat_voice_stop else R.string.chat_voice_start,
+								),
+								tint = if (recording) {
+									MaterialTheme.colorScheme.primary
+								} else {
+									MaterialTheme.colorScheme.onSurfaceVariant
+								},
+							)
+						}
+					}
+
+					// Present but disabled when the model cannot see, rather than hidden.
+					//
+					// A control that vanishes leaves someone wondering where it went; one
+					// that is there and greyed out can be tapped and answered. That answer
+					// matters here because sending an image to a text-only model does not
+					// fail -- it returns 200 and the model describes a placeholder -- so
+					// there is no other place the reason could surface.
+					IconButton(
+						onClick = onAttach,
+						enabled = enabled && canAttachImages && !isCompacting,
+					) {
+						Icon(
+							Icons.Outlined.Image,
+							contentDescription = if (canAttachImages) {
+								stringResource(R.string.chat_attach_image)
+							} else {
+								stringResource(R.string.chat_cannot_read_images)
+							},
+							tint = if (enabled && canAttachImages && !isCompacting) {
+								MaterialTheme.colorScheme.onSurfaceVariant
+							} else {
+								MaterialTheme.colorScheme.outlineVariant
+							},
+						)
+					}
+
+					Spacer(Modifier.weight(1f))
+
+					// The figures stay one tap away without costing a column of
+					// every line: in the trailing slot the ring reserved its
+					// 48dp for the whole height of a wrapped message.
+					if (context.isKnown) {
+						ContextRing(
+							usage = context,
+							onToggle = onToggleContextDetail,
+						)
+					}
+
+					// One button, two meanings: send while idle, stop while streaming.
+					// Reaching for a separate stop control mid-generation is worse than
+					// having the same target do the obvious thing.
+					if (isStreaming) {
+						FilledIconButton(
+							onClick = onStop,
+							shape = MaterialTheme.shapes.small,
+						) {
+							Icon(Icons.Filled.Stop, contentDescription = stringResource(R.string.chat_stop))
+						}
+					} else {
+						FilledIconButton(
+							onClick = onSend,
+							// An image alone is sendable: "what is this?" is implied, and
+							// requiring text would make attaching one a two-step job.
+							enabled = enabled && !isCompacting && (value.isNotBlank() || attachments.isNotEmpty()),
+							shape = MaterialTheme.shapes.small,
+							colors = IconButtonDefaults.filledIconButtonColors(
+								containerColor = MaterialTheme.colorScheme.primary,
+								contentColor = MaterialTheme.colorScheme.onPrimary,
+							),
+						) {
+							Icon(Icons.Filled.ArrowUpward, contentDescription = stringResource(R.string.chat_send))
+						}
+					}
 				}
 			}
-
-			// Present but disabled when the model cannot see, rather than hidden.
-			//
-			// A control that vanishes leaves someone wondering where it went; one
-			// that is there and greyed out can be tapped and answered. That answer
-			// matters here because sending an image to a text-only model does not
-			// fail -- it returns 200 and the model describes a placeholder -- so
-			// there is no other place the reason could surface.
-			IconButton(
-				onClick = onAttach,
-				enabled = enabled && canAttachImages && !isCompacting,
-				modifier = Modifier.padding(bottom = 4.dp),
-			) {
-				Icon(
-					Icons.Outlined.Image,
-					contentDescription = if (canAttachImages) {
-						stringResource(R.string.chat_attach_image)
-					} else {
-						stringResource(R.string.chat_cannot_read_images)
-					},
-					tint = if (enabled && canAttachImages && !isCompacting) {
-						MaterialTheme.colorScheme.onSurfaceVariant
-					} else {
-						MaterialTheme.colorScheme.outlineVariant
-					},
-				)
-			}
-
-			OutlinedTextField(
-			value = value,
-			onValueChange = onValueChange,
-			modifier = Modifier.weight(1f),
-			placeholder = {
-				Text(
-					if (enabled) {
-						stringResource(R.string.chat_message_hint)
-					} else {
-						stringResource(R.string.chat_add_key_hint)
-					},
-				)
-			},
-			enabled = enabled && !isStreaming && !isCompacting,
-			maxLines = 6,
-			shape = MaterialTheme.shapes.small,
-			keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-			keyboardActions = KeyboardActions(),
-		)
-
-		// One button, two meanings: send while idle, stop while streaming.
-		// Reaching for a separate stop control mid-generation is worse than
-		// having the same target do the obvious thing.
-		if (isStreaming) {
-			FilledIconButton(
-				onClick = onStop,
-				shape = MaterialTheme.shapes.small,
-			) {
-				Icon(Icons.Filled.Stop, contentDescription = stringResource(R.string.chat_stop))
-			}
-		} else {
-			FilledIconButton(
-				onClick = onSend,
-				// An image alone is sendable: "what is this?" is implied, and
-				// requiring text would make attaching one a two-step job.
-				enabled = enabled && !isCompacting && (value.isNotBlank() || attachments.isNotEmpty()),
-				shape = MaterialTheme.shapes.small,
-				colors = IconButtonDefaults.filledIconButtonColors(
-					containerColor = MaterialTheme.colorScheme.primary,
-					contentColor = MaterialTheme.colorScheme.onPrimary,
-				),
-			) {
-				Icon(Icons.Filled.ArrowUpward, contentDescription = stringResource(R.string.chat_send))
-			}
-		}
 		}
 	}
 }

@@ -201,13 +201,14 @@ class ChatViewModel(
 	 */
 	private val workspaceToolsEnabled: () -> Boolean = { true },
 	/**
-	 * Whether the model is asked for follow-up suggestions.
+	 * Whether the follow-up tool exists at all.
 	 *
-	 * A display preference, read per turn like the SSH switch: turning it off
-	 * stops asking, so the answer is a few lines shorter and nothing else
-	 * changes. It is never a capability: a suggestion only fills the composer.
+	 * The global gate, read per turn like the SSH switch. Off means the tool is
+	 * absent from the request, the pickers and the approval table -- not
+	 * registered and refused. The assistant still has to select it; this switch
+	 * only makes it possible to select.
 	 */
-	private val adviceEnabled: () -> Boolean = { true },
+	private val suggestionsEnabled: () -> Boolean = { false },
 	/**
 	 * Called whenever a stream starts or stops.
 	 *
@@ -236,7 +237,12 @@ class ChatViewModel(
 	/** One saved host, encrypted; the model only receives it through a tool call. */
 	private val savedSshHost = SavedSshHostStore(secure)
 
-	private val _state = MutableStateFlow(ChatUiState())
+	private val _state = MutableStateFlow(
+		ChatUiState(
+			sshToolEnabled = sshToolEnabled(),
+			suggestionsEnabled = suggestionsEnabled(),
+		),
+	)
 	val state: StateFlow<ChatUiState> = _state.asStateFlow()
 
 	/**
@@ -1547,9 +1553,12 @@ class ChatViewModel(
 				messages = rebuilt,
 				sshAllowed = sshAllowed,
 				sshToolEnabled = sshToolEnabled(),
+				suggestionsEnabled = suggestionsEnabled(),
 				conversationTools = loaded?.entity?.tools,
 				agentTools = agent?.tools,
 				toolsKnown = loaded?.entity != null,
+				workspaceInstructionsPinned = loaded?.entity?.workspaceInstructions != null,
+				workspaceInstructionsChars = loaded?.entity?.workspaceInstructions?.length ?: 0,
 				pendingSshConsent = null,
 				rollbackAvailable = rollbackAvailable,
 				rollbackBlockedReason = rollbackBlockedReason,
@@ -2471,6 +2480,7 @@ class ChatViewModel(
 				toolRoundLimit = toolRoundLimit(),
 				toolCallLimit = toolCallLimit(),
 				sshToolEnabled = sshToolEnabled(),
+				suggestionsEnabled = suggestionsEnabled(),
 			)
 		}
 	}
@@ -2693,18 +2703,8 @@ class ChatViewModel(
 			val result = runCatching {
 				withContext(Dispatchers.IO) {
 					val policies = loadPolicies()
-					val tools = buildTools(policies)
-					// The preview is the request that would be sent, so it has
-					// to carry the same transient advice instruction the turn
-					// does -- otherwise the inspector shows a shorter request
-					// than the provider receives.
-					val history = buildWireHistory(includeCurrent = true).let { base ->
-						if (adviceEnabled()) {
-							base + ChatMessage(Role.System, ADVICE_INSTRUCTION)
-						} else {
-							base
-						}
-					}
+					val tools = buildTools(policies, turnProvider = provider)
+					val history = buildWireHistory(includeCurrent = true)
 					val request = ChatRequest(
 						model = turnModel,
 						messages = history,
@@ -3026,8 +3026,18 @@ class ChatViewModel(
 		suppressToolCalls: Boolean,
 		continuation: Boolean,
 	) {
+		// Before the history is built: this conversation pins the workspace's
+		// AGENTS.md block once, then never re-reads the file. A failure leaves
+		// it unpinned so the next turn retries.
+		pinWorkspaceInstructions()
 		val policies = loadPolicies()
-		val advice = adviceEnabled()
+		// The tool is built before the turn and runs after the round that
+		// called it. The answer is handed over through this holder rather than
+		// through the call's arguments: the model repeating its own answer
+		// would bill it twice and could truncate it.
+		val scratch = TurnScratch().apply {
+			lastUserMessage = _state.value.messages.lastOrNull { it.fromUser }?.plainText.orEmpty()
+		}
 		// A text-only retry keeps the tool definitions on a real provider so
 		// the request prefix still matches the context cache; a transient
 		// instruction and the engine's guard stop the call from running. Demo
@@ -3035,7 +3045,7 @@ class ChatViewModel(
 		// instructions, so offering tools there would manufacture the exact call
 		// the retry forbids.
 		val tools = if (includeTools && !(suppressToolCalls && demo)) {
-			buildTools(policies)
+			buildTools(policies, scratch, provider)
 		} else {
 			emptyList()
 		}
@@ -3052,12 +3062,11 @@ class ChatViewModel(
 			} else {
 				base
 			}
-			val continued = if (continuation) {
+			if (continuation) {
 				retried + ChatMessage(Role.System, CONTINUE_INSTRUCTION)
 			} else {
 				retried
 			}
-			if (advice) continued + ChatMessage(Role.System, ADVICE_INSTRUCTION) else continued
 		}
 
 		var currentId: String? = null
@@ -3099,7 +3108,7 @@ class ChatViewModel(
 			if (!force && now - publishedAt < STREAM_PUBLISH_INTERVAL_MS) return
 			publishedAt = now
 			if (firstTokenAt == null && currentText.isNotEmpty()) firstTokenAt = now
-			publishParts(id, currentReasoning, currentText, currentCalls, cursor, answerAfterCalls, advice)
+			publishParts(id, currentReasoning, currentText, currentCalls, cursor, answerAfterCalls)
 		}
 
 		val engine = ChatEngine(
@@ -3240,17 +3249,12 @@ class ChatViewModel(
 						val message = currentAssistant
 						val calls = currentCalls.values.toList()
 						val usage = event.usage?.toUi(firstTokenAt, startedAt)
-						// The advice block is stripped before the row is written.
-						// A tool-calling round never carries suggestions, even if
-						// the model ignored the instruction: the turn is not
-						// finished, so there is nothing to offer yet.
-						val parsed = if (advice) {
-							Advice.parse(currentText.toString())
-						} else {
-							AdviceResult(currentText.toString(), emptyList())
-						}
-						val content = parsed.visibleText
-						val suggestions = if (calls.isEmpty()) parsed.suggestions else emptyList()
+						// The answer is complete here, and the tool that reads it
+						// runs after this event. Handing it over now is what lets
+						// the tool describe the answer instead of asking the model
+						// to repeat it in the call's arguments.
+						val content = currentText.toString()
+						scratch.answer = content
 						// A round that produced nothing is not a row. The legacy
 						// loop removed the empty placeholder, and persisting it
 						// here would put a blank assistant message on the wire
@@ -3297,7 +3301,9 @@ class ChatViewModel(
 								isStreaming = false,
 								finishReason = event.reason.describe(),
 								usage = usage,
-								suggestions = suggestions,
+								// The tool result, which arrives after this event,
+								// is what fills this in.
+								suggestions = emptyList(),
 								reasoningSignature = message?.reasoningSignature,
 								providerState = message?.providerState,
 							)
@@ -3309,6 +3315,16 @@ class ChatViewModel(
 						val id = currentId ?: return@collect
 						val call = event.call.toUi()
 						appendToolResult(call, event.result.content, event.result.isError, id)
+						// The suggestions are the result. They are rendered as
+						// chips on the answer, not parsed again by the UI: the
+						// JSON shape is `Advice`'s, and a second reader is how the
+						// tool result and the chips start disagreeing.
+						if (event.call.name == SUGGEST_TOOL_NAME && !event.result.isError) {
+							val suggestions = Advice.fromJson(event.result.content)
+							if (suggestions.isNotEmpty()) {
+								updateMessage(id) { it.copy(suggestions = suggestions) }
+							}
+						}
 						markCall(
 							id,
 							call.index,
@@ -3393,25 +3409,14 @@ class ChatViewModel(
 				runCatching {
 					publish(force = true)
 					var wroteRow = false
-					// The closing path may have seen only part of a suggestions
-					// block. Parse the final text once, store the answer without
-					// it, and never offer suggestions for a turn that failed or
-					// was stopped. Computed even when the round already wrote
-					// its row: the final UI update needs the same filtered text.
-					val parsed = if (advice) {
-						Advice.parse(currentText.toString())
-					} else {
-						AdviceResult(currentText.toString(), emptyList())
-					}
-					val text = parsed.visibleText
+					// The answer is stored as written. Follow-ups live in the
+					// tool result, not in this text, so there is nothing to
+					// strip here; the UI update keeps whatever the tool already
+					// put on the row.
+					val text = currentText.toString()
 					val reasoning = currentReasoning.toString()
 					val calls = currentCalls.values.toList()
 					val usage = currentUsage?.toUi(firstTokenAt, startedAt)
-					val suggestions = if (failure == null && !userStopped) {
-						parsed.suggestions
-					} else {
-						emptyList()
-					}
 					val hasPayload = text.isNotEmpty() || reasoning.isNotEmpty() || calls.isNotEmpty()
 					if (!currentPersisted) {
 						withContext(NonCancellable) {
@@ -3502,14 +3507,15 @@ class ChatViewModel(
 						currentPersisted = true
 					}
 					replyDeltas.remove(id)?.close()
-					// The parts were published from the streaming filter; this
-					// restores a trailing sign-off after a closed block.
 					updateParts(id, currentReasoning.toString(), text, currentCalls.values.toList(), answerAfterCalls)
 					updateMessage(id) {
 						it.copy(
 							isStreaming = false,
 							error = it.error ?: failure ?: if (userStopped) STOPPED_MESSAGE else null,
-							suggestions = suggestions,
+							// Kept, not reassigned: the terminal tool result is
+							// what filled this in, and the closing write runs
+							// after it.
+							suggestions = it.suggestions,
 							reasoningSignature = currentAssistant?.reasoningSignature,
 							providerState = currentAssistant?.providerState,
 						)
@@ -4004,7 +4010,11 @@ class ChatViewModel(
 	private fun mediaUnavailable(): Nothing =
 		error(context.getString(R.string.chat_error_media_not_configured))
 
-	private suspend fun buildTools(policies: PolicySet = PolicySet.None): List<Tool> {
+	private suspend fun buildTools(
+		policies: PolicySet = PolicySet.None,
+		scratch: TurnScratch = TurnScratch(),
+		turnProvider: ChatProvider? = null,
+	): List<Tool> {
 		val entity = conversation
 
 		// The conversation's own copy wins, falling back to the assistant's.
@@ -4180,7 +4190,56 @@ class ChatViewModel(
 					)
 				}
 			}
+			// Opt-in twice, like SSH: the global switch makes the tool
+			// available, and the assistant's explicit selection is what puts it
+			// in this request. `selected == null` ("everything") deliberately
+			// does not include it -- a new name appearing must not start
+			// spending an extra request in every existing conversation.
+			if (suggestionsEnabled() && selected?.contains(SUGGEST_TOOL_NAME) == true) {
+				suggestionTool(scratch, turnProvider)?.let(::add)
+			}
 		}.filter { ToolCatalog.permits(selected, it.name) }
+	}
+
+	/**
+	 * The follow-up tool, built against the configured suggestion model.
+	 *
+	 * A null result means the tool is absent, not present and failing: no
+	 * provider profile, no model, or no key is the same state as every other
+	 * paid backend in this file -- the model is told it cannot do the thing
+	 * rather than taught that the tool is broken.
+	 */
+	private suspend fun suggestionTool(
+		scratch: TurnScratch,
+		turnProvider: ChatProvider?,
+	): Tool? {
+		val agentRow = agent
+		val conversationRow = conversation
+		val inherited = conversationRow?.providerId ?: providerId
+		val providerKey = agentRow?.suggestionProviderId ?: inherited
+		val suggestionModel = agentRow?.suggestionModel?.takeIf { it.isNotBlank() }
+			?: conversationRow?.model
+			?: agentRow?.model
+			?: model
+			?: return null
+		// The turn's own provider is used when the suggestion inherits it: in
+		// demo mode there is no profile row to resolve, and a second lookup
+		// would silently remove the tool from the only offline path.
+		val suggestionProvider = if (providerKey == inherited) {
+			turnProvider
+		} else {
+			runCatching {
+				agents.provider(providerKey)?.let { agents.providerFromRow(it) }
+			}.getOrNull()
+		} ?: return null
+		return SuggestRepliesTool(
+			provider = suggestionProvider,
+			model = suggestionModel,
+			prompt = agentRow?.suggestionPrompt?.takeIf { it.isNotBlank() }
+				?: DEFAULT_SUGGESTION_PROMPT,
+			format = SuggestionFormat.of(agentRow?.suggestionFormat),
+			scratch = scratch,
+		)
 	}
 
 	/**
@@ -4442,6 +4501,100 @@ class ChatViewModel(
 	}
 
 	/**
+	 * Pin the workspace's `AGENTS.md` block for this conversation, once.
+	 *
+	 * The pin is what makes the system message -- and its cache prefix --
+	 * stable: `buildWireHistory` sends the stored block and never re-reads the
+	 * file. A missing workspace or a failed write leaves the conversation
+	 * unpinned, so the next turn retries; a missing, blank or binary file pins
+	 * the empty string, which is a deliberate "this conversation has no
+	 * workspace instructions" rather than a retry on every turn.
+	 *
+	 * Runs on IO because it opens the workspace and may write the database. The
+	 * caller is the turn, before the history is built; a preview does not pin
+	 * (it should show what the next turn would pin, not freeze it early).
+	 */
+	private suspend fun pinWorkspaceInstructions() {
+		val entity = conversation ?: return
+		if (entity.workspaceInstructions != null) return
+		if (!workspaceToolsEnabled()) return
+		val block = withContext(Dispatchers.IO) {
+			val workspace = runCatching { repository.workspace(entity) }.getOrNull()
+				?: return@withContext null
+			workspace.let(::readWorkspaceInstructions)?.let(::workspaceInstructionsBlock).orEmpty()
+		} ?: return
+		runCatching { repository.setWorkspaceInstructions(entity.id, block) }
+			.onSuccess {
+				conversation = entity.copy(workspaceInstructions = block)
+				_state.update {
+					it.copy(
+						workspaceInstructionsPinned = true,
+						workspaceInstructionsChars = block.length,
+					)
+				}
+			}
+	}
+
+	/**
+	 * Replace this conversation's pinned instructions with the current file.
+	 *
+	 * The only way an edit to `AGENTS.md` reaches a conversation that already
+	 * pinned it. It changes the system message, so the next request starts a
+	 * new prefix -- one deliberate cold request, which is why it is a button
+	 * rather than something a file watcher does.
+	 */
+	fun reloadWorkspaceInstructions() {
+		val entity = conversation ?: return
+		if (_state.value.isStreaming) return
+		if (!workspaceToolsEnabled()) {
+			_state.update {
+				it.copy(error = context.getString(R.string.chat_error_workspace_instructions_unavailable))
+			}
+			return
+		}
+		viewModelScope.launch {
+			val block = withContext(Dispatchers.IO) {
+				runCatching {
+					val workspace = repository.workspace(entity)
+					workspace.let(::readWorkspaceInstructions)?.let(::workspaceInstructionsBlock).orEmpty()
+				}.getOrElse { failure ->
+					_state.update {
+						it.copy(
+							error = context.getString(
+								R.string.chat_error_workspace_instructions,
+								failure.message.orEmpty(),
+							),
+						)
+					}
+					null
+				}
+			}
+			if (block == null) return@launch
+			runCatching { repository.setWorkspaceInstructions(entity.id, block) }
+				.onSuccess {
+					conversation = entity.copy(workspaceInstructions = block)
+					_state.update {
+						it.copy(
+							workspaceInstructionsPinned = true,
+							workspaceInstructionsChars = block.length,
+							error = null,
+						)
+					}
+				}
+				.onFailure { failure ->
+					_state.update {
+						it.copy(
+							error = context.getString(
+								R.string.chat_error_workspace_instructions,
+								failure.message.orEmpty(),
+							),
+						)
+					}
+				}
+		}
+	}
+
+	/**
 	 * The transcript as the provider needs it.
 	 *
 	 * Tool results are separate messages in storage but must be attached to the
@@ -4471,12 +4624,35 @@ class ChatViewModel(
 		val firstSent = if (boundary in 0 until visible.lastIndex) boundary + 1 else 0
 		val activeSummary = summary.takeIf { firstSent > 0 }
 
+		// Use the conversation's pinned block, not the file. The pin is taken on
+		// the first request that would use it (see pinWorkspaceInstructions);
+		// that is what keeps this conversation's system message -- and its cache
+		// prefix -- stable when the file changes. A null pin means "not pinned
+		// yet": a preview, or a turn whose pin write failed, reads the file live
+		// so it shows what the next pin would hold. "" is pinned-with-no-file and
+		// is deliberately not re-read.
+		val pinnedWorkspaceBlock = conversation?.workspaceInstructions
+		val workspaceBlock = when {
+			!workspaceToolsEnabled() -> null
+			pinnedWorkspaceBlock != null -> pinnedWorkspaceBlock.takeIf { it.isNotBlank() }
+			else -> conversation?.let { entity ->
+				runCatching { repository.workspace(entity) }.getOrNull()
+			}?.let(::readWorkspaceInstructions)?.let(::workspaceInstructionsBlock)
+		}
+
 		val system = buildString {
 			agent?.systemPrompt?.takeIf { it.isNotBlank() }?.let { append(it) }
 			if (activeSummary != null) {
 				if (isNotEmpty()) append("\n\n")
 				append("Earlier conversation summary (the messages it covers are omitted from this request):\n")
 				append(activeSummary.summary.trim())
+			}
+			// Last, after the assistant's own prompt and the compaction
+			// summary: the workspace is project context, and the user asked for
+			// it to have the final word in the system message.
+			if (workspaceBlock != null) {
+				if (isNotEmpty()) append("\n\n")
+				append(workspaceBlock)
 			}
 		}
 		if (system.isNotBlank()) out += ChatMessage(Role.System, system)
@@ -4646,13 +4822,8 @@ class ChatViewModel(
 		calls: Map<Int, ToolCallUi>,
 		cursor: DeltaCursor,
 		answerAfterCalls: Boolean,
-		advice: Boolean,
 	) {
-		// Hide the suggestions block while it is arriving. The filtered string
-		// is monotonic -- once a character is visible it stays visible -- which
-		// is what `DeltaCursor` requires; the filter holds back only a trailing
-		// prefix of the marker.
-		val visible = if (advice) Advice.visible(answer.toString()) else answer.toString()
+		val visible = answer.toString()
 		updateParts(id, reasoning.toString(), visible, calls.values.toList(), answerAfterCalls)
 
 		// Hand the *new* answer text to the incremental parser. Only the

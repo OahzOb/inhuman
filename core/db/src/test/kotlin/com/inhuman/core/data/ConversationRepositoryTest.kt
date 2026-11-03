@@ -170,6 +170,30 @@ class ConversationRepositoryTest {
 		assertEquals("Search results", tool.resultPrefix)
 	}
 
+	/**
+	 * The three states the column has to keep apart: not pinned (null), pinned
+	 * with no file (`""`), and pinned with a block. Flattening the first two
+	 * would either pin a file added later or re-read the workspace every turn.
+	 */
+	@Test
+	fun `workspace instructions pin, replace and clear`() = runBlocking {
+		val conversation = repository.create(title = "Pinned instructions")
+
+		assertNull(db.conversations().byId(conversation.id)?.workspaceInstructions)
+
+		repository.setWorkspaceInstructions(conversation.id, "--- BEGIN AGENTS.md ---\nuse tabs\n--- END AGENTS.md ---")
+		assertEquals(
+			"--- BEGIN AGENTS.md ---\nuse tabs\n--- END AGENTS.md ---",
+			db.conversations().byId(conversation.id)?.workspaceInstructions,
+		)
+
+		repository.setWorkspaceInstructions(conversation.id, "")
+		assertEquals("", db.conversations().byId(conversation.id)?.workspaceInstructions)
+
+		repository.setWorkspaceInstructions(conversation.id, null)
+		assertNull(db.conversations().byId(conversation.id)?.workspaceInstructions)
+	}
+
 	private fun message(
 		id: String,
 		conversationId: String,

@@ -29,8 +29,24 @@ object ProviderKinds {
 
 object ProviderReasoning {
 	const val NONE = "none"
+
+	/** The standard `reasoning_effort` field, nothing else. */
 	const val EFFORT = "effort"
+
+	/** DeepSeek's `thinking` object, `user_id` and `reasoning_content` replay. */
 	const val DEEPSEEK = "deepseek"
+
+	/**
+	 * `reasoning_effort` plus `reasoning_content` replay, without DeepSeek's
+	 * `thinking` object or `user_id`.
+	 *
+	 * OpenCode's gateway accepts the standard effort field and names the
+	 * reasoning field `reasoning_content` in its model metadata, but it is not
+	 * DeepSeek's API: sending `thinking` or `user_id` is a guess it does not
+	 * need. The mode exists so a profile can say exactly that instead of
+	 * choosing between "effort is dropped" and "DeepSeek fields are sent".
+	 */
+	const val OPENCODE = "opencode"
 }
 
 /**
@@ -148,6 +164,46 @@ data class AgentEntity(
 	 */
 	@ColumnInfo(defaultValue = "")
 	val toolsJson: String = "",
+
+	/**
+	 * Provider profile for `suggest_replies`, or null for this assistant's.
+	 *
+	 * The suggestion request is a separate, optional model call. Letting it use
+	 * a different profile is what makes a genuinely cheaper model possible
+	 * without changing the model that answers; null keeps the common case
+	 * (same provider) from needing two rows.
+	 */
+	val suggestionProviderId: String? = null,
+
+	/**
+	 * Model for `suggest_replies`, or null for the conversation's model.
+	 *
+	 * Same reason as [suggestionProviderId]: the owner may want a small, fast
+	 * model for three short lines while the answer keeps the larger one. Null
+	 * is deliberately "inherit", not "unset": a conversation started before
+	 * this feature existed keeps working without a choice.
+	 */
+	val suggestionModel: String? = null,
+
+	/**
+	 * Instructions for the suggestion model, or null for the built-in prompt.
+	 *
+	 * User text, so it is never logged (`docs/10-diagnostics.md`). It shapes
+	 * only the extra request; it cannot change what the assistant is allowed to
+	 * do, because the suggestion model is given no tools.
+	 */
+	val suggestionPrompt: String? = null,
+
+	/**
+	 * Whether the suggestion model is asked for text or for a tool call.
+	 *
+	 * `tool` is the default because the result is machine-read; `text` exists
+	 * for a model that does not support tool calling, and the parser is the
+	 * same one either way. A stored value the app does not know reads as `tool`
+	 * rather than as an error.
+	 */
+	@ColumnInfo(defaultValue = "tool")
+	val suggestionFormat: String = "tool",
 
 	val createdAt: Long,
 	val updatedAt: Long,
@@ -296,6 +352,17 @@ data class ConversationEntity(
 	 */
 	@ColumnInfo(defaultValue = "0")
 	val sshAllowed: Boolean = false,
+
+	/**
+	 * The `AGENTS.md` block pinned when this conversation first built a request.
+	 *
+	 * Null means "not pinned yet"; an empty string means "pinned, with no
+	 * file". The block is stored whole, not re-read from the workspace, so a
+	 * later edit to the file cannot change this conversation's system message
+	 * (or invalidate its cache prefix). New conversations pin the file as it is
+	 * then; the chat menu's reload replaces this string deliberately.
+	 */
+	val workspaceInstructions: String? = null,
 ) {
 	/** The selection, or null for every tool. */
 	val tools: List<String>? get() = ToolsColumn.decode(toolsJson)

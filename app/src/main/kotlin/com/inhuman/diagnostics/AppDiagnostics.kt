@@ -41,7 +41,33 @@ object AppDiagnostics {
 	/** Three archives plus the live file: at most 4 MB, ~4 months of ordinary use. */
 	private const val ARCHIVES = 3
 
+	/**
+	 * A manual recording is a second, explicitly bounded copy of the same lines.
+	 *
+	 * The always-on recorder exists for the bug that has already happened; the
+	 * recording exists for the bug that can be reproduced, so the upload can be
+	 * one segment instead of months of history. It is still made of the same
+	 * `Diag.format` output and the same redaction -- this adds a destination,
+	 * not a second kind of record.
+	 */
+	private const val MAX_RECORDING_BYTES = 2_000_000L
+
+	private const val RECORDING_NAME = "recording.log"
+
 	private var rolling: RollingLog? = null
+
+	/** Null until [install]; a recording is only meaningful once the file is set. */
+	private var recordingDirectory: File? = null
+
+	private val recordingLock = Any()
+
+	@Volatile
+	private var recordingFile: File? = null
+
+	/** Bytes already written to the active recording, for the cap. */
+	private var recordingWritten = 0L
+
+	private var recordingTruncated = false
 
 	@Volatile
 	private var installed = false
@@ -64,12 +90,14 @@ object AppDiagnostics {
 		)
 		log.start()
 		rolling = log
+		recordingDirectory = File(app.filesDir, "diagnostics/recordings")
 
 		Diag.install { level, tag, message, error ->
 			val line = Diag.format(level, tag, message, error)
 			// File first: if logcat throws (it should not), the durable copy is
 			// already written. The order is the whole point of having both.
 			runCatching { log.append(line) }
+			appendToRecording(line)
 			Log.println(priority(level), LOGCAT_TAG, line)
 		}
 
@@ -99,6 +127,77 @@ object AppDiagnostics {
 		Diag.i("diag", "log cleared by user")
 		rolling?.clear()
 	}
+
+	/**
+	 * Start a manual recording, replacing the last one.
+	 *
+	 * The start and stop lines are ordinary `Diag` lines: they are written to
+	 * the app log as well, and they are what delimits the uploaded segment.
+	 * A recording that outlives the process is left as a stopped recording after
+	 * restart (the file is there, [recordingActive] is false) so it can still be
+	 * uploaded -- losing it to a crash would lose the evidence.
+	 */
+	fun startRecording() {
+		val directory = recordingDirectory ?: return
+		val file = File(directory, RECORDING_NAME)
+		val started = synchronized(recordingLock) {
+			runCatching {
+				directory.mkdirs()
+				file.writeText("")
+				recordingFile = file
+				recordingWritten = 0L
+				recordingTruncated = false
+			}.isSuccess
+		}
+		if (started) Diag.i("diag", "recording start file=$RECORDING_NAME")
+	}
+
+	/** Close the active recording. The file stays until deleted or replaced. */
+	fun stopRecording() {
+		if (recordingFile == null) return
+		Diag.i("diag", "recording stop bytes=${recordingBytes()}")
+		synchronized(recordingLock) { recordingFile = null }
+	}
+
+	fun recordingActive(): Boolean = recordingFile != null
+
+	fun recordingBytes(): Long = displayRecordingFile()?.length() ?: 0L
+
+	fun readRecordingText(): String =
+		displayRecordingFile()?.let { file -> runCatching { file.readText() }.getOrNull() }.orEmpty()
+
+	fun deleteRecording() {
+		val file = displayRecordingFile()
+		synchronized(recordingLock) { recordingFile = null }
+		runCatching { file?.delete() }
+	}
+
+	/**
+	 * Append the already-formatted line to the active recording.
+	 *
+	 * A cap, not rotation: a manual recording is a reproduction, not a second
+	 * flight recorder. When it fills, one marker is written and the recording
+	 * stops growing; the user still has the beginning of the reproduction.
+	 */
+	private fun appendToRecording(line: String) {
+		synchronized(recordingLock) {
+			val file = recordingFile ?: return
+			if (recordingTruncated) return
+			val next = recordingWritten + line.length + 1
+			if (next > MAX_RECORDING_BYTES) {
+				recordingTruncated = true
+				runCatching {
+					file.appendText("[recording truncated at $MAX_RECORDING_BYTES bytes]\n")
+				}
+				return
+			}
+			runCatching { file.appendText(line + "\n") }
+			recordingWritten = next
+		}
+	}
+
+	private fun displayRecordingFile(): File? =
+		recordingDirectory?.let { File(it, RECORDING_NAME) }?.takeIf { it.isFile }
 
 	private fun priority(level: Diag.Level): Int = when (level) {
 		Diag.Level.Debug -> Log.DEBUG

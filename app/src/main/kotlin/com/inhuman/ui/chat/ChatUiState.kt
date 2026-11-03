@@ -154,6 +154,8 @@ data class ChatUiState(
 	val sshAllowed: Boolean = false,
 	/** Whether the global SSH capability is on; off hides every SSH affordance. */
 	val sshToolEnabled: Boolean = false,
+	/** Whether the follow-up tool is available to pick at all. */
+	val suggestionsEnabled: Boolean = false,
 	/**
 	 * The conversation's stored tool selection.
 	 *
@@ -165,6 +167,16 @@ data class ChatUiState(
 	val agentTools: List<String>? = null,
 	/** The conversation row has loaded; the tool sheet is disabled before that. */
 	val toolsKnown: Boolean = false,
+	/**
+	 * Whether this conversation has pinned its `AGENTS.md` block.
+	 *
+	 * Once true, the conversation's system message is fixed: editing the file
+	 * no longer changes this conversation, only new conversations or the
+	 * explicit reload. False until the first request that would use it.
+	 */
+	val workspaceInstructionsPinned: Boolean = false,
+	/** The pinned block's character count, for the chat menu. */
+	val workspaceInstructionsChars: Int = 0,
 	/** Whether the last user turn can be rewound safely. */
 	val rollbackAvailable: Boolean = false,
 	/** Why [rollbackAvailable] is false, when it is. */

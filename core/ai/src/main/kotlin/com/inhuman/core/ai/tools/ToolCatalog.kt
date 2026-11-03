@@ -76,6 +76,20 @@ object ToolCatalog {
 		 * reads go through the same workspace.
 		 */
 		val workspaceBound: Boolean = false,
+		/**
+		 * Whether "all tools" deliberately excludes it.
+		 *
+		 * A null selection has always meant every tool, and it still does. This
+		 * flag is for a tool that must be **chosen**, not inherited: `suggest_replies`
+		 * spends an extra request per answer that calls it, so an assistant
+		 * created before this release -- or one whose owner picked "everything" --
+		 * must not start paying for it because a new name appeared. Remote
+		 * tools already work this way for a stronger reason; the rule is shared
+		 * so "null means everything" cannot quietly grow a second, weaker
+		 * reading, and so the picker shows the row unchecked until someone
+		 * ticks it.
+		 */
+		val optIn: Boolean = false,
 	)
 
 	/**
@@ -133,6 +147,13 @@ object ToolCatalog {
 			"Classify or score a state with a typed decision model",
 			mutates = false,
 			paid = true,
+		),
+		Entry(
+			"suggest_replies",
+			"Offer 2-3 follow-ups after answering, using one extra paid request",
+			mutates = false,
+			paid = true,
+			optIn = true,
 		),
 		Entry(
 			"transcribe",
@@ -273,16 +294,24 @@ object ToolCatalog {
 	 * when the workspace gate could not be proven, the tools that depend on it
 	 * are absent rather than greyed. A stored selection keeps its names, so
 	 * recovery restores the capability without the user re-picking it.
+	 *
+	 * [includeSuggestions] is the same rule again for the follow-up tool: while
+	 * its global switch is off it is absent from every picker, approval table
+	 * and home summary, not a greyed row. The default is false so a host that
+	 * has not implemented the capability (the desktop window) does not offer a
+	 * row that would do nothing there.
 	 */
 	fun visible(
 		includeSsh: Boolean,
 		includeWorkspaceBound: Boolean = true,
 		includeSandbox: Boolean = true,
+		includeSuggestions: Boolean = false,
 	): List<Entry> =
 		all.filter { entry ->
 			(includeSsh || !entry.remote) &&
 				(includeWorkspaceBound || !entry.workspaceBound) &&
-				(includeSandbox || entry.name != "run_javascript")
+				(includeSandbox || entry.name != "run_javascript") &&
+				(includeSuggestions || entry.name != "suggest_replies")
 		}
 
 	/**
@@ -317,7 +346,7 @@ object ToolCatalog {
 	 */
 	fun permits(selected: List<String>?, toolName: String): Boolean {
 		val entry = all.firstOrNull { it.name == toolName } ?: return false
-		if (entry.remote) return selected?.contains(toolName) == true
+		if (entry.remote || entry.optIn) return selected?.contains(toolName) == true
 		return selected == null || toolName in selected
 	}
 
@@ -347,5 +376,6 @@ object ToolCatalog {
 	 * `docs/08-port-philosophy.md` §1.2.1 says remote capability may not be
 	 * switched on as a side effect of "select all".
 	 */
-	fun everythingExplicit(): List<String> = visible(includeSsh = false).map { it.name }
+	fun everythingExplicit(includeSuggestions: Boolean = false): List<String> =
+		visible(includeSsh = false, includeSuggestions = includeSuggestions).map { it.name }
 }

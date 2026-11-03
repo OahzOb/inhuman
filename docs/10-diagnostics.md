@@ -63,6 +63,7 @@ supported path.
 | Lifecycle | activity create (fresh or restored), start, stop, destroy |
 | Navigation | which screen is on top, and the conversation id when there is one |
 | UI | a collapsed section that auto-expanded or auto-collapsed, by its summary ("Thinking", "Used N tools"); only on an actual change |
+| Scroll | first visible item (index, offset, key), total items and turn x/y; scroll start/end, drag start, follow-flag transitions, a programmatic follow scroll, and every jump request with its source, target short id and apply index. No message text. |
 | Database | opening, opened, created (and the stack trace if it will not open) |
 | Turn | send (chars, attachments, demo), run start (provider, model, thinking, effort, tool count, round limit), run end (rounds, reply id), round limit reached, stop, regenerate refused and why |
 | Stream | request shape (history size, tool count, reply id), first-text latency, end line (finish reason, chunk count, text and reasoning lengths, call count, prompt/completion/cached tokens, TTFT, generation time, total), failure chunk text |
@@ -109,8 +110,36 @@ already has the result. Host, port, user and host-key fingerprint are recorded
 because they are the facts that explain a connection failure.
 
 There is no telemetry and no automatic upload. The only ways a log leaves the
-device are the user pressing **Share log** or **Upload log**. Both are explicit;
-the upload target is whatever LAN/Tailscale server the user configured.
+device are the user pressing **Share log**, **Upload log**, or **Upload
+recording**. All are explicit; the upload target is whatever LAN/Tailscale server
+the user configured.
+
+## Manual diagnostic recording
+
+The recorder above is always on and **app-wide**: every subsystem writes through
+the same `Diag` sink, so a turn, a settings edit, a file tool, an update check and
+a scroll all land in the same stream. For a bug that can be reproduced, Settings
+→ Updates and logs also has a **Diagnostic recording** switch: it copies that
+same stream into `filesDir/diagnostics/recordings/recording.log` between the
+start and stop lines. It is not a chat-conversation log; the window is global,
+and the upload is the whole app's activity during it.
+
+- The switch starts a recording; turning it off writes the stop line. Starting
+  again replaces the previous recording.
+- The file is capped at 2 MB, with one truncation line. A recording is a
+  reproduction, not a second flight recorder.
+- A recording survives a crash or restart as a stopped file. That is deliberate:
+  the evidence would otherwise be lost exactly when it matters. **Upload
+  recording** is enabled only while stopped and sends only that file to the same
+  `POST /log`; **Upload log** still sends the whole recorder.
+- It records the app's **diagnostic events**, not a raw input trace: the same
+  `Diag` call sites, same redaction, no prompt, message text or file content. A
+  literal every-tap/keystroke trace would be a different feature with a
+  different privacy contract, not a second file for this one.
+- The always-on file is deliberately **not** switched off by this. Its job is
+  the bug that has already happened, where nobody knew a recording was needed;
+  the recording is the clean upload, not a replacement. The "always on" known
+  gap below is still the position for the recorder itself.
 
 ## Why the file comes before logcat
 
@@ -133,8 +162,10 @@ the lines a crash was about to need unless the crash path drained it too.
   still P0 work ([09-approvals.md](09-approvals.md) §5.3).
 - **Sharing sends the live file only**, not the archives. The current file holds
   the recent history; archives are on disk for `run-as` when needed.
-- **Always on, no level control.** The volume is low and the alternative — a
-  setting that is off when the interesting bug happens — is worse.
+- **The recorder is always on; the manual recording is a copy, not a level
+  control.** The volume is low and the alternative — a setting that is off when
+  the interesting bug happens — is worse. The recording exists so a reproduced
+  segment can be uploaded by itself.
 - The entries are only as good as the call sites. A failure that is swallowed
   without a log line is invisible; the ones found while adding this are listed
   in the commit that introduced it.

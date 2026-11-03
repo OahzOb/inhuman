@@ -954,6 +954,96 @@ at `assertTrue(SnapshotStore.capture(...))`. The serialization plugin is now in
 trap: moving a file can lose a **compiler** plugin the old module supplied, and a
 `runCatching` on the moved code turns that exception into a silent `false`.
 
+### B32. The composer's trailing icon reserved a blank column beside every line — **FIXED**
+
+The context ring lived in `OutlinedTextField`'s `trailingIcon`. That slot is not
+a corner badge: Material lays it out as a 48dp column for the field's *whole
+height*. With attach, send and a configured microphone beside the field, a
+360dp phone gave the text about 70dp -- five characters a line -- and a
+three-line message sat beside an empty 48dp-wide strip as tall as the message.
+The ring now shares the composer's 48dp action row with Send; attach and
+microphone are on the left of that row, and the text field spans the full width
+of a single hairline-bounded surface. The field is a `BasicTextField` rather
+than `OutlinedTextField`, because the Material box's own 56dp minimum and
+decoration padding are what made the old row tall and its placeholder sit low.
+
+Multiline is the case the trailing slot broke, so verify it with three lines:
+one line hides the column because the field is only one line tall.
+
+### B33. A finishing reply could still pull the reader to a newer turn — **FIXED**
+
+`followLatest` was cleared only from `onPreScroll`, which needs a non-zero
+vertical delta from a source other than `SideEffect`. A fling whose first
+nested event arrived with a zero delta (or a source the connection treated as
+ours) left the flag true. When the reply finished and the layout changed, the
+stable observer saw "not at bottom" and scrolled to the newest turn; on the
+phone this read as the transcript jumping away from the message being read
+while the turn marker changed.
+
+The list now also collects `LazyListState.interactionSource` and clears
+following on `DragInteraction.Start`. Programmatic `scrollToItem`/`scrollBy`
+do not emit a drag interaction, so the app's own scroll is unaffected. Verified
+by scrolling up while a demo reply streamed: the view stayed on the older turn
+after the reply completed. The nested-scroll path remains, but it is no longer
+the only signal.
+
+### B34. The transcript could jump to an adjacent turn — **FIXED**
+
+The 2026-11-03 diagnostics recording (110 lines, 73 items / 17 turns) showed
+`first index=67` at 13:30:06.402, `62` at .416 and `59` at .477, while a
+drag/fling was in progress. There was no `jump effect`, no turn-picker/search
+entry and no `follow scroll`; `follow=false` throughout. The turn marker changed
+at 59 -- the normal boundary -- not at 67 -> 62.
+
+A 4,000 dp/s fling cap (0.8.2) made the feel slower but did not stop the jump, so
+it was reverted. The remaining possibilities were a real fling crossing short
+rows and a layout shift during lazy composition; the old log's index/offset alone
+could not distinguish them.
+
+The 0.8.3 index logs could not separate a real scroll from a layout shift: their
+`delta` covered everything since the previous index change. The 0.8.4 speed cap
+and 0.8.5 distance cap did not stop the user's visual jump and changed the feel;
+both were reverted in 0.8.6.
+
+0.8.6 samples once per frame: the pixels actually scrolled in that frame, the
+first/last offsets and sizes, and every visible item's size. On the emulator it
+caught assistant item `9c841108` growing from 380 to 3,864 px with `delta=0`
+right after a drag; the first/last offsets and the turn marker changed while no
+scroll was consumed. That is a layout jump, not inertia.
+
+The frame log's `resized=...` names the item whose height changed, and
+`offsetJump=true` marks a large offset move with a near-zero delta. The next
+phone recording will identify the item that resizes at the jump. The likely
+source is a message row changing height when it enters composition (collapsible
+sections and `animateContentSize`), not the fling.
+
+0.8.7 caches each measured row height (`itemHeights`) and uses it as
+`heightIn(min = cached)`; that removed the repeated jump but not the first one.
+
+0.8.8 fixes the first measure. The m3 `Markdown` wrapper and
+`rememberMarkdownState` parse from an effect, so a row entering `LazyColumn`
+composes short. The finished path now calls the core `Markdown` overload with
+`immediate = true`, which parses in the composition. The emulator's first frame
+for `9c841108` is already 3,778 px and no `resized` line follows; the row no
+longer grows after it is placed. The streaming path is untouched.
+
+### B35. Scrolling past a user message stuttered — **FIXED**
+
+The B34 instrumentation was itself part of the cost: a per-frame
+`withFrameNanos` loop read `layoutInfo`, built a map of visible item sizes and
+ran `Diag.i` for every first-row change, and the turn-index effect wrote a
+`Diag` line at every user-message boundary. `Diag` writes synchronously, so the
+work happened on the main thread exactly when a turn crossed the viewport. On
+top of that, `immediate = true` parsed finished Markdown in the composition of
+each row that scrolled into view.
+
+0.8.9 removes the per-frame sampler and the scroll/turn diagnostic writes, and
+moves finished Markdown parsing off the composition: `ChatScreen` parses each
+distinct finished answer on `Dispatchers.Default` into a `State`, caches it by
+text, and `MarkdownText` renders the ready state. A miss still falls back to the
+immediate parse so a cold row cannot compose short. The follow logic, fling
+feel and streaming path are unchanged.
+
 ## C. Comments that contradict the code
 
 By this repository's standard, the comment is the bug. These were all verified.

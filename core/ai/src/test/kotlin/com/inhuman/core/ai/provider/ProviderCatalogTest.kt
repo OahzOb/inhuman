@@ -68,5 +68,9 @@ class ProviderCatalogTest {
 		assertEquals(ProviderFactory.OPENAI_CHAT, go?.kind)
 		assertEquals("https://opencode.ai/zen/v1", zen?.baseUrl)
 		assertEquals("https://opencode.ai/zen/go/v1", go?.baseUrl)
+		// The gateway takes `reasoning_effort` and replays
+		// `reasoning_content`, but does not take DeepSeek's `thinking` object.
+		assertEquals("opencode", zen?.reasoningMode)
+		assertEquals("opencode", go?.reasoningMode)
 	}
 }

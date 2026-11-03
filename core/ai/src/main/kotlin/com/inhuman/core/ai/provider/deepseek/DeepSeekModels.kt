@@ -132,6 +132,29 @@ internal object DeepSeekModels {
 			// text-only and with no context window.
 			val limit = obj["limit"]?.let { runCatching { it.jsonObject }.getOrNull() }
 			val modalities = obj["modalities"]?.let { runCatching { it.jsonObject }.getOrNull() }
+			// OpenCode's gateway reports reasoning under `capabilities.reasoning`
+			// (`effort` is a list such as low/high/max). DeepSeek's own API uses
+			// `effort.supported_levels`. Reading both is the same fallback rule
+			// as `limit`/`modalities`: a provider describes the same facts under
+			// its own name, and the app needs the fact, not the name.
+			val capabilities = obj["capabilities"]
+				?.let { runCatching { it.jsonObject }.getOrNull() }
+			val reasoning = capabilities?.get("reasoning")
+				?.let { runCatching { it.jsonObject }.getOrNull() }
+			val inputModalities = obj["input_modalities"]
+				?.let { runCatching { it.jsonArray }.getOrNull() }
+				?.mapNotNull { it.asStringOrNull() }
+				?: architecture?.get("input_modalities")
+					?.let { runCatching { it.jsonArray }.getOrNull() }
+					?.mapNotNull { it.asStringOrNull() }
+				?: modalities?.get("input")
+					?.let { runCatching { it.jsonArray }.getOrNull() }
+					?.mapNotNull { it.asStringOrNull() }
+				?: emptyList()
+			val effortLevels = reasoning?.get("effort")
+				?.let { runCatching { it.jsonArray }.getOrNull() }
+				?: effort?.get("supported_levels")
+					?.let { runCatching { it.jsonArray }.getOrNull() }
 			RemoteModel(
 				id = id,
 				// `name` is the human-facing label ("DeepSeek-V4.1-Flash") while
@@ -144,23 +167,28 @@ internal object DeepSeekModels {
 					?: limit?.get("context").asIntOrNull(),
 				maxOutputTokens = obj["max_output_tokens"].asIntOrNull()
 					?: limit?.get("output").asIntOrNull(),
-				inputModalities = obj["input_modalities"]
-					?.let { runCatching { it.jsonArray }.getOrNull() }
-					?.mapNotNull { it.asStringOrNull() }
-					?: architecture?.get("input_modalities")
-						?.let { runCatching { it.jsonArray }.getOrNull() }
-						?.mapNotNull { it.asStringOrNull() }
-					?: modalities?.get("input")
-						?.let { runCatching { it.jsonArray }.getOrNull() }
-						?.mapNotNull { it.asStringOrNull() }
-					.orEmpty(),
-				supportedEffortLevels = effort?.get("supported_levels")
-					?.let { runCatching { it.jsonArray }.getOrNull() }
+				inputModalities = inputModalities.map(::modality).distinct(),
+				supportedEffortLevels = effortLevels
 					?.mapNotNull { it.asStringOrNull() }
 					.orEmpty(),
 				defaultEffortLevel = effort?.get("default_level").asStringOrNull(),
 			)
 		}
+	}
+
+	/**
+	 * Collapse a MIME type to the broad modality the rest of the app uses.
+	 *
+	 * OpenCode reports `"image/jpeg"`, `"image/png"` and so on, while DeepSeek
+	 * reports `"image"`. [RemoteModel.supportsVision] would otherwise say no for
+	 * every OpenCode vision model, and the composer would refuse an attachment
+	 * the model accepts. `text` and any unfamiliar value pass through unchanged.
+	 */
+	private fun modality(raw: String): String = when {
+		raw.startsWith("image/") -> "image"
+		raw.startsWith("audio/") -> "audio"
+		raw.startsWith("video/") -> "video"
+		else -> raw
 	}
 
 	/**

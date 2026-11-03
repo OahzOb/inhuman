@@ -198,6 +198,21 @@ Neither path "rewrites the whole cache"; it either reuses a matching prefix unit
 or creates a new one. Zero is shown as `cache 0%` in the usage summary, and the
 expanded row spells out `from cache N of M`.
 
+**Workspace instructions are pinned, so an edit does not touch this prefix.**
+The root `AGENTS.md` block is rendered into the system message and stored on the
+conversation on its first request (`docs/06`). The app sends that stored string,
+not the file, so editing `AGENTS.md` does not change an existing conversation's
+first message: its cache prefix stays hit. New conversations pin the file as it
+is then -- they are cold anyway. The chat menu's **Reload AGENTS.md** is the only
+way an edit reaches an existing conversation; it replaces the pinned block,
+changes the system message, and costs **one deliberate cold request**. On
+DeepSeek that request can report `cache 0`: its cache is unit-based at message
+boundaries, and the changed first message invalidates the unit that covered the
+old prefix. A token-level prefix cache may still reuse the tokens before the
+block, and the app does not claim either as a guarantee. The old units are not
+deleted: the requests after the reload rebuild against the new prompt. The turn's
+usage line is where the reload's cost becomes visible.
+
 ## Provider profiles
 
 `provider_profiles` (Room v12) holds the chat backends. The built-in `deepseek`
@@ -226,6 +241,7 @@ the bearer key in clear text, and the app has no cleartext exception.
 | --- | --- | --- |
 | `none` | neither `thinking`, `reasoning_effort`, nor `reasoning_content` | safe default for an arbitrary compatible server |
 | `effort` | `reasoning_effort` only | OpenAI-style reasoning endpoints |
+| `opencode` | `reasoning_effort` and `reasoning_content`, but not `thinking` or `user_id` | OpenCode Zen/Go, whose DeepSeek models name the reasoning field `reasoning_content` without accepting DeepSeek's other fields |
 | `deepseek` | all three, exactly as the DeepSeek adapter needs | built-in DeepSeek |
 
 `includeStreamUsage` controls `stream_options`; a compatible server that rejects
@@ -236,6 +252,19 @@ which have no context-window or vision metadata until the endpoint answers. A
 compatible endpoint that reports neither field will look text-only in the app,
 because inventing vision support would send images to a model that may reject
 them.
+
+Two things about `/models` are easy to get wrong and were:
+
+- **Image input is not always spelled `"image"`.** OpenCode reports MIME types
+  (`image/jpeg`, `image/png`, …). The parser collapses `image/*` to `image`
+  (and likewise audio/video) and `RemoteModel.supportsVision` accepts either
+  spelling. Without that, every OpenCode vision model looked text-only and the
+  composer refused an attachment the model accepts.
+- **Reasoning levels are not always `effort.supported_levels`.** OpenCode puts
+  them under `capabilities.reasoning.effort` (`["low","high","max"]`), with
+  `capabilities.reasoning.supported` beside them. The parser reads that shape as
+  a fallback, which is what populates the effort chips for models that
+  advertise levels.
 
 ## The OpenAI-compatible adapter
 
@@ -438,11 +467,15 @@ it, Customize accepts manual model IDs.
 
 OpenCode Zen is `https://opencode.ai/zen/v1` and OpenCode Go is
 `https://opencode.ai/zen/go/v1`; both use the OpenAI Chat Completions adapter and
-both expose `/models`. Their `/models` shape describes context and modalities
-under `limit` and `modalities`, which `DeepSeekModels` reads as a fallback. Go
-requires a per-conversation `x-opencode-session`; the app sends the existing
-`ChatRequest.userId` (the conversation id, also used by DeepSeek for cache
-isolation), and a product `User-Agent` of `inhuman`.
+both expose `/models`. Their `/models` shape describes context and output under
+`limit`, input MIME types under `modalities.input`, and reasoning under
+`capabilities.reasoning` (`supported` and `effort`). `DeepSeekModels` reads all
+three, normalises `image/*` to `image`, and the catalogue gives both presets
+`reasoningMode = "opencode"`; the migration to v20 moves existing OpenCode
+profiles from `none` to that mode, because the old default silently dropped
+`reasoning_effort`. Go requires a per-conversation `x-opencode-session`; the app
+sends the existing `ChatRequest.userId` (the conversation id, also used by
+DeepSeek for cache isolation), and a product `User-Agent` of `inhuman`.
 
 **Anthropic** (`provider/anthropic/`): `POST /v1/messages`, `x-api-key`,
 `anthropic-version: 2023-06-01`, system as a separate field, `tool_use` /

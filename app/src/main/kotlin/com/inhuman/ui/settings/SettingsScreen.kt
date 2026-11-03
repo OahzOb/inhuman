@@ -928,6 +928,7 @@ fun SettingsScreen(
 				ApprovalRulesSection(
 					rules = state.approvalRules,
 					sshToolEnabled = state.sshToolEnabled,
+					suggestionsEnabled = state.suggestionsEnabled,
 					onRuleChange = viewModel::setApprovalRule,
 				)
 			}
@@ -969,11 +970,17 @@ fun SettingsScreen(
 					uploading = state.logUploading,
 					logStatus = state.logUploadStatus,
 					logStatusIsError = state.logUploadStatusIsError,
+					recordingActive = state.recordingActive,
+					recordingBytes = state.recordingBytes,
 					onServerUrlChange = viewModel::onLocalServerUrlChange,
 					onCheck = viewModel::checkForUpdates,
 					onDownload = viewModel::downloadUpdate,
 					onInstall = viewModel::installUpdate,
 					onUploadLog = viewModel::uploadLog,
+					onStartRecording = viewModel::startDiagnosticRecording,
+					onStopRecording = viewModel::stopDiagnosticRecording,
+					onUploadRecording = viewModel::uploadRecording,
+					onDeleteRecording = viewModel::deleteDiagnosticRecording,
 				)
 			}
 
@@ -1031,27 +1038,27 @@ fun SettingsScreen(
 					modifier = Modifier
 						.fillMaxWidth()
 						.toggleable(
-							value = state.adviceEnabled,
+							value = state.suggestionsEnabled,
 							role = Role.Switch,
-							onValueChange = viewModel::setAdviceEnabled,
+							onValueChange = viewModel::setSuggestionsEnabled,
 						),
 					horizontalArrangement = Arrangement.SpaceBetween,
 					verticalAlignment = Alignment.Top,
 				) {
 					Column(modifier = Modifier.weight(1f)) {
 						Text(
-							text = stringResource(R.string.settings_advice_title),
+							text = stringResource(R.string.settings_suggestions_title),
 							style = MaterialTheme.typography.titleMedium,
 							color = MaterialTheme.colorScheme.onBackground,
 						)
 						Text(
-							text = stringResource(R.string.settings_advice_body),
+							text = stringResource(R.string.settings_suggestions_body),
 							style = MaterialTheme.typography.bodySmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
 						)
 					}
 					WorkbenchSwitch(
-						checked = state.adviceEnabled,
+						checked = state.suggestionsEnabled,
 						onCheckedChange = null,
 						modifier = Modifier.padding(start = 12.dp),
 					)
@@ -2072,6 +2079,13 @@ private fun ProviderEditorDialog(
 							label = { Text("reasoning_effort") },
 						)
 						FilterChip(
+							selected = draft.reasoningMode == ProviderReasoning.OPENCODE,
+							onClick = {
+								onUpdate { it.copy(reasoningMode = ProviderReasoning.OPENCODE) }
+							},
+							label = { Text("OpenCode") },
+						)
+						FilterChip(
 							selected = draft.reasoningMode == ProviderReasoning.DEEPSEEK,
 							onClick = { onUpdate { it.copy(reasoningMode = ProviderReasoning.DEEPSEEK) } },
 							label = { Text("DeepSeek") },
@@ -2255,11 +2269,17 @@ private fun LocalNetworkSection(
 	uploading: Boolean,
 	logStatus: String?,
 	logStatusIsError: Boolean,
+	recordingActive: Boolean,
+	recordingBytes: Long,
 	onServerUrlChange: (String) -> Unit,
 	onCheck: () -> Unit,
 	onDownload: () -> Unit,
 	onInstall: () -> Unit,
 	onUploadLog: () -> Unit,
+	onStartRecording: () -> Unit,
+	onStopRecording: () -> Unit,
+	onUploadRecording: () -> Unit,
+	onDeleteRecording: () -> Unit,
 ) {
 	val focus = LocalFocusManager.current
 	Column(
@@ -2393,6 +2413,68 @@ private fun LocalNetworkSection(
 				} else {
 					MaterialTheme.colorScheme.primary
 				},
+			)
+		}
+
+		HorizontalDivider(Modifier.padding(top = 4.dp))
+		Row(verticalAlignment = Alignment.CenterVertically) {
+			Column(modifier = Modifier.weight(1f)) {
+				Text(
+					text = stringResource(R.string.settings_recording_title),
+					style = MaterialTheme.typography.titleSmall,
+				)
+				Text(
+					text = stringResource(R.string.settings_recording_body),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+			WorkbenchSwitch(
+				checked = recordingActive,
+				onCheckedChange = { record ->
+					if (record) onStartRecording() else onStopRecording()
+				},
+			)
+		}
+		when {
+			recordingActive -> Text(
+				text = stringResource(R.string.settings_recording_active),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.primary,
+			)
+
+			recordingBytes > 0 -> {
+				Text(
+					text = stringResource(
+						R.string.settings_recording_last,
+						formatBytes(recordingBytes),
+					),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+					TextButton(
+						onClick = onUploadRecording,
+						enabled = !uploading,
+					) {
+						Text(
+							if (uploading) {
+								stringResource(R.string.settings_log_uploading)
+							} else {
+								stringResource(R.string.settings_recording_upload)
+							},
+						)
+					}
+					TextButton(onClick = onDeleteRecording) {
+						Text(stringResource(R.string.settings_recording_delete))
+					}
+				}
+			}
+
+			else -> Text(
+				text = stringResource(R.string.settings_recording_empty_hint),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 		}
 	}
@@ -2545,6 +2627,7 @@ private fun formatLogSize(bytes: Long): String = when {
 private fun ApprovalRulesSection(
 	rules: Map<String, ToolPolicy>,
 	sshToolEnabled: Boolean,
+	suggestionsEnabled: Boolean,
 	onRuleChange: (String, ToolPolicy) -> Unit,
 ) {
 	Column(
@@ -2571,6 +2654,7 @@ private fun ApprovalRulesSection(
 			sshToolEnabled,
 			includeWorkspaceBound = AppCapabilities.workspaceOk,
 			includeSandbox = AppCapabilities.sandboxOk == true,
+			includeSuggestions = suggestionsEnabled,
 		)) {
 			val current = rules[entry.name] ?: ToolPolicy.Free
 			ApprovalRuleRow(

@@ -227,10 +227,16 @@ class ChatEngine(
 					emit(EngineEvent.ToolCallResult(call, executed.result))
 				}
 
-				if (executed.stopTurn) {
+				if (executed.stopTurn || tool?.endsTurn == true) {
 					// Every assistant tool_call needs a result on the wire. If the
 					// turn stops after the first refusal, answer the rest here
 					// rather than leaving the next request with unanswered calls.
+					//
+					// A terminal tool is the same shape for a different reason:
+					// `suggest_replies` already produced the thing the turn was
+					// for, so another round would only make the model read its own
+					// suggestions back. The remaining calls, if a model put more
+					// after it, are answered the same way.
 					for (skip in calls.drop(index + 1)) {
 						val result = ToolResult("not executed: turn stopped", isError = true)
 						history += ChatMessage(Role.Tool, result.content, toolCallId = skip.id)

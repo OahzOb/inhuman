@@ -28,6 +28,8 @@ data class AgentsUiState(
 	val modelsError: String? = null,
 	/** Whether ssh_exec is currently part of the user-visible tool set. */
 	val sshToolEnabled: Boolean = false,
+	/** Whether the follow-up tool is available to pick at all. */
+	val suggestionsEnabled: Boolean = false,
 	val editing: AgentDraft? = null,
 	/** The user's saved system prompts, newest first. */
 	val savedPrompts: List<SavedPromptEntity> = emptyList(),
@@ -63,6 +65,18 @@ data class AgentDraft(
 	 */
 	val tools: List<String>? = null,
 	/**
+	 * The suggestion model's profile, or null to inherit the assistant's.
+	 *
+	 * These four fields configure `suggest_replies` only. They are on the
+	 * assistant, not on the workspace: the assistant already owns the model and
+	 * the prompt, and a workspace can be shared by several conversations with
+	 * different assistants, so "the workspace's model" has no single owner.
+	 */
+	val suggestionProviderId: String? = null,
+	val suggestionModel: String? = null,
+	val suggestionPrompt: String? = null,
+	val suggestionFormat: String = "tool",
+	/**
 	 * What this assistant may do without asking, by tool name.
 	 *
 	 * Carried in the draft like [tools], and for the same reason: it belongs to
@@ -87,6 +101,10 @@ data class AgentDraft(
 		reasoningEffort = reasoningEffort,
 		thinking = thinking,
 		toolsJson = ToolsColumn.encode(tools),
+		suggestionProviderId = suggestionProviderId,
+		suggestionModel = suggestionModel,
+		suggestionPrompt = suggestionPrompt?.takeIf { it.isNotBlank() },
+		suggestionFormat = suggestionFormat,
 		createdAt = createdAt,
 		updatedAt = now,
 		isDefault = isDefault,
@@ -113,7 +131,10 @@ class AgentsViewModel(
 
 	fun refreshSshTool() {
 		_state.update {
-			it.copy(sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1")
+			it.copy(
+				sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
+				suggestionsEnabled = secure.get(SecureStore.KEY_SUGGESTIONS_ENABLED) == "1",
+			)
 		}
 	}
 
@@ -214,6 +235,10 @@ class AgentsViewModel(
 					reasoningEffort = agent.reasoningEffort,
 					thinking = agent.thinking,
 					tools = agent.tools,
+					suggestionProviderId = agent.suggestionProviderId,
+					suggestionModel = agent.suggestionModel,
+					suggestionPrompt = agent.suggestionPrompt,
+					suggestionFormat = agent.suggestionFormat,
 					createdAt = agent.createdAt,
 				),
 			)
@@ -263,6 +288,7 @@ class AgentsViewModel(
 					reasoningEffort = null,
 					thinking = false,
 					tools = AgentRepository.DEFAULT_NEW_AGENT_TOOLS,
+					suggestionFormat = "tool",
 					createdAt = agent.createdAt,
 				),
 			)

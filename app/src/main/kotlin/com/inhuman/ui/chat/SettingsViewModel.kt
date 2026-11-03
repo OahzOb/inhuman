@@ -167,8 +167,8 @@ data class SettingsUiState(
 	val backupReminderDays: Int = 30,
 	/** Reply from the built-in scripted source instead of DeepSeek. */
 	val demoMode: Boolean = false,
-	/** Whether replies end with follow-up suggestions. */
-	val adviceEnabled: Boolean = true,
+	/** Whether the follow-up tool is available to assistants at all. */
+	val suggestionsEnabled: Boolean = false,
 	/**
 	 * Global ceiling on assistant/tool rounds in one turn.
 	 *
@@ -222,6 +222,9 @@ data class SettingsUiState(
 	val logUploading: Boolean = false,
 	val logUploadStatus: String? = null,
 	val logUploadStatusIsError: Boolean = false,
+	/** A manual, bounded copy of the diagnostic lines, for one reproduction. */
+	val recordingActive: Boolean = false,
+	val recordingBytes: Long = 0,
 	/**
 	 * The last usage read, or null until the first one completes.
 	 *
@@ -277,6 +280,7 @@ class SettingsViewModel(
 
 	init {
 		_state.update { it.copy(savedSshHost = savedSshHostStore.load()?.host) }
+		refreshRecordingState()
 	}
 
 	fun savedSshHost(): SshProfile? = savedSshHostStore.load()
@@ -345,7 +349,7 @@ class SettingsViewModel(
 		}.getOrNull()
 		_state.value = SettingsUiState(
 			demoMode = secure.get(SecureStore.KEY_DEMO_MODE) == "1",
-			adviceEnabled = secure.get(SecureStore.KEY_ADVICE_ENABLED) != "0",
+			suggestionsEnabled = secure.get(SecureStore.KEY_SUGGESTIONS_ENABLED) == "1",
 			toolRoundLimit = readToolRoundLimit(),
 			toolCallLimit = readToolCallLimit(),
 			layoutPreference = com.inhuman.core.design.LayoutPreference.fromStored(
@@ -374,6 +378,8 @@ class SettingsViewModel(
 			localServerUrl = secure.get(SecureStore.KEY_LOCAL_SERVER_URL).orEmpty(),
 			currentVersionName = packageInfo?.versionName ?: "?",
 			currentVersionCode = packageInfo?.longVersionCode ?: 0L,
+			recordingActive = AppDiagnostics.recordingActive(),
+			recordingBytes = AppDiagnostics.recordingBytes(),
 		)
 		viewModelScope.launch {
 			agents.observeProviders().collect { list ->
@@ -773,8 +779,53 @@ class SettingsViewModel(
 		}
 	}
 
-	fun uploadLog() {
+	fun startDiagnosticRecording() {
+		AppDiagnostics.startRecording()
+		refreshRecordingState()
+	}
+
+	fun stopDiagnosticRecording() {
+		AppDiagnostics.stopRecording()
+		refreshRecordingState()
+	}
+
+	fun deleteDiagnosticRecording() {
+		AppDiagnostics.deleteRecording()
+		refreshRecordingState()
+	}
+
+	private fun refreshRecordingState() {
+		_state.update {
+			it.copy(
+				recordingActive = AppDiagnostics.recordingActive(),
+				recordingBytes = AppDiagnostics.recordingBytes(),
+			)
+		}
+	}
+
+	fun uploadLog() = uploadLogText(recording = false)
+
+	fun uploadRecording() = uploadLogText(recording = true)
+
+	/**
+	 * Upload either the whole flight recorder or one manual recording.
+	 *
+	 * The recording is the case where the user reproduced a bug and wants the
+	 * upload to be that segment: same server, same endpoint, different body.
+	 * Uploading while the recording is still running is refused rather than
+	 * cutting it at an arbitrary point; the switch in the UI is the boundary.
+	 * The file is read inside [Dispatchers.IO]: the full recorder is up to
+	 * 4 MB, and reading it before launching would put that on the main thread.
+	 */
+	private fun uploadLogText(recording: Boolean) {
 		if (_state.value.logUploading) return
+		if (recording && _state.value.recordingActive) {
+			_state.value = _state.value.copy(
+				logUploadStatus = context.getString(R.string.settings_recording_stop_first),
+				logUploadStatusIsError = true,
+			)
+			return
+		}
 		val base = requireServerUrl()
 		if (base == null) {
 			_state.value = _state.value.copy(
@@ -783,14 +834,20 @@ class SettingsViewModel(
 			)
 			return
 		}
-		if (AppDiagnostics.sizeBytes() <= 0) {
+		val bytes = if (recording) AppDiagnostics.recordingBytes() else AppDiagnostics.sizeBytes()
+		if (bytes <= 0) {
 			_state.value = _state.value.copy(
-				logUploadStatus = context.getString(R.string.settings_log_empty),
+				logUploadStatus = context.getString(
+					if (recording) R.string.settings_recording_empty else R.string.settings_log_empty,
+				),
 				logUploadStatusIsError = true,
 			)
 			return
 		}
-		Diag.i("diag", "upload requested bytes=${AppDiagnostics.sizeBytes()}")
+		Diag.i(
+			"diag",
+			"upload requested bytes=$bytes kind=${if (recording) "recording" else "log"}",
+		)
 		_state.value = _state.value.copy(
 			logUploading = true,
 			logUploadStatus = null,
@@ -799,7 +856,11 @@ class SettingsViewModel(
 		viewModelScope.launch {
 			val result = withContext(Dispatchers.IO) {
 				runCatching {
-					val text = AppDiagnostics.readText()
+					val text = if (recording) {
+						AppDiagnostics.readRecordingText()
+					} else {
+						AppDiagnostics.readText()
+					}
 					if (text.isBlank()) error("log is empty")
 					postLog(base, text)
 				}
@@ -908,12 +969,13 @@ class SettingsViewModel(
 			?: ChatViewModel.DEFAULT_TOOL_CALLS
 
 	/**
-	 * A display preference, not a capability: it only decides whether the next
-	 * request asks for the suggestions block. Nothing already stored changes.
+	 * Makes the follow-up tool visible to the pickers. It is still opt-in per
+	 * assistant, and the tool is the only thing that can spend the extra
+	 * request: turning this off removes the row, not just the checkbox.
 	 */
-	fun setAdviceEnabled(enabled: Boolean) {
-		secure.put(SecureStore.KEY_ADVICE_ENABLED, if (enabled) "1" else "0")
-		_state.value = _state.value.copy(adviceEnabled = enabled)
+	fun setSuggestionsEnabled(enabled: Boolean) {
+		secure.put(SecureStore.KEY_SUGGESTIONS_ENABLED, if (enabled) "1" else "0")
+		_state.value = _state.value.copy(suggestionsEnabled = enabled)
 	}
 
 	fun setDemoMode(enabled: Boolean) {
@@ -1034,7 +1096,11 @@ class SettingsViewModel(
 				name = name,
 				kind = preset?.kind ?: ProviderKinds.OPENAI_COMPATIBLE,
 				baseUrl = preset?.baseUrl ?: "https://api.openai.com/v1",
-				reasoningMode = ProviderReasoning.NONE,
+				// A known endpoint's reasoning fields are part of what makes it
+				// known; making the user rediscover them is the friction the
+				// catalogue exists to remove. Custom profiles still default to
+				// none and expose the chips.
+				reasoningMode = preset?.reasoningMode ?: ProviderReasoning.NONE,
 				includeStreamUsage = true,
 				manualModels = preset?.models?.joinToString("\n").orEmpty(),
 				keyInput = "",

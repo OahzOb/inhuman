@@ -15,10 +15,11 @@ class InterruptedTurnTest {
 
 	private fun user(id: String = "u") = ChatMessageUi(id = id, fromUser = true)
 
-	private fun toolResult(id: String = "t") = ChatMessageUi(
+	private fun toolResult(id: String = "t", name: String? = null) = ChatMessageUi(
 		id = id,
 		fromUser = false,
 		isToolResult = true,
+		toolName = name,
 	)
 
 	private fun assistant(
@@ -55,6 +56,43 @@ class InterruptedTurnTest {
 	fun `a tool result with no following answer is interrupted`() {
 		assertTrue(
 			isInterruptedTurn(listOf(user(), assistant(), toolResult()), isStreaming = false),
+		)
+	}
+
+	@Test
+	fun `a terminal suggestion result is a finished turn`() {
+		// `suggest_replies` ends its turn by design: the engine stops after the
+		// result, so this tail is where a completed turn ends, not half a round.
+		// Offering Continue here would ask the model to answer suggestions that
+		// were already the answer.
+		assertFalse(
+			isInterruptedTurn(
+				listOf(
+					user(),
+					assistant(finish = "tool_calls"),
+					toolResult(name = SUGGEST_TOOL_NAME),
+				),
+				isStreaming = false,
+			),
+		)
+	}
+
+	@Test
+	fun `a repaired suggestion result is still interrupted`() {
+		// The process died between the call and its result; the repair wrote
+		// `[interrupted]`. Treating that as the terminal shape would hide
+		// Continue for a turn that never finished.
+		assertTrue(
+			isInterruptedTurn(
+				listOf(
+					user(),
+					assistant(finish = "tool_calls"),
+					toolResult(name = SUGGEST_TOOL_NAME).copy(
+						plainText = "${ChatViewModel.INTERRUPTED_MARKER} The app stopped before this call finished.",
+					),
+				),
+				isStreaming = false,
+			),
 		)
 	}
 

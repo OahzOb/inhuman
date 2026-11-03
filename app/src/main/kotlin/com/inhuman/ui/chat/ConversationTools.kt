@@ -27,6 +27,8 @@ internal fun conversationToolPlan(
 	 * conversation, so a later healthy start restores them without a re-pick.
 	 */
 	workspaceToolsEnabled: Boolean = true,
+	/** False hides `suggest_replies` from the sheet, not merely disables it. */
+	suggestionsEnabled: Boolean = false,
 ): ConversationToolPlan {
 	val allNonRemote = ToolCatalog.all
 		.filterNot { it.remote }
@@ -44,6 +46,7 @@ internal fun conversationToolPlan(
 		includeSsh = sshEnabled,
 		includeWorkspaceBound = workspaceToolsEnabled,
 		includeSandbox = AppCapabilities.sandboxOk == true,
+		includeSuggestions = suggestionsEnabled,
 	)
 		.filter { it.name in ceiling || it.name in current }
 

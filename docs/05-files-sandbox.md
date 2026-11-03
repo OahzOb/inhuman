@@ -243,6 +243,28 @@ in registry order:
 | `delete_file` | yes | **no** | The one irreversible operation — and it no longer asks. Structure is the argument, not permission: what is inside a workspace is a *copy* of what the user handed over, so deleting it is reversible at the level that matters. See [09-approvals.md](09-approvals.md). |
 | `file_info` | no | no | With no path, reports the workspace totals against their two ceilings plus the per-file read and write limits — four of the six, not all of them. |
 
+### `AGENTS.md`: the one file that becomes a prompt
+
+A root-level `AGENTS.md` is the workspace's standing instruction. It is a normal
+workspace file: the user edits it in Files, the agent can write it, it counts
+against the quota, and it travels with the zip. What is special is that the
+conversation **pins** it on its first request: `WorkspaceInstructions.kt` reads
+the file, renders the block and stores it in
+`conversations.workspaceInstructions`; the system message (`docs/06`) then uses
+the stored string, never a fresh read. Editing the file therefore does not
+change an existing conversation -- new conversations pin the current version,
+and the chat menu's **Reload AGENTS.md** replaces the pin deliberately.
+
+Only the root name matches; `docs/AGENTS.md` is an ordinary file. The read goes
+through `SessionWorkspace.resolve`, so a symlink is refused like any other agent
+path. It is capped at 16 KiB and cut at a line boundary; a single 16 KiB line, a
+blank file, a NUL byte or an unreadable file pins an empty block rather than
+failing the turn. The absolute workspace path never enters the block. A failed
+workspace self-check removes workspace instructions along with the workspace
+tools -- the fence is what makes the file trustworthy. The pinned string lives
+in the database, so an encrypted backup carries it; the workspace zip carries
+the file itself, not the pinned copy.
+
 ### Document tools
 
 `DocumentTools.all` appends `read_document`, `write_document` and

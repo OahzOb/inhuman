@@ -392,6 +392,16 @@ class ConversationRepository(
 	suspend fun setTools(id: String, tools: List<String>) =
 		db.conversations().setTools(id, ToolsColumn.encode(tools))
 
+	/**
+	 * Store the pinned workspace-instructions block.
+	 *
+	 * Null clears the pin ("not pinned yet"); the empty string is the pinned
+	 * "no file" state. Kept separate from [setTools] because a conversation's
+	 * instructions and its tools are independent snapshots.
+	 */
+	suspend fun setWorkspaceInstructions(id: String, block: String?) =
+		db.conversations().setWorkspaceInstructions(id, block)
+
 	suspend fun setSshAllowed(id: String, allowed: Boolean) =
 		db.conversations().setSshAllowed(id, allowed)
 

@@ -135,16 +135,43 @@ private fun redactImageData(json: String): String =
 		"\"data:${it.groupValues[1]};base64,<omitted>\""
 	}
 
-private fun splitSystem(content: String): List<Pair<String, String>> {
-	val marker = "Earlier conversation summary (the messages it covers are omitted from this request):"
-	val at = content.indexOf(marker)
-	return if (at < 0) {
-		listOf("System message" to content)
-	} else {
-		buildList {
-			val prompt = content.substring(0, at).trim()
+private const val SUMMARY_MARKER =
+	"Earlier conversation summary (the messages it covers are omitted from this request):"
+
+/**
+ * Split the composed system message for the inspector.
+ *
+ * The order is assistant prompt, compaction summary, workspace instructions;
+ * each is optional. The workspace block is found by its own marker so a
+ * summary marker inside the file's text cannot make the block look like part of
+ * the summary.
+ */
+internal fun splitSystem(content: String): List<Pair<String, String>> {
+	val workspaceAt = content.indexOf(WORKSPACE_INSTRUCTIONS_MARKER)
+	val summaryAt = content.indexOf(SUMMARY_MARKER).takeIf {
+		it >= 0 && (workspaceAt < 0 || it < workspaceAt)
+	} ?: -1
+	return when {
+		summaryAt < 0 && workspaceAt < 0 -> listOf("System message" to content)
+		summaryAt < 0 -> buildList {
+			val prompt = content.substring(0, workspaceAt).trim()
 			if (prompt.isNotEmpty()) add("Assistant prompt" to prompt)
-			add("Earlier conversation summary" to content.substring(at + marker.length).trim())
+			add("Workspace instructions (AGENTS.md)" to content.substring(workspaceAt).trim())
+		}
+		workspaceAt < 0 -> buildList {
+			val prompt = content.substring(0, summaryAt).trim()
+			if (prompt.isNotEmpty()) add("Assistant prompt" to prompt)
+			add("Earlier conversation summary" to content.substring(summaryAt + SUMMARY_MARKER.length).trim())
+		}
+		else -> buildList {
+			val prompt = content.substring(0, summaryAt).trim()
+			if (prompt.isNotEmpty()) add("Assistant prompt" to prompt)
+			add(
+				"Earlier conversation summary" to content
+					.substring(summaryAt + SUMMARY_MARKER.length, workspaceAt)
+					.trim(),
+			)
+			add("Workspace instructions (AGENTS.md)" to content.substring(workspaceAt).trim())
 		}
 	}
 }

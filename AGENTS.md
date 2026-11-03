@@ -17,7 +17,7 @@ than implementation; the old feasibility studies are archived under
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
 | `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the per-tool media backends (image/video/speech/transcription/decision)**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)**, and the user-set `SshLimits` ceilings |
-| `docs/04-data-persistence.md` | Room schema v18, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup |
+| `docs/04-data-persistence.md` | Room schema v21, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the file and document tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
@@ -223,6 +223,15 @@ Two corrections to what this file used to claim, both verified — see
 contains the IME; consuming it first leaves the composer under the keyboard. This
 was found by opening the keyboard on the phone AVD, not by reading the chain.
 
+**The composer is one hairline-bounded surface**, not a row of controls beside a
+field: a full-width text area over a 48dp action row — attach and microphone on
+the left, context ring and send/stop on the right. Do not put those controls back
+beside the field, and do not return the ring to an `OutlinedTextField` trailing
+slot. Material lays a trailing slot out as a 48dp column for the field's whole
+height, so every wrapped line in a multi-line draft sits beside a blank strip;
+on a 360dp phone the text is left with about 70dp. `docs/07-gotchas.md` B32 is
+the recorded case, and the layout is described in `docs/06-agent-loop-ui.md`.
+
 ### Visual language: Graphite Workbench
 
 The app is a working tool, not a chat template. The visual system is deliberately
@@ -365,14 +374,37 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   clones. Choosing an entry only fills the assistant's system-prompt field,
   which remains editable, and the assistant row keeps its own copy. Neither the
   title nor the text goes to diagnostics.
-- **Advice is a parse of the same answer, never a second call and never
-  consent.** The model appends a `<<<suggestions` block; `Advice.visible` hides
-  it while streaming (holding back a trailing marker prefix, monotonically) and
-  `Advice.parse` strips it before the row is written. Only a round with no tool
-  calls may set `ChatMessageUi.suggestions`, the list is cleared when the next
-  round starts, and it is not persisted. `useSuggestion` may only fill the
-  composer; it must never send, and a suggestion is not an approval or a grant.
-  The setting is a display preference, not a capability tier.
+- **Workspace instructions are the root `AGENTS.md`, pinned once per conversation.**
+  The block is rendered on the conversation's first request, stored in
+  `conversations.workspaceInstructions` (schema v21), and appended after the
+  assistant prompt and the compaction summary. From then on the file is not
+  re-read: editing it does not change this conversation's system message or its
+  cache prefix; new conversations pin the current file, and the chat menu's
+  **Reload AGENTS.md** is the only way to apply an edit to an existing
+  conversation (one deliberate cold request). Null means unpinned and `""` means
+  pinned with no file; do not collapse them. The read goes through
+  `SessionWorkspace.resolve` (no symlinks), is capped at 16 KiB and cut at a line
+  boundary, and never includes the absolute workspace path. Missing, blank,
+  binary or unreadable files pin the empty block; a failed workspace self-check
+  removes it with the workspace tools. The block is workspace content, not a
+  capability: it cannot add a tool, change an approval or grant SSH. The agent
+  may write the file -- the user chose that -- but that affects new
+  conversations or a reload, not this one; Rewind still restores the file itself.
+- **Follow-ups are `suggest_replies`, a tool that ends its own turn.** The tool
+  is in the main turn's tool set, `paid = true`, and `endsTurn = true`: the
+  engine executes it, persists the result and stops, so the turn does not spend
+  a second full-history request making the model read its own suggestions back.
+  The executor makes one extra completion against the assistant's configured
+  suggestion model (text or tool format), sanitises the list through
+  `Advice.sanitize`, and returns `{"suggestions":[...]}`. The result is
+  persisted like any other tool result, the chips are rendered from it, and
+  `isInterruptedTurn` treats that terminal tail as finished. The tool is
+  opt-in twice -- the global switch and the assistant's explicit selection --
+  and `ToolCatalog.permits` never grants it from a null "all" selection.
+  `useSuggestion` may only fill the composer; it must never send, and a
+  suggestion is not an approval or a grant. The old inline `<<<suggestions`
+  block, its streaming filter and its transient system instruction are gone; do
+  not reintroduce a second mechanism.
 - **The backup reminder reminds; it never writes a backup.** `BackupReminderPolicy`
   is pure (no data, off, a snooze, a backward clock or an age under the period →
   nothing); the "never backed up" baseline is `backup.tracking_since`, written on
@@ -548,8 +580,10 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   billing.
 - **Diagnostics never records a key, a prompt or file content, and never throws
   into the call site.** A logger that can fail a turn is a second bug; one that
-  keeps the user's text is a leak with a retention policy. `docs/10-diagnostics.md`
-  is the contract.
+  keeps the user's text is a leak with a retention policy. The manual recording
+  copies the same formatted lines into a bounded second file -- same redaction,
+  same no-content rule -- so it must never become a different kind of record.
+  `docs/10-diagnostics.md` is the contract.
 - **The updater verifies before it installs.** It checks the manifest's
   SHA-256, the APK's package name and version code, and that the signing
   certificate set matches the installed app; then `PackageInstaller` still asks

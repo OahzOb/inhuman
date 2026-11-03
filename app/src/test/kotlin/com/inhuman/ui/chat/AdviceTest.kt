@@ -5,88 +5,67 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The advice block's parser and its streaming gate.
+ * The follow-up sanitiser and the tool result's shape.
  *
- * The block is the only structure in the answer that the user is not supposed
- * to see arrive, so both halves are pinned here: a complete block is removed and
- * read, a partial marker is held back instead of flickering, and a cut-off
- * block loses the suggestions rather than half-parsing them.
+ * Both paths into this file are model output -- a text answer from the
+ * suggestion model and the arguments of `emit_suggestions` -- and both can
+ * carry bullets, numbering, duplicates or more lines than the prompt asked for.
+ * These are the rules the UI and the transcript both rely on.
  */
 class AdviceTest {
 
 	@Test
-	fun `an answer with no block is left alone`() {
-		val result = Advice.parse("Just an answer.\n")
-
-		assertEquals("Just an answer.", result.visibleText)
-		assertTrue(result.suggestions.isEmpty())
-	}
-
-	@Test
-	fun `a complete block becomes suggestions and leaves the answer`() {
-		val result = Advice.parse(
-			"The answer.\n\n" +
-				"$ADVICE_OPEN\nContinue\nExplain the second point\n$ADVICE_CLOSE\n",
+	fun `bullets, numbering and blanks are stripped`() {
+		assertEquals(
+			listOf("Continue", "Explain it", "Try another"),
+			Advice.sanitize(
+				sequenceOf("- Continue", "", "2. Explain it", "* Try another", "   "),
+			),
 		)
-
-		assertEquals("The answer.", result.visibleText)
-		assertEquals(listOf("Continue", "Explain the second point"), result.suggestions)
 	}
 
 	@Test
-	fun `the parser tolerates bullets, numbering and blanks`() {
-		val result = Advice.parse(
-			"Answer\n$ADVICE_OPEN\n- Continue\n\n2. Explain it\n* Try another\n$ADVICE_CLOSE",
+	fun `suggestions are capped and de-duplicated`() {
+		assertEquals(
+			listOf("one", "two", "three"),
+			Advice.sanitize(sequenceOf("one", "two", "one", "three", "four")),
 		)
-
-		assertEquals(listOf("Continue", "Explain it", "Try another"), result.suggestions)
 	}
 
 	@Test
-	fun `suggestions are capped and deduplicated`() {
-		val result = Advice.parse(
-			"Answer\n$ADVICE_OPEN\none\ntwo\none\nthree\nfour\n$ADVICE_CLOSE",
-		)
+	fun `a long line is truncated rather than dropped`() {
+		val long = "x".repeat(120)
 
-		assertEquals(listOf("one", "two", "three"), result.suggestions)
+		assertEquals(80, Advice.sanitize(sequenceOf(long)).single().length)
 	}
 
 	@Test
-	fun `an unclosed block hides itself and yields no suggestions`() {
-		val result = Advice.parse("Answer\n$ADVICE_OPEN\nContinue")
+	fun `the tool result round-trips through json`() {
+		val items = listOf("Continue", "Explain the second point")
 
-		assertEquals("Answer", result.visibleText)
-		assertTrue(result.suggestions.isEmpty())
+		assertEquals(items, Advice.fromJson(Advice.toJson(items)))
 	}
 
 	@Test
-	fun `text after the block is preserved`() {
-		val result = Advice.parse(
-			"Answer\n$ADVICE_OPEN\nContinue\n$ADVICE_CLOSE\n\nOne more note.",
-		)
+	fun `json is sanitised the same way as text`() {
+		val json = """{"suggestions":["- one","2. two","one","three","four"]}"""
 
-		assertEquals("Answer\n\nOne more note.", result.visibleText)
-		assertEquals(listOf("Continue"), result.suggestions)
+		assertEquals(listOf("one", "two", "three"), Advice.fromJson(json))
 	}
 
 	@Test
-	fun `the streaming view hides a complete marker`() {
-		assertEquals("Answer\n", Advice.visible("Answer\n$ADVICE_OPEN\nContinue"))
+	fun `malformed json is no suggestions, not a failure`() {
+		// The turn has already been answered. A throw here would turn a
+		// cosmetic miss into a failed tool call in the transcript.
+		assertTrue(Advice.fromJson("not json").isEmpty())
+		assertTrue(Advice.fromJson("""{"suggestions":"Continue"}""").isEmpty())
+		assertTrue(Advice.fromJson("""{"nope":[]}""").isEmpty())
 	}
 
 	@Test
-	fun `the streaming view holds back a partial marker`() {
-		assertEquals("Answer", Advice.visible("Answer<<<sug"))
-		assertEquals("Answer", Advice.visible("Answer<"))
-	}
+	fun `an empty list survives the round trip`() {
+		val json = Advice.toJson(emptyList())
 
-	@Test
-	fun `a partial marker that turns out to be text is released`() {
-		assertEquals("Answer<x", Advice.visible("Answer<x"))
-	}
-
-	@Test
-	fun `ordinary text is unchanged`() {
-		assertEquals("a < b", Advice.visible("a < b"))
+		assertTrue(Advice.fromJson(json).isEmpty())
 	}
 }

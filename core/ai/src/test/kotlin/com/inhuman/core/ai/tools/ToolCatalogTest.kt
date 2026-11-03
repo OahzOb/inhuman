@@ -17,20 +17,30 @@ class ToolCatalogTest {
 	// --- the two empty-looking states -----------------------------------------
 
 	@Test
-	fun `null permits everything except remote tools`() {
+	fun `null permits everything except remote and opt-in tools`() {
 		// What an assistant created before the setting existed has. It must keep
 		// working, and it must keep working as new tools are added -- "everything"
 		// was the answer when it was recorded and is still the answer.
 		//
 		// Remote tools are the exception: null predates them, and reading that
-		// as consent would hand every old assistant a remote shell.
-		val remote = ToolCatalog.all.filter { it.remote }.map { it.name }
-		ToolCatalog.names.filterNot { it in remote }.forEach { name ->
+		// as consent would hand every old assistant a remote shell. Opt-in tools
+		// are the same shape for a different cost: `suggest_replies` spends an
+		// extra request per answer, and a new name appearing must not start
+		// charging conversations that never chose it.
+		val explicitOnly = ToolCatalog.all.filter { it.remote || it.optIn }.map { it.name }
+		ToolCatalog.names.filterNot { it in explicitOnly }.forEach { name ->
 			assertTrue("null must permit $name", ToolCatalog.permits(null, name))
 		}
-		remote.forEach { name ->
+		explicitOnly.forEach { name ->
 			assertFalse("null must not permit $name", ToolCatalog.permits(null, name))
 		}
+	}
+
+	@Test
+	fun `opt-in tools must be named explicitly`() {
+		assertFalse(ToolCatalog.permits(null, "suggest_replies"))
+		assertFalse(ToolCatalog.permits(emptyList(), "suggest_replies"))
+		assertTrue(ToolCatalog.permits(listOf("suggest_replies"), "suggest_replies"))
 	}
 
 	@Test
@@ -147,10 +157,10 @@ class ToolCatalogTest {
 			assertFalse("$name must not be materialised", name in explicit)
 			assertFalse("$name must stay refused", ToolCatalog.permits(explicit, name))
 		}
-		ToolCatalog.all.filterNot { it.remote }.forEach { entry ->
+		ToolCatalog.all.filterNot { it.remote || it.optIn }.forEach { entry ->
 			assertTrue("${entry.name} must survive", entry.name in explicit)
 		}
-		assertEquals(ToolCatalog.all.count { !it.remote }, explicit.size)
+		assertEquals(ToolCatalog.all.count { !it.remote && !it.optIn }, explicit.size)
 	}
 
 	@Test
@@ -220,8 +230,8 @@ class ToolCatalogTest {
 		val paid = ToolCatalog.all.filter { it.paid }.map { it.name }.toSet()
 		assertEquals(
 			setOf(
-				"web_search", "web_fetch", "decide", "transcribe", "generate_image",
-				"generate_video", "speak",
+				"web_search", "web_fetch", "decide", "suggest_replies", "transcribe",
+				"generate_image", "generate_video", "speak",
 			),
 			paid,
 		)

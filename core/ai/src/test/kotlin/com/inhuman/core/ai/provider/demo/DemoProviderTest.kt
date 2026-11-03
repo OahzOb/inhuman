@@ -80,27 +80,47 @@ class DemoProviderTest {
 	}
 
 	@Test
-	fun `the demo appends the advice block only when the request asks for it`() = runTest {
-		val asked = request(
+	fun `the demo calls suggest_replies after an answer only when it is offered`() = runTest {
+		val offered = request(
+			tools = listOf(DemoProvider.SUGGEST_TOOL),
+			messages = listOf(ChatMessage(Role.User, "plain")),
+		)
+		assertEquals(
+			listOf(DemoProvider.SUGGEST_TOOL),
+			callsIn(offered).map { it.name },
+		)
+
+		val notOffered = request(
+			tools = emptyList(),
+			messages = listOf(ChatMessage(Role.User, "plain")),
+		)
+		assertTrue(callsIn(notOffered).isEmpty())
+	}
+
+	@Test
+	fun `the suggestion request is answered with the emit tool or with text`() = runTest {
+		val toolRequest = request(
+			tools = listOf(DemoProvider.EMIT_TOOL),
 			messages = listOf(
-				ChatMessage(Role.User, "plain"),
-				ChatMessage(
-					Role.System,
-					"After the final answer append:\n${DemoProvider.ADVICE_MARKER}\nContinue\n>>>",
-				),
+				ChatMessage(Role.System, "suggest"),
+				ChatMessage(Role.User, "[suggest_replies]\nQuestion:\nq\n\nAnswer:\na"),
 			),
 		)
-		val textAsked = noDelay.stream(asked).toList()
-			.filterIsInstance<StreamChunk.TextDelta>()
-			.joinToString("") { it.text }
-		assertTrue(textAsked.contains(DemoProvider.ADVICE_MARKER))
-		assertTrue(textAsked.contains("Continue"))
+		val toolCalls = callsIn(toolRequest)
+		assertEquals(listOf(DemoProvider.EMIT_TOOL), toolCalls.map { it.name })
+		assertTrue(toolCalls.single().argumentsJson.contains("Continue"))
 
-		val plain = request(messages = listOf(ChatMessage(Role.User, "plain")))
-		val textPlain = noDelay.stream(plain).toList()
+		val textRequest = request(
+			tools = emptyList(),
+			messages = listOf(
+				ChatMessage(Role.System, "suggest"),
+				ChatMessage(Role.User, "[suggest_replies]\nQuestion:\nq\n\nAnswer:\na"),
+			),
+		)
+		val text = noDelay.stream(textRequest).toList()
 			.filterIsInstance<StreamChunk.TextDelta>()
 			.joinToString("") { it.text }
-		assertFalse(textPlain.contains(DemoProvider.ADVICE_MARKER))
+		assertTrue(text.contains("Continue"))
 	}
 
 	@Test

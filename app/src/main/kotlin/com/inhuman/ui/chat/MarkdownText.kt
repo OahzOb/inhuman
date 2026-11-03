@@ -12,11 +12,12 @@ import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.compose.elements.MarkdownTable
 import com.mikepenz.markdown.compose.elements.MarkdownTableHeader
 import com.mikepenz.markdown.compose.elements.MarkdownTableRow
-import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.compose.Markdown
+import com.mikepenz.markdown.model.State
+import com.mikepenz.markdown.model.parseMarkdown
 import com.mikepenz.markdown.m3.elements.MarkdownCheckBox
 import com.mikepenz.markdown.m3.markdownColor
 import com.mikepenz.markdown.m3.markdownTypography
-import com.mikepenz.markdown.model.rememberMarkdownState
 import com.mikepenz.markdown.model.rememberStreamingMarkdownState
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
@@ -126,6 +127,11 @@ private val chatMarkdownComponents = markdownComponents(
 fun MarkdownText(
 	text: String,
 	modifier: Modifier = Modifier,
+	/**
+	 * A state parsed off the composition, when the caller already has one.
+	 * Passing it avoids the main-thread parse of `immediate = true`.
+	 */
+	parsed: State? = null,
 	/**
 	 * The deltas this message is still arriving in, or null once it is
 	 * complete. Non-null selects the incremental parser.
@@ -246,30 +252,28 @@ fun MarkdownText(
 		return
 	}
 
-	// retainState is the fix for the flicker, and leaving it at its default was
-	// the bug.
-	//
-	// Parsing happens off the composition and its result arrives asynchronously.
-	// With retainState = false the state clears while the next parse is in
-	// flight, so a token arriving between a recomposition and its parse leaves
-	// nothing to draw and the bubble blinks -- at token rate, which reads as
-	// continuous flickering rather than as one dropped frame. Retaining the
-	// previous result means the last complete render stays on screen until the
-	// next one is ready.
-	//
-	// The signature is
-	//   rememberMarkdownState(content, lookupLinks, retainState, flavour, parser, …)
-	// and everything after `content` defaults to exactly the value that causes
-	// the flicker.
 	val painted = remember(text) { LatexMarkdown.transform(text, finished = true) }
-	val state = rememberMarkdownState(content = painted, retainState = true)
-
+	parsed?.let { ready ->
+		Markdown(
+			ready,
+			colors,
+			typography,
+			modifier,
+			imageTransformer = transformer,
+			components = chatMarkdownComponents,
+		)
+		return
+	}
+	// The background parse has not finished yet. Parse here rather than showing
+	// a short row that grows later; visible rows are the only ones that reach
+	// this path.
 	Markdown(
-		markdownState = state,
-		modifier = modifier,
+		content = painted,
 		colors = colors,
 		typography = typography,
+		modifier = modifier,
 		imageTransformer = transformer,
 		components = chatMarkdownComponents,
+		immediate = true,
 	)
 }

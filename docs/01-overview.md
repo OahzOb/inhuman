@@ -145,8 +145,10 @@ Confirmed by `README.md:17-29` and by the code:
   no tool reads or writes it, and choosing an entry only fills the prompt box,
   which stays editable ([04-data-persistence.md](04-data-persistence.md)).
 - Replies can end with two or three follow-up chips. Tapping one fills the
-  composer and never sends; the suggestions come from the same answer, with no
-  extra request, and the setting can turn them off
+  composer and never sends. They come from `suggest_replies`, an opt-in tool
+  that sends one extra request to the assistant's suggestion model and keeps its
+  call and result in the transcript; it is off by default and must be enabled
+  globally and selected on the assistant
   ([06-agent-loop-ui.md](06-agent-loop-ui.md)).
 - The home screen can remind you that the encrypted backup is overdue (7/30/90
   days, default 30, or off). It only reminds: the export is still the button in
@@ -165,8 +167,15 @@ Confirmed by `README.md:17-29` and by the code:
   and its checkpoint restored, and the request runs **with tools**
   ([07-gotchas.md](07-gotchas.md) B20, B23).
 - Image attachments.
-- A context gauge above the composer, with explicit, reversible compaction of
-  older complete turns.
+- A context ring in the composer's action row, with the figures one tap away
+  and explicit, reversible compaction of older complete turns.
+- A root `AGENTS.md` in the conversation's workspace is pinned on the
+  conversation's first request and appended to the system prompt. Later edits
+  apply to new conversations, or to the current one through the chat menu's
+  reload. It is workspace content, not a capability: it cannot change the tool
+  set, approvals or SSH consent. Missing, blank, binary or over-long files are
+  ignored; the absolute workspace path never appears
+  ([05-files-sandbox.md](05-files-sandbox.md), [06-agent-loop-ui.md](06-agent-loop-ui.md)).
 - A **Usage** section in Settings totals the token counts the providers reported
   and the paid tool calls still recorded, for today/7 days/30 days/all, by local
   day and by conversation. It is derived from the transcript, so deleted or

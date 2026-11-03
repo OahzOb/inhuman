@@ -45,17 +45,21 @@ Let `agent.tools == null` mean the historical "all tools", which already exclude
 remote tools, and let `conversation.tools == null` mean the same for that
 conversation.
 
-- `agent.tools == null`: the ceiling is every non-remote catalogue entry. A
-  remote tool is available only if the conversation already names it.
+- `agent.tools == null`: the ceiling is every non-remote catalogue entry that is
+  not opt-in. A remote tool, and `suggest_replies` (opt-in because it spends an
+  extra request), is available only if the conversation or assistant already
+  names it.
 - `agent.tools` is a list: the ceiling is that list. The conversation's existing
   names are added to the available set as well, so a tool the assistant no longer
   has can be restored but not invented.
-- `ToolCatalog.visible(sshEnabled, includeWorkspaceBound = workspaceToolsEnabled)`
-  is applied last: with SSH off, no remote row is shown, and existing remote
-  names are kept in storage but not registered in the turn. With the startup
-  workspace self-check failed, every workspace-bound row -- files, media and SSH
-  -- is absent for the same reason; the stored names survive, so a later healthy
-  start restores them without the user re-picking anything.
+- `ToolCatalog.visible(sshEnabled, includeWorkspaceBound = workspaceToolsEnabled,
+  includeSuggestions = suggestionsEnabled)` is applied last: with SSH off, no
+  remote row is shown; with the follow-up switch off, no `suggest_replies` row
+  is shown. Existing names are kept in storage but not registered in the turn.
+  With the startup workspace self-check failed, every workspace-bound row --
+  files, media and SSH -- is absent for the same reason; the stored names
+  survive, so a later healthy start restores them without the user re-picking
+  anything.
 
 The result is that editing an assistant to add `ssh_upload` makes it available in
 an existing conversation, while a conversation cannot grant itself a capability

@@ -31,10 +31,24 @@ internal fun isInterruptedTurn(
 	val last = messages.lastOrNull() ?: return false
 	if (last.fromUser) return true
 	if (last.isToolResult) {
-		// A tool result is only half a round. Look at the assistant that asked
-		// for it: an error there is a stop or a provider failure, and the error
-		// banner already owns the retry; no error means the next round never
-		// started, which is the interruption this function is for.
+		// A terminal tool closes its turn. `suggest_replies` is the one tool
+		// with `endsTurn = true`: the engine stops after its result, so this
+		// tail is the finished shape rather than half a round, and offering
+		// Continue here would ask the model to answer suggestions that were
+		// already the answer.
+		// The repair path (`closeDanglingCalls`) writes `[interrupted]` into a
+		// result whose call never got an answer, and that one *is* an
+		// interruption even though its name is the terminal tool's. Read the
+		// content too, or a killed turn would look finished and lose Continue.
+		if (last.toolName == SUGGEST_TOOL_NAME &&
+			!last.plainText.startsWith(ChatViewModel.INTERRUPTED_MARKER)
+		) {
+			return false
+		}
+		// Otherwise a tool result is only half a round. Look at the assistant
+		// that asked for it: an error there is a stop or a provider failure, and
+		// the error banner already owns the retry; no error means the next round
+		// never started, which is the interruption this function is for.
 		val owner = messages.dropLast(1).lastOrNull { !it.fromUser && !it.isToolResult }
 		return owner?.error == null
 	}

@@ -192,14 +192,18 @@ class SecureStore(
 		const val KEY_DEMO_MODE = "demo.mode"
 
 		/**
-		 * Whether the model is asked for follow-up suggestions.
+		 * Whether `suggest_replies` exists as a tool at all.
 		 *
-		 * On unless stored as "0": the feature is a display preference, and
-		 * absence should mean the default, not the opt-out. Like demo mode it
-		 * is not a secret; it lives here only because this is the app's one
-		 * small key-value store.
+		 * **Off unless stored as "1".** This is the first of two gates, the same
+		 * shape SSH uses: the switch makes the tool visible to the picker, and
+		 * the assistant still has to select it. The inline text block this
+		 * replaced needed no gate because it cost no extra request; this one
+		 * does, so absence must mean the default and the default is off.
+		 *
+		 * Like demo mode it is not a secret; it lives here only because this is
+		 * the app's one small key-value store.
 		 */
-		const val KEY_ADVICE_ENABLED = "chat.advice_enabled"
+		const val KEY_SUGGESTIONS_ENABLED = "chat.suggestions_enabled"
 
 		/**
 		 * When the last encrypted backup was written, in epoch milliseconds.

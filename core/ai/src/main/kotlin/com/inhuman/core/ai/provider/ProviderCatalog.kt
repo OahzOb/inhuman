@@ -17,6 +17,17 @@ data class KnownProvider(
 	val kind: String,
 	val baseUrl: String,
 	val models: List<String> = emptyList(),
+	/**
+	 * The reasoning fields this preset's endpoint accepts.
+	 *
+	 * A known provider can set this because its wire behaviour is known, which
+	 * is the point of the catalogue: the user should not have to discover that
+	 * OpenCode's gateway takes `reasoning_effort` but not DeepSeek's `thinking`
+	 * object. Values match `ProviderReasoning` in `:core:db`; this module cannot
+	 * depend on that module, so they are documented strings rather than a
+	 * shared enum.
+	 */
+	val reasoningMode: String = "none",
 )
 
 object ProviderCatalog {
@@ -55,12 +66,18 @@ object ProviderCatalog {
 			name = "OpenCode Zen",
 			kind = ProviderFactory.OPENAI_CHAT,
 			baseUrl = "https://opencode.ai/zen/v1",
+			// `reasoning_effort` plus `reasoning_content` replay, without
+			// DeepSeek's `thinking` object or `user_id`: the gateway is
+			// OpenAI-compatible, and its DeepSeek models name the reasoning
+			// field `reasoning_content` in their own metadata.
+			reasoningMode = "opencode",
 		),
 		KnownProvider(
 			id = "opencode-go",
 			name = "OpenCode Go",
 			kind = ProviderFactory.OPENAI_CHAT,
 			baseUrl = "https://opencode.ai/zen/go/v1",
+			reasoningMode = "opencode",
 		),
 		KnownProvider(
 			id = "zai",

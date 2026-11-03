@@ -73,8 +73,10 @@ class DeepSeekProvider(
 	 *
 	 * `deepseek` sends `thinking`, `reasoning_effort` and replays
 	 * `reasoning_content`. `effort` sends only the standard
-	 * `reasoning_effort`. `none` sends none of them, which is the safe default
-	 * for an arbitrary OpenAI-compatible server.
+	 * `reasoning_effort`. `opencode` sends `reasoning_effort` and replays
+	 * `reasoning_content` but sends neither `thinking` nor `user_id`, because
+	 * OpenCode's gateway is not DeepSeek's API. `none` sends none of them, which
+	 * is the safe default for an arbitrary OpenAI-compatible server.
 	 */
 	private val reasoningMode: String = "deepseek",
 	/** Some compatible servers reject `stream_options`; let the profile omit it. */

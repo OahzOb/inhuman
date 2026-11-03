@@ -173,6 +173,16 @@ interface ConversationDao {
 	@Query("UPDATE conversations SET toolsJson = :toolsJson WHERE id = :id")
 	suspend fun setTools(id: String, toolsJson: String)
 
+	/**
+	 * Replace a conversation's pinned workspace-instructions block.
+	 *
+	 * No `updatedAt` bump, for the same reason as [setTools]: pinning the
+	 * instructions is not conversation activity, and moving the row to the top
+	 * of the list would be a surprise.
+	 */
+	@Query("UPDATE conversations SET workspaceInstructions = :block WHERE id = :id")
+	suspend fun setWorkspaceInstructions(id: String, block: String?)
+
 	@Query("SELECT sshAllowed FROM conversations WHERE id = :id")
 	suspend fun sshAllowed(id: String): Boolean?
 
@@ -569,11 +579,13 @@ interface SavedPromptDao {
 	// latency, again for assistants, again for the approval rules, again for
 	// the approval audit, again for the saved-prompt library, again for the
 	// Anthropic thinking signature, and again for OpenAI Responses provider
-	// state. Room refuses to open a database whose schema hash does not match
-	// rather than guessing, which is how each was caught: the app crashed on
-	// launch with "Looks like you've changed schema but forgot to update the
-	// version number" instead of quietly losing conversations.
-	version = 18,
+	// state, again for the per-assistant follow-up suggestion settings, and
+	// again for the OpenCode reasoning-mode correction. Room refuses to open a
+	// database whose schema hash does not match rather than guessing, which is
+	// how each was caught: the app crashed on launch with "Looks like you've
+	// changed schema but forgot to update the version number" instead of
+	// quietly losing conversations.
+	version = 21,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -591,7 +603,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 		const val NAME = "inhuman.db"
 
 		/** Mirrors the Room annotation; backups record it without reflection. */
-		const val VERSION = 18
+		const val VERSION = 20
 
 		/**
 		 * 1 -> 2: tool-call columns.
@@ -1017,6 +1029,63 @@ abstract class InhumanDatabase : RoomDatabase() {
 		}
 
 		/**
+		 * 18 -> 19: per-assistant follow-up suggestion settings.
+		 *
+		 * Additive and nullable except the format, which is `tool` for every
+		 * existing assistant: the tool is opt-in through `toolsJson`, so a
+		 * default row is inert until someone selects `suggest_replies`. The
+		 * default matters only when it is selected, and `tool` is the shape the
+		 * feature was built around.
+		 */
+		val MIGRATION_18_19 = object : Migration(18, 19) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL("ALTER TABLE agents ADD COLUMN suggestionProviderId TEXT")
+				connection.execSQL("ALTER TABLE agents ADD COLUMN suggestionModel TEXT")
+				connection.execSQL("ALTER TABLE agents ADD COLUMN suggestionPrompt TEXT")
+				connection.execSQL(
+					"ALTER TABLE agents ADD COLUMN suggestionFormat TEXT NOT NULL DEFAULT 'tool'",
+				)
+			}
+		}
+
+		/**
+		 * 19 -> 20: OpenCode presets learn how their endpoint reasons.
+		 *
+		 * Existing OpenCode profiles were created with `none`, which was the
+		 * catalog's default for every preset at the time. That mode drops
+		 * `reasoning_effort` on the floor, so the effort chips a model
+		 * advertises changed nothing on the wire. The mode is a fact about the
+		 * endpoint rather than a user preference for these two preset URLs, and
+		 * the preset editor hides the control, so an existing row has no
+		 * deliberate "none" to preserve. A user who wants it back can customise
+		 * the profile and choose None again.
+		 */
+		val MIGRATION_19_20 = object : Migration(19, 20) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"UPDATE provider_profiles SET reasoningMode = 'opencode' " +
+						"WHERE reasoningMode = 'none' " +
+						"AND baseUrl LIKE 'https://opencode.ai/zen/%'",
+				)
+			}
+		}
+
+		/**
+		 * 20 -> 21: a conversation can pin its `AGENTS.md` block.
+		 *
+		 * Nullable and additive. An old conversation has no snapshot and pins
+		 * the file on its next request; a new one pins it on the first request
+		 * that uses it. The block is stored on the conversation, not re-read,
+		 * so editing the workspace file cannot change an existing system prompt
+		 * (or its prefix cache).
+		 */
+		val MIGRATION_20_21 = object : Migration(20, 21) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL("ALTER TABLE conversations ADD COLUMN workspaceInstructions TEXT")
+			}
+		}
+
+		/**
 		 * Every migration, in order.
 		 *
 		 * A host that builds the database itself must not copy this list. The
@@ -1043,6 +1112,9 @@ abstract class InhumanDatabase : RoomDatabase() {
 			MIGRATION_15_16,
 			MIGRATION_16_17,
 			MIGRATION_17_18,
+			MIGRATION_18_19,
+			MIGRATION_19_20,
+			MIGRATION_20_21,
 		)
 
 		/**

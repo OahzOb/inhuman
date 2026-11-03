@@ -83,6 +83,27 @@ interface Tool {
 	 * be deleted.
 	 */
 	val reversible: Boolean get() = true
+
+	/**
+	 * Whether the turn ends as soon as this call has run.
+	 *
+	 * Default false: an ordinary tool returns a result and the model gets
+	 * another round to read it. A tool whose *result is the last thing the turn
+	 * needs* sets this, and the engine stops before sending another request.
+	 *
+	 * The reason this is a tool property rather than a host special case is the
+	 * wire contract: every assistant `tool_calls` block needs results before the
+	 * next request, and a host that stopped by itself would still have to
+	 * persist the result and close the turn. Declaring it here means the engine
+	 * that already owns the loop also owns the stop, and both hosts get the same
+	 * answer.
+	 *
+	 * `suggest_replies` is the reason it exists (`docs/06-agent-loop-ui.md`):
+	 * its result is the suggestions, and asking the model to read them back
+	 * would only make it repeat them -- an extra full-history request for a
+	 * sentence nobody needs.
+	 */
+	val endsTurn: Boolean get() = false
 	/**
 	 * Whether this particular call needs the user's consent first.
 	 *

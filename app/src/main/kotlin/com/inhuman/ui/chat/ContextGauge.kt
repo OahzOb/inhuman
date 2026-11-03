@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -32,23 +31,22 @@ import com.inhuman.R
 import com.inhuman.ui.common.FlowRowCompat
 
 /**
- * How full the context window is, as a ring.
+ * How full the context window is, as a ring small enough for the composer.
  *
- * ## Why a ring and a short percentage
+ * ## Why this is no longer a strip of its own
+ *
+ * It used to sit in a full-width row above the input, with the ring and a
+ * "25% · 262K / 1M" label. On a phone that row cost roughly the height of the
+ * composer itself and said one proportion; the ring alone says the same thing,
+ * so it now lives in the composer's action row, beside Send.
+ *
+ * ## Why a ring and no label here
  *
  * The question this answers is "how much room is left", and that is a question
- * about a proportion, which a shape answers at a glance. The percentage beside
- * it is the exact-at-a-glance form for someone who watches the number; the ring
- * still carries the same fact when the label is skimmed past. Both are compact
- * and quiet at a few percent.
- *
- * ## Why it is tappable
- *
- * A ring cannot show 412,338 and should not try. The exact figures -- used,
- * total, remaining, and the percentage those make -- are one tap away, which is
- * where someone who is actually worried about running out will look. The panel
- * also carries the two cases the ring cannot draw at all: no window reported,
- * and a window with nothing measured yet.
+ * about a proportion, which a shape answers at a glance. The exact figures --
+ * used, total, remaining, and the percentage those make -- are one tap away in
+ * [ContextDetailPanel], which is also where the two cases the ring cannot draw
+ * live: no window reported, and a window with nothing measured yet.
  *
  * ## Why the whole thing collapses to nothing when there is nothing to say
  *
@@ -57,15 +55,9 @@ import com.inhuman.ui.common.FlowRowCompat
  * false one.
  */
 @Composable
-fun ContextGauge(
+fun ContextRing(
 	usage: ContextUsage,
-	expanded: Boolean,
 	onToggle: () -> Unit,
-	compaction: ContextCompactionUi? = null,
-	isCompacting: Boolean = false,
-	onCompact: (() -> Unit)? = null,
-	onViewCompaction: () -> Unit = {},
-	onClearCompaction: () -> Unit = {},
 	modifier: Modifier = Modifier,
 ) {
 	if (!usage.isKnown) return
@@ -80,49 +72,50 @@ fun ContextGauge(
 		MaterialTheme.colorScheme.tertiary
 	}
 
-	Column(modifier = modifier.fillMaxWidth()) {
-		if (expanded) {
-			ContextDetail(
-				usage = usage,
-				compaction = compaction,
-				isCompacting = isCompacting,
-				onCompact = onCompact,
-				onViewCompaction = onViewCompaction,
-				onClearCompaction = onClearCompaction,
-			)
-			Spacer(Modifier.size(4.dp))
-		}
-
-		// The clickable area is the ring and its label, not the whole strip.
-		// It used to be `fillMaxWidth().clickable()`, which made an invisible
-		// full-width band open the panel on any tap near the composer's top
-		// edge, and it was only 28dp tall. The outer row lays it out to the
-		// end; the inner row is the 48dp target.
-		Row(
-			modifier = Modifier.fillMaxWidth(),
-			horizontalArrangement = Arrangement.End,
-		) {
-			Row(
-				modifier = Modifier
-					.clip(RoundedCornerShape(8.dp))
-					.clickable(onClick = onToggle)
-					.heightIn(min = 48.dp)
-					.padding(horizontal = 6.dp, vertical = 4.dp)
-					.semantics { contentDescription = gaugeDescription },
-				verticalAlignment = Alignment.CenterVertically,
-			) {
-				usage.summary?.let { summary ->
-					Text(
-						text = summary,
-						style = MaterialTheme.typography.labelMedium,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-					)
-					Spacer(Modifier.size(6.dp))
-				}
-				Ring(fraction = usage.fraction, arc = arc, track = track)
-			}
-		}
+	// A 48dp target in the composer's action row: the ring is 20dp, but a
+	// shape that is hard to hit is a shape that does not exist for anyone
+	// using touch.
+	Row(
+		modifier = modifier
+			.clip(RoundedCornerShape(8.dp))
+			.clickable(onClick = onToggle)
+			.heightIn(min = 48.dp)
+			.padding(horizontal = 6.dp, vertical = 4.dp)
+			.semantics { contentDescription = gaugeDescription },
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.Center,
+	) {
+		Ring(fraction = usage.fraction, arc = arc, track = track)
 	}
+}
+
+/**
+ * The figures, for someone who tapped the ring.
+ *
+ * Still a panel above the composer rather than a popup: the numbers and the
+ * compaction buttons are text, and a dialog over the input would hide the
+ * conversation that gives them meaning.
+ */
+@Composable
+fun ContextDetailPanel(
+	usage: ContextUsage,
+	compaction: ContextCompactionUi? = null,
+	isCompacting: Boolean = false,
+	onCompact: (() -> Unit)? = null,
+	onViewCompaction: () -> Unit = {},
+	onClearCompaction: () -> Unit = {},
+	modifier: Modifier = Modifier,
+) {
+	if (!usage.isKnown) return
+	ContextDetail(
+		usage = usage,
+		compaction = compaction,
+		isCompacting = isCompacting,
+		onCompact = onCompact,
+		onViewCompaction = onViewCompaction,
+		onClearCompaction = onClearCompaction,
+		modifier = modifier,
+	)
 }
 
 /**
@@ -180,9 +173,10 @@ private fun ContextDetail(
 	onCompact: (() -> Unit)?,
 	onViewCompaction: () -> Unit,
 	onClearCompaction: () -> Unit,
+	modifier: Modifier = Modifier,
 ) {
 	Column(
-		modifier = Modifier
+		modifier = modifier
 			.fillMaxWidth()
 			.padding(horizontal = 6.dp, vertical = 6.dp),
 		verticalArrangement = Arrangement.spacedBy(2.dp),

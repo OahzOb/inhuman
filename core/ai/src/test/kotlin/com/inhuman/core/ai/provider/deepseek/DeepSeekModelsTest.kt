@@ -214,6 +214,53 @@ class DeepSeekModelsTest {
 	}
 
 	@Test
+	fun `opencode capabilities describe vision and effort`() {
+		// Copied from a live GET https://opencode.ai/zen/go/v1/models
+		// (deepseek-v4.1-flash). Two shapes differ from DeepSeek's own API:
+		// image input is a list of MIME types, and reasoning lives under
+		// `capabilities.reasoning` with its own `effort` array. Without both
+		// fallbacks the model looks text-only and offers no effort chips.
+		val body = """
+			{"object":"list","data":[{
+			  "id":"deepseek-v4.1-flash","object":"model","name":"DeepSeek V4.1 Flash",
+			  "type":"chat",
+			  "modalities":{
+			    "input":["text","image/jpeg","image/png","image/gif","image/webp"],
+			    "output":["text"]
+			  },
+			  "capabilities":{
+			    "tools":{"supported":true},
+			    "reasoning":{"supported":true,"effort":["low","high","max"]}
+			  },
+			  "limit":{"context":1000000,"output":384000}
+			}]}
+		""".trimIndent()
+
+		val model = DeepSeekModels.parse(body).single()
+
+		assertTrue(model.supportsVision)
+		assertEquals(listOf("text", "image"), model.inputModalities)
+		assertEquals(listOf("low", "high", "max"), model.supportedEffortLevels)
+		assertEquals(1_000_000, model.contextWindow)
+		assertEquals(384_000, model.maxOutputTokens)
+	}
+
+	@Test
+	fun `opencode text-only models do not become vision models`() {
+		// `deepseek-v4-pro` is text-only in the same live response. Normalising
+		// modalities must not turn every OpenCode entry into a vision model.
+		val body = """
+			{"data":[{"id":"deepseek-v4-pro","modalities":{"input":["text"]},
+			  "capabilities":{"reasoning":{"supported":true,"effort":["high","max"]}}}]}
+		""".trimIndent()
+
+		val model = DeepSeekModels.parse(body).single()
+
+		assertEquals(listOf("text"), model.inputModalities)
+		assertTrue(!model.supportsVision)
+	}
+
+	@Test
 	fun `an empty list is empty rather than an error`() {
 		// Compared by size: JUnit's assertEquals is heavily overloaded and
 		// inference cannot resolve a bare emptyList() on either side.

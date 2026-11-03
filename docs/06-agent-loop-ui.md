@@ -496,12 +496,42 @@ This was found by opening the keyboard, not by reading the modifier chain.
 
 The transcript has a **follow intent**, not an `atBottom` condition alone.
 `followLatest` starts true; any nested-scroll source except `SideEffect` turns it
-off. The old code compared only `NestedScrollSource.UserInput`, but current
+off, and so does a `DragInteraction.Start` from the list's own interaction
+source. The old code compared only `NestedScrollSource.UserInput`, but current
 Compose reports a drag/fling as `Drag`/`Fling`, so following stayed on during a
 manual scroll and the list snapped back. Following is turned back on only when a
 gesture/fling ends at the bottom, never because a fast fling passed through the
 bottom for a frame. A `programmaticScroll` flag keeps the app's own scroll from
 being mistaken for a user gesture.
+
+**The interaction source is the second detach signal.** A fling whose first
+nested event arrives with a zero delta, or from a source the connection treats
+as ours, used to leave `followLatest` true; a reply finishing then pulled the
+reader to the newest turn ([07-gotchas.md](07-gotchas.md) B33). Collecting
+`LazyListState.interactionSource` and clearing following on
+`DragInteraction.Start` closes that gap; programmatic `scrollToItem`/`scrollBy`
+do not emit a drag interaction, so the app's own scroll is unaffected.
+
+**The first-index jump was a Markdown first-measure jump, not a fling.** The
+0.8.6 frame log samples once per frame and records the pixels actually scrolled
+in that frame plus every visible item's size. On the emulator, assistant item
+`9c841108` grew from 380 to 3,864 px with `delta=0`; the row had been parsed from
+an effect, so `LazyColumn` measured a short placeholder first. All fling speed
+and distance caps were reverted in 0.8.6; they changed the feel without fixing
+the layout ([07-gotchas.md](07-gotchas.md) B34).
+
+0.8.8 fixes the first measure: the finished path calls the core `Markdown`
+overload with `immediate = true`, which parses in the composition. The first
+`LazyColumn` measure is the final height, so the row does not grow after it is
+placed. The emulator log shows `lastSize=3778` on the first frame and no
+`resized` line for the item. The streaming path is unchanged.
+
+0.8.9 moves the finished parse off the composition: `ChatScreen` parses each
+distinct answer on `Dispatchers.Default`, caches the resulting `State` by text,
+and `MarkdownText` renders the ready state; a miss falls back to
+`immediate = true`. The per-frame scroll sampler and the scroll/turn `Diag`
+writes were removed, because they ran on the main thread at exactly the moment a
+user message crossed the viewport ([07-gotchas.md](07-gotchas.md) B35).
 
 **Only a vertical drag counts** (`detachesFollow`, `ChatScreen.kt`). A code
 block wider than the screen scrolls sideways; that drag reaches the parent
@@ -548,34 +578,47 @@ user to retype the message and does not re-run tools.
 
 ### Follow-up suggestions
 
-When **Settings → Display → Suggest follow-ups** is on (the default),
-`runTurnWithEngine` appends a transient system instruction (`ADVICE_INSTRUCTION`)
-to the request. The model is asked to end its final answer with:
+Follow-ups are a **tool**, not a block appended to the answer. The tool is
+`ToolCatalog`'s `suggest_replies` (`paid = true`, `optIn = true`), and it is
+gated twice:
 
-```
-<<<suggestions
-Continue
-Explain the second point
->>>
-```
+- **Settings → Display → Follow-up suggestions** (`chat.suggestions_enabled`,
+  **off by default**) makes the tool visible to the pickers and the approval
+  table. While it is off the row is absent, not greyed.
+- The assistant must then select `suggest_replies` explicitly. A null "all"
+  selection never includes it (`ToolCatalog.permits` requires the name), so a
+  new release cannot start spending an extra request in conversations that
+  never chose it.
 
-No second request and no tool definition are involved: advice is a few more
-lines of the same answer. `Advice.visible` hides the block while it streams and
-holds back a trailing prefix of the marker, so a marker split across deltas
-never flickers; the result is monotonic, which `DeltaCursor` requires.
-`Advice.parse` strips the block before the assistant row is written, keeps at
-most three suggestions, removes bullets/numbering, ignores an unclosed block,
-and keeps a sign-off that follows a closed block.
+The assistant's tool call runs in the main turn, after the answer. The engine
+executes it, persists its result like any other tool result, and stops because
+`SuggestRepliesTool.endsTurn` is true — the suggestions are the result, and
+sending it back to the model would only make it repeat them in a second
+full-history round.
 
-Only a round with **no tool calls** may offer suggestions, even if the model
-ignored the instruction on a tool round: the turn is not finished, so there is
-nothing to offer yet. The list lives in `ChatMessageUi.suggestions`, is cleared
-when the next round starts, and is deliberately not persisted — a reopened
-transcript has no composer context worth restoring it for. Tapping a chip calls
-`useSuggestion`, which only fills the input; it never sends, and the Send button
-remains the user's act. Turning the setting off removes the instruction, so the
-answer is shorter and nothing else changes; it is a display preference, not a
-capability.
+The tool's executor makes one completion against the assistant's suggestion
+model (`suggestionProviderId`/`suggestionModel`/`suggestionPrompt`/
+`suggestionFormat`, all on `agents`; null means inherit the assistant's). The
+request carries only the last question and the finished answer, `thinking =
+false`, `maxTokens = 300`, and a 10 s timeout. Its output is text lines or an
+`emit_suggestions` tool call, whichever the assistant chose; the tool sanitises
+either through `Advice.sanitize` (trim, strip bullets/numbering, cap at 3, 80
+characters each, de-duplicate) and returns `{"suggestions":[...]}`. A missing
+answer, a timeout, a provider failure or malformed JSON produces an empty list —
+never a failed tool call, because the answer has already been delivered.
+
+`ChatViewModel` reads the result when `ToolCallResult` arrives and sets
+`ChatMessageUi.suggestions` on the answer row; the chips live there and
+`useSuggestion` still only fills the composer. The result is persisted, so the
+transcript keeps both the call and the list; the chips themselves are not
+re-derived after a reload. `isInterruptedTurn` treats a `suggest_replies` tool
+result at the tail as a finished turn, not as half a round asking for
+**Continue**.
+
+The extra request is shown where it is chosen: the PAID badge beside the tool
+name, the billing notice above the tool list, and the assistant editor's own
+sentence. It is one extra request per answer that calls the tool, not per turn
+in general.
 
 ### Search and jump-to-message
 
@@ -598,8 +641,8 @@ last body is kept in `ChatViewModel.wire` in memory. It shows:
 
 - request parameters (`model`, `stream`, `thinking`, `reasoning_effort`,
   `stream_options`, `user_id`);
-- the composed system message split into assistant prompt and compaction
-  summary;
+- the composed system message split into assistant prompt, compaction summary
+  and workspace instructions;
 - tool names, descriptions, typed parameter tables and an optional raw schema;
 - numbered messages with role, text, `content: null`, `reasoning_content`,
   `tool_calls` (call id, name, parsed fields, raw arguments) and linked
@@ -633,6 +676,42 @@ The request snapshot is deliberately not persisted: it is a view of one
 in-flight/last request, not another copy of the transcript. The assistant raw
 view is reconstructed from the already-persisted `toolCallsJson`, so it survives
 a reload.
+
+### Workspace instructions (AGENTS.md)
+
+A root `AGENTS.md` in the conversation's workspace is read on the conversation's
+**first request** and pinned to the conversation row (schema v21). From then on
+the stored block is appended to the end of the system message, after the
+assistant's prompt and the compaction summary, and the file is not re-read. New
+conversations pin the file as it is when they start. This is the coding-agent
+convention with conversation-level stability: the model could read the file with
+`read_file`, but only if it thought to, and a later edit cannot rewrite an
+ongoing system prompt.
+
+It is workspace content, not a capability. It cannot add a tool or change an
+approval/SSH grant, and the block says so; the guarantee is still structural,
+not the sentence. The agent **may** write the file (the user's choice): that
+affects new conversations or an explicit reload, not the current one. The
+changed-files footer still records the file and Rewind restores it.
+
+`WorkspaceInstructions.kt` reads it through `SessionWorkspace.resolve`, so a
+symlink is refused like any other agent path. It caps the file at 16 KiB, cuts
+at the last newline inside the cap, refuses a single 16 KiB line, normalises a
+BOM and CRLF, and treats missing, blank, binary and unreadable files as "no
+block". The absolute workspace path never appears. The rendered block (header,
+body, end marker) is stored whole, so a later change to the header does not
+rewrite existing pins.
+
+The pin is taken in `ChatViewModel.pinWorkspaceInstructions` before the engine
+copies the message list; a preview does not pin, so it shows what the next turn
+would pin. A missing workspace or a failed write leaves the conversation
+unpinned and the next turn retries; a missing file pins `""` deliberately, so
+adding one later needs the explicit reload. The chat menu shows
+`AGENTS.md · N chars, pinned` and **Reload AGENTS.md**; the reload replaces the
+pin and is the only way an edit reaches an existing conversation. It changes the
+system message, so the next request is one deliberate cold start
+([03-ai-provider.md](03-ai-provider.md)); an edit alone now costs nothing in the
+conversation where it was made, and a new conversation is cold anyway.
 
 ### The approval dialog
 
@@ -788,8 +867,8 @@ projection can replace older complete turns with a model-written summary:
   turns. A tool call and its results are never split.
 - **The wire gets a system summary plus the suffix.** `buildWireHistory` checks
   that `throughMessageId` is still on the active path; if it is not, the full
-  history is sent. The system prompt and summary are combined into the first
-  system message.
+  history is sent. The assistant prompt, the summary and the workspace
+  instructions are combined into the first system message.
 - **Failure is a no-op.** No key, timeout, provider failure, blank summary or a
   changed transcript leaves the previous projection intact and reports the cause.
   Demo mode uses `demoCompactionSummary`, a deterministic list of questions and
@@ -805,14 +884,31 @@ turn; a single oversized turn still has to be rewound or started fresh.
 
 ### The gauge
 
-`ContextGauge.kt`: draws nothing when `!isKnown` (`:61`), goes red at ≥90%
-(`:66-70`), 20dp ring with a 2.5dp stroke. The one-line summary leads with the
-percentage, then the compact counts (`25% · 262K / 1M`); without a reported
-window there is no percentage and only the count is shown. Tapping opens a panel
-with the measured figures and the caveat "Measured from the last reply sent."
-(`:161-186`). `contextOf` scans backwards for the last reply that reported
-`promptTokens` (`:323-330`) — which is why the figure is one turn behind, and the
-panel says so.
+`ContextGauge.kt` now has two pieces: `ContextRing`, in the composer's action
+row beside Send, and `ContextDetailPanel`, above the composer only while the
+panel is open. The ring draws nothing when `!isKnown`, goes red at ≥90%, and is
+20dp with a 2.5dp stroke; tapping it opens the measured figures, the
+"Measured from the last reply sent." caveat, and the compaction actions.
+
+The ring first moved into the field's trailing slot, which was the wrong place
+for it: Material reserves the trailing slot for the whole height of a
+multi-line field, so on a 360dp phone with the microphone configured a wrapped
+message sat beside a blank 48dp-wide column, and the text itself had only a few
+characters per line. The composer is now one bounded surface with a full-width
+text area and a single 48dp action row underneath (attach and microphone on the
+left, ring and send/stop on the right). The empty composer is about the same
+height as the outlined field it replaced -- the text area is one line rather
+than Material's 56dp box, which pays for the action row -- and a three-line
+message is shorter than it used to be, while every line gets the field's whole
+width.
+
+The old full-width strip above the field is gone. It carried a
+`25% · 262K / 1M` summary, but on a phone the row cost roughly the height of the
+composer to say one proportion; the ring alone answers "how much room is left",
+and the counts are one tap away. An unknown window still draws nothing rather
+than an empty ring that would read as "0% used". `contextOf` scans backwards for
+the last reply that reported `promptTokens` — which is why the figure is one turn
+behind, and the panel says so.
 
 `UsageLine.kt`: **one line per completed turn**, at its end, prefixed "Turn
 total": tok/s · out · in · cache%, with the full breakdown behind a tap. It sums

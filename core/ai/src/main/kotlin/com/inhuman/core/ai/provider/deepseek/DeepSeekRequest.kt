@@ -61,7 +61,11 @@ internal object DeepSeekRequest {
 				})
 			}
 		}
-		if (reasoningMode == "deepseek" || reasoningMode == "effort") {
+		if (
+			reasoningMode == "deepseek" ||
+			reasoningMode == "effort" ||
+			reasoningMode == "opencode"
+		) {
 			request.reasoningEffort?.let { put("reasoning_effort", JsonPrimitive(it)) }
 		}
 
@@ -148,8 +152,10 @@ internal object DeepSeekRequest {
 
 		// DeepSeek requires prior reasoning back on the wire when the earlier
 		// turn used thinking; an unrelated OpenAI-compatible server may reject
-		// the field.
-		if (reasoningMode == "deepseek") {
+		// the field. OpenCode's gateway names the same field in its model
+		// metadata (`compatibility.reasoning_field`), so it gets the replay
+		// without DeepSeek's `thinking` object or `user_id`.
+		if (reasoningMode == "deepseek" || reasoningMode == "opencode") {
 			m.reasoning?.let { put("reasoning_content", it) }
 		}
 	}

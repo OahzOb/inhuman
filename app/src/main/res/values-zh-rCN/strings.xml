@@ -319,8 +319,8 @@
 	<string name="settings_layout_compact">紧凑：单列布局，间距更小</string>
 	<string name="settings_layout_comfortable">舒适：宽布局，边距更大</string>
 	<string name="settings_layout_body">自动会跟随当前窗口，包括旋转、分屏和折叠屏。紧凑会在平板上强制单列；舒适会保留宽布局。这是阅读偏好，不是屏幕比例选择器。</string>
-	<string name="settings_advice_title">建议回复</string>
-	<string name="settings_advice_body">每条回答后给 2–3 个后续选项。点一下只填进输入框，不会自动发送，也不额外请求模型。</string>
+	<string name="settings_suggestions_title">建议回复</string>
+	<string name="settings_suggestions_body">让助手可以选用 suggest_replies 工具。默认关闭；每个助手还要自己勾选，勾选后每次调用会额外请求一次建议模型。调用和结果都会留在对话记录里。</string>
 	<string name="settings_section_language">11 / 语言</string>
 	<string name="settings_language_title">语言</string>
 	<string name="settings_language_chinese">中文</string>
@@ -439,6 +439,15 @@
 	<string name="settings_log_failed">上传失败：%1$s</string>
 	<string name="settings_log_no_server">请先设置服务器地址。</string>
 	<string name="settings_log_empty">还没有可上传的日志。</string>
+	<string name="settings_recording_title">诊断记录</string>
+	<string name="settings_recording_body">记录这段时间内整个应用的诊断事件（对话、文件、设置、网络、滚动等），另存为一个文件，这样只上传一次复现的片段。正常日志仍在运行；开始新记录会替换上一段。</string>
+	<string name="settings_recording_active">正在记录。关闭开关保存这一段，然后上传。</string>
+	<string name="settings_recording_last">上次记录 · %1$s</string>
+	<string name="settings_recording_empty_hint">还没有记录。</string>
+	<string name="settings_recording_upload">上传这段记录</string>
+	<string name="settings_recording_delete">删除这段记录</string>
+	<string name="settings_recording_stop_first">请先停止记录再上传。</string>
+	<string name="settings_recording_empty">还没有可上传的记录。</string>
 	<string name="settings_approval_body_with_ssh">本地工具直接运行，不询问，因为它们接触到的都是本对话文件夹里的副本。SSH 不同：每个对话的首次调用会请求授权，之后按下面的策略执行。如果你希望被询问，可以在这里收紧任何工具。</string>
 	<string name="settings_approval_body">本地工具直接运行，不询问，因为它们接触到的都是本对话文件夹里的副本。如果你希望被询问，可以在这里收紧任何工具。</string>
 	<string name="settings_policy_changes_files">%1$s · 会修改文件</string>
@@ -599,6 +608,14 @@
 	<string name="agents_ssh_excluded">“全部”不会包含 SSH 工具，请单独勾选。</string>
 	<string name="agents_writes">写入</string>
 	<string name="agents_help_body">标记为“写入”的工具会修改对话文件夹里的文件。用过这类工具的回合不能重新生成，因为重放会再写一次。</string>
+	<string name="agents_suggestions_excluded">“全部”不会包含 suggest_replies，请单独勾选。</string>
+	<string name="agents_suggestions_title">建议回复</string>
+	<string name="agents_suggestions_body">suggest_replies 会在回答后额外请求一次这里选定的模型，调用和结果都会留在对话记录里。点一条只填进输入框，绝不自动发送。没在上面的列表里勾选时，这个助手不会使用它。</string>
+	<string name="agents_suggestions_format_text">文本</string>
+	<string name="agents_suggestions_format_tool">工具</string>
+	<string name="agents_suggestions_model">建议模型</string>
+	<string name="agents_suggestions_prompt">建议提示词（可选）</string>
+	<string name="agents_suggestions_prompt_hint">留空使用内置提示词。</string>
 	<string name="agents_preview_title">模型收到的内容</string>
 	<string name="agents_preview_system">系统消息</string>
 	<string name="agents_empty_prompt">（空）</string>
@@ -681,6 +698,12 @@
 	<string name="tool_blurb_delete_file">从文件夹中删除</string>
 	<string name="tool_blurb_run_javascript">在隔离、无网络的沙箱里运行一段短 JavaScript 计算</string>
 	<string name="chat_rename">重命名对话</string>
+	<string name="chat_workspace_instructions_pinned">工作区指令：AGENTS.md（%1$d 字符，已固定）</string>
+	<string name="chat_workspace_instructions_unpinned">工作区指令：尚未固定</string>
+	<string name="chat_workspace_instructions_reload">重新读取 AGENTS.md</string>
+	<string name="chat_workspace_instructions_reload_detail">只影响当前对话；下一次请求会重新计算前缀</string>
+	<string name="chat_error_workspace_instructions">无法更新工作区指令：%1$s</string>
+	<string name="chat_error_workspace_instructions_unavailable">工作区自检失败，工作区指令不可用。</string>
 	<string name="chat_save_workspace">保存为永久工作区</string>
 	<string name="chat_save_workspace_detail">删除对话后保留文件</string>
 	<!-- 导出：对话 Markdown 与工作区 zip。 -->

@@ -335,8 +335,8 @@
 	<string name="settings_layout_compact">Compact: single column, tighter spacing</string>
 	<string name="settings_layout_comfortable">Comfortable: wide shell and larger gutters</string>
 	<string name="settings_layout_body">Auto follows the current window, including rotation, split-screen and foldables. Compact forces one column on a tablet; Comfortable keeps the wide shell. This is a reading preference, not a screen-ratio selector.</string>
-	<string name="settings_advice_title">Suggest follow-ups</string>
-	<string name="settings_advice_body">After each answer, offer 2–3 follow-ups as chips. Choosing one fills the composer; it never sends, and it costs no extra request.</string>
+	<string name="settings_suggestions_title">Follow-up suggestions</string>
+	<string name="settings_suggestions_body">Makes the suggest_replies tool available to assistants. Off by default; each assistant must also select it, and every answer that calls it sends one extra request to the suggestion model. The call and its result stay in the transcript.</string>
 	<string name="settings_section_language">11 / Language</string>
 	<string name="settings_language_title">Language</string>
 	<string name="settings_language_chinese">中文</string>
@@ -458,6 +458,15 @@
 	<string name="settings_log_failed">Upload failed: %1$s</string>
 	<string name="settings_log_no_server">Set the server URL first.</string>
 	<string name="settings_log_empty">There is no log to upload yet.</string>
+	<string name="settings_recording_title">Diagnostic recording</string>
+	<string name="settings_recording_body">Records the same diagnostic lines from the whole app -- chat, files, settings, network, scroll -- into a separate file, so one reproduction can be uploaded alone. The normal flight recorder keeps running; starting a new recording replaces the last one.</string>
+	<string name="settings_recording_active">Recording. Turn the switch off to keep it, then upload the recording.</string>
+	<string name="settings_recording_last">Last recording · %1$s</string>
+	<string name="settings_recording_empty_hint">No recording yet.</string>
+	<string name="settings_recording_upload">Upload recording</string>
+	<string name="settings_recording_delete">Delete recording</string>
+	<string name="settings_recording_stop_first">Stop the recording before uploading it.</string>
+	<string name="settings_recording_empty">No recording has been made.</string>
 	<string name="settings_approval_body_with_ssh">Local tools run without asking, because everything they reach is a copy inside this conversation\'s own folder. SSH is different: its first call in each conversation asks for consent, and after that the policy below applies. Tighten any tool here if you would rather be asked.</string>
 	<string name="settings_approval_body">Local tools run without asking, because everything they reach is a copy inside this conversation\'s own folder. Tighten any tool here if you would rather be asked.</string>
 	<string name="settings_policy_changes_files">%1$s · changes files</string>
@@ -618,6 +627,14 @@
 	<string name="agents_ssh_excluded">SSH tools are never included by “all”; select them explicitly.</string>
 	<string name="agents_writes">writes</string>
 	<string name="agents_help_body">Tools marked “writes” change files in the conversation\'s folder. A reply that used one cannot be regenerated, because replaying the turn would write a second time.</string>
+	<string name="agents_suggestions_excluded">suggest_replies is never included by “all”; select it explicitly.</string>
+	<string name="agents_suggestions_title">Follow-up suggestions</string>
+	<string name="agents_suggestions_body">suggest_replies sends one extra request after the answer, to the model chosen here, and keeps the call and its result in the transcript. The chips only fill the composer; they never send. Off for this assistant until you tick it in the list above.</string>
+	<string name="agents_suggestions_format_text">Text</string>
+	<string name="agents_suggestions_format_tool">Tool</string>
+	<string name="agents_suggestions_model">Suggestion model</string>
+	<string name="agents_suggestions_prompt">Suggestion prompt (optional)</string>
+	<string name="agents_suggestions_prompt_hint">Empty uses the built-in prompt.</string>
 	<string name="agents_preview_title">What the model receives</string>
 	<string name="agents_preview_system">System message</string>
 	<string name="agents_empty_prompt">(empty)</string>
@@ -701,6 +718,12 @@
 	<string name="tool_blurb_delete_file">Delete from the folder</string>
 	<string name="tool_blurb_run_javascript">Run a short JavaScript calculation in an isolated, no-network sandbox</string>
 	<string name="chat_rename">Rename conversation</string>
+	<string name="chat_workspace_instructions_pinned">Workspace instructions: AGENTS.md (%1$d chars, pinned)</string>
+	<string name="chat_workspace_instructions_unpinned">Workspace instructions: not pinned yet</string>
+	<string name="chat_workspace_instructions_reload">Reload AGENTS.md</string>
+	<string name="chat_workspace_instructions_reload_detail">Applies to this conversation; the next request starts a new prefix</string>
+	<string name="chat_error_workspace_instructions">Could not update workspace instructions: %1$s</string>
+	<string name="chat_error_workspace_instructions_unavailable">Workspace instructions are unavailable because the workspace check failed.</string>
 	<string name="chat_save_workspace">Save workspace as permanent</string>
 	<string name="chat_save_workspace_detail">Keep its files after this conversation is deleted</string>
 	<!-- Export: conversation Markdown and workspace zip. -->

@@ -34,6 +34,7 @@ import com.inhuman.AppCapabilities
 import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.tools.ToolCatalog
+import com.inhuman.ui.chat.SuggestionFormat
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.shape.CircleShape
@@ -200,6 +201,7 @@ fun AgentsScreen(
 			loadingModels = state.loadingModels,
 			modelsError = state.modelsError,
 			sshToolEnabled = state.sshToolEnabled,
+			suggestionsEnabled = state.suggestionsEnabled,
 			savedPrompts = state.savedPrompts,
 			effortLevels = { viewModel.effortLevelsFor(it) },
 			onChange = viewModel::updateDraft,
@@ -318,6 +320,7 @@ private fun AgentEditor(
 	loadingModels: Boolean,
 	modelsError: String?,
 	sshToolEnabled: Boolean,
+	suggestionsEnabled: Boolean,
 	savedPrompts: List<SavedPromptEntity>,
 	effortLevels: (String?) -> List<String>,
 	onChange: ((AgentDraft) -> AgentDraft) -> Unit,
@@ -334,6 +337,7 @@ private fun AgentEditor(
 		sshToolEnabled,
 		includeWorkspaceBound = AppCapabilities.workspaceOk,
 		includeSandbox = AppCapabilities.sandboxOk == true,
+		includeSuggestions = suggestionsEnabled,
 	)
 	val availableNames = availableTools.mapTo(mutableSetOf()) { it.name }
 	val selectedCount = draft.tools?.count { it in availableNames } ?: availableTools.size
@@ -755,6 +759,7 @@ private fun AgentEditor(
 		AssistantRulesSection(
 			rules = draft.rules,
 			sshToolEnabled = sshToolEnabled,
+			suggestionsEnabled = suggestionsEnabled,
 			onSelect = onRuleChange,
 		)
 
@@ -808,6 +813,13 @@ private fun AgentEditor(
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
 			}
+			if (suggestionsEnabled) {
+				Text(
+					text = stringResource(R.string.agents_suggestions_excluded),
+					style = MaterialTheme.typography.labelLarge,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
 		}
 
 		// Before the list, not after it. A price printed under eleven rows is
@@ -842,7 +854,7 @@ private fun AgentEditor(
 							// does not silently switch on the remote tools that
 							// `null` deliberately refuses. See
 							// `ToolCatalog.everythingExplicit`.
-							val current = draft.tools ?: ToolCatalog.everythingExplicit()
+							val current = draft.tools ?: ToolCatalog.everythingExplicit(suggestionsEnabled)
 							val next = if (on) current - tool.name else current + tool.name
 							onChange { it.copy(tools = next) }
 						},
@@ -930,12 +942,74 @@ private fun AgentEditor(
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 		}
+
+		// --- follow-up suggestions -----------------------------------------
+		//
+		// Only when the tool is in this assistant's selection: these four
+		// fields describe what that one tool does, and showing them for an
+		// assistant that cannot call it would advertise a paid request nobody
+		// chose. `permits` is explicit-only for this tool, so a null "all"
+		// selection does not reveal the section until the row is ticked.
+		if (suggestionsEnabled && ToolCatalog.permits(draft.tools, "suggest_replies")) {
+			HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+			SectionLabel(stringResource(R.string.agents_suggestions_title))
+			Text(
+				text = stringResource(R.string.agents_suggestions_body),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			FlowRowCompat {
+				SuggestionFormat.entries.forEach { format ->
+					ChoiceChip(
+						label = stringResource(
+							if (format == SuggestionFormat.Tool) {
+								R.string.agents_suggestions_format_tool
+							} else {
+								R.string.agents_suggestions_format_text
+							},
+						),
+						selected = draft.suggestionFormat == format.wire,
+						onClick = { onChange { it.copy(suggestionFormat = format.wire) } },
+					)
+				}
+			}
+			Text(
+				text = stringResource(R.string.agents_suggestions_model),
+				style = MaterialTheme.typography.labelLarge,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			FlowRowCompat {
+				ChoiceChip(
+					label = stringResource(R.string.agents_provider_default),
+					selected = draft.suggestionModel == null,
+					onClick = { onChange { it.copy(suggestionModel = null) } },
+				)
+				models.forEach { m ->
+					ChoiceChip(
+						label = m.displayName?.takeIf { it.isNotBlank() } ?: m.id,
+						selected = draft.suggestionModel == m.id,
+						onClick = { onChange { it.copy(suggestionModel = m.id) } },
+					)
+				}
+			}
+			OutlinedTextField(
+				value = draft.suggestionPrompt.orEmpty(),
+				onValueChange = { value ->
+					onChange { it.copy(suggestionPrompt = value.ifBlank { null }) }
+				},
+				label = { Text(stringResource(R.string.agents_suggestions_prompt)) },
+				placeholder = { Text(stringResource(R.string.agents_suggestions_prompt_hint)) },
+				minLines = 3,
+				modifier = Modifier.fillMaxWidth(),
+			)
+		}
 	}
 
 	if (showPreview) {
 		PromptPreview(
 			draft = draft,
 			sshToolEnabled = sshToolEnabled,
+			suggestionsEnabled = suggestionsEnabled,
 			modelLabel = draft.model?.let { id ->
 				models.firstOrNull { it.id == id }?.displayName?.takeIf { it.isNotBlank() } ?: id
 			} ?: stringResource(R.string.agents_provider_default),
@@ -1021,6 +1095,7 @@ private fun AgentEditor(
 private fun PromptPreview(
 	draft: AgentDraft,
 	sshToolEnabled: Boolean,
+	suggestionsEnabled: Boolean,
 	modelLabel: String,
 	onDismiss: () -> Unit,
 ) {
@@ -1029,6 +1104,7 @@ private fun PromptPreview(
 		sshToolEnabled,
 		includeWorkspaceBound = AppCapabilities.workspaceOk,
 		includeSandbox = AppCapabilities.sandboxOk == true,
+		includeSuggestions = suggestionsEnabled,
 	)
 	val visibleNames = visibleTools.mapTo(mutableSetOf()) { it.name }
 	val on = visibleNames.filter { ToolCatalog.permits(selected, it) }
@@ -1181,6 +1257,7 @@ private fun SectionLabel(text: String) {
 private fun AssistantRulesSection(
 	rules: Map<String, ToolPolicy>,
 	sshToolEnabled: Boolean,
+	suggestionsEnabled: Boolean,
 	onSelect: (String, ToolPolicy) -> Unit,
 ) {
 	Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
@@ -1192,10 +1269,11 @@ private fun AssistantRulesSection(
 		)
 
 		for (entry in ToolCatalog.visible(
-		sshToolEnabled,
-		includeWorkspaceBound = AppCapabilities.workspaceOk,
-		includeSandbox = AppCapabilities.sandboxOk == true,
-	)) {
+			sshToolEnabled,
+			includeWorkspaceBound = AppCapabilities.workspaceOk,
+			includeSandbox = AppCapabilities.sandboxOk == true,
+			includeSuggestions = suggestionsEnabled,
+		)) {
 			val current = rules[entry.name] ?: ToolPolicy.Free
 			Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
 				Row(

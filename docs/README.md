@@ -28,7 +28,7 @@ not; `AGENTS.md` states the non-negotiable working rules. These files explain
 | [01-overview.md](01-overview.md) | What this is, which module holds what, what the app does today, what is deliberately missing |
 | [02-architecture.md](02-architecture.md) | Module graph, dependency rule, start-up wiring, navigation, build toolchain, build/verify commands |
 | [03-ai-provider.md](03-ai-provider.md) | Provider interface and stream types, provider profiles, OpenAI-compatible / Anthropic / Gemini / Responses adapters, SSE, demo mode, paid web tools, SSH tools and limits |
-| [04-data-persistence.md](04-data-persistence.md) | Room schema v18 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
+| [04-data-persistence.md](04-data-persistence.md) | Room schema v19 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | Turn lifecycle, tool execution, approval gate, cancellation, context gauge, Compose layout |
 | [07-gotchas.md](07-gotchas.md) | Load-bearing invariants, and mistakes that already cost someone a day |
@@ -166,6 +166,7 @@ repository root; `…/` stands for `src/main/kotlin/com/inhuman/`.
 | Visible chat layout, bubbles, composer, tool rows, dialogs | `app/…/ui/chat/ChatScreen.kt` |
 | Incremental Markdown, delta channel, unclosed fences | `app/…/ui/chat/MarkdownText.kt`, `DeltaCursor.kt`, `MarkdownFence.kt` |
 | Context ring, three cases, compaction projection | `app/…/ui/chat/ContextUsage.kt`, `ContextGauge.kt`, `ContextCompaction.kt` |
+| Workspace `AGENTS.md` pinned per conversation; reload and its cache cost | `app/…/ui/chat/WorkspaceInstructions.kt`, [`03-ai-provider.md`](03-ai-provider.md), [`06-agent-loop-ui.md`](06-agent-loop-ui.md) |
 | Assistants, tool picker, prompt import | `app/…/ui/agents/AgentsScreen.kt`, `AgentsViewModel.kt`, `PromptImport.kt` |
 | Workspaces, lifetime, promotion, absolute path | `app/…/ui/workspaces/`, `core/db/…/ConversationRepository.kt` |
 | Conversation list, pinning, delete confirmation | `app/…/ui/ConversationsScreen.kt`, `ConversationsViewModel.kt` |
@@ -184,7 +185,7 @@ repository root; `…/` stands for `src/main/kotlin/com/inhuman/`.
 | Copying a file between workspaces | `core/files/…/WorkspaceCopy.kt` |
 | The share sheet target (one item, copied now) | `app/…/ui/files/SharedContent.kt`, `app/…/MainActivity.kt` |
 | Saved system prompts (the library) | `core/db/…/SavedPromptEntity.kt`, `SavedPromptRepository.kt`, `app/…/ui/agents/AgentsScreen.kt` |
-| Follow-up suggestions (the advice block) | `app/…/ui/chat/Advice.kt`, `ChatViewModel.kt`, `ChatScreen.kt` |
+| Follow-up suggestions (`suggest_replies`) | `app/…/ui/chat/Advice.kt`, `SuggestRepliesTool.kt`, `ChatViewModel.kt`, `ChatScreen.kt` |
 | The backup reminder | `app/…/ui/backup/BackupReminder.kt`, `MainActivity.kt`, `ui/settings/SettingsScreen.kt` |
 | LaTeX rendering (rewrite + transformer) | `app/…/ui/chat/LatexMarkdown.kt`, `MathImageTransformer.kt` |
 | OpenAI Responses (typed items, reasoning state) | `core/ai/…/provider/openai/`, `messages.providerState` |

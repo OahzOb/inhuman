@@ -75,7 +75,26 @@ class DemoProvider(
 
 	override fun stream(request: ChatRequest): Flow<StreamChunk> = flow {
 		val offered = request.tools.map { it.name }.toSet()
+
+		// The suggestion tool's own request, not a conversation turn: no tools,
+		// or exactly the emit tool, and the last message carries the pair the
+		// tool built. Answering it with the file script would make the demo
+		// create files while generating three chips.
+		if (isSuggestionRequest(request, offered)) {
+			emitSuggestion(offered)
+			return@flow
+		}
+
 		val calls = scriptedCalls(request, offered)
+		// After the answer, and only then: a turn that is still calling file
+		// tools is not finished, and a suggestion call in that round would make
+		// the demo ask for it before there is anything to suggest about.
+		val suggestion = if (calls.isEmpty() && SUGGEST_TOOL in offered) {
+			ScriptedCall(SUGGEST_TOOL, "{}")
+		} else {
+			null
+		}
+		val emitted = if (suggestion == null) calls else calls + suggestion
 
 		// Reasoning first. Real reasoning models emit this before any visible
 		// text, and the UI has to place it above the answer rather than
@@ -105,16 +124,6 @@ class DemoProvider(
 				.any { it.role == Role.Tool } -> AFTER_TOOLS
 
 			else -> TEXT_ANSWER
-		} + if (
-			calls.isEmpty() &&
-			request.messages.any { it.role == Role.System && it.content.contains(ADVICE_MARKER) }
-		) {
-			// The demo has to be able to show the advice block, or the offline
-			// path cannot verify the feature that hides and parses it. This is
-			// the same shape the real instruction asks a model for.
-			"\n\n$ADVICE_MARKER\nContinue\nExplain the demo\n>>>"
-		} else {
-			""
 		}
 		for (piece in answer.split(" ")) {
 			emit(StreamChunk.TextDelta("$piece "))
@@ -122,7 +131,7 @@ class DemoProvider(
 		}
 		emit(StreamChunk.TextEnd())
 
-		calls.forEachIndexed { index, call -> emitCall(index, call) }
+		emitted.forEachIndexed { index, call -> emitCall(index, call) }
 
 		emit(
 			StreamChunk.Usage(
@@ -139,8 +148,54 @@ class DemoProvider(
 				// Said honestly rather than always `Stop`: a turn that asked for
 				// tools did not finish answering, and the transcript prints this
 				// word next to the reply.
-				reason = if (calls.isEmpty()) FinishReason.Stop else FinishReason.ToolCalls,
+				reason = if (emitted.isEmpty()) FinishReason.Stop else FinishReason.ToolCalls,
 				responseId = "demo-${System.currentTimeMillis()}",
+				model = "demo-model",
+			),
+		)
+	}
+
+	/**
+	 * Whether this request is the suggestion tool's own call.
+	 *
+	 * The tool format is unambiguous (`emit_suggestions` is only ever offered
+	 * there). The text format has no tool to key on, so it is recognised by the
+	 * prefix the tool writes in front of the question; that is a contract
+	 * between two strings in this repository, and the demo is the only reader.
+	 */
+	private fun isSuggestionRequest(request: ChatRequest, offered: Set<String>): Boolean =
+		EMIT_TOOL in offered ||
+			request.messages.lastOrNull()?.content?.startsWith(SUGGESTION_QUESTION_PREFIX) == true
+
+	/**
+	 * The suggestion model's answer: a tool call, or the same lines as text.
+	 *
+	 * Both are what the real tool accepts, so the demo exercises whichever
+	 * format the assistant selected instead of only the one that is easy here.
+	 */
+	private suspend fun FlowCollector<StreamChunk>.emitSuggestion(offered: Set<String>) {
+		emit(StreamChunk.TextStart())
+		if (EMIT_TOOL !in offered) {
+			for (line in SUGGESTIONS) {
+				emit(StreamChunk.TextDelta("$line\n"))
+				delay(chunkDelayMillis)
+			}
+		}
+		emit(StreamChunk.TextEnd())
+		if (EMIT_TOOL in offered) {
+			emitCall(0, ScriptedCall(EMIT_TOOL, SUGGESTION_ARGUMENTS))
+		}
+		emit(
+			StreamChunk.Usage(
+				promptTokens = 64,
+				completionTokens = 24,
+				totalTokens = 88,
+			),
+		)
+		emit(
+			StreamChunk.Finish(
+				reason = if (EMIT_TOOL in offered) FinishReason.ToolCalls else FinishReason.Stop,
+				responseId = "demo-suggest-${System.currentTimeMillis()}",
 				model = "demo-model",
 			),
 		)
@@ -226,13 +281,23 @@ class DemoProvider(
 		const val PLAIN_MARKER = "plain"
 
 		/**
-		 * The opening marker of the follow-up block.
+		 * The tool the model calls after answering, and the tool the suggestion
+		 * model calls to return its list.
 		 *
-		 * Duplicated from the app's advice instruction because `:core:ai`
-		 * cannot see app code. The two strings are the contract; the parser in
-		 * `Advice.kt` is the other half.
+		 * Duplicated from the app's tool because `:core:ai` cannot see app
+		 * code. The two strings are the contract; `SuggestRepliesTool` is the
+		 * other half.
 		 */
-		const val ADVICE_MARKER = "<<<suggestions"
+		const val SUGGEST_TOOL = "suggest_replies"
+		const val EMIT_TOOL = "emit_suggestions"
+
+		/** The marker `SuggestRepliesTool` puts in front of the question. */
+		const val SUGGESTION_QUESTION_PREFIX = "[suggest_replies]"
+
+		val SUGGESTIONS = listOf("Continue", "Explain the demo", "Try another question")
+
+		const val SUGGESTION_ARGUMENTS =
+			"""{"suggestions":["Continue","Explain the demo","Try another question"]}"""
 
 		/**
 		 * The file the script makes and then offers to delete.
