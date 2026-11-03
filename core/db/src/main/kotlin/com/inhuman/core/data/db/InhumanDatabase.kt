@@ -219,6 +219,19 @@ interface ConversationDao {
 	@Query("UPDATE conversations SET updatedAt = :now WHERE id = :id")
 	suspend fun touch(id: String, now: Long)
 
+	/**
+	 * Move a conversation's timestamp forward unless another row already did so
+	 * recently.
+	 *
+	 * Every appended message used to write this row inside its own transaction,
+	 * and the home screen observes `SELECT * FROM conversations`: a tool-heavy
+	 * turn re-queried the whole list once per message, for a timestamp whose
+	 * only job is to order that list. An UPDATE matching no rows fires no
+	 * trigger, so a suppressed touch wakes nobody.
+	 */
+	@Query("UPDATE conversations SET updatedAt = :now WHERE id = :id AND updatedAt < :now - :windowMs")
+	suspend fun touchIfOlder(id: String, now: Long, windowMs: Long)
+
 	@Query("DELETE FROM conversations WHERE id = :id")
 	suspend fun delete(id: String)
 }
@@ -286,6 +299,40 @@ interface MessageDao {
 
 	@Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt ASC, id ASC")
 	suspend fun all(conversationId: String): List<MessageEntity>
+
+	/**
+	 * The columns the branch walk needs, for several conversations at once.
+	 *
+	 * Global search has to know which branch is displayed before it can keep a
+	 * hit, and it used to read every matched conversation's full rows --
+	 * `content`, `reasoning`, tool results and attachments -- to run a walk that
+	 * looks at four columns. This projection is that walk's actual input.
+	 */
+	@Query(
+		"""
+		SELECT conversationId, id, parentId, selectedChildId, createdAt
+		FROM messages WHERE conversationId IN (:conversationIds)
+		""",
+	)
+	suspend fun branchRows(conversationIds: List<String>): List<BranchRow>
+
+	/**
+	 * One conversation's structural rows, for the turn metadata the chat screen
+	 * recomputes after every turn.
+	 *
+	 * [MessageEntity] carries the prose; this carries the branch pointers, the
+	 * tool calls and the two flags the rewind gate reads. Selecting them avoids
+	 * loading a transcript of tool results just to decide whether a button is
+	 * enabled.
+	 */
+	@Query(
+		"""
+		SELECT id, conversationId, parentId, selectedChildId, createdAt,
+		       role, toolCallsJson, toolCallId, mutated
+		FROM messages WHERE conversationId = :conversationId
+		""",
+	)
+	suspend fun turnRows(conversationId: String): List<MessageTurnRow>
 
 	/**
 	 * The rows the Usage overview can count, without their prose.
@@ -1221,6 +1268,47 @@ abstract class InhumanDatabase : RoomDatabase() {
 }
 
 /**
+ * The columns a branch walk reads, plus the conversation they belong to.
+ *
+ * A projection rather than a [MessageEntity] because the caller is global
+ * search, which would otherwise load every matched conversation's prose --
+ * including tool results and attachments -- just to decide which branch is
+ * displayed.
+ */
+data class BranchRow(
+	val conversationId: String,
+	val id: String,
+	val parentId: String?,
+	val selectedChildId: String?,
+	val createdAt: Long,
+)
+
+/**
+ * The structural and tool-call columns the rewind gate reads.
+ *
+ * [MessageEntity] is what the transcript renders; this is what a turn's
+ * checkpoints, branches and irreversible calls are decided from, without
+ * loading the text of every tool result.
+ */
+data class MessageTurnRow(
+	val id: String,
+	val conversationId: String,
+	val parentId: String?,
+	val selectedChildId: String?,
+	val createdAt: Long,
+	val role: String,
+	val toolCallsJson: String?,
+	val toolCallId: String?,
+	val mutated: Boolean,
+)
+
+/**
+ * One second: long enough that the rows of a single turn share one touch, short
+ * enough that a user typing a second turn sees their conversation move at once.
+ */
+private const val TOUCH_WINDOW_MS = 1_000L
+
+/**
  * Reads and writes that must not interleave.
  *
  * Kept out of the DAOs because they span both tables: appending a message and
@@ -1244,18 +1332,7 @@ class ConversationStore(private val db: InhumanDatabase) {
 
 	companion object {
 		/**
-		 * Creation order, with the id as a tie-break.
-		 *
-		 * The tie-break is what makes this a total order, and it has to match
-		 * the `ORDER BY createdAt ASC, id ASC` in [MessageDao] -- two rules
-		 * that disagree would put the transcript on screen in one order and let
-		 * the branch walk choose by another.
-		 */
-		private val SAID_ORDER: Comparator<MessageEntity> =
-			compareBy<MessageEntity> { it.createdAt }.thenBy { it.id }
-
-		/**
-		 * Walk the active branch of a conversation.
+		 * Walk the active branch of any row type that exposes the tree edges.
 		 *
 		 * The tree is stored as parent links plus a `selectedChildId` on each
 		 * node, so the visible transcript is the chain obtained by starting at
@@ -1263,6 +1340,62 @@ class ConversationStore(private val db: InhumanDatabase) {
 		 * whole table and filtering in Kotlin rather than doing this in SQL is
 		 * deliberate: the query would be a recursive CTE, and the number of
 		 * messages in one conversation is small enough that clarity wins.
+		 *
+		 * One implementation serves three row shapes -- full rows for the
+		 * transcript, branch rows for search and turn rows for the rewind gate.
+		 * They must not disagree about which branch is active, and the only way
+		 * to guarantee that is to have one walk.
+		 *
+		 * The order is creation order with the id as a tie-break. That tie-break
+		 * is what makes it a total order, and it has to match the
+		 * `ORDER BY createdAt ASC, id ASC` in [MessageDao] -- two rules that
+		 * disagree would put the transcript on screen in one order and let the
+		 * branch walk choose by another.
+		 */
+		private fun <T> walkActive(
+			nodes: List<T>,
+			id: (T) -> String,
+			parentId: (T) -> String?,
+			selectedChildId: (T) -> String?,
+			createdAt: (T) -> Long,
+		): List<T> {
+			if (nodes.isEmpty()) return emptyList()
+			val order = compareBy<T> { createdAt(it) }.thenBy { id(it) }
+			val byParent = nodes.groupBy(parentId)
+			val roots = nodes.filter { parentId(it) == null }.sortedWith(order)
+			if (roots.isEmpty()) return emptyList()
+
+			// A conversation has one root in practice; if a branch ever produced
+			// several, the earliest wins so the choice is at least
+			// deterministic.
+			val path = mutableListOf<T>()
+			val seen = mutableSetOf<String>()
+			var current: T? = roots.first()
+			while (current != null) {
+				// A row whose parent links form a cycle would otherwise loop
+				// forever. Nothing in the app writes one, but a walk that trusts
+				// its input to be a tree is one bad row away from a hang, and
+				// the check is one set lookup.
+				if (!seen.add(id(current))) break
+				path += current
+				val children = byParent[id(current)].orEmpty()
+				val selected = selectedChildId(current)?.let { childId ->
+					children.firstOrNull { id(it) == childId }
+				}
+				// Fall back to the newest child when nothing is marked selected:
+				// that is what a freshly appended reply is, and it keeps a
+				// transcript readable if a write was interrupted.
+				//
+				// "Newest" uses the same comparator the queries sort by, so the
+				// walk and the row order cannot disagree about which child that
+				// is.
+				current = selected ?: children.maxWithOrNull(order)
+			}
+			return path
+		}
+
+		/**
+		 * Walk the active branch of a conversation.
 		 *
 		 * ## Why it lives in the companion
 		 *
@@ -1273,39 +1406,34 @@ class ConversationStore(private val db: InhumanDatabase) {
 		 * an instrumented test against a real Room instance for a function that
 		 * has no idea Room exists.
 		 */
-		fun activePathOf(messages: List<MessageEntity>): List<MessageEntity> {
-			if (messages.isEmpty()) return emptyList()
+		fun activePathOf(messages: List<MessageEntity>): List<MessageEntity> =
+			walkActive(
+				messages,
+				id = { it.id },
+				parentId = { it.parentId },
+				selectedChildId = { it.selectedChildId },
+				createdAt = { it.createdAt },
+			)
 
-			val byParent = messages.groupBy { it.parentId }
-			val roots = messages.filter { it.parentId == null }.sortedWith(SAID_ORDER)
-			if (roots.isEmpty()) return emptyList()
+		/** The same walk over [BranchRow]s, for search's structural projection. */
+		fun activePathOfBranches(rows: List<BranchRow>): List<BranchRow> =
+			walkActive(
+				rows,
+				id = { it.id },
+				parentId = { it.parentId },
+				selectedChildId = { it.selectedChildId },
+				createdAt = { it.createdAt },
+			)
 
-			// A conversation has one root in practice; if a branch ever produced
-			// several, the earliest wins so the choice is at least
-			// deterministic.
-			val path = mutableListOf<MessageEntity>()
-			val seen = mutableSetOf<String>()
-			var current: MessageEntity? = roots.first()
-			while (current != null) {
-				// A row whose parent links form a cycle would otherwise loop
-				// forever. Nothing in the app writes one, but a walk that trusts
-				// its input to be a tree is one bad row away from a hang, and
-				// the check is one set lookup.
-				if (!seen.add(current.id)) break
-				path += current
-				val children = byParent[current.id].orEmpty()
-				val selected = current.selectedChildId?.let { id -> children.firstOrNull { it.id == id } }
-				// Fall back to the newest child when nothing is marked selected:
-				// that is what a freshly appended reply is, and it keeps a
-				// transcript readable if a write was interrupted.
-				//
-				// "Newest" uses the same comparator the queries sort by, so the
-				// walk and the row order cannot disagree about which child that
-				// is.
-				current = selected ?: children.maxWithOrNull(SAID_ORDER)
-			}
-			return path
-		}
+		/** The same walk over [MessageTurnRow]s, for the post-turn rewind gate. */
+		fun activePathOfTurnRows(rows: List<MessageTurnRow>): List<MessageTurnRow> =
+			walkActive(
+				rows,
+				id = { it.id },
+				parentId = { it.parentId },
+				selectedChildId = { it.selectedChildId },
+				createdAt = { it.createdAt },
+			)
 	}
 
 	@Transaction
@@ -1314,7 +1442,13 @@ class ConversationStore(private val db: InhumanDatabase) {
 		if (parentId != null) {
 			db.messages().setSelectedChild(parentId, message.id)
 		}
-		db.conversations().touch(message.conversationId, message.createdAt)
+		// Throttled: one turn appends many rows, and the list only needs the
+		// conversation to be near the top, not to be rewritten per token.
+		db.conversations().touchIfOlder(
+			message.conversationId,
+			message.createdAt,
+			TOUCH_WINDOW_MS,
+		)
 	}
 
 	@Transaction

@@ -252,6 +252,7 @@
 	<string name="settings_usage_summary">输入 %1$s · 输出 %2$s · %3$s</string>
 	<string name="settings_usage_empty_summary">暂无用量记录</string>
 	<string name="settings_usage_loading">正在读取本机用量…</string>
+    <string name="settings_usage_open_hint">展开后统计本机用量</string>
 	<string name="settings_usage_failed">无法读取用量。</string>
 	<string name="settings_usage_retry">重试</string>
 	<string name="settings_usage_period_today">今天</string>

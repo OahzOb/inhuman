@@ -45,6 +45,25 @@ class SessionWorkspace private constructor(
 	val limits: WorkspaceLimits,
 ) {
 
+	/**
+	 * The root in the two forms the checks compare against, resolved once.
+	 *
+	 * [resolve] runs for every tool call and, through `list_files`, once per
+	 * listed entry; it used to call `root.canonicalFile` and `toRealPath()` on
+	 * every invocation. The root cannot change while a workspace is open, so
+	 * these are values, not questions.
+	 *
+	 * [realRoot] falls back to [canonicalRoot] if the directory disappeared
+	 * between `open` and the first resolve. That is the fail-closed direction:
+	 * a recreated root will still be compared against the path the workspace
+	 * was opened with.
+	 */
+	private val canonicalRoot: File = root.canonicalFile
+	private val canonicalPrefix: String = canonicalRoot.path.trimEnd(File.separatorChar)
+	private val realRoot: File by lazy {
+		runCatching { root.toPath().toRealPath().toFile() }.getOrDefault(canonicalRoot)
+	}
+
 	/** Outcome of turning an agent-supplied string into a file. */
 	sealed interface Resolution {
 		data class Ok(val file: File) : Resolution
@@ -80,7 +99,6 @@ class SessionWorkspace private constructor(
 		// exception that tears down the agent loop. Getting this wrong is how a
 		// sandbox turns into a crash.
 		return try {
-			val rootReal = root.toPath().toRealPath().toFile()
 			var cursor = root
 			for (part in parts) {
 				if (part == "..") {
@@ -104,7 +122,7 @@ class SessionWorkspace private constructor(
 				// canonical-prefix check returned Ok.
 				if (Files.exists(cursor.toPath(), LinkOption.NOFOLLOW_LINKS)) {
 					val real = cursor.toPath().toRealPath().toFile()
-					if (!isInside(real, rootReal)) {
+					if (!isInside(real, realRoot)) {
 						return Resolution.Rejected("path escapes the conversation workspace")
 					}
 				}
@@ -113,7 +131,6 @@ class SessionWorkspace private constructor(
 			// Canonical prefix check. canonicalFile() also resolves any symlink
 			// in the *parent* chain, so this catches escapes the per-segment
 			// walk could not see.
-			val canonicalRoot = root.canonicalFile
 			val target = if (Files.exists(cursor.toPath(), LinkOption.NOFOLLOW_LINKS)) {
 				cursor.toPath().toRealPath().toFile()
 			} else {
@@ -141,11 +158,11 @@ class SessionWorkspace private constructor(
 	 * for display and for storing in tool results.
 	 */
 	fun relativize(file: File): String {
-		val rootPath = root.canonicalFile.path.trimEnd(File.separatorChar)
 		val p = file.canonicalFile.path
 		return when {
-			p == rootPath -> ""
-			p.startsWith(rootPath + File.separator) -> p.substring(rootPath.length + 1).replace('\\', '/')
+			p == canonicalPrefix -> ""
+			p.startsWith(canonicalPrefix + File.separator) ->
+				p.substring(canonicalPrefix.length + 1).replace('\\', '/')
 			else -> error("file is not inside this workspace")
 		}
 	}

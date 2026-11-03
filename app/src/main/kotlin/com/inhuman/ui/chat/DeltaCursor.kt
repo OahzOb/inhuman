@@ -26,10 +26,15 @@ package com.inhuman.ui.chat
  */
 class DeltaCursor(initialText: String = "") {
 
-	/** Everything this cursor has been shown, in order. */
-	private val seen = StringBuilder(initialText)
-
-	/** How much of [seen] the renderer already has. */
+	/**
+	 * How much of the caller's buffer the renderer already has.
+	 *
+	 * There is deliberately no copy of the text here. It used to keep one
+	 * (`seen`) on the theory that a shrinking buffer needed the previous
+	 * contents; the shrink case is decided by [sent] alone and re-sends the
+	 * new buffer whole, so the copy was written on every publish and never
+	 * read -- an O(n) copy of a growing reply, 25 times a second.
+	 */
 	private var sent = initialText.length
 
 	/**
@@ -49,13 +54,6 @@ class DeltaCursor(initialText: String = "") {
 		// `append` -- so re-sending is the only way to make its content equal
 		// the reply again.
 		if (current.length < sent) {
-			seen.setLength(0)
-			seen.append(current)
-			// `sent` has to end up equal to what was handed over, or the next
-			// call slices from a position this document does not have -- which
-			// re-sends a prefix and renders the reply twice. The first version
-			// of this branch reset `sent` to 0 and returned, so the following
-			// "shorter" call re-emitted "short" before "er".
 			sent = current.length
 			return if (current.isEmpty()) null else current.toString()
 		}
@@ -63,8 +61,6 @@ class DeltaCursor(initialText: String = "") {
 		if (current.length <= sent) return null
 
 		val slice = current.subSequence(sent, current.length).toString()
-		seen.setLength(0)
-		seen.append(current)
 		sent = current.length
 		return slice
 	}

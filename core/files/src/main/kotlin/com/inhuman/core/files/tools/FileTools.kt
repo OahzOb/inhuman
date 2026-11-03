@@ -118,13 +118,19 @@ internal class ListFilesTool(
 		// Filtered after `listEntries` rather than inside it, so the cap on how
 		// many entries are read is the same whether or not rules exist -- a rule
 		// must not change how far down a huge directory is walked.
-		val entries = listed.filterNot { hidden(workspace.relativize(it)) }
+		//
+		// The path is relativised once and carried with the file: the filter and
+		// the display line both need it, and `relativize` canonicalises, so the
+		// old shape paid two canonicalisations per entry.
+		val entries = listed.map { it to workspace.relativize(it) }
+			.filterNot { (_, path) -> hidden(path) }
+		val dirPath = workspace.relativize(dir).ifEmpty { "." }
 		if (entries.isEmpty()) {
-			"${workspace.relativize(dir).ifEmpty { "." }} is empty"
+			"$dirPath is empty"
 		} else {
 			buildString {
-				appendLine("${workspace.relativize(dir).ifEmpty { "." }} (${entries.size} entries):")
-				entries.forEach { f ->
+				appendLine("$dirPath (${entries.size} entries):")
+				entries.forEach { (f, _) ->
 					val kind = if (f.isDirectory) "dir " else "file"
 					val size = if (f.isDirectory) "" else "  ${humanSize(f.length())}"
 					appendLine("  $kind  ${f.name}$size")
@@ -246,8 +252,7 @@ internal class AppendFileTool(workspace: SessionWorkspace, free: FreeSpace = nul
 	override suspend fun execute(arguments: JsonObject) = guard {
 		val file = resolve(arguments.requireString("path")).getOrThrow()
 		val content = arguments.requireString("content")
-		val existing = if (file.exists() && file.isFile) file.readText() else ""
-		val written = writeText(file, existing + content)
+		val written = appendText(file, content)
 		"Appended to ${workspace.relativize(file)} (now ${humanSize(written.toLong())})"
 	}
 }

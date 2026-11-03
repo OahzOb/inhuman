@@ -50,6 +50,7 @@ import com.inhuman.core.data.db.ApprovalDecision
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.MessageEntity
+import com.inhuman.core.data.db.MessageTurnRow
 import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.db.ToolsColumn
 import com.inhuman.core.data.secret.SecureStore
@@ -406,7 +407,7 @@ class ChatViewModel(
 
 	init {
 		viewModelScope.launch {
-			conversation = repository.conversation(conversationId)?.entity
+			conversation = repository.conversationEntity(conversationId)
 			val c = conversation
 			// The conversation's own settings win over the agent's, because a
 			// conversation may have been switched to a different model after it
@@ -1386,7 +1387,7 @@ class ChatViewModel(
 		viewModelScope.launch {
 			val result = withContext(Dispatchers.IO) {
 				runCatching {
-					val entity = repository.conversation(conversationId)?.entity
+					val entity = repository.conversationEntity(conversationId)
 						?: error(context.getString(R.string.export_error_missing_conversation))
 					val workspace = repository.workspace(entity)
 					val out = context.contentResolver.openOutputStream(uri)
@@ -1469,11 +1470,11 @@ class ChatViewModel(
 		val lastTurn = lastUser?.let { user ->
 			entities.dropWhile { it.id != user.id }
 		}.orEmpty()
-		val irreversible = lastTurn.any { message ->
-			decodeCalls(message.toolCallsJson.orEmpty()).any { call ->
-				ToolCatalog.all.firstOrNull { it.name == call.displayName }?.reversible == false
-			}
-		}
+		// The rewind points are computed from the structural projection of this
+		// turn, the same shape `refreshTurnMeta` reads, so the two paths cannot
+		// disagree about which calls are reversible.
+		val lastTurnRows = lastTurn.map { it.toTurnRow() }
+		val irreversible = lastTurn.any { it.hasIrreversibleCall() }
 		val hasSnapshot = lastUser != null &&
 			runCatching {
 				repository.hasStartCheckpoint(conversationId, lastUser.id)
@@ -1512,7 +1513,7 @@ class ChatViewModel(
 		val regenerationPoints = if (sharedWorkspace) {
 			emptyList()
 		} else {
-			regenerationPointsFor(lastUser, lastTurn)
+			regenerationPointsFor(lastUser?.toTurnRow(), lastTurnRows)
 		}
 		// A summary is active only while its boundary is on the active path and
 		// something follows it. A stale row from a branch that was switched away
@@ -2075,10 +2076,18 @@ class ChatViewModel(
 	 * metadata need recomputing.
 	 */
 	private suspend fun refreshTurnMeta() {
-		val entities = repository.conversation(conversationId)?.messages ?: return
-		val lastUser = entities.lastOrNull { it.role == "user" }
+		// Structural rows only. This runs after every turn and used to read the
+		// whole transcript -- every tool result's payload included -- to decide
+		// whether a button is enabled. One projection answers the same
+		// questions; none of them is about the prose.
+		val rows = runCatching { repository.turnRows(conversationId) }
+			.getOrElse { failure ->
+				Diag.w("rollback", "turn metadata read failed", failure)
+				return
+			}
+		val lastUser = rows.lastOrNull { it.role == "user" }
 		val lastTurn = lastUser?.let { user ->
-			entities.dropWhile { it.id != user.id }
+			rows.dropWhile { it.id != user.id }
 		}.orEmpty()
 		val irreversible = lastTurn.any { it.hasIrreversibleCall() }
 		val hasSnapshot = lastUser != null && runCatching {
@@ -2116,14 +2125,14 @@ class ChatViewModel(
 		val compaction = runCatching { repository.contextSummary(conversationId) }
 			.getOrNull()
 			?.let { summary ->
-				val boundary = entities.indexOfFirst { it.id == summary.throughMessageId }
-				if (boundary < 0 || boundary >= entities.lastIndex) {
+				val boundary = rows.indexOfFirst { it.id == summary.throughMessageId }
+				if (boundary < 0 || boundary >= rows.lastIndex) {
 					null
 				} else {
 					ContextCompactionUi(
 						throughMessageId = summary.throughMessageId,
 						summary = summary.summary,
-						omittedTurns = entities.take(boundary + 1).count { it.role == "user" },
+						omittedTurns = rows.take(boundary + 1).count { it.role == "user" },
 						omittedMessages = boundary + 1,
 					)
 				}
@@ -2355,7 +2364,7 @@ class ChatViewModel(
 	fun createNewConversation(onResult: (String?) -> Unit) {
 		viewModelScope.launch {
 			val current = conversation ?: runCatching {
-				repository.conversation(conversationId)?.entity
+				repository.conversationEntity(conversationId)
 			}.getOrNull()
 			if (current == null) {
 				_state.update {
@@ -2656,7 +2665,7 @@ class ChatViewModel(
 					conversationId,
 					text.ifBlank { attachments.firstOrNull()?.displayName ?: "Image" },
 				)
-				val stored = repository.conversation(conversationId)?.entity?.title
+				val stored = repository.conversationEntity(conversationId)?.title
 				if (stored != null) _state.update { it.copy(title = stored) }
 			}
 			runTurn(demo = demo)
@@ -2816,8 +2825,8 @@ class ChatViewModel(
 	 * from there would be rejected before the model saw anything.
 	 */
 	private suspend fun regenerationPointsFor(
-		lastUser: MessageEntity?,
-		lastTurn: List<MessageEntity>,
+		lastUser: MessageTurnRow?,
+		lastTurn: List<MessageTurnRow>,
 	): List<RegenerationPoint> {
 		if (lastUser == null) return emptyList()
 		val startAvailable = repository.hasStartCheckpoint(conversationId, lastUser.id)
@@ -2855,7 +2864,7 @@ class ChatViewModel(
 				continue
 			}
 			var next = index + 1
-			val results = mutableListOf<MessageEntity>()
+			val results = mutableListOf<MessageTurnRow>()
 			while (next < lastTurn.size && lastTurn[next].role == "tool") {
 				results += lastTurn[next]
 				next++
@@ -2916,27 +2925,49 @@ class ChatViewModel(
 		return points
 	}
 
+	/**
+	 * Whether a call changes something a rewind cannot undo.
+	 *
+	 * One classification, consulted by the row type the caller happens to hold.
+	 * The rewind gate now reads [MessageTurnRow] (structure only) while the
+	 * reload path reads [MessageEntity]; two copies of "is this irreversible"
+	 * would be one place for the two answers to drift apart.
+	 */
+	private fun isIrreversible(call: ToolCallUi): Boolean =
+		ToolCatalog.all.firstOrNull { it.name == call.displayName }?.reversible == false
+
+	private fun isLocalMutation(call: ToolCallUi): Boolean =
+		ToolCatalog.all.firstOrNull { it.name == call.displayName }
+			?.let { it.mutates && it.reversible } == true
+
 	private fun MessageEntity.hasIrreversibleCall(): Boolean =
-		decodeCalls(toolCallsJson.orEmpty()).any { call ->
-			ToolCatalog.all.firstOrNull { it.name == call.displayName }?.reversible == false
-		}
+		decodeCalls(toolCallsJson.orEmpty()).any(::isIrreversible)
 
 	private fun MessageEntity.hasLocalMutation(): Boolean =
-		decodeCalls(toolCallsJson.orEmpty()).any { call ->
-			ToolCatalog.all.firstOrNull { it.name == call.displayName }
-				?.let { it.mutates && it.reversible } == true
-		}
+		decodeCalls(toolCallsJson.orEmpty()).any(::isLocalMutation)
 
-	private fun ChatMessageUi.hasIrreversibleCall(): Boolean =
-		toolCalls.any { call ->
-			ToolCatalog.all.firstOrNull { it.name == call.displayName }?.reversible == false
-		}
+	private fun MessageTurnRow.hasIrreversibleCall(): Boolean =
+		decodeCalls(toolCallsJson.orEmpty()).any(::isIrreversible)
 
-	private fun ChatMessageUi.isLocalMutation(): Boolean =
-		toolCalls.any { call ->
-			ToolCatalog.all.firstOrNull { it.name == call.displayName }
-				?.let { it.mutates && it.reversible } == true
-		}
+	private fun MessageTurnRow.hasLocalMutation(): Boolean =
+		decodeCalls(toolCallsJson.orEmpty()).any(::isLocalMutation)
+
+	private fun ChatMessageUi.hasIrreversibleCall(): Boolean = toolCalls.any(::isIrreversible)
+
+	private fun ChatMessageUi.isLocalMutation(): Boolean = toolCalls.any(::isLocalMutation)
+
+	/** Structural view of a stored row, for the turn-metadata path. */
+	private fun MessageEntity.toTurnRow() = MessageTurnRow(
+		id = id,
+		conversationId = conversationId,
+		parentId = parentId,
+		selectedChildId = selectedChildId,
+		createdAt = createdAt,
+		role = role,
+		toolCallsJson = toolCallsJson,
+		toolCallId = toolCallId,
+		mutated = mutated,
+	)
 
 	/**
 	 * Resolve the provider and model, then hand the whole turn to the shared
@@ -3056,7 +3087,14 @@ class ChatViewModel(
 		// legacy path does because it creates the placeholder first -- made the
 		// model answer the previous turn. The phone transcript showed exactly
 		// that: "帮我搜搜今天的新闻" received the answer to "你好".
-		val history = buildWireHistory(includeCurrent = true).let { base ->
+		// Off the main thread: this walks the transcript and, for every user
+		// message with attachments, re-reads each image's bytes from the
+		// workspace (`loadImages`). It used to run on Main, so sending in a
+		// conversation with pictures read every historical image on the frame
+		// that was meant to show the composer clearing. The preview path
+		// already wraps the identical call in `withContext(Dispatchers.IO)`
+		// (`previewNextRequest`); this is the path that actually sends.
+		val history = withContext(Dispatchers.IO) { buildWireHistory(includeCurrent = true) }.let { base ->
 			val retried = if (suppressToolCalls) {
 				base + ChatMessage(Role.System, NO_TOOL_RETRY_INSTRUCTION)
 			} else {
@@ -3180,14 +3218,22 @@ class ChatViewModel(
 								),
 							)
 						}
-						provider.previewRequest(event.request)?.let { body ->
-							_wire.value = WireSnapshot(
-								requestJson = Json { prettyPrint = true }
-									.encodeToString(JsonObject.serializer(), body),
-								model = turnModel,
-								capturedAt = System.currentTimeMillis(),
-							)
+						// Built for the inspector, not for the request: the
+						// provider builds its own body when it streams. This used
+						// to run on Main, twice per round, and pretty-printed the
+						// whole body even when the sheet was never opened. Compact
+						// JSON is stored; the sheet formats it when someone opens
+						// it, which is the only time it is read.
+						val snapshot = withContext(Dispatchers.Default) {
+							provider.previewRequest(event.request)?.let { body ->
+								WireSnapshot(
+									requestJson = body.toString(),
+									model = turnModel,
+									capturedAt = System.currentTimeMillis(),
+								)
+							}
 						}
+						if (snapshot != null) _wire.value = snapshot
 						Diag.i(
 							"engine",
 							"round=${event.round} provider=${provider.id} " +
@@ -4055,7 +4101,9 @@ class ChatViewModel(
 					// a path, but it does so by refusing the call, which leaves the
 					// name visible -- and the name is the part that leaks.
 					hidden = { path ->
-						policies.effective(tool = "list_files", relativePath = path) == ToolPolicy.Blind
+						!policies.isEmpty &&
+							policies.effective(tool = "list_files", relativePath = path) ==
+							ToolPolicy.Blind
 					},
 					documentBackends = DocumentBackends(
 						pdf = pdfBackend,
@@ -4383,7 +4431,7 @@ class ChatViewModel(
 	 * cannot answer one query is about to fail the tool call anyway.
 	 */
 	private suspend fun loadPolicies(): PolicySet = runCatching {
-		val entity = repository.conversation(conversationId)?.entity
+		val entity = repository.conversationEntity(conversationId)
 		repository.policies().forConversation(conversationId, entity?.agentId)
 	}.getOrElse { failure ->
 		Diag.w("policy", "load failed; continuing with no rules", failure)

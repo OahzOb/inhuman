@@ -63,17 +63,22 @@ internal fun UsageSection(
 	report: UsageReport?,
 	period: UsagePeriod,
 	failed: Boolean,
+	/** True while the deferred read is in flight. */
+	loading: Boolean = false,
 	initiallyExpanded: Boolean = false,
 	visible: Boolean = true,
 	onPeriodChange: (UsagePeriod) -> Unit,
 	onRetry: () -> Unit,
+	/** Load the report the first time the section is opened. */
+	onExpand: () -> Unit = {},
 ) {
 	SettingsFold(
 		code = stringResource(R.string.settings_section_usage),
 		title = stringResource(R.string.settings_usage_title),
-		summary = usageSummary(report, failed),
+		summary = usageSummary(report, failed, loading),
 		initiallyExpanded = initiallyExpanded,
 		visible = visible,
+		onExpand = onExpand,
 	) {
 		FlowRowCompat {
 			UsagePeriod.entries.forEach { candidate ->
@@ -91,8 +96,13 @@ internal fun UsageSection(
 				if (failed) UsageFailure(onRetry)
 			}
 			failed -> UsageFailure(onRetry)
-			else -> Text(
+			loading -> Text(
 				text = stringResource(R.string.settings_usage_loading),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			else -> Text(
+				text = stringResource(R.string.settings_usage_open_hint),
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
@@ -109,11 +119,10 @@ internal fun UsageSection(
 }
 
 @Composable
-private fun usageSummary(report: UsageReport?, failed: Boolean): String = when {
+private fun usageSummary(report: UsageReport?, failed: Boolean, loading: Boolean): String = when {
 	failed -> stringResource(R.string.settings_usage_failed)
-	report == null -> stringResource(R.string.settings_usage_loading)
-	report.isEmpty -> stringResource(R.string.settings_usage_empty_summary)
-	else -> stringResource(
+	report != null && report.isEmpty -> stringResource(R.string.settings_usage_empty_summary)
+	report != null -> stringResource(
 		R.string.settings_usage_summary,
 		tokens(report.totals.promptTokens),
 		tokens(report.totals.completionTokens),
@@ -123,6 +132,10 @@ private fun usageSummary(report: UsageReport?, failed: Boolean): String = when {
 			report.totals.paidCalls,
 		),
 	)
+	loading -> stringResource(R.string.settings_usage_loading)
+	// Not read yet: the section is opened to load it, so say that rather than
+	// claiming a read that has not started.
+	else -> stringResource(R.string.settings_usage_open_hint)
 }
 
 @Composable

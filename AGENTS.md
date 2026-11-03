@@ -480,8 +480,10 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   billed for it. (It is the row insert at `ChatViewModel.kt:1040`, not the
   tool-layer `writeText`.)
 - **Message order needs its tie-break.** `ORDER BY createdAt ASC, id ASC`, and
-  `ConversationStore.SAID_ORDER` must agree with it; a tool result and the turn
-  that asked for it routinely share a millisecond.
+  the Kotlin comparator inside `ConversationStore.walkActive` must agree with
+  it; a tool result and the turn that asked for it routinely share a
+  millisecond. One walk serves full rows, search's `BranchRow`s and the rewind
+  gate's `MessageTurnRow`s.
 - **`mutates` and `needsApproval` are different questions.** The first decides
   whether replay-with-tools would change something; the second whether a call
   may happen.

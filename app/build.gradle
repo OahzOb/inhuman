@@ -44,7 +44,12 @@ android {
 
 	buildTypes {
 		release {
-			minifyEnabled = false
+			// The engines that need reflection are kept whole in
+			// app/proguard-rules.pro; everything else is shrunk. This is what
+			// removes the ~30 MB of unused material icons.
+			minifyEnabled = true
+			shrinkResources = true
+			proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
 			signingConfig = keystorePropertiesFile.exists() ?
 				signingConfigs.release : signingConfigs.debug
 		}

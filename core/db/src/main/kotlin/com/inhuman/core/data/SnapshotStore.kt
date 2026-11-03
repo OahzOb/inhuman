@@ -8,6 +8,7 @@ import java.io.File
 import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 /** One path that differs between the workspace and a checkpoint. */
 data class WorkspaceChange(
@@ -74,7 +75,17 @@ object SnapshotStore {
 	}
 
 	@Serializable
-	private data class Entry(val path: String, val hash: String)
+	private data class Entry(
+		val path: String,
+		val hash: String,
+		/**
+		 * Size and modification time are a hash-cache key, not part of a file's
+		 * identity. They are optional so manifests written before the cache
+		 * existed still decode, and a missing value simply means "hash it".
+		 */
+		val size: Long = 0,
+		val modified: Long = 0,
+	)
 
 	@Serializable
 	private data class Manifest(
@@ -131,6 +142,11 @@ object SnapshotStore {
 
 			val dirs = mutableListOf<String>()
 			val files = mutableListOf<Entry>()
+			// The previous capture in this turn is the hash cache: a file whose
+			// size and full-precision mtime still match it has not changed, and
+			// its blob is already stored. Capturing a group used to re-read and
+			// SHA-256 every file in the workspace each time.
+			val previous = previousEntries(destination)
 			source.walkTopDown()
 				.onEnter { dir ->
 					if (Files.isSymbolicLink(dir.toPath())) {
@@ -142,20 +158,28 @@ object SnapshotStore {
 				.filter { it.isFile }
 				.forEach { file ->
 					if (Files.isSymbolicLink(file.toPath())) error("symlink in workspace")
-					val hash = hash(file)
+					val path = relative(source, file)
+					val reused = reuseHash(file, previous[path])
+					val hash = if (reused != null && File(blobs, reused).isFile) {
+						reused
+					} else {
+						hash(file)
+					}
 					val blob = File(blobs, hash)
 					if (!blob.isFile) copyBlob(file, blob)
-					files += Entry(relative(source, file), hash)
+					files += Entry(path, hash, file.length(), modifiedNanos(file))
 				}
 
 			val manifest = Manifest(
 				dirs = dirs.sorted(),
 				files = files.sortedBy { it.path },
 			)
-			writeAtomically(
-				checkpointFile(destination, checkpointId),
-				json.encodeToString(manifest),
-			)
+			val manifestJson = json.encodeToString(manifest)
+			writeAtomically(checkpointFile(destination, checkpointId), manifestJson)
+			// A copy of the newest manifest under a non-`.json` name, so the
+			// next capture can tell which file versions are already stored.
+			// Best effort: losing it costs a rehash, never a checkpoint.
+			runCatching { writeAtomically(lastManifestFile(destination), manifestJson) }
 			true
 		}.getOrElse { failure ->
 			Diag.w("rollback", "checkpoint capture failed", failure)
@@ -248,14 +272,20 @@ object SnapshotStore {
 	fun diff(workspaceRoot: File, turnDir: File, checkpointId: String): List<WorkspaceChange> {
 		val before = readManifest(turnDir, checkpointId) ?: return emptyList()
 		if (!workspaceRoot.isDirectory) return emptyList()
-		val old = before.files.associate { it.path to it.hash }
+		val old = before.files.associateBy { it.path }
+		// The same size+mtime cache as `capture`: a file that still matches the
+		// start manifest has the same content, so the "changed files" summary no
+		// longer re-reads the whole workspace at the end of every turn.
 		val now = workspaceRoot.walkTopDown()
 			.onEnter { dir -> !Files.isSymbolicLink(dir.toPath()) }
 			.filter { it.isFile && !Files.isSymbolicLink(it.toPath()) }
-			.associate { relative(workspaceRoot, it) to hash(it) }
+			.associate { file ->
+				val path = relative(workspaceRoot, file)
+				path to (reuseHash(file, old[path]) ?: hash(file))
+			}
 		val changes = mutableListOf<WorkspaceChange>()
 		for (path in (old.keys + now.keys).sorted()) {
-			val was = old[path]
+			val was = old[path]?.hash
 			val isNow = now[path]
 			when {
 				was == null && isNow != null ->
@@ -335,6 +365,7 @@ object SnapshotStore {
 	fun retainCheckpoints(turnDir: File, keep: Set<String>) {
 		val manifests = File(turnDir, "manifests").listFiles().orEmpty()
 		for (manifest in manifests) {
+			if (manifest.name == lastManifestFile(turnDir).name) continue
 			val id = manifest.name.removeSuffix(".json")
 			if (id !in keep) runCatching { manifest.delete() }
 		}
@@ -405,6 +436,7 @@ object SnapshotStore {
 	}
 
 	private fun hash(file: File): String {
+		hashedFiles++
 		val digest = MessageDigest.getInstance("SHA-256")
 		file.inputStream().use { input ->
 			val buffer = ByteArray(16 * 1024)
@@ -417,6 +449,111 @@ object SnapshotStore {
 		return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
 	}
 
-	private fun sizeOf(file: File): Long =
-		if (file.isFile) file.length() else file.listFiles().orEmpty().sumOf { sizeOf(it) }
+	/**
+	 * Cached byte totals for turn directories.
+	 *
+	 * `turns()` runs after every turn to fill the rewind menu, and its byte
+	 * total used to walk the whole turn directory each time -- a turn holds one
+	 * blob per changed file, so that is the largest part of the cache. A blob is
+	 * content-addressed and never rewritten, so a total can be reused until the
+	 * turn directory's contents change; the timestamps and entry counts of
+	 * `blobs/` and `manifests/` are that signal. A stale number here is a wrong
+	 * menu label, never a wrong restore.
+	 */
+	private data class DirStamp(
+		val blobsModified: Long,
+		val blobsCount: Int,
+		val manifestsModified: Long,
+		val manifestsCount: Int,
+		val bytes: Long = 0,
+	)
+
+	private val sizeCache = java.util.concurrent.ConcurrentHashMap<String, DirStamp>()
+
+	/**
+	 * How many files were actually hashed.
+	 *
+	 * An observation point for the tests: the cache's failure mode is invisible
+	 * in a manifest when content is unchanged, so the evidence that an
+	 * unchanged capture does no reading is the absence of hash calls.
+	 */
+	internal var hashedFiles: Int = 0
+		private set
+
+	internal fun resetHashedFilesForTest() {
+		hashedFiles = 0
+	}
+
+	/**
+	 * The manifest the previous capture wrote, or an empty map when there is
+	 * none.
+	 *
+	 * Kept as its own file rather than "the newest `.json`" because two captures
+	 * can share a millisecond, and picking the older one would reuse a hash for
+	 * a file that changed between them. A missing or corrupt cache is not an
+	 * error: the capture hashes everything, which is what it used to do always.
+	 */
+	private fun previousEntries(turnDir: File): Map<String, Entry> {
+		val manifest = runCatching {
+			json.decodeFromString<Manifest>(lastManifestFile(turnDir).readText())
+		}.getOrNull() ?: return emptyMap()
+		return manifest.files.associateBy { it.path }
+	}
+
+	private fun lastManifestFile(turnDir: File): File = File(File(turnDir, "manifests"), ".last")
+
+	/**
+	 * The cached hash for [file], or null when it cannot be trusted.
+	 *
+	 * The key is size plus full-precision modification time. A zero mtime (a
+	 * filesystem that cannot report one) disables the cache rather than
+	 * matching every unknown file; manifests written before this cache existed
+	 * carry zeros and therefore hash normally. A same-size rewrite within the
+	 * filesystem's timestamp resolution is the one case this cannot see, which
+	 * is why the timestamp is taken at nanosecond precision rather than from
+	 * `File.lastModified()`'s milliseconds.
+	 */
+	private fun reuseHash(file: File, cached: Entry?): String? {
+		if (cached == null) return null
+		val modified = modifiedNanos(file)
+		if (modified == 0L) return null
+		if (cached.size != file.length() || cached.modified != modified) return null
+		return cached.hash
+	}
+
+	private fun modifiedNanos(file: File): Long =
+		runCatching { Files.getLastModifiedTime(file.toPath()).to(TimeUnit.NANOSECONDS) }
+			.getOrDefault(0L)
+
+	private fun sizeOf(dir: File): Long {
+		val blobs = File(dir, "blobs")
+		val manifests = File(dir, "manifests")
+		if (!blobs.isDirectory && !manifests.isDirectory) {
+			// Not a checkpoint directory: nothing to key a cache entry on.
+			return dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+		}
+		val blobsModified = blobs.lastModified()
+		val blobsCount = blobs.list()?.size ?: 0
+		val manifestsModified = manifests.lastModified()
+		val manifestsCount = manifests.list()?.size ?: 0
+		sizeCache[dir.path]?.let { cached ->
+			if (
+				cached.blobsModified == blobsModified &&
+				cached.blobsCount == blobsCount &&
+				cached.manifestsModified == manifestsModified &&
+				cached.manifestsCount == manifestsCount
+			) {
+				return cached.bytes
+			}
+		}
+		val bytes = dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+		sizeCache[dir.path] = DirStamp(
+			blobsModified = blobsModified,
+			blobsCount = blobsCount,
+			manifestsModified = manifestsModified,
+			manifestsCount = manifestsCount,
+			bytes = bytes,
+		)
+		return bytes
+	}
 }

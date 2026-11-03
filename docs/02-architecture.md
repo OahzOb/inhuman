@@ -243,6 +243,16 @@ Four traps, all of which already cost someone time and are documented in
 build, and `android.defaults.buildfeatures.compose=false` makes Compose opt-in
 per module so the non-UI modules do not pay for it.
 
+**The release variant is minified** (`minifyEnabled`, `shrinkResources` in
+`app/build.gradle`). `app/proguard-rules.pro` keeps the engines that resolve
+classes or resources by name — POI/XMLBeans, PDFBox, BouncyCastle/sshj,
+JLaTeXMath and the JavaScript sandbox — and lets R8 remove the rest. That took
+the APK from about 72 MB to about 21 MB; most of the saving was
+`material-icons-extended`, of which the app names 40 icons out of several
+thousand. Debug builds are not minified, so a reflection or resource-name
+failure introduced by a new dependency appears in release only: install a
+release APK before calling a dependency change done.
+
 **On a machine that is not this one**, the wrapper's `file:` URL points at
 nothing and three prerequisites (JDK 17, Android platform 37, the Gradle
 distribution) live outside git. `tools/setup-machine.ps1` checks all three,

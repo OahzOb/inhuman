@@ -247,7 +247,10 @@ without loading message text. Summing those rows can therefore show only calls
 whose row still exists; a deleted or rewound turn has no row, and a compaction
 summary lives in `context_summaries` rather than `messages`. That is why the
 screen calls the result usage rather than a bill, and why `docs/13-product.md`
-does not promise a lifetime total.
+does not promise a lifetime total. The read is deferred until the Usage section
+is expanded (`SettingsFold`'s `onExpand`), not run when Settings opens: the
+WHERE clause has no index to use and a long install pays a full scan of
+`messages` for numbers nobody asked to see.
 
 ### `agents` (`Entities.kt:30-88`)
 
@@ -301,39 +304,49 @@ tool defaults to "not yet" rather than "already permitted".
 as well as in `AgentRepository.delete`. `defaultAgent()` is named that way
 because KSP rejects `default` as a Java keyword (`:168-173`).
 
-### `SAID_ORDER` and the active branch
+### The branch walk and the order rule
 
 The transcript order is expressed twice — once in SQL and once in Kotlin — and
 they **must** agree:
 
 ```kotlin
-private val SAID_ORDER: Comparator<MessageEntity> =
-    compareBy<MessageEntity> { it.createdAt }.thenBy { it.id }
+val order = compareBy<T> { createdAt(it) }.thenBy { id(it) }
 ```
 
-`InhumanDatabase.kt:424-425`. Two rules that disagree would render the transcript
-in one order and choose branches by another (`:416-423`). It is `private`, so
-`ConversationRepository` cannot use it — which is why `branches()` re-implements
-"newest" as `children.last()` (`ConversationRepository.kt:279`). That is two
-implementations of one rule, and the second is not compile-checked against the
-first.
+`InhumanDatabase.kt`, inside `ConversationStore.walkActive`. Two rules that
+disagree would render the transcript in one order and choose branches by
+another. The Kotlin comparator is `private`, so `ConversationRepository` cannot
+use it — which is why `branches()` relies on `childrenOf`'s
+`ORDER BY createdAt ASC, id ASC` and takes `children.last()` as "newest". That
+is still two expressions of one rule, but both name the same two columns in the
+same order, and `ConversationRepositoryTest` pins that the switcher and the walk
+agree about which reply is selected.
 
-`activePathOf` (`InhumanDatabase.kt:446-478`) is a **pure function** — no
-database, no Android — which is why it can be tested on the JVM:
+`walkActive` is a **pure function** — no database, no Android — which is why it
+can be tested on the JVM:
 
-- Roots are `parentId == null` sorted by `SAID_ORDER`; the earliest wins if there
-  are several.
+- Roots are `parentId == null` sorted by the comparator; the earliest wins if
+  there are several.
 - It follows `selectedChildId` when that names an existing child, otherwise it
-  takes `children.maxWithOrNull(SAID_ORDER)` — the newest, which is what a fresh
-  append looks like.
+  takes the newest child — which is what a fresh append looks like.
 - A `seen` set breaks parent-link cycles.
 
+One walk serves three row shapes, so they cannot disagree about the active
+branch: `activePathOf(MessageEntity)` for the transcript, `activePathOfBranches`
+for global search's structural projection, and `activePathOfTurnRows` for the
+post-turn rewind gate. The last two exist because both callers used to read full
+rows — `content`, `reasoning`, tool results — to make a decision about four
+columns.
+
 `ConversationStore` (`:401-503`) is where multi-table writes are transactional:
-`append` upserts the message, sets `selectedChildId` on the parent, and touches
-the conversation with the message's own `createdAt`. `deleteConversation` deletes
-the messages explicitly before the row **even though the FK cascades** — the
-comment says that keeps the behaviour obvious if the cascade is ever switched
-off (`:496-502`).
+`append` upserts the message, sets `selectedChildId` on the parent, and moves the
+conversation's `updatedAt` **at most once a second** (`touchIfOlder`). The
+throttle matters because the home screen observes `SELECT * FROM conversations`:
+a tool-heavy turn used to re-query the whole list once per appended message for
+a timestamp whose only job is ordering. `deleteConversation` deletes the
+messages explicitly before the row **even though the FK cascades** — the comment
+says that keeps the behaviour obvious if the cascade is ever switched off
+(`:496-502`).
 
 ## Migration history 1 → 21
 

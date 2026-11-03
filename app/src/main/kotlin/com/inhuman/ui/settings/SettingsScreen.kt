@@ -155,8 +155,8 @@ fun SettingsScreen(
 		?.language
 		?: "zh"
 	// The view model outlives this screen, but a turn can finish while Settings
-	// is closed. Re-read on entry rather than trusting the last visit's numbers.
-	LaunchedEffect(Unit) { viewModel.refreshUsage() }
+	// is closed. The Usage report is large enough to be worth deferring: it is
+	// requested when that section is opened, below, rather than on entry.
 	var showHostKeysDialog by remember { mutableStateOf(false) }
 	var showSavedSshDialog by remember { mutableStateOf(false) }
 	var backupMode by remember { mutableStateOf<BackupMode?>(null) }
@@ -777,10 +777,12 @@ fun SettingsScreen(
 				report = state.usage,
 				period = state.usagePeriod,
 				failed = state.usageFailed,
+				loading = state.usageLoading,
 				initiallyExpanded = query.isNotBlank(),
 				visible = matches(usageText),
 				onPeriodChange = viewModel::setUsagePeriod,
 				onRetry = viewModel::refreshUsage,
+				onExpand = viewModel::refreshUsage,
 			)
 
 			SettingsFold(
@@ -2190,6 +2192,14 @@ internal fun SettingsFold(
 	initiallyExpanded: Boolean = false,
 	/** False while a settings search excludes this section. */
 	visible: Boolean = true,
+	/**
+	 * Called once each time the section becomes expanded.
+	 *
+	 * The Usage section uses this to defer its full-table read until the user
+	 * actually asks for the numbers; opening Settings no longer pays for a
+	 * report that may never be looked at.
+	 */
+	onExpand: () -> Unit = {},
 	content: @Composable ColumnScope.() -> Unit,
 ) {
 	if (!visible) return
@@ -2198,6 +2208,9 @@ internal fun SettingsFold(
 	// state otherwise, so this only pushes open, never closed.
 	LaunchedEffect(initiallyExpanded) {
 		if (initiallyExpanded) expanded = true
+	}
+	LaunchedEffect(expanded) {
+		if (expanded) onExpand()
 	}
 	Column(
 		modifier = Modifier

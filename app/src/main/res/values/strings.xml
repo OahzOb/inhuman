@@ -266,6 +266,7 @@
 	<string name="settings_usage_summary">In %1$s · Out %2$s · %3$s</string>
 	<string name="settings_usage_empty_summary">No usage recorded</string>
 	<string name="settings_usage_loading">Reading local usage…</string>
+    <string name="settings_usage_open_hint">Open to count local usage</string>
 	<string name="settings_usage_failed">Usage could not be read.</string>
 	<string name="settings_usage_retry">Retry</string>
 	<string name="settings_usage_period_today">Today</string>

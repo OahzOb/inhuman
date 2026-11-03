@@ -80,17 +80,23 @@ internal fun rememberMathImageTransformer(): ImageTransformer {
 			override fun transform(link: String): ImageData? {
 				val math = parseMathUrl(link) ?: return null
 				MathFonts.ensure(context)
-				val drawable = runCatching {
-					JLatexMathDrawable.builder(math.latex)
-						.textSize(if (math.display) displaySize else inlineSize)
-						.color(color)
-						.align(JLatexMathDrawable.ALIGN_LEFT)
-						.build()
-				}.onFailure {
-					// No formula text in the log: diagnostics deliberately do
-					// not record answer content.
-					Diag.w("latex", "render failed (${it.javaClass.simpleName})")
-				}.getOrNull() ?: return null
+				// The drawable depends only on the formula and the theme-derived
+				// sizes, not on the reply around it. It used to be rebuilt on
+				// every recomposition of the row -- a full TeX parse and font
+				// metrics per formula, several times a second while streaming.
+				val drawable = remember(link, inlineSize, displaySize, color) {
+					runCatching {
+						JLatexMathDrawable.builder(math.latex)
+							.textSize(if (math.display) displaySize else inlineSize)
+							.color(color)
+							.align(JLatexMathDrawable.ALIGN_LEFT)
+							.build()
+					}.onFailure {
+						// No formula text in the log: diagnostics deliberately do
+						// not record answer content.
+						Diag.w("latex", "render failed (${it.javaClass.simpleName})")
+					}.getOrNull()
+				} ?: return null
 
 				return ImageData(
 					painter = MathPainter(drawable),

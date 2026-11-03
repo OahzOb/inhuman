@@ -81,6 +81,13 @@ internal object LatexMarkdown {
 	private data class Fence(val char: Char, val length: Int)
 
 	fun transform(text: String, finished: Boolean): String {
+		// Most replies contain no maths, and this runs over the *whole*
+		// accumulated answer for every streaming snapshot. Without this guard
+		// the identity case still allocated a copy of the reply and walked it
+		// character by character, 25 times a second (STREAM_PUBLISH_INTERVAL_MS
+		// is 40), on the main thread. With no `$` there is nothing to rewrite:
+		// every branch below copies its input verbatim.
+		if ('$' !in text) return text
 		val out = StringBuilder(text.length)
 		var i = 0
 		while (i < text.length) {

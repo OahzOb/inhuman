@@ -195,18 +195,18 @@ The details that matter, all in `WorkspaceTool.kt`:
   of it, or use a shell." There is no shell, and `read_file` had no ranged read
   either, so it told the model to do two impossible things. `read_file` now takes
   line numbers, which is why the advice is actionable (`:47-54`).
-- **A ranged read is bounded by the slice**, not by the file, or a 20 MB log
-  would be unreadable in any part (`:63-65`). **But the comment overstates it**:
-  the code calls `file.readText()` (`:77`) before slicing, so a ranged read does
-  load the whole file into memory. The ceiling is also compared against
-  `rendered.length` — UTF-16 characters — while the message calls it bytes
-  (`:91-95`). Both are worth fixing together if this path ever meets a large
-  file.
+- **A ranged read is bounded by the slice, and streams it.** `offset`/`limit`
+  are applied by a line reader, so ten lines of a 20 MB log no longer allocate
+  the whole file first; the ceiling is checked while accumulating and refuses
+  before the slice becomes a single `String`. The remaining inaccuracy is the
+  unit: the ceiling is compared against UTF-16 characters while the message
+  calls that number bytes.
 - **The quota only runs when a write grows the file** (`delta > 0`, `:114-119`).
   A shrinking overwrite bypasses both totals ceilings — which is the right
-  outcome and an accident rather than a design. And the count test is
-  `usage.files + 1 > maxFileCount` (`:138`), so **growing an existing file at the
-  limit is refused as if it were adding one**.
+  outcome and an accident rather than a design. The file-count test charges a
+  new slot only when the file did not already exist
+  (`addsFiles = if (existed) 0 else 1`), so growing an existing file at the
+  limit is no longer refused as if it were adding one.
 - **Free space is a precheck for growing writes only** (`:100-105`, `:146-156`).
   Not paranoia: without it a large write can fill the volume and the app's own
   database then fails to commit, turning one oversized file into losing a
@@ -237,7 +237,7 @@ in registry order:
 | `list_files` | no | no | Sorted directories-first, then case-insensitively; announces truncation at `maxListEntries`. |
 | `read_file` | no | no | Line-numbered. The numbers are the **file's own**, not the slice's: a ranged read that restarted at 1 would invite the model to edit the wrong line, and the mistake would look like a successful edit (`:146-162`). |
 | `write_file` | yes | no | Reports "Created" vs "Replaced". Overwriting is recoverable from the transcript; that is why it does not ask. |
-| `append_file` | yes | no | Reads the existing file and rewrites it whole, so it is bounded by the *combined* size and is O(existing). |
+| `append_file` | yes | no | Appends bytes in place (`FileOutputStream(..., true)`), so it is bounded by the appended text rather than by the combined size; it no longer reads and rewrites the file, which was O(existing) per call. |
 | `create_directory` | yes | no | Idempotent, and says so when it already exists. |
 | `move_file` | yes | no | Refuses moving a directory inside itself (canonical prefix) and refuses an existing destination rather than clobbering. |
 | `delete_file` | yes | **no** | The one irreversible operation — and it no longer asks. Structure is the argument, not permission: what is inside a workspace is a *copy* of what the user handed over, so deleting it is reversible at the level that matters. See [09-approvals.md](09-approvals.md). |

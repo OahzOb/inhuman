@@ -96,6 +96,14 @@ private fun previewOf(text: String): String =
 	text.lineSequence()
 		.map { it.trim() }
 		.firstOrNull { it.isNotEmpty() }
-		?.replace(Regex("\\s+"), " ")
+		?.replace(WHITESPACE, " ")
 		?.take(80)
 		.orEmpty()
+
+/**
+ * One compiled pattern for every preview.
+ *
+ * `replace(Regex("\\s+"), " ")` compiled a fresh `Pattern` per call, and this
+ * runs once per user message every time the transcript index is rebuilt.
+ */
+private val WHITESPACE = Regex("\\s+")

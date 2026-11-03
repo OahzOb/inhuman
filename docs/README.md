@@ -94,10 +94,10 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :desktopApp:test --console=plain --rerun-tasks
 ```
 
-Latest run (2026-10-27, through `tools/ci.ps1`):
+Latest run (2026-11-03, the full `--rerun-tasks` list from `AGENTS.md`):
 
 ```
-BUILD SUCCESSFUL, 743 tests in 110 suites, 0 failures, 4 skipped
+BUILD SUCCESSFUL, 793 tests in 118 suites, 0 failures, 4 skipped
 warnings 0, errors 0
 ```
 
@@ -110,13 +110,13 @@ The skips are external-credential live tests: `DeepSeekWebLiveTest`,
 
 | Module | Suites | Tests |
 | --- | --- | --- |
-| `:core:ai` | 40 | 316 (3 skipped) |
-| `:core:files` | 9 | 80 |
+| `:core:ai` | 41 | 327 (3 skipped) |
+| `:core:files` | 9 | 84 |
 | `:core:documents` | 2 | 18 |
-| `:app` | 31 | 216 |
+| `:app` | 36 | 243 |
 | `:core:common` | 2 | 16 |
-| `:core:db` | 7 | 27 |
-| `:core:engine` | 2 | 12 (1 skipped) |
+| `:core:db` | 9 | 34 |
+| `:core:engine` | 2 | 13 (1 skipped) |
 | `:core:data` | 3 | 19 |
 | `:desktopApp` | 14 | 39 |
 

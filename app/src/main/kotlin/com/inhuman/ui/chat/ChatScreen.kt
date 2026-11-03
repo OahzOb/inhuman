@@ -163,6 +163,7 @@ import com.inhuman.ui.common.openWorkspaceFile
 import com.inhuman.ui.common.exportFileName
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -262,13 +263,11 @@ fun ChatScreen(
 	val errorAction by fieldOf(viewModel.state, null) { it.errorAction }
 	val pendingApproval by fieldOf(viewModel.state, null) { it.pendingApproval }
 
-	// The composer's own inputs. Separate reads for the same reason as the rest:
-	// typing changes one of these and must not invalidate the transcript, and a
-	// streamed token changes `isStreaming` at the start and end of a turn
-	// without touching the text in the field.
-	val input by fieldOf(viewModel.state, "") { it.input }
+	// The composer's own inputs are read inside `ChatBottomBar`, not here: a
+	// keystroke must invalidate the composer, and reading `input` in this scope
+	// made it invalidate the whole screen body -- every `fieldOf`, both Scaffold
+	// lambdas and the list's content DSL -- once per character.
 	val configured by fieldOf(viewModel.state, false) { it.configured }
-	val pendingAttachments by fieldOf(viewModel.state, emptyList()) { it.pendingAttachments }
 	val modelSupportsVision by fieldOf(viewModel.state, false) { it.modelSupportsVision }
 	// The microphone is offered only when a transcription backend exists. A
 	// row that would always fail is worse than no row; Settings is where the
@@ -1262,7 +1261,14 @@ fun ChatScreen(
 			val messages by fieldOf(viewModel.state, emptyList()) { it.messages }
 			LaunchedEffect(messages) {
 				val texts = messages.asSequence()
-					.filter { !it.fromUser && !it.isToolResult }
+					// Only rows that can read this cache: `MarkdownText` takes the
+					// incremental path whenever `deltas` is non-null and returns
+					// before it looks at `parsed`. A streaming reply's text grows
+					// on every publish, so it is always "missing", and parsing
+					// each intermediate prefix here was pure waste -- the whole
+					// answer was transformed and parsed again every 40 ms, and
+					// every prefix stayed in the map for the life of the screen.
+					.filter { !it.fromUser && !it.isToolResult && it.deltas == null }
 					.flatMap { it.parts.asSequence() }
 					.filter { it.kind == AssistantPart.Kind.Text && it.text.isNotBlank() }
 					.map { it.text }
@@ -1512,6 +1518,14 @@ fun ChatScreen(
 						}
 					}
 					items(messages, key = { it.id }) { message ->
+						// The callbacks below run when the user taps, long after
+						// this composition. Reading `messages` directly made them
+						// new instances on every streamed tick, and a row whose
+						// lambda arguments change cannot be skipped -- so one
+						// reply growing recomposed every visible row. The holder
+						// keeps the latest list without making the lambda depend
+						// on it.
+						val currentMessages by rememberUpdatedState(messages)
 						val isLastAssistant = !message.fromUser && !message.isToolResult &&
 							message.id == lastAssistantId
 						val isLastUser = message.fromUser && message.id == lastUserId
@@ -1545,17 +1559,17 @@ fun ChatScreen(
 							onShowTurnWire = {
 								// Sliced here, from the transcript this row came
 								// from: the summary carries indices, not a copy.
-								turn?.let { turnWireMessages = it.messagesIn(messages) }
+								turn?.let { turnWireMessages = it.messagesIn(currentMessages) }
 							},
 							onShowRewind = {
-								val target = messages.lastOrNull {
+								val target = currentMessages.lastOrNull {
 									it.fromUser && it.id == lastUserId
 								}
 								rewindEditTarget = target
 								rewindEditFiles = if (target == null) {
 									emptyList()
 								} else {
-									messages
+									currentMessages
 										.dropWhile { it.id != target.id }
 										.lastOrNull { !it.fromUser && !it.isToolResult }
 										?.changedFiles
@@ -1702,10 +1716,9 @@ fun ChatScreen(
 				interrupted = interrupted,
 				error = error,
 				errorAction = errorAction,
-				input = input,
+				state = viewModel.state,
 				isStreaming = isStreaming,
 				isCompacting = isCompacting,
-				pendingAttachments = pendingAttachments,
 				modelSupportsVision = modelSupportsVision,
 				voiceReady = voiceReady,
 				usage = usage,
@@ -3570,13 +3583,19 @@ private fun MessageBubble(
 				// character count is in the header because "Thought for a moment"
 				// and "Thought for four thousand characters" are different
 				// propositions and the second is worth opening.
-				val reasoning = message.parts
-					.filter { it.kind == AssistantPart.Kind.Reasoning }
-					.joinToString("\n\n") { it.text }
-				val calls = message.toolCalls
-				val hasText = message.parts.any {
-					it.kind == AssistantPart.Kind.Text && it.text.isNotBlank()
+				// Derived once per change of the parts, not per recomposition:
+				// a streaming tick recomposes this row, and joining the
+				// reasoning text copied all of it every time.
+				val reasoning = remember(message.parts) {
+					message.parts
+						.filter { it.kind == AssistantPart.Kind.Reasoning }
+						.joinToString("\n\n") { it.text }
 				}
+				val textParts = remember(message.parts) {
+					message.parts.filter { it.kind == AssistantPart.Kind.Text }
+				}
+				val calls = message.toolCalls
+				val hasText = textParts.any { it.text.isNotBlank() }
 				// One section is open at a time, and only while the turn is
 				// still producing. A tool call supersedes reasoning; the answer
 				// supersedes both.
@@ -3626,7 +3645,6 @@ private fun MessageBubble(
 				// The answer. Everything above is working-out; this is the part
 				// that was asked for, and it is the only part that is always
 				// visible.
-				val textParts = message.parts.filter { it.kind == AssistantPart.Kind.Text }
 				if (showSource) {
 					// The raw Markdown, for the cases where rendering is the
 					// thing that is wrong: an unclosed fence, a table the
@@ -3987,10 +4005,10 @@ private fun ChatBottomBar(
 	interrupted: Boolean,
 	error: String?,
 	errorAction: ChatErrorAction?,
-	input: String,
+	/** The view model's state, read narrowly here for the composer's fields. */
+	state: StateFlow<ChatUiState>,
 	isStreaming: Boolean,
 	isCompacting: Boolean,
-	pendingAttachments: List<PendingAttachment>,
 	modelSupportsVision: Boolean,
 	voiceReady: Boolean,
 	usage: ContextUsage,
@@ -3999,6 +4017,12 @@ private fun ChatBottomBar(
 	showComposer: Boolean,
 	actions: ChatComposerActions,
 ) {
+	// Read here, in the composer's own scope: the draft and the staged
+	// attachments change per keystroke and must not invalidate the transcript or
+	// the screen chrome around it. A streaming reply does not touch either of
+	// these fields.
+	val input by fieldOf(state, "") { it.input }
+	val pendingAttachments by fieldOf(state, emptyList()) { it.pendingAttachments }
 	val ctx = LocalContext.current
 	Column(
 		modifier = Modifier.fillMaxWidth(),

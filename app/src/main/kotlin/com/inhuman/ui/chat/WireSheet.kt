@@ -290,7 +290,11 @@ private fun parseRequest(json: String): WireRequest {
 		system = system,
 		tools = (root["tools"] as? JsonArray)?.mapNotNull(::parseTool).orEmpty(),
 		messages = visibleMessages,
-		rawJson = json,
+		// The snapshot is stored compact: it is built during a turn, and
+		// pretty-printing it there cost a second full serialization per round on
+		// the main thread. Formatting belongs here, where the request is read
+		// once.
+		rawJson = root.pretty(),
 	)
 }
 

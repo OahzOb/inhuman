@@ -215,8 +215,64 @@ class FileToolsTest {
 	}
 
 	@Test
-	fun `an oversized write is refused before anything is written`() {
-		val small = SessionWorkspace.open(root, WorkspaceLimits(maxWriteBytes = 32))
+	fun `a ranged read returns only the requested lines, numbered from the file`() {
+		run("write_file", "path" to "log.txt", "content" to "one\ntwo\nthree\nfour\n")
+
+		val result = runBlocking {
+			tools.getValue("read_file").execute(
+				buildJsonObject {
+					put("path", JsonPrimitive("log.txt"))
+					put("offset", JsonPrimitive(2))
+					put("limit", JsonPrimitive(2))
+				},
+			)
+		}
+
+		assertFalse(result.isError)
+		assertTrue("second line: ${result.content}", result.content.contains("2\ttwo"))
+		assertTrue("third line: ${result.content}", result.content.contains("3\tthree"))
+		// The file's own numbering, and nothing outside the range.
+		assertFalse(result.content.contains("\tone"))
+		assertFalse(result.content.contains("\tfour"))
+	}
+
+	@Test
+	fun `an offset past the end says how many lines there are`() {
+		run("write_file", "path" to "log.txt", "content" to "one\ntwo\n")
+
+		val result = runBlocking {
+			tools.getValue("read_file").execute(
+				buildJsonObject {
+					put("path", JsonPrimitive("log.txt"))
+					put("offset", JsonPrimitive(5))
+				},
+			)
+		}
+
+		assertTrue(result.isError)
+		assertTrue("should name the length: ${result.content}", result.content.contains("2 lines"))
+	}
+
+	@Test
+	fun `appending grows the file in place`() {
+		run("write_file", "path" to "notes.txt", "content" to "first\n")
+		val appended = run("append_file", "path" to "notes.txt", "content" to "second\n")
+
+		assertFalse(appended.isError)
+		assertEquals("first\nsecond\n", File(root, "notes.txt").readText())
+		assertTrue("should report the new size: ${appended.content}", appended.content.contains("Appended"))
+	}
+
+	@Test
+	fun `appending to a missing file creates it`() {
+		val appended = run("append_file", "path" to "new.txt", "content" to "hello")
+
+		assertFalse(appended.isError)
+		assertEquals("hello", File(root, "new.txt").readText())
+	}
+
+	@Test
+	fun `an oversized write is refused before anything is written`() {		val small = SessionWorkspace.open(root, WorkspaceLimits(maxWriteBytes = 32))
 		val writeTool = FileTools.all(small, freeSpaceBytes = null).first { it.name == "write_file" }
 
 		val result = runBlocking {

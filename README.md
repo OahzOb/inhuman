@@ -498,9 +498,17 @@ Then:
 
 If the properties file is absent, the release build falls back to the debug
 signing key so a fresh clone can still build; that build cannot update a
-production signing identity. The release version is `0.7.2` / versionCode 28.
+production signing identity. The release version is `0.8.9` / versionCode 45.
 `lintVital` is skipped in this offline environment (`checkReleaseBuilds =
 false`); run lint separately when the network is available.
+
+The release is minified and resource-shrunk (`minifyEnabled`/`shrinkResources`
+in `app/build.gradle`). The engines that resolve classes or resources by name —
+POI/XMLBeans, PDFBox, BouncyCastle/sshj, JLaTeXMath and the JavaScript sandbox —
+are kept whole in `app/proguard-rules.pro`: stripping one of them would fail at
+the first document or SSH call, not at build time. That cut the APK from about
+72 MB to about 21 MB, most of it the unused Material icons. A new dependency
+that reflects over its own classes needs a keep rule there before release.
 
 ### Local updates and log upload
 

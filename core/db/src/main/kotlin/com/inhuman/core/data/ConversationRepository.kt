@@ -7,6 +7,7 @@ import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.ConversationStore
 import com.inhuman.core.data.db.InhumanDatabase
 import com.inhuman.core.data.db.MessageEntity
+import com.inhuman.core.data.db.MessageTurnRow
 import com.inhuman.core.data.db.ToolsColumn
 import com.inhuman.core.data.db.UsageRow
 import com.inhuman.core.data.db.WorkspaceEntity
@@ -136,9 +137,19 @@ class ConversationRepository(
 			// Search can match a message on an inactive branch. Opening that
 			// conversation would show a different transcript and the jump would
 			// silently fail, so keep only rows on the branch the app displays.
-			val activeIds = messageHits.map { it.conversationId }.distinct().associateWith { conversationId ->
-				ConversationStore.activePathOf(db.messages().all(conversationId))
-					.mapTo(mutableSetOf()) { it.id }
+			//
+			// One structural query for every matched conversation, not one full
+			// transcript read per conversation: the walk needs four columns, and
+			// `SELECT *` also brought back every tool result's payload.
+			val activeIds = if (messageHits.isEmpty()) {
+				emptyMap()
+			} else {
+				db.messages().branchRows(messageHits.map { it.conversationId }.distinct())
+					.groupBy { it.conversationId }
+					.mapValues { (_, rows) ->
+						ConversationStore.activePathOfBranches(rows)
+							.mapTo(mutableSetOf()) { it.id }
+					}
 			}
 			val visibleHits = messageHits.filter { it.messageId in activeIds[it.conversationId].orEmpty() }
 			val titleResults = titleHits.map { conversation ->
@@ -192,6 +203,25 @@ class ConversationRepository(
 		val all = db.messages().all(id)
 		return Conversation(entity, store.activePath(all))
 	}
+
+	/**
+	 * The conversation row alone.
+	 *
+	 * Callers that only need the title, the provider or the workspace id used
+	 * [conversation], which also reads and walks the whole transcript -- a
+	 * transcript of tool results included. This is the query those callers
+	 * actually wanted.
+	 */
+	suspend fun conversationEntity(id: String): ConversationEntity? = db.conversations().byId(id)
+
+	/**
+	 * The active path's structural rows for one conversation.
+	 *
+	 * Feeds the post-turn rewind gate, which needs branch pointers, tool calls
+	 * and the `mutated` flag -- not the text of every message.
+	 */
+	suspend fun turnRows(conversationId: String): List<MessageTurnRow> =
+		ConversationStore.activePathOfTurnRows(db.messages().turnRows(conversationId))
 
 	/** The derived request summary for a conversation, if one is active. */
 	suspend fun contextSummary(conversationId: String): com.inhuman.core.data.db.ContextSummaryEntity? =

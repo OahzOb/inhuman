@@ -56,9 +56,10 @@ abstract class WorkspaceTool(
 		val total = file.length()
 		val ceiling = workspace.limits.maxReadBytes
 
-		// A ranged read never loads the whole file, so the ceiling that applies
-		// to it is the size of the slice, not the size of the file. Without
-		// this, a 20 MB log would be unreadable in any part.
+		// The unranged read is capped by the file's size, checked before any
+		// byte is read. The ranged read below is capped by the size of the
+		// slice instead: without that, a 20 MB log would be unreadable in any
+		// part.
 		if (offset == null && limit == null) {
 			if (total > ceiling) {
 				throw Refused(
@@ -70,27 +71,41 @@ abstract class WorkspaceTool(
 			return file.readText()
 		}
 
-		val text = file.readText()
-		val lines = text.lines()
+		// A ranged read streams. It used to call `readText()` and `lines()`
+		// first, so the comment above was false and `offset=1, limit=10` on a
+		// 50 MB log allocated the whole file plus a String per line before
+		// returning ten of them.
 		val from = ((offset ?: 1) - 1).coerceAtLeast(0)
-		if (from >= lines.size && lines.isNotEmpty()) {
+		val take = limit?.coerceAtLeast(1)
+		val out = StringBuilder()
+		var number = 0
+		var taken = 0
+		file.bufferedReader().use { reader ->
+			while (true) {
+				val line = reader.readLine() ?: break
+				number += 1
+				if (number <= from) continue
+				if (take != null && taken >= take) break
+				if (taken > 0) out.append('\n')
+				out.append(line)
+				taken += 1
+				// Checked while accumulating, so a range that would be over
+				// the ceiling never becomes a String in the first place.
+				if (out.length > ceiling) {
+					throw Refused(
+						"the requested lines are over the ${ceiling}-byte read limit. " +
+							"Ask for fewer lines.",
+					)
+				}
+			}
+		}
+		if (number == 0) return ""
+		if (taken == 0 && from >= number) {
 			throw Refused(
-				"${workspace.relativize(file)} has ${lines.size} lines; offset $offset is past the end",
+				"${workspace.relativize(file)} has $number lines; offset $offset is past the end",
 			)
 		}
-		val take = (limit ?: lines.size).coerceAtLeast(1)
-		val slice = lines.drop(from).take(take)
-
-		// The slice is still bounded: a caller asking for a million lines gets
-		// the ceiling, not the memory.
-		val rendered = slice.joinToString("\n")
-		if (rendered.length > ceiling) {
-			throw Refused(
-				"those $take lines are ${rendered.length} bytes, over the ${ceiling}-byte " +
-					"read limit. Ask for fewer lines.",
-			)
-		}
-		return rendered
+		return out.toString()
 	}
 
 	/**
@@ -113,15 +128,42 @@ abstract class WorkspaceTool(
 		if (bytes.size > limit) {
 			throw Refused("refusing to write ${bytes.size} bytes; the limit is $limit")
 		}
-		val existing = if (file.exists() && file.isFile) file.length() else 0L
+		val existed = file.exists() && file.isFile
+		val existing = if (existed) file.length() else 0L
 		val delta = bytes.size - existing
 		if (delta > 0) {
-			checkQuota(delta)
+			checkQuota(delta, addsFiles = if (existed) 0 else 1)
 			checkFreeSpace(delta)
 		}
 		file.parentFile?.mkdirs()
 		file.writeBytes(bytes)
 		return bytes.size
+	}
+
+	/**
+	 * Append bytes without reading or rewriting what is already there.
+	 *
+	 * `append_file` used to read the whole file, concatenate the two strings and
+	 * write the result back. Appending to a log is exactly what the tool is
+	 * for, so a conversation that appended a line to a 1 MB file paid a 1 MB
+	 * read, a ~2 MB concatenation and a 1 MB rewrite -- per call, and
+	 * quadratically over a series of them.
+	 *
+	 * The quota delta is the appended bytes alone, and a file that already
+	 * exists is not a new slot in the file-count ceiling.
+	 */
+	protected fun appendText(file: File, text: String): Int {
+		val bytes = text.toByteArray(Charsets.UTF_8)
+		val limit = workspace.limits.maxWriteBytes
+		if (bytes.size > limit) {
+			throw Refused("refusing to append ${bytes.size} bytes; the limit is $limit")
+		}
+		val existed = file.isFile
+		checkQuota(bytes.size.toLong(), addsFiles = if (existed) 0 else 1)
+		checkFreeSpace(bytes.size.toLong())
+		file.parentFile?.mkdirs()
+		java.io.FileOutputStream(file, true).use { it.write(bytes) }
+		return file.length().toInt()
 	}
 
 	/**
@@ -135,12 +177,12 @@ abstract class WorkspaceTool(
 	 * file of its own to exclude, and `writeText` has already subtracted the
 	 * length of a file it is about to overwrite.
 	 */
-	private fun checkQuota(delta: Long) {
+	private fun checkQuota(delta: Long, addsFiles: Int) {
 		workspace.quotaRefusal(
 			stagingBytes = 0,
 			stagingFiles = 0,
 			replacedBytes = 0,
-			addsFiles = 1,
+			addsFiles = addsFiles,
 			newBytes = delta,
 		)?.let { throw Refused(it) }
 	}

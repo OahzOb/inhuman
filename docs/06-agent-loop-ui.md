@@ -294,9 +294,11 @@ prefix duplicates the reply, skipping a slice loses text — and after the strea
 both look identical in a screenshot. A shrinking buffer is treated as a new
 document (`:44-48`), which is what a regeneration or a reload looks like.
 
-Two dead-ish details: `seen` (`:30`, `:45-55`) is written three times and **never
-read**; the class only needs `sent`. And `initialText` is never passed by
-production code (`ChatViewModel.kt:875`) even though `DeltaCursorTest` covers it
+`DeltaCursor` holds exactly one number: `sent` (`:27-70`). It used to keep a
+`seen` copy of the whole reply as well; the shrink case is decided by `sent`
+alone, so that copy was written on every publish and never read — an O(n) copy
+of a growing reply, 25 times a second. `initialText` is still never passed by
+production code (`ChatViewModel.kt`), even though `DeltaCursorTest` covers it
 "as it does after a reload" — no reload path passes it.
 
 ### `ContextUsage` (`app/src/main/kotlin/com/inhuman/ui/chat/ContextUsage.kt:34-93`)
@@ -394,9 +396,21 @@ WebView, and a WebView per diagram destroys scroll performance.
 
 ### Narrow reads
 
-Nothing collects the whole state (`:86-99`); each value is subscribed
-individually, `messages` is read inside the `LazyColumn` lambda (`:302`), and the
-transcript is the only fast-changing value.
+Nothing collects the whole state; each value is subscribed individually with
+`fieldOf`, so a change to one field invalidates the scopes that read it rather
+than the screen. `messages` is read inside the transcript's own lambda, and the
+composer's draft and staged attachments are read inside `ChatBottomBar` — a
+keystroke must invalidate the composer, not the screen body.
+
+The per-message callbacks passed to `MessageBubble` read the latest transcript
+through `rememberUpdatedState` rather than closing over the list instance, so a
+reply growing does not make every visible row's lambda arguments change.
+
+`parsedMarkdown` is a pre-parse for rows that will actually read it: only
+messages with no delta channel. A streaming row takes the incremental path in
+`MarkdownText` and returns before it consults a parsed state, so parsing each
+intermediate prefix was work whose result could not be observed — and the map
+retained one AST per prefix for the life of the screen.
 
 ### Layout, and where the axis breaks
 
@@ -1129,6 +1143,12 @@ and Language start collapsed. Each header states its own state (key presence,
 current round count, configured rule count, current language) so a folded row
 still answers the question that brought the user there. Open state uses
 `rememberSaveable`, so rotation does not reset it.
+
+**Usage defers its read.** `SettingsFold` reports when a section becomes
+expanded, and `UsageSection` uses that to call `refreshUsage()` — opening
+Settings no longer scans `messages` for a report the user may never look at. A
+folded Usage row says "Open to count local usage" until it has been opened,
+rather than claiming a read that has not started.
 
 **Turn limits** (`04 / Turn limits`) exposes the same global tool-round setting
 as the chat menu. Both write `SecureStore.KEY_TOOL_ROUNDS`; `SettingsViewModel`

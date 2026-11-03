@@ -194,6 +194,34 @@ class ConversationRepositoryTest {
 		assertNull(db.conversations().byId(conversation.id)?.workspaceInstructions)
 	}
 
+	@Test
+	fun `search follows the branch the transcript shows`() = runBlocking {
+		val conversation = repository.create(title = "Branches")
+		val user = message("b-user", conversation.id, null, "user", "question", 1L)
+		repository.appendMessage(user, null)
+
+		// Two alternatives at the same point. The second is selected, so the
+		// first is not on screen.
+		val first = message("b-first", conversation.id, user.id, "assistant", "needle in this answer", 2L)
+		repository.appendMessage(first, user.id)
+		val second = message("b-second", conversation.id, user.id, "assistant", "hay in this answer", 3L)
+		repository.appendMessage(second, user.id)
+
+		// A hit on the branch that is not displayed must not be offered: opening
+		// it would show a transcript where the jumped-to message does not exist.
+		assertTrue(repository.search("needle").isEmpty())
+		assertEquals(listOf("b-second"), repository.search("hay").map { it.messageId })
+
+		repository.selectBranch(user.id, first.id)
+		assertEquals(listOf("b-first"), repository.search("needle").map { it.messageId })
+
+		// The structural projection and the full transcript walk agree.
+		assertEquals(
+			listOf("b-user", "b-first"),
+			repository.turnRows(conversation.id).map { it.id },
+		)
+	}
+
 	private fun message(
 		id: String,
 		conversationId: String,

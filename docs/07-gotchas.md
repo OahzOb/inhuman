@@ -39,15 +39,17 @@ input — including `WorkspaceDocumentsProvider`, which routes its ids through
 
 ### A4. Message order needs its tie-break, and it is expressed twice
 
-`ORDER BY createdAt ASC, id ASC` in both message queries
-(`InhumanDatabase.kt:83-84`, `:86-87`) must equal
-`ConversationStore.SAID_ORDER` (`:424-425`). A tool result and the turn that
-asked for it routinely share a millisecond. Two rules that disagree would render
-the transcript in one order and choose branches by another.
+`ORDER BY createdAt ASC, id ASC` in both message queries must equal the Kotlin
+comparator inside `ConversationStore.walkActive` (`InhumanDatabase.kt`). A tool
+result and the turn that asked for it routinely share a millisecond. Two rules
+that disagree would render the transcript in one order and choose branches by
+another.
 
-Note the second expression: `ConversationRepository.branches` cannot see
-`SAID_ORDER` (it is `private`) and reproduces "newest" as `children.last()`
-(`ConversationRepository.kt:279`). If you change one, change both.
+Note the second expression: `ConversationRepository.branches` cannot see the
+private comparator and reproduces "newest" as `children.last()`, relying on
+`childrenOf`'s ORDER BY. If you change one, change both. One walk now serves the
+full rows, search's `BranchRow`s and the rewind gate's `MessageTurnRow`s, so
+those three cannot disagree with each other.
 
 ### A5. `mutates` and `needsApproval` are different questions
 
@@ -540,11 +542,11 @@ stale entry is how this list loses its authority (each was re-read, not assumed)
   are gone — each KDoc is now single and describes its own function;
 - the `attachImage` / composer disagreement about vision is gone with the
   single-source fix;
-- `DeltaCursor`'s `seen`/`sent` pair looked like dead state in a diff, but it is
-  not: `seen` holds the text and `sent` is the index into it
-  (`DeltaCursor.kt:29-33`), and a grep for reads of `sent` finds the slice
-  computation. It is cited here because "written and never read" was a plausible
-  wrong conclusion.
+- `DeltaCursor`'s `seen`/`sent` pair: `sent` is the only state the slice needs
+  (the shrink case re-sends the new buffer whole), so `seen` was a write-only
+  copy of the reply, and every publish paid an O(n) copy for it. **Removed.** An
+  earlier entry here claimed the field was load-bearing; re-reading the code
+  settled it the other way.
 
 ### B12. Files showed a stale list after the assistant wrote a file — **FIXED**
 
@@ -1052,7 +1054,7 @@ staying as history.
 
 | Comment | Reality |
 | --- | --- |
-| `WorkspaceTool.kt:63-65`: "A ranged read never loads the whole file" | `file.readText()` is called before the slice (`:77`), and the ceiling compares UTF-16 chars against a byte limit (`:91-95`). |
+| `WorkspaceTool.kt:68-70`: "the requested lines are over the ${ceiling}-byte read limit" | `out.length` counts UTF-16 characters, not bytes; a non-ASCII file can exceed a byte ceiling while passing this check. The streaming half of the old complaint — `readText()` before the slice — is fixed. |
 | `SessionWorkspace.kt:151-153`: "anything behind a symlink is not charged to its quota" | Only symlinked *directories* are skipped; symlinked files are still counted (`:158-165`). |
 | `SessionWorkspace.kt:20-22`: "[root] is never exposed" | `rootPath()` exposes it (`:175-184`) — deliberately, for `StatFs`, with the argument written out. |
 | `SessionWorkspace.kt:26-33`: a symlink "can never be swapped in between the check and the open()" | The walk refuses to *traverse* links; nothing stops another same-UID writer creating one, and there is no re-check or `O_NOFOLLOW` at open. |
