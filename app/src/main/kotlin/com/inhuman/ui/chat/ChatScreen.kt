@@ -557,6 +557,7 @@ fun ChatScreen(
 	val sshHostIds by fieldOf(viewModel.state, emptyList()) { it.sshHostIds }
 	val suggestionsEnabled by fieldOf(viewModel.state, false) { it.suggestionsEnabled }
 	val bilibiliEnabled by fieldOf(viewModel.state, false) { it.bilibiliEnabled }
+	val bilibiliLoggedIn by fieldOf(viewModel.state, false) { it.bilibiliLoggedIn }
 	val agentTools by fieldOf(viewModel.state, null) { it.agentTools }
 	val conversationTools by fieldOf(viewModel.state, null) { it.conversationTools }
 	val toolsKnown by fieldOf(viewModel.state, false) { it.toolsKnown }
@@ -572,6 +573,7 @@ fun ChatScreen(
 		sshToolEnabled,
 		suggestionsEnabled,
 		bilibiliEnabled,
+		bilibiliLoggedIn,
 	) {
 		conversationToolPlan(
 			sshEnabled = sshToolEnabled,
@@ -580,6 +582,7 @@ fun ChatScreen(
 			workspaceToolsEnabled = AppCapabilities.workspaceOk,
 			suggestionsEnabled = suggestionsEnabled,
 			bilibiliEnabled = bilibiliEnabled,
+			bilibiliLoggedIn = bilibiliLoggedIn,
 		)
 	}
 	val rollbackAvailable by fieldOf(viewModel.state, false) { it.rollbackAvailable }

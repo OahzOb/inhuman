@@ -61,6 +61,11 @@ class BilibiliCommentsTool(
 				"type" to "integer",
 				"description" to "How many comments to return, 1 to $MAX_LIMIT. Defaults to $DEFAULT_LIMIT.",
 			),
+			"page" to mapOf(
+				"type" to "integer",
+				"description" to "Which page of comments, starting at 1. Pages after the first " +
+					"need the optional Bilibili login linked in Settings.",
+			),
 		),
 		"required" to listOf("bvid"),
 	)
@@ -76,15 +81,22 @@ class BilibiliCommentsTool(
 			else -> return ToolResult.error("'sort' must be either 'hot' or 'new'")
 		}
 		val limit = BilibiliToolSupport.int(arguments, "limit", DEFAULT_LIMIT, 1, MAX_LIMIT)
+		val page = BilibiliToolSupport.int(arguments, "page", 1, 1, MAX_PAGE)
+		if (page > 1 && !service.loggedIn) {
+			return ToolResult.error(
+				"comment page $page needs the optional Bilibili login linked in " +
+					"Settings → B站登录; page 1 works anonymously.",
+			)
+		}
 
 		return try {
-			val page = service.comments(bvid, sort, limit)
-			if (page.pinned.isEmpty() && page.comments.isEmpty()) {
+			val pageData = service.comments(bvid, sort, limit, page)
+			if (pageData.pinned.isEmpty() && pageData.comments.isEmpty()) {
 				// "Empty" is a real answer. The endpoint returning code 0 with no
 				// comments is different from a blocked request, which throws.
-				ToolResult.ok("No comments are shown for $bvid.")
+				ToolResult.ok("No comments are shown for $bvid (page $page).")
 			} else {
-				ToolResult.ok(format(bvid, sort, page.pinned, page.comments))
+				ToolResult.ok(format(bvid, sort, page, pageData.pinned, pageData.comments))
 			}
 		} catch (error: BilibiliApiException) {
 			ToolResult.error(BilibiliErrors.describe(error))
@@ -96,11 +108,12 @@ class BilibiliCommentsTool(
 	private fun format(
 		bvid: String,
 		sort: BilibiliCommentSort,
+		page: Int,
 		pinned: List<BilibiliComment>,
 		comments: List<BilibiliComment>,
 	): String = buildString {
 		appendLine(
-			"$bvid — comments (${sort.label}), ${comments.size} shown" +
+			"$bvid — comments (${sort.label}, page $page), ${comments.size} shown" +
 				if (pinned.isEmpty()) "" else " · ${pinned.size} pinned",
 		)
 		if (pinned.isNotEmpty()) {
@@ -118,7 +131,13 @@ class BilibiliCommentsTool(
 			}
 		}
 		appendLine()
-		appendLine("Only this page is shown; the video may have more comments.")
+		appendLine(
+			if (page > 1) {
+				"Only page $page is shown; the video may have more comments."
+			} else {
+				"Only this page is shown; pages after the first need the Bilibili login."
+			},
+		)
 	}
 
 	private fun StringBuilder.appendComment(label: String, comment: BilibiliComment) {
@@ -144,6 +163,7 @@ class BilibiliCommentsTool(
 	companion object {
 		const val DEFAULT_LIMIT = 15
 		const val MAX_LIMIT = 30
+		const val MAX_PAGE = 5
 		private const val AUTHOR_CHARS = 40
 		private const val CONTENT_CHARS = 400
 		private const val REPLY_CHARS = 200

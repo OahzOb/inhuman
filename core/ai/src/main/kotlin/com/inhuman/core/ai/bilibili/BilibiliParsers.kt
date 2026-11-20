@@ -47,6 +47,7 @@ internal object BilibiliParsers {
 		return BilibiliVideoInfo(
 			bvid = data.string("bvid").orEmpty(),
 			aid = data.long("aid"),
+			cid = data.long("cid"),
 			title = BilibiliHtml.stripTags(data.string("title").orEmpty()),
 			description = data.string("desc").orEmpty().trim(),
 			ownerName = owner?.string("name").orEmpty(),
@@ -74,6 +75,18 @@ internal object BilibiliParsers {
 			pinned = commentList(data, "top_replies"),
 			comments = commentList(data, "replies"),
 		)
+	}
+
+	/**
+	 * The cursor that asks the comment endpoint for the next page.
+	 *
+	 * Null means "this is the last page". The value is opaque — an offset, not
+	 * a page number — so it is carried rather than calculated.
+	 */
+	fun parseNextCursor(root: JsonObject): Long? {
+		val cursor = root.obj("data")?.obj("cursor") ?: return null
+		val next = cursor.long("next")
+		return if (next > 0) next else null
 	}
 
 	fun parseArticle(root: JsonObject): BilibiliArticle {
@@ -169,7 +182,85 @@ internal object BilibiliParsers {
 			share = stat.long("share"),
 		)
 	}
+
+	/**
+	 * The subtitle tracks of one part, as the player endpoint reports them.
+	 *
+	 * `type` is the endpoint's own flag (0 = uploaded, 1 = AI generated); the
+	 * client also treats an `ai-` language prefix as AI, because the flag has
+	 * been observed to lag the track.
+	 */
+	fun parseSubtitleTracks(root: JsonObject): List<ParsedSubtitleTrack> {
+		val subtitle = root.obj("data")?.obj("subtitle") ?: return emptyList()
+		return subtitle.array("subtitles")?.mapNotNull { element ->
+			val track = element as? JsonObject ?: return@mapNotNull null
+			val url = track.string("subtitle_url").orEmpty().ifBlank { return@mapNotNull null }
+			ParsedSubtitleTrack(
+				language = track.string("lan").orEmpty(),
+				label = track.string("lan_doc").orEmpty(),
+				url = url,
+				type = track.int("type"),
+			)
+		}.orEmpty()
+	}
+
+	/** The plain text lines of one downloaded subtitle JSON. */
+	fun parseSubtitleBody(root: JsonObject): List<String> =
+		root.array("body")?.mapNotNull { element ->
+			val line = element as? JsonObject ?: return@mapNotNull null
+			line.string("content")?.takeIf { it.isNotBlank() }
+		}.orEmpty()
+
+	/** Bilibili's own AI summary of one part, or null when it has none. */
+	fun parseAiSummary(root: JsonObject): ParsedAiSummary? {
+		val data = root.obj("data") ?: return null
+		val model = data.obj("model_result") ?: return null
+		val summary = model.string("summary").orEmpty().trim()
+		val outline = model.array("outline")?.mapNotNull { element ->
+			val segment = element as? JsonObject ?: return@mapNotNull null
+			ParsedOutline(
+				title = BilibiliHtml.stripTags(segment.string("title").orEmpty()),
+				timestampSeconds = segment.long("timestamp"),
+				points = segment.array("part_outline")?.mapNotNull { pointElement ->
+					val point = pointElement as? JsonObject ?: return@mapNotNull null
+					val content = BilibiliHtml.stripTags(point.string("content").orEmpty())
+					if (content.isBlank()) {
+						null
+					} else {
+						ParsedPoint(timestampSeconds = point.long("timestamp"), content = content)
+					}
+				}.orEmpty(),
+			)
+		}.orEmpty()
+		if (summary.isBlank() && outline.isEmpty()) return null
+		return ParsedAiSummary(summary = summary, outline = outline)
+	}
 }
+
+/** One subtitle track the player endpoint offered. */
+internal data class ParsedSubtitleTrack(
+	val language: String,
+	val label: String,
+	val url: String,
+	val type: Int,
+)
+
+/** Bilibili's AI summary plus its timeline outline. */
+internal data class ParsedAiSummary(
+	val summary: String,
+	val outline: List<ParsedOutline>,
+)
+
+internal data class ParsedOutline(
+	val title: String,
+	val timestampSeconds: Long,
+	val points: List<ParsedPoint>,
+)
+
+internal data class ParsedPoint(
+	val timestampSeconds: Long,
+	val content: String,
+)
 
 private fun JsonObject.obj(name: String): JsonObject? = this[name] as? JsonObject
 

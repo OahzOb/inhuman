@@ -203,6 +203,7 @@ fun AgentsScreen(
 			sshToolEnabled = state.sshToolEnabled,
 			suggestionsEnabled = state.suggestionsEnabled,
 			bilibiliEnabled = state.bilibiliEnabled,
+			bilibiliLoggedIn = state.bilibiliLoggedIn,
 			savedPrompts = state.savedPrompts,
 			effortLevels = { viewModel.effortLevelsFor(it) },
 			onChange = viewModel::updateDraft,
@@ -323,6 +324,7 @@ private fun AgentEditor(
 	sshToolEnabled: Boolean,
 	suggestionsEnabled: Boolean,
 	bilibiliEnabled: Boolean,
+	bilibiliLoggedIn: Boolean,
 	savedPrompts: List<SavedPromptEntity>,
 	effortLevels: (String?) -> List<String>,
 	onChange: ((AgentDraft) -> AgentDraft) -> Unit,
@@ -341,6 +343,7 @@ private fun AgentEditor(
 		includeSandbox = AppCapabilities.sandboxOk == true,
 		includeSuggestions = suggestionsEnabled,
 		includeBilibili = bilibiliEnabled,
+		includeBilibiliLogin = bilibiliLoggedIn,
 		includePdfVision = true,
 	)
 	val availableNames = availableTools.mapTo(mutableSetOf()) { it.name }
@@ -765,6 +768,7 @@ private fun AgentEditor(
 			sshToolEnabled = sshToolEnabled,
 			suggestionsEnabled = suggestionsEnabled,
 			bilibiliEnabled = bilibiliEnabled,
+			bilibiliLoggedIn = bilibiliLoggedIn,
 			onSelect = onRuleChange,
 		)
 
@@ -828,6 +832,13 @@ private fun AgentEditor(
 			if (bilibiliEnabled) {
 				Text(
 					text = stringResource(R.string.agents_bilibili_excluded),
+					style = MaterialTheme.typography.labelLarge,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+			if (bilibiliEnabled && !bilibiliLoggedIn) {
+				Text(
+					text = stringResource(R.string.agents_bilibili_login_required),
 					style = MaterialTheme.typography.labelLarge,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
@@ -1023,6 +1034,7 @@ private fun AgentEditor(
 			sshToolEnabled = sshToolEnabled,
 			suggestionsEnabled = suggestionsEnabled,
 			bilibiliEnabled = bilibiliEnabled,
+			bilibiliLoggedIn = bilibiliLoggedIn,
 			modelLabel = draft.model?.let { id ->
 				models.firstOrNull { it.id == id }?.displayName?.takeIf { it.isNotBlank() } ?: id
 			} ?: stringResource(R.string.agents_provider_default),
@@ -1110,6 +1122,7 @@ private fun PromptPreview(
 	sshToolEnabled: Boolean,
 	suggestionsEnabled: Boolean,
 	bilibiliEnabled: Boolean,
+	bilibiliLoggedIn: Boolean,
 	modelLabel: String,
 	onDismiss: () -> Unit,
 ) {
@@ -1120,6 +1133,7 @@ private fun PromptPreview(
 		includeSandbox = AppCapabilities.sandboxOk == true,
 		includeSuggestions = suggestionsEnabled,
 		includeBilibili = bilibiliEnabled,
+		includeBilibiliLogin = bilibiliLoggedIn,
 		includePdfVision = true,
 	)
 	val visibleNames = visibleTools.mapTo(mutableSetOf()) { it.name }
@@ -1275,6 +1289,7 @@ private fun AssistantRulesSection(
 	sshToolEnabled: Boolean,
 	suggestionsEnabled: Boolean,
 	bilibiliEnabled: Boolean,
+	bilibiliLoggedIn: Boolean,
 	onSelect: (String, ToolPolicy) -> Unit,
 ) {
 	Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
@@ -1291,6 +1306,7 @@ private fun AssistantRulesSection(
 			includeSandbox = AppCapabilities.sandboxOk == true,
 			includeSuggestions = suggestionsEnabled,
 			includeBilibili = bilibiliEnabled,
+			includeBilibiliLogin = bilibiliLoggedIn,
 			includePdfVision = true,
 		)) {
 			val current = rules[entry.name] ?: ToolPolicy.Free

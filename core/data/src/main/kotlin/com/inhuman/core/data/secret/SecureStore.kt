@@ -206,6 +206,22 @@ class SecureStore(
 		const val KEY_SUGGESTIONS_ENABLED = "chat.suggestions_enabled"
 
 		/**
+		 * How a request marks when each user message was sent.
+		 *
+		 * Two values: the mode (`off`, `every`, `gap`) and the gap threshold in
+		 * minutes. They are read when the wire history is assembled and never
+		 * written into a message row, so this is request formatting, not
+		 * conversation content. Not a secret; it lives here because this is the
+		 * app's only small preference store.
+		 *
+		 * The mode falling back to "gap" on garbage is deliberate: an
+		 * unreadable preference must not stop a send, and the Settings screen
+		 * can always overwrite it.
+		 */
+		const val KEY_TIME_HINTS_MODE = "chat.time_hints_mode"
+		const val KEY_TIME_HINTS_GAP_MINUTES = "chat.time_hints_gap_minutes"
+
+		/**
 		 * Whether the anonymous Bilibili read tools exist at all.
 		 *
 		 * **Off unless stored as "1".** The same two gates as SSH and
@@ -217,6 +233,17 @@ class SecureStore(
 		 * have a configured backend instead.
 		 */
 		const val KEY_BILIBILI_TOOL_ENABLED = "bilibili.tool_enabled"
+
+		/**
+		 * The optional read-only Bilibili account session, as one JSON document.
+		 *
+		 * Written only by Settings after a QR confirmation and removed by
+		 * "unlink". It holds the two cookies read endpoints need (`SESSDATA`,
+		 * `DedeUserID`) and **not** the write token; backups exclude this
+		 * store, diagnostics never see it, and the Bilibili client reads it per
+		 * request so unlinking takes effect immediately.
+		 */
+		const val KEY_BILIBILI_SESSION = "bilibili.session"
 
 		/**
 		 * When the last encrypted backup was written, in epoch milliseconds.

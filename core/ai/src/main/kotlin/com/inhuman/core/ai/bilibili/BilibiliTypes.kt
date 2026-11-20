@@ -23,6 +23,16 @@ package com.inhuman.core.ai.bilibili
 interface BilibiliReadService {
 
 	/**
+	 * Whether the client currently sends a logged-in session.
+	 *
+	 * Read tools that only a login can answer are registered by the host only
+	 * when this is true, so they are absent rather than present-and-failing on
+	 * an anonymous install. It is not a permission: the anonymous tools work
+	 * either way.
+	 */
+	val loggedIn: Boolean
+
+	/**
 	 * @param order raw Bilibili order value (`totalrank`, `pubdate`, `click`).
 	 * @param page 1-based; the endpoints cap it in practice.
 	 * @param limit how many hits the caller wants, already clamped by the tool.
@@ -41,9 +51,25 @@ interface BilibiliReadService {
 		bvid: String,
 		sort: BilibiliCommentSort,
 		limit: Int,
+		/** 1-based page. Pages after the first exist only for a logged-in caller. */
+		page: Int = 1,
 	): BilibiliComments
 
 	suspend fun article(cvId: Long): BilibiliArticle
+
+	/**
+	 * Read a video's speech as text: subtitles when they exist, Bilibili's own
+	 * AI summary when they do not.
+	 *
+	 * @param page 1-based part of a multi-part video.
+	 * @return null when Bilibili has neither for this video — a real answer the
+	 *   tool must state, not an error and not an empty transcript.
+	 */
+	suspend fun transcript(
+		bvid: String,
+		page: Int,
+		prefer: BilibiliTranscriptPreference,
+	): BilibiliTranscript?
 }
 
 enum class BilibiliSearchKind(val apiValue: String, val label: String) {
@@ -104,6 +130,8 @@ data class BilibiliVideoPage(
 data class BilibiliVideoInfo(
 	val bvid: String,
 	val aid: Long,
+	/** First part's cid; the transcript tool uses it for a single-part video. */
+	val cid: Long = 0L,
 	val title: String,
 	val description: String,
 	val ownerName: String,
@@ -174,8 +202,9 @@ object BilibiliErrors {
 			"Bilibili request failed: ${error.apiMessage.ifBlank { "network error" }}"
 
 		-101 ->
-			"Bilibili requires a logged-in account for this response (code -101). " +
-				"These tools are anonymous-only; tell the user this item needs a Bilibili account."
+			"Bilibili says this needs a logged-in account (code -101). " +
+				"If the user wants this, Bilibili login can be linked in Settings → B站登录; " +
+				"otherwise tell them this item is not readable anonymously."
 
 		-352 ->
 			"Bilibili's risk control rejected the anonymous request (code -352). " +

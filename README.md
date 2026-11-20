@@ -102,6 +102,7 @@ be reached without an account.
 | `bili_video` | read a Bilibili video's public title, description, parts and stats |
 | `bili_comments` | read one page of a Bilibili video's top comments |
 | `bili_article` | read a Bilibili column (cv id) as plain text |
+| `bili_transcript` | read a video's subtitles, or Bilibili's AI summary when it has none; **needs the optional Bilibili login**, `optIn` |
 | `ssh_exec` | one command on a remote machine; **off by default**, explicit assistant selection, per-conversation consent, optional one saved host |
 | `ssh_upload` | copy a workspace file to the remote machine over SFTP; **NO REWIND**, default refuses to overwrite, can create parents |
 | `ssh_write_file` | write a small remote text file over SFTP; **NO REWIND**, no heredoc |
@@ -112,16 +113,25 @@ in the same row as PAID and REMOTE. The name says what the tool does; the badge
 says whether the turn can be undone. `ssh_exec` and `ssh_upload` are the
 `NO REWIND` entries.
 
-**The four `bili_*` tools are an app-proxied read, not a capability the
-assistant holds.** They are anonymous — no Bilibili account, no key, nothing
+**The four anonymous `bili_*` tools are an app-proxied read, not a capability
+the assistant holds.** They are anonymous — no Bilibili account, no key, nothing
 stored — and the app makes the request while the assistant still has no network
 and gets no URL argument: a BV/cv id or a keyword only. They are off by default
 behind a Settings switch, must be selected explicitly on an assistant, and are
 absent from every picker, request and `unavailable_tools` while off. Bilibili's
 public web interface is unofficial: failures are returned as mapped errors
 (risk control, rate limit, changed signature) rather than as empty pages, and
-everything read back is untrusted third-party text. The read tools are
-documented in [03-ai-provider.md](docs/03-ai-provider.md).
+everything read back is untrusted third-party text.
+
+**An optional read-only Bilibili login adds `bili_transcript`.** Settings →
+02 / Web & media links an account by QR (Bilibili's own app authenticates it; the
+app has no webview or password field) and stores only the two cookies the read
+tools need — **not `bili_jct`**, the write token. Unlinking is one tap; while no
+account is linked the transcript row is absent. The login also enables comment
+pages after the first. It never reads history, favourites, followings or
+messages, and posts nothing; while linked, Bilibili does see the reads as your
+account. The read tools are documented in
+[03-ai-provider.md](docs/03-ai-provider.md).
 
 **A conversation can edit its own tool selection.** Chat overflow → **Conversation
 tools** lists the assistant's tools plus the ones this conversation already has;

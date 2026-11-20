@@ -178,6 +178,14 @@ data class ChatUiState(
 	 */
 	val bilibiliEnabled: Boolean = false,
 	/**
+	 * Whether an optional read-only Bilibili account is linked.
+	 *
+	 * Only `bili_transcript` depends on it; the anonymous four work either way.
+	 * Off hides that one row (the login is configuration, and a row that would
+	 * always fail is worse than an absent one).
+	 */
+	val bilibiliLoggedIn: Boolean = false,
+	/**
 	 * The conversation's stored tool selection.
 	 *
 	 * `null` is the historical "all", which excludes remote tools; the sheet
@@ -319,6 +327,16 @@ data class ChatMessageUi(
 	/** The message this one answers. Kept so a branch can be extended later. */
 	val parentId: String? = null,
 	val fromUser: Boolean,
+	/**
+	 * When the row was stored, from `messages.createdAt`.
+	 *
+	 * Carried into the UI state because `buildWireHistory` needs it: the time
+	 * hint on a user message is derived from the gap to the previous user
+	 * message, and the transcript is the only ordered list of rows the request
+	 * builder has. The transcript is rebuilt from the database on every load,
+	 * so this is the stored value, not a display approximation.
+	 */
+	val createdAt: Long = 0L,
 	/** True for a tool result, which is rendered as a card rather than speech. */
 	val isToolResult: Boolean = false,
 	/** For a tool result: the call it answers. */

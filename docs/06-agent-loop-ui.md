@@ -46,6 +46,46 @@ matches the cache, and a transient system instruction plus the engine's guard
 stop execution; demo turns get no tools, because the script reacts to
 `request.tools` rather than to instructions.
 
+### Time hints on the wire
+
+A user message may carry a `[YYYY-MM-DD HH:mm]` line at its start **in the
+request only** (`buildWireHistory`, `app/.../TimeHints.kt`). The stored row and
+the transcript keep the user's exact words, so search, Markdown export,
+branches, Rewind and the auto-title are untouched; the request viewer shows
+what the model actually received. The prefix is app-generated metadata, not
+user input and not a capability — it cannot add a tool, change an approval or
+widen the workspace.
+
+The rule is a setting (**Settings → `12 / Time`**, `SecureStore.KEY_TIME_HINTS_MODE`
+and `KEY_TIME_HINTS_GAP_MINUTES`): **after a gap** (the default), **every
+message**, or **never**; the gap thresholds offered are 5/10/30/60 minutes,
+default 10. `timeHintPrefixes`/`planTimeHints` are the pure half and
+`TimeHintsTest` pins it.
+
+The decision is deterministic from `messages.createdAt`: each message is
+compared with the **previous user message**, so a message that qualified once
+carries the same prefix on every later request and the provider's prefix cache
+still matches. Two consequences are deliberate:
+
+- The conversation's **first** user message always carries its time in gap mode:
+  with no previous message there is no gap to compare, and without an anchor a
+  conversation whose gaps are all short would never tell the model what day it
+  is.
+- The only timestamp taken from the clock is the **draft's**, because it has not
+  been stored yet; the preview path (`previewNextRequest`) uses the same build,
+  so a preview is exactly the body a send would produce.
+
+Changing the setting — or the device's time zone, because the wall clock is
+rendered in the current zone — rewrites the user-message part of the prefix and
+costs **one cold request**, the same price as editing the `AGENTS.md` block. It
+is the only way the hint can cause a cache miss: the prefix itself is stable
+across turns. An install that upgrades into the on-by-default setting pays that
+one cold request per existing conversation the first time it is used, because
+the conversation's first message gains its anchor and any long gap gains its
+line. The text carries no zone offset; the model needs the user's wall clock,
+and an offset would be tokens on every marked message. Demo mode builds the
+history the same way, so the prefix is inspectable without a key.
+
 The engine's events are rendered and persisted here:
 
 - **`RoundStarted`** closes the previous round's delta channel, appends the
@@ -1241,11 +1281,11 @@ a Keystore-stored key and a model id. Demo mode and the SSH switch live below
 those sections.
 
 Settings is grouped into foldable sections: Providers stays open; Web & media,
-Demo & SSH, Turn limits, Usage, Backup, Approvals, Diagnostics, Local, Display
-and Language start collapsed. Each header states its own state (key presence,
-current round count, configured rule count, current language) so a folded row
-still answers the question that brought the user there. Open state uses
-`rememberSaveable`, so rotation does not reset it.
+Demo & SSH, Turn limits, Usage, Backup, Approvals, Diagnostics, Local, Display,
+Language and Time start collapsed. Each header states its own state (key
+presence, current round count, configured rule count, current language, when the
+time hint is added) so a folded row still answers the question that brought the
+user there. Open state uses `rememberSaveable`, so rotation does not reset it.
 
 **Usage defers its read.** `SettingsFold` reports when a section becomes
 expanded, and `UsageSection` uses that to call `refreshUsage()` — opening
@@ -1275,9 +1315,17 @@ yet; a non-empty choice is never overwritten. Nothing is stored in
 `SecureStore` — the platform persists the locale and recreates the activity,
 which is why the chips reflect the live value rather than a copied one.
 
+**Time** (`12 / Time`) decides whether a request marks when each user message
+was sent: after a gap (default, 5/10/30/60 minutes), every message, or never.
+It is request formatting, not a capability, and it is global rather than
+per-conversation: the prefix is derived from stored timestamps, costs one cold
+request when it changes, and a per-conversation copy would add a schema column
+and a second place to look for the same decision. The mechanism, the anchor for
+the first message and the cache argument are in "Time hints on the wire" above.
+
 Settings is numbered `01` Models, `02` Web, `03` Runtime, `04` Turn limits,
 `05` Usage, `06` Backup, `07` Approvals, `08` Diagnostics, `09` Local,
-`10` Display, `11` Language.
+`10` Display, `11` Language, `12` Time.
 
 **Demo mode is the offline verification path.** `demoEnabled()` reads
 `secure.get(SecureStore.KEY_DEMO_MODE) == "1"` (`ChatViewModel.kt:615`), and
@@ -1318,6 +1366,7 @@ it; the sandbox's no-network rule applies to code the model writes), and
 | `DeltaCursorTest` | The property "the pieces joined are the whole reply, however it is cut", over every chunk size; no emission when nothing is new; no duplicate on a replayed prefix; a restart on shrink; the `initialText` start; silence for an empty reply. |
 | `ContextUsageTest` | Window-without-measurement is known but not computable; no window ⇒ no fraction and `summary` is a bare count; neither ⇒ nothing drawn; 25% of 1M ⇒ `25% · 262K / 1M`; a non-zero amount never shows 0%; over-window clamps to 100% / 0 left; `contextWindow = 0` treated as absent; `TokenFormat` grouping, including "10K" for 9,960 and never a comma. |
 | `WireHistoryTest` | A dangling assistant `tool_calls` gets its missing tool result inserted **before** the next user message, not at the end; a complete block and a call-free assistant message are untouched. Also that SSH tool arguments lose `password`/`privateKey`/`passphrase` before storage, including the wrapped form. This is the HTTP-400-on-every-later-turn repair and the credential-persistence guard. |
+| `TimeHintsTest` | The time-hint rule: off adds nothing; every message carries its own send time; in gap mode the first message is the anchor and the threshold is inclusive; the gap is measured from the previous **user** message; a backwards clock does not qualify; a missing timestamp is not rendered as 1970; the wall clock follows the device zone; the two stored preference values round-trip, clamp and fall back to the default when unreadable; and the plan keys hints by stored id, leaves non-user rows alone and measures the unstored draft after the last stored user message. This is the half of the feature a device cannot re-observe, since a request built days ago is gone. |
 | `TurnSummaryTest` | Rounds of one turn sum (prompt, completion, cache, generation); a missing field stays missing; a turn still holding a tool result, a running tool call, or a streaming answer is not complete; two turns get independent footers; the range covers exactly the turn's rows, a transcript that begins mid-turn still forms one turn, and slicing is clamped against a shorter list. The range cases exist because the summary used to carry copies of those rows and the wire inspector now slices the transcript with the indices instead. |
 | `ConversationToolsTest` | The assistant ceiling with `null` and explicit selections; a conversation keeps a tool the assistant no longer has; SSH off hides the row but preserves the stored name; applying stores catalogue order. This is the "new tool reaches an old conversation without inventing a capability" rule. |
 | `ImageSizingTest` / `ImagePreprocessorTest` | Fitting a 4032×3024 photo into 1568×1176, never upscaling a small image, and choosing a power-of-two sample size, on the JVM; then the same decode/scale/encode on a device, including the 1 MiB ceiling and transparent-PNG-to-WebP. This is the phone-side image pipeline that replaced accepting a 4 MiB file and silently dropping it at send. |

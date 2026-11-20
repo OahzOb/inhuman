@@ -180,6 +180,7 @@ repository root; `…/` stands for `src/main/kotlin/com/inhuman/`.
 | Incremental Markdown, delta channel, unclosed fences | `app/…/ui/chat/MarkdownText.kt`, `DeltaCursor.kt`, `MarkdownFence.kt` |
 | Context ring, three cases, compaction projection | `app/…/ui/chat/ContextUsage.kt`, `ContextGauge.kt`, `ContextCompaction.kt` |
 | Workspace `AGENTS.md` pinned per conversation; reload and its cache cost | `app/…/ui/chat/WorkspaceInstructions.kt`, [`03-ai-provider.md`](03-ai-provider.md), [`06-agent-loop-ui.md`](06-agent-loop-ui.md) |
+| The wire-only time hint on user messages; mode and gap threshold | `app/…/ui/chat/TimeHints.kt`, `ChatViewModel.buildWireHistory`, [`06-agent-loop-ui.md`](06-agent-loop-ui.md) |
 | Assistants, tool picker, prompt import | `app/…/ui/agents/AgentsScreen.kt`, `AgentsViewModel.kt`, `PromptImport.kt` |
 | Workspaces, lifetime, promotion, absolute path | `app/…/ui/workspaces/`, `core/db/…/ConversationRepository.kt` |
 | Conversation list, pinning, delete confirmation | `app/…/ui/ConversationsScreen.kt`, `ConversationsViewModel.kt` |

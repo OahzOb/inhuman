@@ -86,6 +86,12 @@ Confirmed by `README.md:17-29` and by the code:
   is off the four rows are absent from every picker, request and gap report.
   Bilibili's web interface is unofficial, so failures are surfaced, not hidden
   ([03-ai-provider.md](03-ai-provider.md)).
+- An **optional read-only Bilibili login** adds `bili_transcript` (subtitles, or
+  Bilibili's own AI summary when there are none) and comment pages after the
+  first. Settings → 02 / Web & media links it by QR; only the two read cookies
+  are stored (never the write token), and the row is absent while no account is
+  linked. Account data — history, favourites, followings, messages — is not
+  read ([03-ai-provider.md](03-ai-provider.md)).
 - The paid media tools — image, video, speech, transcription and decision — are
   configured one by one under **02 / Web & media**: keep the assistant's
   provider, choose a configured Qwen Token Plan provider and model, or enter a
@@ -186,6 +192,13 @@ Confirmed by `README.md:17-29` and by the code:
   set, approvals or SSH consent. Missing, blank, binary or over-long files are
   ignored; the absolute workspace path never appears
   ([05-files-sandbox.md](05-files-sandbox.md), [06-agent-loop-ui.md](06-agent-loop-ui.md)).
+- Long gaps between user messages are marked **on the wire only**: with the
+  default setting, a user message at least ten minutes after the previous one —
+  and the conversation's first message — is prefixed in the request with its
+  send time (`[YYYY-MM-DD HH:mm]`). The stored text, search, export and Rewind
+  never contain the prefix; the request viewer does. Settings → **12 / Time**
+  chooses after-a-gap (5/10/30/60 minutes), every message, or never
+  ([06-agent-loop-ui.md](06-agent-loop-ui.md)).
 - A **Usage** section in Settings totals the token counts the providers reported
   and the paid tool calls still recorded, for today/7 days/30 days/all, by local
   day and by conversation. It is derived from the transcript, so deleted or

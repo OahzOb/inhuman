@@ -32,6 +32,8 @@ data class AgentsUiState(
 	val suggestionsEnabled: Boolean = false,
 	/** Whether the anonymous Bilibili read tools are offered to pick at all. */
 	val bilibiliEnabled: Boolean = false,
+	/** Whether the optional Bilibili login is linked (`bili_transcript` needs it). */
+	val bilibiliLoggedIn: Boolean = false,
 	val editing: AgentDraft? = null,
 	/** The user's saved system prompts, newest first. */
 	val savedPrompts: List<SavedPromptEntity> = emptyList(),
@@ -145,6 +147,9 @@ class AgentsViewModel(
 				sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
 				suggestionsEnabled = secure.get(SecureStore.KEY_SUGGESTIONS_ENABLED) == "1",
 				bilibiliEnabled = secure.get(SecureStore.KEY_BILIBILI_TOOL_ENABLED) == "1",
+				bilibiliLoggedIn = com.inhuman.core.ai.bilibili.BilibiliCredentials.fromStoredJson(
+					secure.get(SecureStore.KEY_BILIBILI_SESSION),
+				) != null,
 			)
 		}
 	}

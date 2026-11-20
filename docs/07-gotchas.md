@@ -224,9 +224,44 @@ Two smaller rules follow from the content being third-party text:
 see it as markup), and a refusal (`-352`/`-412`/`-509`/`-101`) is returned as
 the mapped sentence from `BilibiliErrors` rather than as an empty page — "no
 comments" and "the request was blocked" must stay distinguishable
-(`BilibiliToolsTest`). `BilibiliLiveTest` is the one networked test and is
-skipped unless `INHUMAN_BILI_LIVE=1`; it is paced, because anonymous request
-bursts are exactly what Bilibili's risk control blocks.
+(`BilibiliToolsTest`).
+
+**The login is read-only by construction.** `BilibiliAuth` uses Bilibili's QR
+flow only (no webview, no password field) and stores exactly `SESSDATA` and
+`DedeUserID`. `bili_jct` is the write/CSRF token and is deliberately **not**
+kept: the app has no Bilibili write path, so holding it would be capability with
+no purpose. `bili_transcript` is `bilibiliLoginRequired`, so it is absent from
+every picker while logged out, and the result names its source — an AI summary
+is Bilibili's digest, not a transcript. Comment pages after the first are
+another login-only read and say so when anonymous. The login *never* adds
+history/favourites/following/message tools; those are account data, not public
+content. `BilibiliLiveTest` and `BilibiliLoginLiveTest` are the only networked
+tests and are skipped unless `INHUMAN_BILI_LIVE` / `INHUMAN_BILI_SESSION` are
+set; they are paced, because anonymous request bursts are exactly what
+Bilibili's risk control blocks.
+
+### A23. A time hint is wire-only and decided from `createdAt`
+
+A user message can carry a `[YYYY-MM-DD HH:mm]` line in the request
+(`buildWireHistory` → `TimeHints.kt`). Two rules keep it from becoming a
+transcript mutation or a cache-hostile one:
+
+- **Never write the prefix into `messages.content`.** It would enter search,
+  Markdown export, branches, Rewind, the auto-title and the next request's
+  context, and the next turn would prefix the already-prefixed text a second
+  time. The stored row is the user's words; the request is the only place the
+  hint exists, which is also why the request viewer shows it.
+- **Decide only from stored timestamps.** The gap is measured between
+  consecutive user messages' `createdAt`, so a message that qualified once
+  qualifies forever: the prefix stays byte-identical across turns and the
+  provider's prefix cache still hits. Only the unstored draft uses the clock, so
+  a preview and the following send agree. Recomputing stored rows against "now"
+  would make every turn's prefix new — a silent cache loss on every message.
+
+Changing the setting, or the device's time zone (the wall clock is rendered in
+the current zone), rewrites the marked part of the prefix once; that is the only
+intended cold request. `TimeHintsTest` pins the decision; `TimeHints.kt` carries
+the reasoning.
 
 ---
 

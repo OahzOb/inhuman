@@ -10,6 +10,9 @@ import com.inhuman.core.ai.bilibili.BilibiliReadService
 import com.inhuman.core.ai.bilibili.BilibiliSearchHit
 import com.inhuman.core.ai.bilibili.BilibiliSearchKind
 import com.inhuman.core.ai.bilibili.BilibiliStats
+import com.inhuman.core.ai.bilibili.BilibiliTranscript
+import com.inhuman.core.ai.bilibili.BilibiliTranscriptPreference
+import com.inhuman.core.ai.bilibili.BilibiliTranscriptSource
 import com.inhuman.core.ai.bilibili.BilibiliVideoInfo
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
@@ -251,19 +254,118 @@ class BilibiliToolsTest {
 		assertTrue(result.content.contains("no readable text body"))
 	}
 
+	@Test
+	fun `transcript names its source and reports AI subtitles`() = runBlocking {
+		val service = FakeService()
+		service.transcriptResult = BilibiliTranscript(
+			source = BilibiliTranscriptSource.SUBTITLE,
+			text = "第一句\n第二句",
+			language = "中文",
+			aiGenerated = true,
+			segments = 2,
+		)
+		val tool = BilibiliTranscriptTool(service)
+
+		val result = tool.execute(buildJsonObject { put("bvid", "BV1das46aEKM") })
+
+		assertFalse(result.isError)
+		assertTrue("source missing: ${result.content}", "AI-generated subtitles" in result.content)
+		assertTrue("language missing", "中文" in result.content)
+		assertTrue("body missing", "第一句" in result.content)
+		assertEquals(BilibiliTranscriptPreference.TEXT, service.lastPrefer)
+	}
+
+	@Test
+	fun `transcript passes the summary preference through`() = runBlocking {
+		val service = FakeService()
+		service.transcriptResult = BilibiliTranscript(
+			source = BilibiliTranscriptSource.AI_SUMMARY,
+			text = "Bilibili's summary text",
+			segments = 3,
+		)
+		val tool = BilibiliTranscriptTool(service)
+
+		val result = tool.execute(
+			buildJsonObject {
+				put("bvid", "BV1das46aEKM")
+				put("prefer", "summary")
+				put("page", 2)
+			},
+		)
+
+		assertFalse(result.isError)
+		assertEquals(BilibiliTranscriptPreference.SUMMARY, service.lastPrefer)
+		assertEquals(2, service.lastPage)
+		assertTrue("AI summary not labelled", "Bilibili AI summary" in result.content)
+		assertTrue("part not shown", "part 2" in result.content)
+	}
+
+	@Test
+	fun `no transcript is an explicit answer not an empty success`() = runBlocking {
+		val service = FakeService()
+		service.transcriptResult = null
+		val tool = BilibiliTranscriptTool(service)
+
+		val result = tool.execute(buildJsonObject { put("bvid", "BV1das46aEKM") })
+
+		assertFalse(result.isError)
+		assertTrue(result.content.contains("No subtitles and no Bilibili AI summary"))
+	}
+
+	@Test
+	fun `comment pages after the first need the login`() = runBlocking {
+		val service = FakeService()
+		service.loggedIn = false
+		val tool = BilibiliCommentsTool(service)
+
+		val result = tool.execute(
+			buildJsonObject {
+				put("bvid", "BV1das46aEKM")
+				put("page", 2)
+			},
+		)
+
+		assertTrue(result.isError)
+		assertTrue(result.content.contains("needs the optional Bilibili login"))
+		assertEquals(0, service.commentCalls)
+	}
+
+	@Test
+	fun `logged-in comment page two reaches the service`() = runBlocking {
+		val service = FakeService()
+		service.loggedIn = true
+		val tool = BilibiliCommentsTool(service)
+
+		val result = tool.execute(
+			buildJsonObject {
+				put("bvid", "BV1das46aEKM")
+				put("page", 2)
+			},
+		)
+
+		assertFalse(result.isError)
+		assertEquals(2, service.lastCommentPage)
+		assertTrue(result.content.contains("page 2"))
+	}
+
 	private class FakeService : BilibiliReadService {
 		var searchResult: List<BilibiliSearchHit> = emptyList()
 		var videoResult: BilibiliVideoInfo? = null
 		var commentsResult: BilibiliComments = BilibiliComments(emptyList(), emptyList())
 		var articleResult: BilibiliArticle? = null
+		var transcriptResult: BilibiliTranscript? = null
 		var failure: Exception? = null
+		override var loggedIn: Boolean = true
 		var searchCalls = 0
 		var videoCalls = 0
+		var commentCalls = 0
 		var lastLimit = 0
 		var lastPage = 0
+		var lastCommentPage = 0
 		var lastBvid = ""
 		var lastSort: BilibiliCommentSort? = null
 		var lastCvId = 0L
+		var lastPrefer: BilibiliTranscriptPreference? = null
 
 		override suspend fun search(
 			keyword: String,
@@ -290,9 +392,12 @@ class BilibiliToolsTest {
 			bvid: String,
 			sort: BilibiliCommentSort,
 			limit: Int,
+			page: Int,
 		): BilibiliComments {
 			failure?.let { throw it }
+			commentCalls++
 			lastSort = sort
+			lastCommentPage = page
 			return commentsResult
 		}
 
@@ -300,6 +405,18 @@ class BilibiliToolsTest {
 			failure?.let { throw it }
 			lastCvId = cvId
 			return articleResult ?: error("article result not configured")
+		}
+
+		override suspend fun transcript(
+			bvid: String,
+			page: Int,
+			prefer: BilibiliTranscriptPreference,
+		): BilibiliTranscript? {
+			failure?.let { throw it }
+			lastBvid = bvid
+			lastPage = page
+			lastPrefer = prefer
+			return transcriptResult
 		}
 	}
 }

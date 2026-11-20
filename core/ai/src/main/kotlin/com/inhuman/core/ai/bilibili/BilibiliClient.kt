@@ -44,7 +44,18 @@ import okhttp3.Request
 class BilibiliClient(
 	private val http: OkHttpClient = defaultClient(),
 	private val now: () -> Long = System::currentTimeMillis,
+	/**
+	 * The read-only account session the app linked, or null when anonymous.
+	 *
+	 * Read per request rather than copied: unlinking the account in Settings
+	 * must take effect on the next call, and a copied value would keep sending
+	 * a cookie the user just revoked.
+	 */
+	private val credentials: () -> BilibiliCredentials? = { null },
 ) : BilibiliReadService {
+
+	override val loggedIn: Boolean
+		get() = credentials()?.isUsable == true
 
 	private val json = Json {
 		ignoreUnknownKeys = true
@@ -86,30 +97,245 @@ class BilibiliClient(
 		bvid: String,
 		sort: BilibiliCommentSort,
 		limit: Int,
+		page: Int,
 	): BilibiliComments {
+		// Bilibili documents page 2 and later as requiring a signed-in caller.
+		// Saying so here is honest; letting the endpoint answer -412 would make
+		// a consent question look like a network failure.
+		if (page > 1 && !loggedIn) {
+			throw BilibiliApiException(
+				-101,
+				"comment page $page needs a linked Bilibili account",
+			)
+		}
 		val aid = synchronized(aidCache) { aidCache[bvid] } ?: video(bvid).aid
-		val params = mapOf(
-			"oid" to aid.toString(),
-			"type" to "1",
-			"mode" to sort.mode.toString(),
-			"ps" to limit.coerceIn(1, MAX_COMMENT_PAGE).toString(),
-			"next" to "0",
-		)
-		return BilibiliParsers.parseComments(plainGet(REPLY_URL, params))
+		var next = "0"
+		var parsed = BilibiliComments(emptyList(), emptyList())
+		for (index in 1..page.coerceAtLeast(1)) {
+			val root = plainGet(
+				REPLY_URL,
+				mapOf(
+					"oid" to aid.toString(),
+					"type" to "1",
+					"mode" to sort.mode.toString(),
+					"ps" to limit.coerceIn(1, MAX_COMMENT_PAGE).toString(),
+					"next" to next,
+				),
+			)
+			if (index == page) {
+				parsed = BilibiliParsers.parseComments(root)
+				break
+			}
+			next = BilibiliParsers.parseNextCursor(root)?.toString()
+				?: throw BilibiliApiException(
+					BilibiliApiException.TRANSPORT,
+					"there is no comment page $page on this video",
+				)
+		}
+		return parsed
 	}
 
 	override suspend fun article(cvId: Long): BilibiliArticle =
 		BilibiliParsers.parseArticle(plainGet(ARTICLE_URL, mapOf("id" to cvId.toString())))
 
+	override suspend fun transcript(
+		bvid: String,
+		page: Int,
+		prefer: BilibiliTranscriptPreference,
+	): BilibiliTranscript? {
+		val info = video(bvid)
+		val part = info.pages.firstOrNull { it.page == page } ?: info.pages.getOrNull(page - 1)
+		val cid = part?.cid?.takeIf { it > 0 } ?: info.cid.takeIf { it > 0 } ?: return null
+		val order = when (prefer) {
+			BilibiliTranscriptPreference.TEXT -> listOf(
+				BilibiliTranscriptSource.SUBTITLE,
+				BilibiliTranscriptSource.AI_SUMMARY,
+			)
+
+			BilibiliTranscriptPreference.SUMMARY -> listOf(
+				BilibiliTranscriptSource.AI_SUMMARY,
+				BilibiliTranscriptSource.SUBTITLE,
+			)
+		}
+		for (source in order) {
+			val answer = when (source) {
+				BilibiliTranscriptSource.SUBTITLE ->
+					subtitleTranscript(info.aid, cid)
+
+				BilibiliTranscriptSource.AI_SUMMARY ->
+					aiSummaryTranscript(bvid, info.aid, cid, info.ownerMid)
+			}
+			if (answer != null) return answer
+		}
+		return null
+	}
+
+	/**
+	 * The subtitle text of one part, or null when the endpoint lists no track.
+	 *
+	 * The player endpoint needs both the WBI signature and the anti-spider
+	 * `dm_*` parameters; without the latter a logged-in caller still gets
+	 * `-352`, which reads like a permission problem but is a request-shape one.
+	 */
+	private suspend fun subtitleTranscript(
+		aid: Long,
+		cid: Long,
+	): BilibiliTranscript? {
+		val root = signedGet(
+			PLAYER_URL,
+			mapOf(
+				"aid" to aid.toString(),
+				"cid" to cid.toString(),
+				"isGaiaAvoided" to "false",
+				"web_location" to "1315873",
+			),
+			dm = true,
+		)
+		val tracks = BilibiliParsers.parseSubtitleTracks(root)
+		if (tracks.isEmpty()) return null
+		val track = tracks.minByOrNull { subtitleRank(it.language) } ?: tracks.first()
+		val lines = downloadSubtitleLines(track.url)
+		if (lines.isEmpty()) return null
+		return BilibiliTranscript(
+			source = BilibiliTranscriptSource.SUBTITLE,
+			text = lines.joinToString("\n").take(MAX_TRANSCRIPT_CHARS),
+			language = track.label.ifBlank { track.language },
+			aiGenerated = track.language.startsWith("ai-") || track.type == 1,
+			segments = lines.size,
+		)
+	}
+
+	/** Bilibili's own AI summary of one part, or null when it has none. */
+	private suspend fun aiSummaryTranscript(
+		bvid: String,
+		aid: Long,
+		cid: Long,
+		upMid: Long,
+	): BilibiliTranscript? {
+		if (!loggedIn) return null
+		val root = signedGet(
+			CONCLUSION_URL,
+			mapOf(
+				"aid" to aid.toString(),
+				"bvid" to bvid,
+				"cid" to cid.toString(),
+				"up_mid" to upMid.toString(),
+				"web_location" to "333.788",
+			),
+		)
+		val parsed = BilibiliParsers.parseAiSummary(root) ?: return null
+		val text = buildString {
+			appendLine(parsed.summary)
+			if (parsed.outline.isNotEmpty()) {
+				appendLine()
+				appendLine("Outline:")
+				for (segment in parsed.outline) {
+					appendLine("- ${timestamp(segment.timestampSeconds)} ${segment.title}")
+					for (point in segment.points) {
+						appendLine("  - ${timestamp(point.timestampSeconds)} ${point.content}")
+					}
+				}
+			}
+		}.trim().take(MAX_SUMMARY_CHARS)
+		return BilibiliTranscript(
+			source = BilibiliTranscriptSource.AI_SUMMARY,
+			text = text,
+			segments = parsed.outline.size,
+		)
+	}
+
+	private suspend fun downloadSubtitleLines(url: String): List<String> {
+		val full = if (url.startsWith("//")) "https:$url" else url
+		val uri = runCatching { java.net.URI(full) }.getOrNull()
+			?: throw BilibiliApiException(
+				BilibiliApiException.TRANSPORT,
+				"the subtitle URL was unreadable",
+			)
+		val host = uri.host.orEmpty()
+		// The subtitle arrives from a CDN. It is fetched without cookies, and
+		// only from Bilibili's own hosts: an endpoint answer is not a licence to
+		// make the app fetch an arbitrary address.
+		val allowedHost = host == "hdslb.com" || host.endsWith(".hdslb.com") ||
+			host == "bilibili.com" || host.endsWith(".bilibili.com")
+		if (uri.scheme != "https" || !allowedHost) {
+			throw BilibiliApiException(
+				BilibiliApiException.TRANSPORT,
+				"the subtitle URL pointed outside Bilibili's hosts",
+			)
+		}
+		val request = Request.Builder()
+			.url(full)
+			.get()
+			.header("User-Agent", USER_AGENT)
+			.header("Referer", REFERER)
+			.header("Accept", ACCEPT)
+			.build()
+		return withContext(Dispatchers.IO) {
+			try {
+				http.newCall(request).execute().use { response ->
+					val body = response.body.string()
+					if (!response.isSuccessful) {
+						throw BilibiliApiException(
+							BilibiliApiException.TRANSPORT,
+							"subtitle download HTTP ${response.code}",
+						)
+					}
+					val root = runCatching { json.parseToJsonElement(body).jsonObject }
+						.getOrElse {
+							throw BilibiliApiException(
+								BilibiliApiException.TRANSPORT,
+								"the subtitle file was not JSON",
+							)
+						}
+					BilibiliParsers.parseSubtitleBody(root)
+				}
+			} catch (failure: IOException) {
+				throw BilibiliApiException(
+					BilibiliApiException.TRANSPORT,
+					failure.message ?: failure.javaClass.simpleName,
+					failure,
+				)
+			}
+		}
+	}
+
+	/** Prefer a Chinese track; within Chinese prefer uploaded text to AI text. */
+	private fun subtitleRank(language: String): Int = when {
+		language == "zh-CN" -> 0
+		language == "zh" -> 1
+		language == "ai-zh" -> 2
+		language.startsWith("ai-zh") -> 3
+		language.startsWith("zh") -> 4
+		language.startsWith("en") -> 5
+		else -> 6
+	}
+
+	private fun timestamp(seconds: Long): String {
+		if (seconds <= 0) return "0:00"
+		val hours = seconds / 3600
+		val minutes = (seconds % 3600) / 60
+		val rest = seconds % 60
+		return if (hours > 0) {
+			String.format(java.util.Locale.ROOT, "%d:%02d:%02d", hours, minutes, rest)
+		} else {
+			String.format(java.util.Locale.ROOT, "%d:%02d", minutes, rest)
+		}
+	}
+
 	/**
 	 * A request whose signature is required. The mixin key may have rotated;
 	 * one `-403` is answered by refetching it and trying the same call again.
 	 */
-	private suspend fun signedGet(url: String, params: Map<String, String>): JsonObject {
+	private suspend fun signedGet(
+		url: String,
+		params: Map<String, String>,
+		dm: Boolean = false,
+	): JsonObject {
 		var attempt = 0
 		while (true) {
 			val active = ensureSession(refreshMixin = attempt > 0)
-			val signed = WbiSigner.sign(params, active.mixinKey, now() / 1000)
+			val base = if (dm) params + dmParams() else params
+			val signed = WbiSigner.sign(base, active.mixinKey, now() / 1000)
 			val root = executeGet(url, signed, active)
 			val code = root.code()
 			if (code == 0) return root
@@ -213,9 +439,17 @@ class BilibiliClient(
 			.header("User-Agent", USER_AGENT)
 			.header("Referer", REFERER)
 			.header("Accept", ACCEPT)
-		if (session != null && session.buvid3.isNotBlank()) {
-			builder.header("Cookie", "buvid3=${session.buvid3}; buvid4=${session.buvid4}")
+		val cookie = buildString {
+			if (session != null && session.buvid3.isNotBlank()) {
+				append("buvid3=${session.buvid3}; buvid4=${session.buvid4}")
+			}
+			val account = credentials()
+			if (account != null && account.isUsable) {
+				if (isNotEmpty()) append("; ")
+				append("SESSDATA=${account.sessdata}; DedeUserID=${account.dedeUserId}")
+			}
 		}
+		if (cookie.isNotBlank()) builder.header("Cookie", cookie)
 		return withContext(Dispatchers.IO) {
 			try {
 				http.newCall(builder.build()).execute().use { response ->
@@ -264,6 +498,18 @@ class BilibiliClient(
 		lastRequestAt = now()
 	}
 
+	/** Space/player endpoints expect a few `dm_*` anti-spider fields to exist. */
+	private fun dmParams(): Map<String, String> {
+		val alphabet = "ABCDEFGHIJK"
+		fun pick() = (1..2).map { alphabet.random() }.joinToString("")
+		return mapOf(
+			"dm_img_list" to "[]",
+			"dm_img_str" to pick(),
+			"dm_cover_img_str" to pick(),
+			"dm_img_inter" to """{"ds":[],"wh":[0,0,0],"of":[0,0,0]}""",
+		)
+	}
+
 	private data class Session(
 		val buvid3: String,
 		val buvid4: String,
@@ -276,6 +522,9 @@ class BilibiliClient(
 		private const val VIEW_URL = "https://api.bilibili.com/x/web-interface/view"
 		private const val REPLY_URL = "https://api.bilibili.com/x/v2/reply/main"
 		private const val ARTICLE_URL = "https://api.bilibili.com/x/article/view"
+		private const val PLAYER_URL = "https://api.bilibili.com/x/player/wbi/v2"
+		private const val CONCLUSION_URL =
+			"https://api.bilibili.com/x/web-interface/view/conclusion/get"
 		private const val SPI_URL = "https://api.bilibili.com/x/frontend/finger/spi"
 		private const val NAV_URL = "https://api.bilibili.com/x/web-interface/nav"
 
@@ -287,6 +536,12 @@ class BilibiliClient(
 
 		/** The comment endpoint's own ceiling for one page. */
 		private const val MAX_COMMENT_PAGE = 30
+
+		/** Two thousand characters of subtitle per 1k tokens is not a promise. */
+		private const val MAX_TRANSCRIPT_CHARS = 20_000
+
+		/** The AI summary plus outline is a digest; it should stay short. */
+		private const val MAX_SUMMARY_CHARS = 8_000
 
 		/** Long enough to be polite, short enough not to feel like a hang. */
 		private const val MIN_REQUEST_INTERVAL_MS = 700L

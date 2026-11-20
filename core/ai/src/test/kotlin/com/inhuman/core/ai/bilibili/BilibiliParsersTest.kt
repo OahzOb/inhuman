@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -63,6 +64,63 @@ class BilibiliParsersTest {
 		assertEquals(67_972L, info.stats.view)
 		assertEquals(1, info.pages.size)
 		assertEquals("P1 part title missing", true, info.pages.first().title.isNotBlank())
+		assertEquals("the first part's cid is needed by the transcript tool", 43_728_179_086L, info.cid)
+	}
+
+	@Test
+	fun `player fixture parses subtitle tracks`() {
+		val tracks = BilibiliParsers.parseSubtitleTracks(fixture("player_subtitles.json"))
+
+		assertEquals(2, tracks.size)
+		assertEquals("zh", tracks[0].language)
+		assertEquals("中文", tracks[0].label)
+		assertEquals(0, tracks[0].type)
+		assertEquals("ai-zh", tracks[1].language)
+		assertEquals("AI track flag missing", 1, tracks[1].type)
+		assertTrue("track URL missing", tracks[1].url.startsWith("https://"))
+	}
+
+	@Test
+	fun `subtitle body fixture parses lines in order`() {
+		val lines = BilibiliParsers.parseSubtitleBody(fixture("subtitle_body.json"))
+
+		assertTrue("no subtitle lines", lines.size >= 8)
+		assertTrue("first line missing", lines.first().isNotBlank())
+		assertTrue("body order lost", lines[1].contains("2026") || lines[0].isNotBlank())
+	}
+
+	@Test
+	fun `AI summary fixture parses summary and outline`() {
+		val summary = BilibiliParsers.parseAiSummary(fixture("ai_summary.json"))
+
+		assertTrue("no summary", summary != null)
+		assertTrue("summary text missing", summary!!.summary.isNotBlank())
+		assertTrue("outline missing", summary.outline.isNotEmpty())
+		assertTrue(
+			"outline points missing",
+			summary.outline.any { it.points.isNotEmpty() },
+		)
+	}
+
+	@Test
+	fun `an AI summary with nothing in it is null`() {
+		val empty = Json.parseToJsonElement(
+			"""{"code":0,"data":{"model_result":{"summary":"","outline":[]}}}""",
+		).jsonObject
+		assertNull(BilibiliParsers.parseAiSummary(empty))
+	}
+
+	@Test
+	fun `comment cursor is carried not calculated`() {
+		val root = Json.parseToJsonElement(
+			"""{"code":0,"data":{"cursor":{"is_end":false,"next":2},"replies":[]}}""",
+		).jsonObject
+		assertEquals(2L, BilibiliParsers.parseNextCursor(root))
+
+		val last = Json.parseToJsonElement(
+			"""{"code":0,"data":{"cursor":{"is_end":true,"next":0},"replies":[]}}""",
+		).jsonObject
+		assertNull(BilibiliParsers.parseNextCursor(last))
 	}
 
 	@Test

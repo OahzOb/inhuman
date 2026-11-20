@@ -1,0 +1,55 @@
+{
+	"code": 0,
+	"message": "OK",
+	"data": {
+		"status": 0,
+		"result_type": null,
+		"model_result": {
+			"summary": "2026下半年旗舰芯片A20Pro、悬剑O3、天玑9600Pro及骁龙816E6的能效与性能对比，突出A20Pro超大核20%性能提升、能效优化及内存优势，天玑9600Pro双超大核能效领先，骁龙816E6因架构缺陷表现垫底，整体展现苹果架构技术优势与安卓芯片优化差异。",
+			"outline": [
+				{
+					"title": "四强芯片能效与架构深度解析",
+					"timestamp": 1,
+					"part_outline": [
+						{
+							"timestamp": 97,
+							"content": "苹果A20pro性能全面领先，能效与多核表现最佳"
+						},
+						{
+							"timestamp": 122,
+							"content": "小米悬剑O3堆料极致，单核强但多核能效冠群"
+						}
+					]
+				},
+				{
+					"title": "苹果A20pro能效全面领先安卓阵营",
+					"timestamp": 600,
+					"part_outline": [
+						{
+							"timestamp": 709,
+							"content": " 苹果A20pro超大核能效提升显著，峰值性能与能效双突破"
+						},
+						{
+							"timestamp": 765,
+							"content": " 玄界O3中核能效表现亮眼，与安卓旗舰差距明显缩小"
+						}
+					]
+				},
+				{
+					"title": "8E6芯片TLB设计导致性能倒退",
+					"timestamp": 1201,
+					"part_outline": [
+						{
+							"timestamp": 1242,
+							"content": "8E6因TLB设计缺陷导致L2TLB命中率显著低于8E5"
+						},
+						{
+							"timestamp": 1494,
+							"content": "8E6TLB合并机制复杂，物理页连续性要求严苛影响性能"
+						}
+					]
+				}
+			]
+		}
+	}
+}

@@ -266,6 +266,16 @@ block, and the app does not claim either as a guarantee. The old units are not
 deleted: the requests after the reload rebuild against the new prompt. The turn's
 usage line is where the reload's cost becomes visible.
 
+**Time hints are derived, so they do not move between turns.** When the setting
+is on, `buildWireHistory` prefixes qualifying user messages with the time they
+were sent (`docs/06`, "Time hints on the wire"). The prefix comes from
+`messages.createdAt`, not from the clock, so the same row renders the same bytes
+on every later request and the cache prefix still hits; only the message being
+sent now gets a new prefix, and it sits at the end of the prefix where a new
+turn is written anyway. Changing the mode or threshold, or the device time zone,
+re-renders the marked lines and costs **one cold request**. The hint is never
+stored in the message row.
+
 ## Provider profiles
 
 `provider_profiles` (Room v12) holds the chat backends. The built-in `deepseek`
@@ -1012,19 +1022,71 @@ are third-party text that becomes prompt context. Tool descriptions say so, and
 `BilibiliHtml` reduces both HTML shapes to plain text; a markdown renderer must
 never see it as markup.
 
+### The optional read-only login
+
+Anonymous Bilibili cannot read a video's speech: `player/wbi/v2` answers with an
+empty subtitle list, and the AI-summary endpoint answers `-101`. The optional
+login therefore exists for **content that only a signed-in caller can see** —
+never for account data.
+
+`BilibiliAuth` (`core/ai/.../bilibili/BilibiliAuth.kt`) runs Bilibili's QR flow
+against `passport.bilibili.com`: generate, poll every two seconds, and on
+success take `SESSDATA` and `DedeUserID` from the poll's own `Set-Cookie`
+headers. There is no webview and no password field — the account is
+authenticated in Bilibili's own app, and the app only ever sees the cookies.
+`bili_jct`, the write/CSRF token, is **not stored**: this app has no write path,
+so keeping it would be capability with no use.
+
+The host stores the two cookies as one JSON document under
+`SecureStore.KEY_BILIBILI_SESSION` (settings → 02 / Web & media → B 站登录). The
+client reads that document per request, so unlinking takes effect on the next
+tool call. Backups exclude the secret store; diagnostics never see it. The
+settings dialog renders the QR with ZXing, rotates it automatically when
+Bilibili expires it (about three minutes), and closes on cancel without
+touching an existing link.
+
+What the login unlocks:
+
+- `bili_transcript` — subtitles of the selected part, else Bilibili's own AI
+  summary. The result names the source; an AI summary is Bilibili's digest, not
+  a transcript, and the tool description says not to present it as the
+  speaker's words. It is hidden while no account is linked (`optIn` plus
+  `bilibiliLoginRequired`), because a row that would always fail is worse than
+  an absent one.
+- Comment pages after the first: the endpoint documents page 2+ as requiring a
+  signed-in caller. `bili_comments` takes a `page` argument and says so when no
+  login is linked.
+
+The login does **not** add tools for the user's history, favourites, followings
+or messages: reading those would turn a public-content reader into an
+account-data reader, which is a separate product decision. While linked, all
+Bilibili reads carry the account identity — the settings copy says so.
+
+**Coverage is not universal.** In a 16-video sample across tech/course, lecture,
+review, music, gaming and documentary searches, 12 had subtitle tracks and 10
+had an AI summary; the three pure-music videos had neither. A video with neither
+returns an explicit "no subtitles and no AI summary" answer, not an empty
+success — the tool description tells the model to report that rather than guess.
+
 **Tests.** `BilibiliParsersTest` runs against fixtures captured from the live
 endpoints (2026-11-20) so the parsing is offline and the shapes are real;
 `BilibiliToolsTest` covers caps, argument rejection and error text against a
-fake service. `BilibiliLiveTest` is skipped unless `INHUMAN_BILI_LIVE=1`; run:
+fake service; `BilibiliAuthTest` pins the QR state mapping and cookie parsing.
+`BilibiliLiveTest` (anonymous) and `BilibiliLoginLiveTest` (a linked session read
+from `INHUMAN_BILI_SESSION`, a gitignored scratch file) are skipped unless
+enabled. Run:
 
 ```powershell
 $env:INHUMAN_BILI_LIVE = '1'
 .\gradlew.bat :core:ai:test --tests '*BilibiliLiveTest'
+
+$env:INHUMAN_BILI_SESSION = 'C:\path\to\session.json'
+.\gradlew.bat :core:ai:test --tests '*BilibiliLoginLiveTest'
 ```
 
-It is deliberately one test with a pause between the video and article pairs:
-an anonymous caller that fires seven requests in two seconds is the shape of a
-scraper, which is what the endpoint set's risk control blocks.
+The anonymous live test is deliberately paced: an anonymous caller that fires
+seven requests in two seconds is the shape of a scraper, which is what the
+endpoint set's risk control blocks.
 
 ## The SSH tools: read-only, transfer and exec, an address book and an information tool
 

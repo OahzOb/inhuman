@@ -113,7 +113,11 @@ class ToolCatalogVisibilityTest {
 			assertFalse("${entry.name} was visible while its switch was off", entry.name in off)
 		}
 
-		val on = ToolCatalog.visible(includeSsh = false, includeBilibili = true).map { it.name }
+		val on = ToolCatalog.visible(
+			includeSsh = false,
+			includeBilibili = true,
+			includeBilibiliLogin = true,
+		).map { it.name }
 		ToolCatalog.all.filter { it.gatedByBilibili }.forEach { entry ->
 			assertTrue("${entry.name} was not offered after enabling", entry.name in on)
 		}
@@ -126,7 +130,7 @@ class ToolCatalogVisibilityTest {
 		// is not a remote operation: it reads public content, it does not reach
 		// another machine the way SSH does.
 		val bilibili = ToolCatalog.all.filter { it.gatedByBilibili }
-		assertEquals("four read tools", 4, bilibili.size)
+		assertEquals("five Bilibili read tools", 5, bilibili.size)
 		bilibili.forEach { entry ->
 			assertTrue("${entry.name} must be opt-in", entry.optIn)
 			assertFalse("${entry.name} must not be paid", entry.paid)
@@ -138,5 +142,23 @@ class ToolCatalogVisibilityTest {
 		assertFalse(ToolCatalog.permits(null, "bili_search"))
 		assertFalse(ToolCatalog.permits(emptyList(), "bili_search"))
 		assertTrue(ToolCatalog.permits(listOf("bili_search"), "bili_search"))
+	}
+
+	@Test
+	fun transcriptIsAbsentUntilBothTheSwitchAndTheLoginArePresent() {
+		val off = ToolCatalog.visible(includeSsh = false).map { it.name }
+		assertFalse("bili_transcript" in off)
+
+		val switchOnly = ToolCatalog.visible(includeSsh = false, includeBilibili = true).map { it.name }
+		assertFalse("a login-only tool must not be offered anonymously", "bili_transcript" in switchOnly)
+		// The anonymous four are unaffected by the login state.
+		assertTrue("bili_search" in switchOnly)
+
+		val withLogin = ToolCatalog.visible(
+			includeSsh = false,
+			includeBilibili = true,
+			includeBilibiliLogin = true,
+		).map { it.name }
+		assertTrue("bili_transcript" in withLogin)
 	}
 }

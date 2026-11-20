@@ -1,0 +1,25 @@
+{
+	"code": 0,
+	"message": "OK",
+	"data": {
+		"subtitle": {
+			"allow_submit": false,
+			"subtitles": [
+				{
+					"lan": "zh",
+					"lan_doc": "中文",
+					"subtitle_url": "https://example.invalid/subtitle.json",
+					"id": 2138854138011148544,
+					"type": 0
+				},
+				{
+					"lan": "ai-zh",
+					"lan_doc": "中文",
+					"subtitle_url": "https://example.invalid/subtitle.json",
+					"id": 2138851939885459968,
+					"type": 1
+				}
+			]
+		}
+	}
+}

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -62,6 +63,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.pluralStringResource
@@ -107,6 +109,8 @@ import com.inhuman.ui.chat.SettingsViewModel
 import com.inhuman.ui.chat.MediaCapability
 import com.inhuman.ui.chat.MediaMode
 import com.inhuman.ui.chat.MediaToolConfig
+import com.inhuman.ui.chat.TimeHintMode
+import com.inhuman.ui.chat.TimeHintPolicy
 import java.text.DateFormat
 import java.util.Date
 import com.inhuman.ui.common.FlowRowCompat
@@ -235,9 +239,15 @@ fun SettingsScreen(
 		stringResource(R.string.settings_language_title),
 		stringResource(R.string.settings_language_body),
 	)
+	val timeText = SettingsSectionText(
+		stringResource(R.string.settings_section_time),
+		stringResource(R.string.settings_time_title),
+		stringResource(R.string.settings_time_body),
+	)
 	val sectionTexts = listOf(
 		modelsText, webText, runtimeText, limitsText, usageText, backupText,
 		approvalsText, diagnosticsText, localText, displayText, languageText,
+		timeText,
 	)
 	val anySectionMatches = sectionTexts.any { matches(it) }
 
@@ -577,6 +587,91 @@ fun SettingsScreen(
 						checked = state.bilibiliEnabled,
 						onCheckedChange = null,
 						modifier = Modifier.padding(start = 12.dp),
+					)
+				}
+
+				// Optional read-only login. It is the only way to read what a
+				// video says, and the only thing that can page comments past the
+				// first; the anonymous rows above never depend on it.
+				Hairline(Modifier.padding(vertical = 6.dp))
+				Text(
+					text = if (state.bilibiliLoggedIn) {
+						stringResource(R.string.settings_bilibili_login_linked, state.bilibiliLoginName)
+					} else {
+						stringResource(R.string.settings_bilibili_login_unlinked)
+					},
+					style = MaterialTheme.typography.titleSmall,
+					color = MaterialTheme.colorScheme.onBackground,
+				)
+				Text(
+					text = stringResource(R.string.settings_bilibili_login_body),
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+					if (state.bilibiliLoggedIn) {
+						OutlinedButton(
+							onClick = viewModel::unlinkBilibili,
+							shape = MaterialTheme.shapes.small,
+						) { Text(stringResource(R.string.settings_bilibili_login_unlink)) }
+					} else {
+						Button(
+							onClick = viewModel::beginBilibiliLogin,
+							enabled = state.bilibiliEnabled && !state.bilibiliLoginRunning,
+							shape = MaterialTheme.shapes.small,
+						) { Text(stringResource(R.string.settings_bilibili_login_scan)) }
+					}
+				}
+				state.bilibiliLoginStatus
+					?.takeIf { state.bilibiliLoginQr == null }
+					?.let { status ->
+						Text(
+							text = status,
+							style = MaterialTheme.typography.labelSmall,
+							color = if (state.bilibiliLoginStatusIsError) {
+								MaterialTheme.colorScheme.error
+							} else {
+								MaterialTheme.colorScheme.primary
+							},
+						)
+					}
+
+				state.bilibiliLoginQr?.let { qr ->
+					AlertDialog(
+						onDismissRequest = viewModel::cancelBilibiliLogin,
+						title = { Text(stringResource(R.string.settings_bilibili_login_title)) },
+						text = {
+							Column(
+								horizontalAlignment = Alignment.CenterHorizontally,
+								verticalArrangement = Arrangement.spacedBy(10.dp),
+							) {
+								Image(
+									bitmap = qr.asImageBitmap(),
+									contentDescription = stringResource(R.string.settings_bilibili_login_title),
+									modifier = Modifier.size(220.dp),
+								)
+								Text(
+									text = state.bilibiliLoginStatus
+										?: stringResource(R.string.settings_bilibili_login_waiting),
+									style = MaterialTheme.typography.bodySmall,
+									color = if (state.bilibiliLoginStatusIsError) {
+										MaterialTheme.colorScheme.error
+									} else {
+										MaterialTheme.colorScheme.onSurfaceVariant
+									},
+								)
+								Text(
+									text = stringResource(R.string.settings_bilibili_login_hint),
+									style = MaterialTheme.typography.labelSmall,
+									color = MaterialTheme.colorScheme.onSurfaceVariant,
+								)
+							}
+						},
+						confirmButton = {
+							TextButton(onClick = viewModel::cancelBilibiliLogin) {
+								Text(stringResource(R.string.settings_bilibili_login_close))
+							}
+						},
 					)
 				}
 			}
@@ -1014,6 +1109,7 @@ fun SettingsScreen(
 					sshToolEnabled = state.sshToolEnabled,
 					suggestionsEnabled = state.suggestionsEnabled,
 					bilibiliEnabled = state.bilibiliEnabled,
+					bilibiliLoggedIn = state.bilibiliLoggedIn,
 					onRuleChange = viewModel::setApprovalRule,
 				)
 			}
@@ -1177,6 +1273,78 @@ fun SettingsScreen(
 						onClick = { setAppLanguage(context, "en") },
 						label = { Text(stringResource(R.string.settings_language_english)) },
 					)
+				}
+			}
+
+			SettingsFold(
+				code = stringResource(R.string.settings_section_time),
+				initiallyExpanded = query.isNotBlank(),
+				visible = matches(timeText),
+				title = stringResource(R.string.settings_time_title),
+				summary = when (state.timeHints.mode) {
+					TimeHintMode.Off -> stringResource(R.string.settings_time_summary_off)
+					TimeHintMode.Every -> stringResource(R.string.settings_time_summary_every)
+					TimeHintMode.AfterGap -> stringResource(
+						R.string.settings_time_summary_gap,
+						state.timeHints.normalizedGapMinutes(),
+					)
+				},
+			) {
+				Column(
+					modifier = Modifier
+						.widthIn(max = Layout.ReadableMeasure)
+						.fillMaxWidth(),
+					verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
+				) {
+					Text(
+						text = stringResource(R.string.settings_time_body),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					Eyebrow(stringResource(R.string.settings_time_mode))
+					FlowRowCompat {
+						FilterChip(
+							selected = state.timeHints.mode == TimeHintMode.AfterGap,
+							onClick = { viewModel.setTimeHintMode(TimeHintMode.AfterGap) },
+							label = { Text(stringResource(R.string.settings_time_mode_gap)) },
+						)
+						FilterChip(
+							selected = state.timeHints.mode == TimeHintMode.Every,
+							onClick = { viewModel.setTimeHintMode(TimeHintMode.Every) },
+							label = { Text(stringResource(R.string.settings_time_mode_every)) },
+						)
+						FilterChip(
+							selected = state.timeHints.mode == TimeHintMode.Off,
+							onClick = { viewModel.setTimeHintMode(TimeHintMode.Off) },
+							label = { Text(stringResource(R.string.settings_time_mode_off)) },
+						)
+					}
+					// The threshold only means something in the gap mode; showing
+					// it beside "every message" would suggest it applies there.
+					if (state.timeHints.mode == TimeHintMode.AfterGap) {
+						Text(
+							text = stringResource(R.string.settings_time_gap_body),
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+						Eyebrow(stringResource(R.string.settings_time_gap))
+						FlowRowCompat {
+							TimeHintPolicy.GAP_OPTIONS.forEach { minutes ->
+								FilterChip(
+									selected = state.timeHints.normalizedGapMinutes() == minutes,
+									onClick = { viewModel.setTimeHintGapMinutes(minutes) },
+									label = {
+										Text(
+											stringResource(
+												R.string.settings_time_gap_minutes,
+												minutes,
+											),
+										)
+									},
+								)
+							}
+						}
+					}
 				}
 			}
 		}
@@ -2700,6 +2868,7 @@ private fun ApprovalRulesSection(
 	sshToolEnabled: Boolean,
 	suggestionsEnabled: Boolean,
 	bilibiliEnabled: Boolean,
+	bilibiliLoggedIn: Boolean,
 	onRuleChange: (String, ToolPolicy) -> Unit,
 ) {
 	Column(
@@ -2728,6 +2897,7 @@ private fun ApprovalRulesSection(
 			includeSandbox = AppCapabilities.sandboxOk == true,
 			includeSuggestions = suggestionsEnabled,
 			includeBilibili = bilibiliEnabled,
+			includeBilibiliLogin = bilibiliLoggedIn,
 			includePdfVision = true,
 		)) {
 			val current = rules[entry.name] ?: ToolPolicy.Free

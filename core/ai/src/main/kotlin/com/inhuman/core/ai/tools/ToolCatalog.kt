@@ -127,6 +127,14 @@ object ToolCatalog {
 		 * because a release added it.
 		 */
 		val gatedByBilibili: Boolean = false,
+		/**
+		 * Whether this tool only works while a Bilibili account is linked.
+		 *
+		 * The host hides it while the login is absent: a row that cannot run is
+		 * the greyed row §1.2.1 refuses, and unlike a missing key there is a
+		 * visible place right next to the switch that explains how to fix it.
+		 */
+		val bilibiliLoginRequired: Boolean = false,
 	)
 
 	/**
@@ -224,6 +232,14 @@ object ToolCatalog {
 			mutates = false,
 			optIn = true,
 			gatedByBilibili = true,
+		),
+		Entry(
+			"bili_transcript",
+			"Read a Bilibili video's subtitles, or Bilibili's AI summary when it has none (needs login)",
+			mutates = false,
+			optIn = true,
+			gatedByBilibili = true,
+			bilibiliLoginRequired = true,
 		),
 		Entry(
 			"decide",
@@ -407,6 +423,14 @@ object ToolCatalog {
 		 */
 		includeBilibili: Boolean = false,
 		/**
+		 * Whether the optional Bilibili account login is currently linked.
+		 *
+		 * Only `bili_transcript` requires it. While it is absent the row is
+		 * hidden like any other unavailable capability; the anonymous Bilibili
+		 * reads do not depend on it.
+		 */
+		includeBilibiliLogin: Boolean = false,
+		/**
 		 * Whether the host implements [PDF_VISION_TOOL]. Unlike SSH or the
 		 * sandbox this is not a runtime capability switch: it is a statement
 		 * about the binary. The Android pickers pass true; the default keeps a
@@ -420,6 +444,7 @@ object ToolCatalog {
 				(includeSandbox || entry.name != "run_javascript") &&
 				(includeSuggestions || entry.name != "suggest_replies") &&
 				(includeBilibili || !entry.gatedByBilibili) &&
+				(includeBilibiliLogin || !entry.bilibiliLoginRequired) &&
 				(includePdfVision || entry.name != PDF_VISION_TOOL)
 		}
 

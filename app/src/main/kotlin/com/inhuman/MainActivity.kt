@@ -35,6 +35,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.inhuman.core.ai.oauth.OAuthProtocol
 import com.inhuman.core.ai.ssh.SshClient
 import com.inhuman.core.ai.ssh.SshLimits
+import com.inhuman.core.ai.bilibili.BilibiliCredentials
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.BackupRepository
@@ -540,6 +541,24 @@ private fun InhumanRoot(
 						// reopening the conversation.
 						searchProvider = { WebToolProviders.search(secure) },
 						fetchProvider = { WebToolProviders.fetch(secure) },
+						// The Bilibili client is shared, but whose session it
+						// sends is read per request: unlinking in Settings takes
+						// effect on the next call, not the next chat.
+						bilibiliReadService = {
+							BilibiliReadProvider.service {
+								BilibiliCredentials.fromStoredJson(
+									secure.get(SecureStore.KEY_BILIBILI_SESSION),
+								)
+							}
+						},
+						bilibiliEnabled = {
+							secure.get(SecureStore.KEY_BILIBILI_TOOL_ENABLED) == "1"
+						},
+						bilibiliLoggedIn = {
+							BilibiliCredentials.fromStoredJson(
+								secure.get(SecureStore.KEY_BILIBILI_SESSION),
+							) != null
+						},
 						sshTransport = ssh,
 						sshFileTransport = ssh,
 						sshToolEnabled = {
@@ -556,13 +575,6 @@ private fun InhumanRoot(
 						workspaceToolsEnabled = { AppCapabilities.workspaceOk },
 						suggestionsEnabled = {
 							secure.get(SecureStore.KEY_SUGGESTIONS_ENABLED) == "1"
-						},
-						// The anonymous Bilibili source has no credential to be
-						// missing; the switch alone decides whether the tools
-						// exist. Read per turn like the SSH switch.
-						bilibiliReadService = { BilibiliReadProvider.service() },
-						bilibiliEnabled = {
-							secure.get(SecureStore.KEY_BILIBILI_TOOL_ENABLED) == "1"
 						},
 						onTurnStatus = { status ->
 							TurnNotifications.update(context.applicationContext, status)

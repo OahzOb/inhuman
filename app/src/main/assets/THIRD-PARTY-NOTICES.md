@@ -427,6 +427,16 @@ require Word or WPS at runtime.
 
 Copyright 2002-2024 Apache Software Foundation
 
+## ZXing Core
+
+The optional Bilibili login dialog renders its QR locally with
+`com.google.zxing:core:3.5.3` (<https://github.com/zxing/zxing>), licensed under
+the Apache License, Version 2.0. The app does not modify it. The encoded payload
+is a Bilibili login URL; no credential is encoded, and no third-party QR image
+service is contacted.
+
+Copyright 2008 ZXing authors
+
 ---
 
 End of third-party notices.

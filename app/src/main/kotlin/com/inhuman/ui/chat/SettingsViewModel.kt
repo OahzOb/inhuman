@@ -6,6 +6,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
+import com.inhuman.core.ai.bilibili.BilibiliApiException
+import com.inhuman.core.ai.bilibili.BilibiliAuth
+import com.inhuman.core.ai.bilibili.BilibiliCredentials
+import com.inhuman.core.ai.bilibili.BilibiliQr
+import com.inhuman.core.ai.bilibili.BilibiliQrState
+import com.inhuman.ui.bilibili.BiliQrRenderer
 import com.inhuman.core.ai.capability.ProviderCapabilities
 import com.inhuman.core.ai.model.ModelCapabilities
 import com.inhuman.core.common.diag.Diag
@@ -44,6 +50,8 @@ import com.inhuman.updates.normalizeServerUrl
 import com.inhuman.updates.parseUpdateInfo
 import com.inhuman.updates.updateManifestUrl
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -179,6 +187,22 @@ data class SettingsUiState(
 	 */
 	val bilibiliEnabled: Boolean = false,
 	/**
+	 * Whether an optional read-only Bilibili account is linked.
+	 *
+	 * The login is what unlocks subtitles, Bilibili's AI summaries and comment
+	 * pages after the first; the anonymous reads never depend on it.
+	 */
+	val bilibiliLoggedIn: Boolean = false,
+	/** The linked account's display name, for the settings row. */
+	val bilibiliLoginName: String = "",
+	/** Non-null while the QR dialog has an image to show. */
+	val bilibiliLoginQr: android.graphics.Bitmap? = null,
+	/** The dialog is generating or polling even before an image exists. */
+	val bilibiliLoginRunning: Boolean = false,
+	/** One line under the login row / inside the dialog. */
+	val bilibiliLoginStatus: String? = null,
+	val bilibiliLoginStatusIsError: Boolean = false,
+	/**
 	 * Global ceiling on assistant/tool rounds in one turn.
 	 *
 	 * A round may contain several tool calls, so this is not a call count.
@@ -191,6 +215,15 @@ data class SettingsUiState(
 	/** Auto follows the window; Compact/Comfortable override the shell. */
 	val layoutPreference: com.inhuman.core.design.LayoutPreference =
 		com.inhuman.core.design.LayoutPreference.Auto,
+	/**
+	 * Whether a request marks when each user message was sent.
+	 *
+	 * Request formatting, not a capability: no tool, approval or workspace
+	 * boundary reads it, and no stored message is changed. See
+	 * `TimeHints.kt` for the rule and `docs/06-agent-loop-ui.md` for why it
+	 * lives on the wire only.
+	 */
+	val timeHints: TimeHintPolicy = TimeHintPolicy.DEFAULT,
 	/**
 	 * The global SSH-tool switch.
 	 *
@@ -371,10 +404,20 @@ class SettingsViewModel(
 			demoMode = secure.get(SecureStore.KEY_DEMO_MODE) == "1",
 			suggestionsEnabled = secure.get(SecureStore.KEY_SUGGESTIONS_ENABLED) == "1",
 			bilibiliEnabled = secure.get(SecureStore.KEY_BILIBILI_TOOL_ENABLED) == "1",
+			bilibiliLoggedIn = BilibiliCredentials.fromStoredJson(
+				secure.get(SecureStore.KEY_BILIBILI_SESSION),
+			) != null,
+			bilibiliLoginName = BilibiliCredentials.fromStoredJson(
+				secure.get(SecureStore.KEY_BILIBILI_SESSION),
+			)?.userName.orEmpty(),
 			toolRoundLimit = readToolRoundLimit(),
 			toolCallLimit = readToolCallLimit(),
 			layoutPreference = com.inhuman.core.design.LayoutPreference.fromStored(
 				secure.get(SecureStore.KEY_LAYOUT_PREFERENCE),
+			),
+			timeHints = TimeHintPolicy.decode(
+				secure.get(SecureStore.KEY_TIME_HINTS_MODE),
+				secure.get(SecureStore.KEY_TIME_HINTS_GAP_MINUTES),
 			),
 			sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
 			sshLimits = SshLimits.fromStored(
@@ -1011,6 +1054,35 @@ class SettingsViewModel(
 		_state.value = _state.value.copy(suggestionsEnabled = enabled)
 	}
 
+	/** Turn the wire timestamp on, off, or on only after a gap. */
+	fun setTimeHintMode(mode: TimeHintMode) {
+		saveTimeHints(_state.value.timeHints.copy(mode = mode))
+	}
+
+	/** The gap threshold in minutes; ignored while the mode is not [TimeHintMode.AfterGap]. */
+	fun setTimeHintGapMinutes(minutes: Int) {
+		saveTimeHints(_state.value.timeHints.copy(gapMinutes = minutes))
+	}
+
+	/**
+	 * Store both halves together and publish the normalized value.
+	 *
+	 * The threshold is written even in the other modes, so switching back to
+	 * "after a gap" keeps the user's number instead of silently returning to
+	 * ten minutes. The value is clamped here as well as on read, so nothing
+	 * outside the accepted range can be stored by this app.
+	 */
+	private fun saveTimeHints(policy: TimeHintPolicy) {
+		val normalized = policy.copy(gapMinutes = policy.normalizedGapMinutes())
+		secure.put(SecureStore.KEY_TIME_HINTS_MODE, normalized.encodeMode())
+		secure.put(
+			SecureStore.KEY_TIME_HINTS_GAP_MINUTES,
+			normalized.encodeGapMinutes(),
+		)
+		_state.value = _state.value.copy(timeHints = normalized)
+		Diag.i("turn", "time hints mode=${normalized.encodeMode()} gap=${normalized.encodeGapMinutes()}m")
+	}
+
 	/**
 	 * Turn the anonymous Bilibili read tools on or off globally.
 	 *
@@ -1032,6 +1104,144 @@ class SettingsViewModel(
 			statusIsError = false,
 		)
 		Diag.i("bilibili", "global read tools enabled=$enabled")
+	}
+
+	/** The QR dialog's polling task; cancelled when the dialog closes. */
+	private var bilibiliLoginJob: Job? = null
+	private var bilibiliAuth: BilibiliAuth? = null
+
+	/**
+	 * Generate a QR and poll it until confirmed, cancelled or expired too often.
+	 *
+	 * The QR rotates on its own when Bilibili expires it (about three minutes),
+	 * because a dialog that silently dies is indistinguishable from one waiting
+	 * for a slow user. Nothing is stored until the confirmation comes back; a
+	 * cancelled dialog leaves the previous state untouched.
+	 */
+	fun beginBilibiliLogin() {
+		if (bilibiliLoginJob?.isActive == true) return
+		bilibiliLoginJob = viewModelScope.launch {
+			_state.value = _state.value.copy(
+				bilibiliLoginQr = null,
+				bilibiliLoginRunning = true,
+				bilibiliLoginStatus = context.getString(R.string.settings_bilibili_login_starting),
+				bilibiliLoginStatusIsError = false,
+			)
+			val auth = bilibiliAuth ?: BilibiliAuth().also { bilibiliAuth = it }
+			try {
+				var qr = auth.generateQr()
+				renderQr(qr)
+				var rotations = 0
+				while (true) {
+					delay(2_000)
+					when (val answer = auth.poll(qr.key)) {
+						BilibiliQrState.Waiting -> Unit
+						BilibiliQrState.Scanned -> _state.value = _state.value.copy(
+							bilibiliLoginStatus = context.getString(R.string.settings_bilibili_login_scanned),
+							bilibiliLoginStatusIsError = false,
+						)
+						BilibiliQrState.Expired -> {
+							rotations++
+							if (rotations > MAX_QR_ROTATIONS) {
+								throw BilibiliApiException(
+									BilibiliApiException.TRANSPORT,
+									"the QR kept expiring",
+								)
+							}
+							qr = auth.generateQr()
+							renderQr(qr)
+						}
+						is BilibiliQrState.Confirmed -> {
+							// The name is display-only; the cookies are what the
+							// client sends. A failed profile read must not discard
+							// a confirmed login.
+							val profile = runCatching { auth.fetchProfile(answer.credentials) }.getOrNull()
+							val credentials = answer.credentials.copy(
+								userName = profile?.name.orEmpty(),
+								savedAtMillis = System.currentTimeMillis(),
+							)
+							secure.put(SecureStore.KEY_BILIBILI_SESSION, credentials.toStoredJson())
+							_state.value = _state.value.copy(
+								bilibiliLoggedIn = true,
+								bilibiliLoginName = credentials.userName,
+								bilibiliLoginQr = null,
+								bilibiliLoginRunning = false,
+								bilibiliLoginStatus = context.getString(
+									R.string.settings_bilibili_login_linked_status,
+								),
+								bilibiliLoginStatusIsError = false,
+							)
+							Diag.i("bilibili", "account linked")
+							return@launch
+						}
+						is BilibiliQrState.Failed -> throw BilibiliApiException(
+							BilibiliApiException.TRANSPORT,
+							answer.message,
+						)
+					}
+				}
+			} catch (failure: Exception) {
+				if (failure is kotlinx.coroutines.CancellationException) throw failure
+				_state.value = _state.value.copy(
+					bilibiliLoginQr = null,
+					bilibiliLoginRunning = false,
+					bilibiliLoginStatus = context.getString(
+						R.string.settings_bilibili_login_failed,
+						failure.message ?: failure.javaClass.simpleName,
+					),
+					bilibiliLoginStatusIsError = true,
+				)
+				Diag.w("bilibili", "login failed", failure)
+			}
+		}
+	}
+
+	/** Close the dialog and stop polling; a link that already exists is kept. */
+	fun cancelBilibiliLogin() {
+		bilibiliLoginJob?.cancel()
+		bilibiliLoginJob = null
+		_state.value = _state.value.copy(
+			bilibiliLoginQr = null,
+			bilibiliLoginRunning = false,
+			bilibiliLoginStatus = null,
+			bilibiliLoginStatusIsError = false,
+		)
+	}
+
+	/**
+	 * Forget the linked account.
+	 *
+	 * The tool that needs it disappears from every picker on the next turn; the
+	 * three anonymous reads and the four public tools are unaffected.
+	 */
+	fun unlinkBilibili() {
+		bilibiliLoginJob?.cancel()
+		bilibiliLoginJob = null
+		secure.remove(SecureStore.KEY_BILIBILI_SESSION)
+		_state.value = _state.value.copy(
+			bilibiliLoggedIn = false,
+			bilibiliLoginName = "",
+			bilibiliLoginQr = null,
+			bilibiliLoginRunning = false,
+			bilibiliLoginStatus = context.getString(R.string.settings_bilibili_login_unlinked_status),
+			bilibiliLoginStatusIsError = false,
+		)
+		Diag.i("bilibili", "account unlinked")
+	}
+
+	private fun renderQr(qr: BilibiliQr) {
+		val image = runCatching { BiliQrRenderer.encode(qr.url) }.getOrNull() ?: return
+		_state.value = _state.value.copy(
+			bilibiliLoginQr = image,
+			bilibiliLoginRunning = true,
+			bilibiliLoginStatus = context.getString(R.string.settings_bilibili_login_waiting),
+			bilibiliLoginStatusIsError = false,
+		)
+	}
+
+	private companion object {
+		/** A QR rotates after about three minutes; this is ~15 minutes of tries. */
+		const val MAX_QR_ROTATIONS = 5
 	}
 
 	fun setDemoMode(enabled: Boolean) {

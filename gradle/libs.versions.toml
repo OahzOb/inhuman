@@ -43,6 +43,9 @@ bouncyCastle = "1.84"
 # wire instead of against a hand-written fake.
 minaSshd = "2.20.0"
 slf4j = "2.0.17"
+# QR encoding for the optional Bilibili login dialog. Apache-2.0; core only,
+# no Android artifact needed -- the bitmap is drawn by the app.
+zxing = "3.5.3"
 
 # Markdown. Apache-2.0, read from the published POM rather than assumed -- this
 # comment used to say MIT, which was wrong.
@@ -115,6 +118,7 @@ markdown-renderer-code = { module = "com.mikepenz:multiplatform-markdown-rendere
 jlatexmath-android = { module = "ru.noties:jlatexmath-android", version.ref = "jlatexmathAndroid" }
 
 junit = { module = "junit:junit", version = "4.13.2" }
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 androidx-test-junit = { module = "androidx.test.ext:junit", version.ref = "androidxTestJunit" }
 # `androidx.test.ext:junit` does NOT bring the runner in transitively, so
 # `AndroidJUnitRunner` is missing at instrumentation start-up and the process

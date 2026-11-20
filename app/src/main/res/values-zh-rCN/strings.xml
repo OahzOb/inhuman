@@ -179,6 +179,20 @@
 	<string name="settings_bilibili_title">B 站只读（匿名）</string>
 	<string name="settings_bilibili_body">让助手搜索 B 站、读视频的公开信息和评论、读专栏文章。不需要 B 站账号、不需要密钥、不保存任何东西。请求由应用发出，助手自身仍然没有网络。B 站公开网页接口非官方，可能限流、变更或失效；返回的全部内容都是不可信的第三方文本。</string>
 	<string name="settings_bilibili_switch">允许助手读取 B 站</string>
+	<string name="settings_bilibili_login_title">B 站登录（只读）</string>
+	<string name="settings_bilibili_login_body">可选。登录后助手才能读视频字幕、B 站自己的 AI 总结，以及第 2 页以后的评论。只保存读接口需要的两个 Cookie（不保存发评论用的写令牌），存放在系统安全存储里，不进备份和诊断。登录期间 B 站会把这些读取记在你账号名下；不读历史、收藏、关注和私信，也不发任何内容。</string>
+	<string name="settings_bilibili_login_linked">已登录：%1$s</string>
+	<string name="settings_bilibili_login_unlinked">未登录 B 站账号</string>
+	<string name="settings_bilibili_login_scan">扫码登录</string>
+	<string name="settings_bilibili_login_unlink">断开登录</string>
+	<string name="settings_bilibili_login_hint">打开手机 B 站 App → 扫一扫 → 扫这张码 → 在手机上确认。二维码过期会自动换一张。</string>
+	<string name="settings_bilibili_login_waiting">等待扫码…</string>
+	<string name="settings_bilibili_login_scanned">已扫码，请在手机上确认登录。</string>
+	<string name="settings_bilibili_login_starting">正在生成二维码…</string>
+	<string name="settings_bilibili_login_close">取消</string>
+	<string name="settings_bilibili_login_failed">登录失败：%1$s</string>
+	<string name="settings_bilibili_login_linked_status">B 站账号已连接。</string>
+	<string name="settings_bilibili_login_unlinked_status">B 站账号已断开。</string>
 	<string name="settings_media_title">媒体工具</string>
 	<string name="settings_media_body">图片、视频、语音、转写和决策都是第三方付费调用。每一项都可以沿用助手的服务商、选择已配置的通义 Token Plan 服务商，或填写单独的通义兼容 API。密钥加密保存。</string>
 	<string name="settings_media_image">图片生成</string>
@@ -335,6 +349,19 @@
 	<string name="settings_language_chinese">中文</string>
 	<string name="settings_language_english">English</string>
 	<string name="settings_language_body">应用默认使用中文。可以在这里切换英文；系统设置 → 应用 → inhuman → 语言里的选择也会改变它。</string>
+	<string name="settings_section_time">12 / 时间</string>
+	<string name="settings_time_title">时间提示</string>
+	<string name="settings_time_body">用户消息隔了一段时间才发出时，在消息开头告诉模型它是什么时候发的，让模型分得清“第二天接着说”和“一直没停”。提示只存在于发给模型的请求里，记录、搜索和导出都保持你的原话不变。</string>
+	<string name="settings_time_mode">什么时候加时间</string>
+	<string name="settings_time_mode_gap">间隔较长时</string>
+	<string name="settings_time_mode_every">每条都加</string>
+	<string name="settings_time_mode_off">不加</string>
+	<string name="settings_time_gap">间隔阈值</string>
+	<string name="settings_time_gap_body">两条用户消息相隔至少这么久时加时间。一段对话的第一条消息总会带时间，作为之后间隔的起点。</string>
+	<string name="settings_time_gap_minutes">%1$d 分钟</string>
+	<string name="settings_time_summary_gap">间隔 ≥ %1$d 分钟</string>
+	<string name="settings_time_summary_every">每条都加</string>
+	<string name="settings_time_summary_off">不加</string>
 
 
 	<!-- 设置：对话框、服务商编辑器、诊断、审批行。 -->
@@ -619,6 +646,7 @@
 	<string name="agents_help_body">标记为“写入”的工具会修改对话文件夹里的文件。用过这类工具的回合不能重新生成，因为重放会再写一次。</string>
 	<string name="agents_suggestions_excluded">“全部”不会包含 suggest_replies，请单独勾选。</string>
 	<string name="agents_bilibili_excluded">“全部”不会包含 B 站只读工具，请单独勾选；还需要在设置里打开全局开关。</string>
+	<string name="agents_bilibili_login_required">视频字幕和 B 站 AI 总结需要先在设置里登录 B 站；四个匿名只读工具不需要登录。</string>
 	<string name="agents_suggestions_title">建议回复</string>
 	<string name="agents_suggestions_body">suggest_replies 会在回答后额外请求一次这里选定的模型，调用和结果都会留在对话记录里。点一条只填进输入框，绝不自动发送。没在上面的列表里勾选时，这个助手不会使用它。</string>
 	<string name="agents_suggestions_format_text">文本</string>

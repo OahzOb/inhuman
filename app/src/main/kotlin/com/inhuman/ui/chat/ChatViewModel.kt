@@ -74,6 +74,7 @@ import com.inhuman.core.ai.bilibili.BilibiliReadService
 import com.inhuman.core.ai.tools.BilibiliArticleTool
 import com.inhuman.core.ai.tools.BilibiliCommentsTool
 import com.inhuman.core.ai.tools.BilibiliSearchTool
+import com.inhuman.core.ai.tools.BilibiliTranscriptTool
 import com.inhuman.core.ai.tools.BilibiliVideoTool
 import com.inhuman.core.ai.tools.SshExecTool
 import com.inhuman.core.ai.model.ModelCapability
@@ -245,6 +246,14 @@ class ChatViewModel(
 	 */
 	private val bilibiliEnabled: () -> Boolean = { false },
 	/**
+	 * Whether a read-only Bilibili account is linked.
+	 *
+	 * The anonymous four tools work without it; only `bili_transcript` exists
+	 * when it is true. Read per turn for the same reason as the switch: linking
+	 * or unlinking in Settings must take effect without reopening the chat.
+	 */
+	private val bilibiliLoggedIn: () -> Boolean = { false },
+	/**
 	 * Called whenever a stream starts or stops.
 	 *
 	 * The app layer owns the foreground service; the view model deliberately
@@ -277,6 +286,7 @@ class ChatViewModel(
 			sshToolEnabled = sshToolEnabled(),
 			suggestionsEnabled = suggestionsEnabled(),
 			bilibiliEnabled = bilibiliEnabled(),
+			bilibiliLoggedIn = bilibiliLoggedIn(),
 		),
 	)
 	val state: StateFlow<ChatUiState> = _state.asStateFlow()
@@ -4493,6 +4503,11 @@ class ChatViewModel(
 				add(BilibiliVideoTool(bilibili))
 				add(BilibiliCommentsTool(bilibili))
 				add(BilibiliArticleTool(bilibili))
+				// Only a linked account can answer this one, and only since the
+				// 0.11 login flow exists. Without the login the row is absent,
+				// not present-and-failing (the entry is marked for it, so the
+				// picker agrees with this branch).
+				if (bilibiliLoggedIn()) add(BilibiliTranscriptTool(bilibili))
 			}
 			// A decision model is capability-specific: a chat-only provider must
 			// not get a tool that always fails, and a missing key means the call
@@ -4640,6 +4655,7 @@ class ChatViewModel(
 							includeSandbox = AppCapabilities.sandboxOk == true,
 							includeSuggestions = suggestionsEnabled(),
 							includeBilibili = bilibiliEnabled(),
+							includeBilibiliLogin = bilibiliLoggedIn(),
 							includePdfVision = true,
 						),
 					)
@@ -5048,6 +5064,11 @@ class ChatViewModel(
 	 * reassembles. The assistant's system prompt goes first, because it is the
 	 * standing instruction for the whole conversation rather than something
 	 * said once.
+	 *
+	 * User messages may carry a `[YYYY-MM-DD HH:mm]` prefix here and nowhere
+	 * else: it is request formatting, derived from `messages.createdAt`, and is
+	 * never stored. See [TimeHints] for why the decision is deterministic and
+	 * what the prefix costs on the wire.
 	 */
 	private fun buildWireHistory(includeCurrent: Boolean = false): List<ChatMessage> {
 		val visible = if (includeCurrent) {
@@ -5056,6 +5077,23 @@ class ChatViewModel(
 			_state.value.messages.dropLast(1)
 		}
 		val out = mutableListOf<ChatMessage>()
+
+		// Time hints are derived from the whole transcript, not from the part
+		// this request keeps: a gap does not become shorter when compaction
+		// drops an older prefix, so a message that carried a time on an earlier
+		// turn still carries the same one and the cache prefix still matches.
+		val now = System.currentTimeMillis()
+		val draft = if (includeCurrent) _state.value.input.trim() else ""
+		val draftAttachments = if (includeCurrent) _state.value.pendingAttachments else emptyList()
+		val draftPending = includeCurrent && (draft.isNotEmpty() || draftAttachments.isNotEmpty())
+		val timeHints = planTimeHints(
+			messages = visible,
+			policy = timeHintPolicy(),
+			// The draft has never been stored, so its send time is now. The
+			// preview uses this same build path and should be exactly the body
+			// a send would produce, so it gets a stamp too.
+			draftAt = if (draftPending) now else null,
+		)
 
 		// A derived summary replaces an old prefix on the wire only. The rows
 		// remain in the transcript, and the boundary is checked against the
@@ -5113,7 +5151,11 @@ class ChatViewModel(
 
 				m.fromUser -> out += ChatMessage(
 					role = Role.User,
-					content = m.plainText,
+					// Wire-only: the stored row keeps the user's words exactly.
+					// Writing the prefix into the database would pollute the
+					// transcript, search, export, branches and Rewind, and the
+					// next turn would prefix the same text again.
+					content = timeHints.byMessageId[m.id].orEmpty() + m.plainText,
 					// Read here rather than at attachment time: a transcript is
 					// rebuilt on every turn and holding every image's bytes in
 					// memory for the conversation's lifetime would grow without
@@ -5140,19 +5182,29 @@ class ChatViewModel(
 				)
 			}
 		}
-		if (includeCurrent) {
-			val draft = _state.value.input.trim()
-			val attachments = _state.value.pendingAttachments
-			if (draft.isNotEmpty() || attachments.isNotEmpty()) {
-				out += ChatMessage(
-					role = Role.User,
-					content = draft,
-					images = loadImages(attachments),
-				)
-			}
+		if (draftPending) {
+			out += ChatMessage(
+				role = Role.User,
+				content = timeHints.draftPrefix.orEmpty() + draft,
+				images = loadImages(draftAttachments),
+			)
 		}
 		return closeDanglingCalls(out)
 	}
+
+	/**
+	 * The time-hint rule stored in Settings, read per request.
+	 *
+	 * Not cached in the view model: Settings changes it while a chat screen may
+	 * already be open, and the next message has to pick that up. A cached value
+	 * would need an invalidation path nobody would remember to wire, and the two
+	 * Keystore-backed preference reads happen on the IO thread that builds the
+	 * request anyway.
+	 */
+	private fun timeHintPolicy(): TimeHintPolicy = TimeHintPolicy.decode(
+		secure.get(SecureStore.KEY_TIME_HINTS_MODE),
+		secure.get(SecureStore.KEY_TIME_HINTS_GAP_MINUTES),
+	)
 
 	/**
 	 * Read attachment bytes for a message about to be sent.
@@ -5536,6 +5588,9 @@ private fun MessageEntity.toUi(
 		id = id,
 		parentId = parentId,
 		fromUser = roleFromWire(role) == Role.User,
+		// Stored row metadata, not display state: the wire-history builder uses
+		// it to decide which user messages carry a time hint.
+		createdAt = createdAt,
 		isToolResult = roleFromWire(role) == Role.Tool,
 		toolResultFor = toolCallId,
 		toolName = toolName,

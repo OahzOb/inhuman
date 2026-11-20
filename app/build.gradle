@@ -23,8 +23,8 @@ android {
 		// in a personal project.
 		minSdk = 34
 		targetSdk = 36
-		versionCode = 56
-		versionName = '0.10.0'
+		versionCode = 57
+		versionName = '0.11.0'
 
 		// Instrumented tests exist for questions a JVM test cannot answer --
 		// today, the cost of decompressing a session log on a real device.
@@ -104,6 +104,10 @@ dependencies {
 	// The one place the app itself makes an HTTP request that is not a DeepSeek
 	// API call: a user-initiated download. The agent still has no network path.
 	implementation libs.okhttp
+
+	// QR rendering for the optional Bilibili login dialog. The QR *payload* is a
+	// Bilibili URL; nothing secret is encoded, and the bitmap is drawn locally.
+	implementation libs.zxing.core
 
 	implementation libs.androidx.core.ktx
 	implementation libs.androidx.activity.compose

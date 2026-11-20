@@ -35,6 +35,8 @@ internal fun conversationToolPlan(
 	 * without asking the user to remember it.
 	 */
 	bilibiliEnabled: Boolean = false,
+	/** False hides `bili_transcript`; the anonymous Bilibili reads stay. */
+	bilibiliLoggedIn: Boolean = false,
 ): ConversationToolPlan {
 	val allNonRemote = ToolCatalog.all
 		.filterNot { it.remote }
@@ -54,6 +56,7 @@ internal fun conversationToolPlan(
 		includeSandbox = AppCapabilities.sandboxOk == true,
 		includeSuggestions = suggestionsEnabled,
 		includeBilibili = bilibiliEnabled,
+		includeBilibiliLogin = bilibiliLoggedIn,
 		includePdfVision = true,
 	)
 		.filter { it.name in ceiling || it.name in current }

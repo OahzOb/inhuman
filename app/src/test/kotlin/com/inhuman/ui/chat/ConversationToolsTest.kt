@@ -183,10 +183,34 @@ class ConversationToolsTest {
 			conversationTools = null,
 			bilibiliEnabled = true,
 		)
-		val bilibili = ToolCatalog.all.filter { it.gatedByBilibili }.map { it.name }.toSet()
-		assertEquals("the four read rows appear only with the switch", bilibili, names(on).toSet() - names(off).toSet())
+		val bilibili = ToolCatalog.all
+			.filter { it.gatedByBilibili && !it.bilibiliLoginRequired }
+			.map { it.name }
+			.toSet()
+		assertEquals("the four anonymous read rows appear only with the switch", bilibili, names(on).toSet() - names(off).toSet())
 		// A null "all" is not consent to a new external read: the rows are
 		// offered, but unchecked, and only a stored name can turn one on.
 		assertTrue(bilibili.none { it in on.selected })
+	}
+
+	@Test
+	fun `transcript row appears only with the switch and the login`() {
+		val withoutLogin = conversationToolPlan(
+			sshEnabled = false,
+			agentTools = null,
+			conversationTools = null,
+			bilibiliEnabled = true,
+		)
+		assertFalse("bili_transcript" in names(withoutLogin))
+
+		val withLogin = conversationToolPlan(
+			sshEnabled = false,
+			agentTools = null,
+			conversationTools = null,
+			bilibiliEnabled = true,
+			bilibiliLoggedIn = true,
+		)
+		assertTrue("bili_transcript" in names(withLogin))
+		assertFalse("the opt-in rule still applies", "bili_transcript" in withLogin.selected)
 	}
 }
