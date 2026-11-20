@@ -41,6 +41,34 @@ class BilibiliParsersTest {
 		assertEquals("原神", first.author)
 		assertTrue("play count missing", first.play > 0)
 		assertEquals("8:38", first.duration)
+		assertEquals("the uploader mid is how bili_up is reached", 401_742_377L, first.ownerMid)
+	}
+
+	@Test
+	fun `uploader search fixture parses mids and counters`() {
+		val hits = BilibiliParsers.parseSearch(fixture("search_user.json"))
+
+		assertEquals(2, hits.size)
+		val first = hits.first() as BilibiliSearchHit.User
+		assertEquals(517_327_498L, first.mid)
+		assertEquals("罗翔说刑法", first.name)
+		assertTrue("follower count missing", first.fans > 0)
+		assertTrue("video count missing", first.videos > 0)
+		assertEquals(6, first.level)
+		assertTrue("official title missing", first.official.contains("百大"))
+	}
+
+	@Test
+	fun `show search fixture parses season ids and score`() {
+		val hits = BilibiliParsers.parseSearch(fixture("search_bangumi.json"))
+
+		assertEquals(1, hits.size)
+		val first = hits.first() as BilibiliSearchHit.Bangumi
+		assertEquals(43_164L, first.seasonId)
+		assertTrue("title lost its text: ${first.title}", first.title.contains("孤独摇滚"))
+		assertEquals(9.9, first.score, 0.001)
+		assertEquals(12, first.episodes)
+		assertEquals(listOf("漫画改", "音乐", "日常"), first.styles)
 	}
 
 	@Test
@@ -65,6 +93,11 @@ class BilibiliParsersTest {
 		assertEquals(1, info.pages.size)
 		assertEquals("P1 part title missing", true, info.pages.first().title.isNotBlank())
 		assertEquals("the first part's cid is needed by the transcript tool", 43_728_179_086L, info.cid)
+		assertEquals(
+			"the page advertises one subtitle track even anonymously",
+			1,
+			info.subtitleTracks,
+		)
 	}
 
 	@Test
@@ -81,12 +114,37 @@ class BilibiliParsersTest {
 	}
 
 	@Test
-	fun `subtitle body fixture parses lines in order`() {
-		val lines = BilibiliParsers.parseSubtitleBody(fixture("subtitle_body.json"))
+	fun `subtitle body fixture parses cues with start times`() {
+		val cues = BilibiliParsers.parseSubtitleCues(fixture("subtitle_body.json"))
 
-		assertTrue("no subtitle lines", lines.size >= 8)
-		assertTrue("first line missing", lines.first().isNotBlank())
-		assertTrue("body order lost", lines[1].contains("2026") || lines[0].isNotBlank())
+		assertTrue("no subtitle lines", cues.size >= 8)
+		assertEquals("first cue start missing", 2L, cues[1].fromSeconds)
+		assertTrue("first cue text missing", cues.first().text.isNotBlank())
+		assertTrue(
+			"cues are not in start-time order",
+			cues.zipWithNext().all { (a, b) -> a.fromSeconds <= b.fromSeconds },
+		)
+	}
+
+	@Test
+	fun `related fixture parses the bare data array`() {
+		val related = BilibiliParsers.parseRelated(fixture("related.json"))
+
+		assertEquals(3, related.size)
+		val first = related.first()
+		assertTrue("bvid missing", first.bvid.startsWith("BV"))
+		assertTrue("title missing", first.title.isNotBlank())
+		assertTrue("author missing", first.author.isNotBlank())
+		assertTrue("play count missing", first.play > 0)
+	}
+
+	@Test
+	fun `article comment fixture parses replies under an article`() {
+		val comments = BilibiliParsers.parseComments(fixture("article_reply.json"))
+
+		assertTrue("article comments missing", comments.comments.isNotEmpty())
+		assertTrue("comment rpid missing", comments.comments.first().rpid > 0)
+		assertTrue("comment content missing", comments.comments.first().content.isNotBlank())
 	}
 
 	@Test
@@ -134,6 +192,7 @@ class BilibiliParsersTest {
 		assertTrue("content missing", first.content.isNotBlank())
 		assertTrue("like count missing", first.like > 0)
 		assertTrue("nested replies missing", first.replies.isNotEmpty())
+		assertTrue("the rpid must be carried so a thread can be asked for", first.rpid > 0)
 	}
 
 	@Test

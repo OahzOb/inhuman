@@ -1,0 +1,124 @@
+{
+	"code": 0,
+	"message": "OK",
+	"data": {
+		"items": [
+			{
+				"type": "DYNAMIC_TYPE_DRAW",
+				"modules": {
+					"module_author": {
+						"pub_ts": "1771935566",
+						"pub_time": "2月24日"
+					},
+					"module_dynamic": {
+						"desc": null,
+						"major": {
+							"type": "MAJOR_TYPE_OPUS",
+							"opus": {
+								"summary": {
+									"text": "欢迎大家加入我们，我们的目标是做有意思的视频！\n",
+									"rich_text_nodes": [
+										{
+											"text": "欢迎大家加入我们，我们的目标是做有意思的视频！",
+											"orig_text": "欢迎大家加入我们，我们的目标是做有意思的视频！",
+											"type": "RICH_TEXT_NODE_TYPE_TEXT",
+											"jump_url": "",
+											"icon_url": "",
+											"icon_name": "",
+											"rid": "",
+											"emoji": null,
+											"goods": null,
+											"style": null,
+											"pics": [],
+											"video": null
+										},
+										{
+											"text": "\n",
+											"orig_text": "\n",
+											"type": "RICH_TEXT_NODE_TYPE_TEXT",
+											"jump_url": "",
+											"icon_url": "",
+											"icon_name": "",
+											"rid": "",
+											"emoji": null,
+											"goods": null,
+											"style": null,
+											"pics": [],
+											"video": null
+										}
+									],
+									"paragraphs": [],
+									"has_more": false
+								}
+							},
+							"archive": {}
+						}
+					}
+				}
+			},
+			{
+				"type": "DYNAMIC_TYPE_AV",
+				"modules": {
+					"module_author": {
+						"pub_ts": "1794313612",
+						"pub_time": "11月10日"
+					},
+					"module_dynamic": {
+						"desc": {
+							"text": "新工作室装修好了，欢迎大家来看看我们的新工作室！",
+							"rich_text_nodes": [
+								{
+									"text": "新工作室装修好了，欢迎大家来看看我们的新工作室！",
+									"orig_text": "新工作室装修好了，欢迎大家来看看我们的新工作室！",
+									"type": "RICH_TEXT_NODE_TYPE_TEXT",
+									"jump_url": "",
+									"icon_url": "",
+									"icon_name": "",
+									"rid": "",
+									"emoji": null,
+									"goods": null,
+									"style": null,
+									"pics": [],
+									"video": null
+								}
+							],
+							"paragraphs": [],
+							"has_more": false
+						},
+						"major": {
+							"type": "MAJOR_TYPE_ARCHIVE",
+							"opus": {
+								"summary": null
+							},
+							"archive": {
+								"title": "在公司修了个地铁…"
+							}
+						}
+					}
+				}
+			},
+			{
+				"type": "DYNAMIC_TYPE_AV",
+				"modules": {
+					"module_author": {
+						"pub_ts": "1793887201",
+						"pub_time": "11月5日"
+					},
+					"module_dynamic": {
+						"desc": null,
+						"major": {
+							"type": "MAJOR_TYPE_ARCHIVE",
+							"opus": {
+								"summary": null
+							},
+							"archive": {
+								"title": "你可以这么用。MacBook PROLED XDR首发体验"
+							}
+						}
+					}
+				}
+			}
+		],
+		"has_more": false
+	}
+}

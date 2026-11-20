@@ -1,0 +1,16 @@
+{
+	"code": 0,
+	"message": "OK",
+	"data": {
+		"room_id": 22159237,
+		"uid": 517327498,
+		"live_status": 0,
+		"title": "《格黎东篇》(《论义务》）",
+		"area_name": "历史·人文·综合",
+		"parent_area_name": "知识",
+		"online": 0,
+		"anchor_info": {
+			"base_info": {}
+		}
+	}
+}

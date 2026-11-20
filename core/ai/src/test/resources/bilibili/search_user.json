@@ -1,0 +1,41 @@
+{
+	"code": 0,
+	"message": "OK",
+	"data": {
+		"numResults": 1000,
+		"result": [
+			{
+				"type": "bili_user",
+				"mid": 517327498,
+				"uname": "罗翔说刑法",
+				"fans": 32181151,
+				"videos": 498,
+				"level": 6,
+				"usign": "工作邮箱：xfluoxiang@hotmail.com",
+				"official_verify": {
+					"type": 0,
+					"desc": "2025百大UP主、中国政法大学教授、2020年度最高人气UP主"
+				},
+				"is_live": 0,
+				"room_id": 22159237,
+				"is_upuser": 1
+			},
+			{
+				"type": "bili_user",
+				"mid": 18243,
+				"uname": "罗翔",
+				"fans": 696,
+				"videos": 0,
+				"level": 5,
+				"usign": "点进来的小伙伴，你发现了盲点，没错，我只是个天天被各种@的撞名的",
+				"official_verify": {
+					"type": 127,
+					"desc": ""
+				},
+				"is_live": 0,
+				"room_id": 0,
+				"is_upuser": 0
+			}
+		]
+	}
+}

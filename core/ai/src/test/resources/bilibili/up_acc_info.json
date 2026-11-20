@@ -1,0 +1,22 @@
+{
+	"code": 0,
+	"message": "OK",
+	"data": {
+		"mid": 517327498,
+		"name": "罗翔说刑法",
+		"sign": "工作邮箱：xfluoxiang@hotmail.com",
+		"level": 6,
+		"official": {
+			"type": 0,
+			"title": "2025百大UP主、中国政法大学教授、2020年度最高人气UP主",
+			"desc": "中国政法大学教授，代表作《刑法学讲义》《圆圈正义》《罗翔讲刑法》"
+		},
+		"live_room": {
+			"roomStatus": 1,
+			"liveStatus": 0,
+			"title": "《格黎东篇》(《论义务》）",
+			"roomid": 22159237,
+			"url": "https://live.bilibili.com/22159237?broadcast_type=0&is_room_feed=1"
+		}
+	}
+}

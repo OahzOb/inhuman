@@ -1,0 +1,44 @@
+{
+	"code": 0,
+	"message": "OK",
+	"data": {
+		"list": [
+			{
+				"bvid": "BV1b2sK6aEJ9",
+				"title": "《最礼乐崩坏の一集》",
+				"owner": {
+					"name": "伤心欲茄222"
+				},
+				"stat": {
+					"view": 3975623
+				},
+				"pubdate": 1794888000,
+				"tname": "日常"
+			},
+			{
+				"bvid": "BV1Z1sA6vEN6",
+				"title": "第一次在B站发视频，求关注！",
+				"owner": {
+					"name": "bili_77946368223"
+				},
+				"stat": {
+					"view": 1026287
+				},
+				"pubdate": 1794829760,
+				"tname": "演奏"
+			},
+			{
+				"bvid": "BV1YWsr6NEs7",
+				"title": "THANK YOU ZmjjKK",
+				"owner": {
+					"name": "EDG电子竞技俱乐部"
+				},
+				"stat": {
+					"view": 2520799
+				},
+				"pubdate": 1794999600,
+				"tname": "电子竞技"
+			}
+		]
+	}
+}

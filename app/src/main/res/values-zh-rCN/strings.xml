@@ -177,7 +177,7 @@
 	<string name="settings_save_web_keys">保存网络密钥</string>
 	<string name="settings_web_no_test">没有测试按钮：测试密钥会真的产生一次搜索费用。</string>
 	<string name="settings_bilibili_title">B 站只读（匿名）</string>
-	<string name="settings_bilibili_body">让助手搜索 B 站、读视频的公开信息和评论、读专栏文章。不需要 B 站账号、不需要密钥、不保存任何东西。请求由应用发出，助手自身仍然没有网络。B 站公开网页接口非官方，可能限流、变更或失效；返回的全部内容都是不可信的第三方文本。</string>
+	<string name="settings_bilibili_body">让助手搜索 B 站、读视频的公开信息、评论和弹幕、读专栏文章、看 UP 主主页、看榜单热搜、番剧信息和直播间状态。不需要 B 站账号、不需要密钥、不保存任何东西。请求由应用发出，助手自身仍然没有网络。B 站公开网页接口非官方，可能限流、变更或失效；返回的全部内容都是不可信的第三方文本。</string>
 	<string name="settings_bilibili_switch">允许助手读取 B 站</string>
 	<string name="settings_bilibili_login_title">B 站登录（只读）</string>
 	<string name="settings_bilibili_login_body">可选。登录后助手才能读视频字幕、B 站自己的 AI 总结，以及第 2 页以后的评论。只保存读接口需要的两个 Cookie（不保存发评论用的写令牌），存放在系统安全存储里，不进备份和诊断。登录期间 B 站会把这些读取记在你账号名下；不读历史、收藏、关注和私信，也不发任何内容。</string>
@@ -646,7 +646,7 @@
 	<string name="agents_help_body">标记为“写入”的工具会修改对话文件夹里的文件。用过这类工具的回合不能重新生成，因为重放会再写一次。</string>
 	<string name="agents_suggestions_excluded">“全部”不会包含 suggest_replies，请单独勾选。</string>
 	<string name="agents_bilibili_excluded">“全部”不会包含 B 站只读工具，请单独勾选；还需要在设置里打开全局开关。</string>
-	<string name="agents_bilibili_login_required">视频字幕和 B 站 AI 总结需要先在设置里登录 B 站；四个匿名只读工具不需要登录。</string>
+	<string name="agents_bilibili_login_required">视频字幕和 B 站 AI 总结需要先在设置里登录 B 站；其他 B 站只读工具不需要登录。</string>
 	<string name="agents_suggestions_title">建议回复</string>
 	<string name="agents_suggestions_body">suggest_replies 会在回答后额外请求一次这里选定的模型，调用和结果都会留在对话记录里。点一条只填进输入框，绝不自动发送。没在上面的列表里勾选时，这个助手不会使用它。</string>
 	<string name="agents_suggestions_format_text">文本</string>

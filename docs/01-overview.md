@@ -80,12 +80,15 @@ Confirmed by `README.md:17-29` and by the code:
   selected independently for search and fetch. Each is a paid API with its own
   key, separate from the chat provider
   ([03-ai-provider.md](03-ai-provider.md)).
-- The assistant can search Bilibili, read one video's public details and its top
-  comments, and read column articles, anonymously: no Bilibili account, no key,
-  and the app makes the requests. Off by default and `optIn`; while the switch
-  is off the four rows are absent from every picker, request and gap report.
-  Bilibili's web interface is unofficial, so failures are surfaced, not hidden
-  ([03-ai-provider.md](03-ai-provider.md)).
+- The assistant can read Bilibili's public content anonymously — search videos,
+  column articles, uploaders and shows; one video's details and related videos;
+  one page of comments (video or column), including a single comment's thread;
+  column text; an uploader's page; the ranking, popular feed and hot searches; a
+  show's season and episode list; a live room's state; and a sample of a video's
+  danmaku. No Bilibili account, no key, and the app makes the requests. Off by
+  default and `optIn`; while the switch is off those rows are absent from every
+  picker, request and gap report. Bilibili's web interface is unofficial, so
+  failures are surfaced, not hidden ([03-ai-provider.md](03-ai-provider.md)).
 - An **optional read-only Bilibili login** adds `bili_transcript` (subtitles, or
   Bilibili's own AI summary when there are none) and comment pages after the
   first. Settings → 02 / Web & media links it by QR; only the two read cookies
@@ -337,12 +340,14 @@ itself: the selected backend performs the request, so the sandbox still has no
 network path of its own.
 
 The anonymous Bilibili read tools (`bili_search`, `bili_video`,
-`bili_comments`, `bili_article`) are the same rule in its other shape: the app
-does open a fixed Bilibili endpoint on the assistant's behalf, with no account
-and no key, while the assistant still gets no network and no URL argument. They
-are off by default, **absent** while off, and `optIn` on the assistant; a page
-they return is untrusted third-party text, not instructions. Prices and rate limits belong to the provider and can change; the
-mechanism is in [03-ai-provider.md](03-ai-provider.md).
+`bili_comments`, `bili_article`, `bili_up`, `bili_trending`, `bili_danmaku`,
+`bili_bangumi`, `bili_live`) are the same rule in its other shape: the app does
+open a fixed Bilibili endpoint on the assistant's behalf, with no account and no
+key, while the assistant still gets no network and no URL argument. They are off
+by default, **absent** while off, and `optIn` on the assistant; a page they
+return is untrusted third-party text, not instructions. Prices and rate limits
+belong to the provider and can change; the mechanism is in
+[03-ai-provider.md](03-ai-provider.md).
 
 The second non-obvious thing: **the SSH tools are not local file tools.** They run
 on another machine, so their effects are not a workspace copy and cannot be undone

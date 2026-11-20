@@ -202,7 +202,7 @@ five-retry exhaustion, the permanent-failure path, and the post-`Finish` case.
 
 ### A22. Bilibili reads are absent when off, and they take ids — never URLs
 
-The four `bili_*` tools are an app-proxied external read, not a new remote
+The ten `bili_*` tools are an app-proxied external read, not a new remote
 capability, and three rules keep them from becoming a general fetch:
 
 - **The global switch hides them completely.** While it is off,
@@ -215,9 +215,13 @@ capability, and three rules keep them from becoming a general fetch:
   assistant because a release added it. `ToolCatalog.permits` answers false for
   a null selection and only a stored name turns one on.
 - **Arguments are an id or a keyword, never a URL.** `bili_search` takes a
-  keyword, `bili_video`/`bili_comments` a BV id, `bili_article` a cv id. A prompt
-  injection cannot turn a read into "fetch this address", and the client only
-  ever contacts its own fixed endpoints.
+  keyword (plus filters), `bili_video`/`bili_comments`/`bili_transcript`/
+  `bili_danmaku` a BV id, `bili_comments` an optional cv id, `bili_article` a cv
+  id, `bili_up` a mid, `bili_bangumi` an ss/ep id, `bili_live` a room id or mid.
+  A prompt injection cannot turn a read into "fetch this address", and the client
+  only ever contacts its own fixed endpoints. The one download in the whole path
+  is the subtitle file, and it is host-allowlisted (`*.hdslb.com` /
+  `*.bilibili.com`) and fetched without cookies.
 
 Two smaller rules follow from the content being third-party text:
 `BilibiliHtml` flattens both HTML shapes to plain text (a renderer must never
@@ -225,6 +229,29 @@ see it as markup), and a refusal (`-352`/`-412`/`-509`/`-101`) is returned as
 the mapped sentence from `BilibiliErrors` rather than as an empty page — "no
 comments" and "the request was blocked" must stay distinguishable
 (`BilibiliToolsTest`).
+
+**Three invariants came with the second read surface** (uploader, discovery,
+shows, live, danmaku), and undoing one silently makes a result overstate what it
+knows:
+
+- **`bili_danmaku` is a sample and says so.** Bilibili returns a bounded subset
+  per six-minute window, so the result names the video's window count, which
+  windows were read (first/middle/last by default, at most three, or those a
+  `from`/`to` window touches) and that it is not every danmaku. The protobuf is
+  decoded by the hand-written `BilibiliDanmakuParser` (varint reader, no
+  dependency), which must stay total: a truncated body means "nothing parsed",
+  not a thrown tool call.
+- **The ranking's `rid` and the search's `tids` are different namespaces.** The
+  same number means different buckets on the two endpoints (`188` is "digital" to
+  the ranking and adjacent to it in search; `36` is "knowledge" to search and
+  "social science/law" to the ranking). `BilibiliRankingCategory` maps friendly
+  names only against verified ranking buckets, and `bili_search` takes the raw
+  `tids` number with documented examples instead of sharing a name table. Do not
+  "fix" this by reusing one enum for both.
+- **The uploader page's dynamic section is optional.** The feed is a union of
+  post shapes and can be empty; a failure there must not take the profile and
+  videos down with it, so the client reads it with `runCatching` and the parser
+  drops posts with no extractable text.
 
 **The login is read-only by construction.** `BilibiliAuth` uses Bilibili's QR
 flow only (no webview, no password field) and stores exactly `SESSDATA` and
@@ -235,10 +262,18 @@ every picker while logged out, and the result names its source — an AI summary
 is Bilibili's digest, not a transcript. Comment pages after the first are
 another login-only read and say so when anonymous. The login *never* adds
 history/favourites/following/message tools; those are account data, not public
-content. `BilibiliLiveTest` and `BilibiliLoginLiveTest` are the only networked
-tests and are skipped unless `INHUMAN_BILI_LIVE` / `INHUMAN_BILI_SESSION` are
-set; they are paced, because anonymous request bursts are exactly what
-Bilibili's risk control blocks.
+content. Everything else — threads, article comments, related videos, uploader
+pages, rankings, shows, live rooms, danmaku — was verified anonymous before its
+tool was written and must not start requiring the login.
+
+`BilibiliParsersTest`, `BilibiliMoreParsersTest`, `BilibiliToolsTest` and
+`BilibiliMoreToolsTest` run offline against captured fixtures (the danmaku
+fixtures are protobuf bytes). `BilibiliLiveTest` and `BilibiliLoginLiveTest` are
+the only networked tests and are skipped unless `INHUMAN_BILI_LIVE` /
+`INHUMAN_BILI_SESSION` are set; they are paced and open with a grace pause,
+because anonymous request bursts are exactly what Bilibili's risk control blocks.
+A `-509` on a deliberate run means the probe was throttled, not that the request
+shape regressed.
 
 ### A23. A time hint is wire-only and decided from `createdAt`
 

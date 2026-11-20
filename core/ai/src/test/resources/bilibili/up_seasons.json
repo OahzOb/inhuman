@@ -1,0 +1,46 @@
+{
+	"code": 0,
+	"message": "OK",
+	"data": {
+		"items_lists": {
+			"page": {
+				"page_num": 1,
+				"page_size": 5,
+				"total": 6
+			},
+			"seasons_list": [
+				{
+					"meta": {
+						"season_id": 3993361,
+						"title": "经典领读",
+						"name": "合集·经典领读",
+						"total": 22,
+						"description": ""
+					},
+					"archives": [
+						{
+							"bvid": "BV1aY2CYAEHa",
+							"title": "【罗翔】一起读柏拉图短篇《卡尔弥德篇》论明智"
+						}
+					]
+				}
+			],
+			"series_list": [
+				{
+					"meta": {
+						"series_id": 2229877,
+						"name": "直播回放",
+						"total": 10,
+						"description": "直播回放"
+					},
+					"archives": [
+						{
+							"bvid": "BV1RW42197ah",
+							"title": "【直播回放】《格黎东篇》(《论义务》） 2024年08月16日20点场"
+						}
+					]
+				}
+			]
+		}
+	}
+}

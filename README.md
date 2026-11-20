@@ -98,11 +98,16 @@ be reached without an account.
 | `ssh_read_file` | read a remote text file, head or tail; 64 KiB, binary refused |
 | `web_search` | paid search through DeepSeek or Exa; own key, independent of the chat provider |
 | `web_fetch` | paid fetch through DeepSeek or Exa; own key, independent of the chat provider |
-| `bili_search` | anonymous Bilibili search over videos or column articles; **off by default**, opt-in, no account and no key |
-| `bili_video` | read a Bilibili video's public title, description, parts and stats |
-| `bili_comments` | read one page of a Bilibili video's top comments |
+| `bili_search` | anonymous Bilibili search over videos, column articles, uploaders or shows, with optional length/date/partition filters; **off by default**, opt-in, no account and no key |
+| `bili_video` | read a Bilibili video's public title, description, parts, stats, subtitle hint and (on request) related videos |
+| `bili_comments` | read one page of comments on a Bilibili video or column, or one comment's reply thread |
 | `bili_article` | read a Bilibili column (cv id) as plain text |
-| `bili_transcript` | read a video's subtitles, or Bilibili's AI summary when it has none; **needs the optional Bilibili login**, `optIn` |
+| `bili_up` | read an uploader's profile, recent videos, collections and recent posts |
+| `bili_trending` | read Bilibili's ranking, popular feed or hot search phrases |
+| `bili_danmaku` | read a sample of a video's danmaku, with the times they appeared |
+| `bili_bangumi` | read a show's season details and episode list (ss/ep id) |
+| `bili_live` | read a live room's state by room id or uploader id |
+| `bili_transcript` | read a video's timestamped subtitles, or Bilibili's AI summary when it has none; **needs the optional Bilibili login**, `optIn` |
 | `ssh_exec` | one command on a remote machine; **off by default**, explicit assistant selection, per-conversation consent, optional one saved host |
 | `ssh_upload` | copy a workspace file to the remote machine over SFTP; **NO REWIND**, default refuses to overwrite, can create parents |
 | `ssh_write_file` | write a small remote text file over SFTP; **NO REWIND**, no heredoc |
@@ -113,15 +118,17 @@ in the same row as PAID and REMOTE. The name says what the tool does; the badge
 says whether the turn can be undone. `ssh_exec` and `ssh_upload` are the
 `NO REWIND` entries.
 
-**The four anonymous `bili_*` tools are an app-proxied read, not a capability
+**The nine anonymous `bili_*` tools are an app-proxied read, not a capability
 the assistant holds.** They are anonymous — no Bilibili account, no key, nothing
 stored — and the app makes the request while the assistant still has no network
-and gets no URL argument: a BV/cv id or a keyword only. They are off by default
-behind a Settings switch, must be selected explicitly on an assistant, and are
-absent from every picker, request and `unavailable_tools` while off. Bilibili's
-public web interface is unofficial: failures are returned as mapped errors
-(risk control, rate limit, changed signature) rather than as empty pages, and
-everything read back is untrusted third-party text.
+and gets no URL argument: a BV/cv/ss/ep id, a mid, a room id or a keyword only.
+They are off by default behind a Settings switch, must be selected explicitly on
+an assistant, and are absent from every picker, request and `unavailable_tools`
+while off. Bilibili's public web interface is unofficial: failures are returned
+as mapped errors (risk control, rate limit, changed signature) rather than as
+empty pages, and everything read back is untrusted third-party text. One result
+is explicitly partial: `bili_danmaku` is a sample of the windows it read, and
+says so.
 
 **An optional read-only Bilibili login adds `bili_transcript`.** Settings →
 02 / Web & media links an account by QR (Bilibili's own app authenticates it; the

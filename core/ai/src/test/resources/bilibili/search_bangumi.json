@@ -1,0 +1,24 @@
+{
+	"code": 0,
+	"message": "OK",
+	"data": {
+		"numResults": 1,
+		"result": [
+			{
+				"type": "media_bangumi",
+				"title": "<em class=\"keyword\">孤独摇滚</em>！",
+				"season_id": 43164,
+				"media_score": {
+					"score": 9.9,
+					"user_count": 134510
+				},
+				"ep_size": 12,
+				"pubtime": 1665158400,
+				"styles": "漫画改/音乐/日常",
+				"desc": "绰号“小孤独”的后藤独，是一个喜爱吉他的孤独少女。经常在家里独自弹奏吉他，但因为一些事情，加入了伊地知虹夏领衔的“纽带乐队”。不敢在他人面前演奏的后藤，能否成为一个出色的乐队成员呢……...",
+				"index_show": "全12话",
+				"season_type_name": "番剧"
+			}
+		]
+	}
+}

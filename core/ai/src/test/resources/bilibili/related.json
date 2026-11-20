@@ -1,0 +1,45 @@
+{
+	"code": 0,
+	"message": "OK",
+	"data": [
+		{
+			"bvid": "BV1nRWt6kEz1",
+			"title": "——原神你要砂了我吗...",
+			"owner": {
+				"name": "钱钱子RICH_呆呆"
+			},
+			"stat": {
+				"view": 562277
+			},
+			"duration": 60,
+			"pubdate": 1794283200,
+			"tname": "手机游戏"
+		},
+		{
+			"bvid": "BV1PPW56gEnm",
+			"title": "当其他神听凝光说岩神已经离世时：",
+			"owner": {
+				"name": "CN宴宁"
+			},
+			"stat": {
+				"view": 27339
+			},
+			"duration": 19,
+			"pubdate": 1794398400,
+			"tname": "MAD·AMV"
+		},
+		{
+			"bvid": "BV1zi7Y6BEdS",
+			"title": "《原神》超越PV——「骤雪」",
+			"owner": {
+				"name": "原神"
+			},
+			"stat": {
+				"view": 11563338
+			},
+			"duration": 1257,
+			"pubdate": 1782446400,
+			"tname": "手机游戏"
+		}
+	]
+}

@@ -30,7 +30,7 @@ internal fun conversationToolPlan(
 	/** False hides `suggest_replies` from the sheet, not merely disables it. */
 	suggestionsEnabled: Boolean = false,
 	/**
-	 * False hides the four Bilibili read rows. The stored names stay in the
+	 * False hides the Bilibili read rows. The stored names stay in the
 	 * conversation, so switching the capability back on restores a selection
 	 * without asking the user to remember it.
 	 */

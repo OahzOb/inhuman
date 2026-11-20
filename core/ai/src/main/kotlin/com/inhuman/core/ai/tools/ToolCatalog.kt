@@ -242,6 +242,41 @@ object ToolCatalog {
 			bilibiliLoginRequired = true,
 		),
 		Entry(
+			"bili_up",
+			"Read a Bilibili uploader's page: profile, recent videos, collections",
+			mutates = false,
+			optIn = true,
+			gatedByBilibili = true,
+		),
+		Entry(
+			"bili_trending",
+			"Read Bilibili's ranking, popular feed or hot searches",
+			mutates = false,
+			optIn = true,
+			gatedByBilibili = true,
+		),
+		Entry(
+			"bili_danmaku",
+			"Read a sample of a Bilibili video's on-screen comments, with timestamps",
+			mutates = false,
+			optIn = true,
+			gatedByBilibili = true,
+		),
+		Entry(
+			"bili_bangumi",
+			"Read a Bilibili show's details and episode list",
+			mutates = false,
+			optIn = true,
+			gatedByBilibili = true,
+		),
+		Entry(
+			"bili_live",
+			"Check whether a Bilibili live room is streaming",
+			mutates = false,
+			optIn = true,
+			gatedByBilibili = true,
+		),
+		Entry(
 			"decide",
 			"Classify or score a state with a typed decision model",
 			mutates = false,
@@ -415,7 +450,7 @@ object ToolCatalog {
 		/**
 		 * Whether the global Bilibili read switch is on.
 		 *
-		 * Off means the four read tools are absent from the pickers, the
+		 * Off means the Bilibili read tools are absent from the pickers, the
 		 * approval table and `unavailable_tools`, not a greyed row: a disabled
 		 * row still advertises the capability, and §1.2.1 refuses that for the
 		 * remote tools for the same reason. Off is the default so a caller that

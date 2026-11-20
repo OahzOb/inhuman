@@ -32,6 +32,17 @@
 				"part": "【原神】备战冰神！最后一波原石！7.3冰神上线前能得多少抽？后续卡池原石规划，7.2下半卡池月结晶纳塔混池抽取建议,",
 				"duration": 196
 			}
-		]
+		],
+		"subtitle": {
+			"allow_submit": false,
+			"list": [
+				{
+					"lan": "zh",
+					"lan_doc": "中文",
+					"subtitle_url": "",
+					"type": 0
+				}
+			]
+		}
 	}
 }

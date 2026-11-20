@@ -191,7 +191,7 @@
 	<string name="settings_save_web_keys">Save web keys</string>
 	<string name="settings_web_no_test">There is no test button: validating these keys would spend a real search.</string>
 	<string name="settings_bilibili_title">Bilibili reads (anonymous)</string>
-	<string name="settings_bilibili_body">Lets assistants search Bilibili, read a video\'s public details and comments, and read column articles. No Bilibili account, no key, nothing saved. The app sends the requests; the assistant itself still has no network. Bilibili\'s public web interface is unofficial: it can rate-limit, change or stop working, and everything it returns is untrusted third-party text.</string>
+	<string name="settings_bilibili_body">Lets assistants search Bilibili; read a video\'s public details, comments and danmaku; read column articles; open an uploader\'s page; read rankings, hot searches, shows and live-room state. No Bilibili account, no key, nothing saved. The app sends the requests; the assistant itself still has no network. Bilibili\'s public web interface is unofficial: it can rate-limit, change or stop working, and everything it returns is untrusted third-party text.</string>
 	<string name="settings_bilibili_switch">Allow assistants to read Bilibili</string>
 	<string name="settings_bilibili_login_title">Bilibili login (read-only)</string>
 	<string name="settings_bilibili_login_body">Optional. Linking an account lets the assistant read a video\'s subtitles, Bilibili\'s own AI summary, and comment pages after the first. It stores the two cookies the read tools need — not the write token — in the system secret store, excluded from backups and diagnostics. While linked, Bilibili sees the requests as your account. No history, favourites, follows or messages are read, and nothing is posted.</string>
@@ -665,7 +665,7 @@
 	<string name="agents_help_body">Tools marked “writes” change files in the conversation\'s folder. A reply that used one cannot be regenerated, because replaying the turn would write a second time.</string>
 	<string name="agents_suggestions_excluded">suggest_replies is never included by “all”; select it explicitly.</string>
 	<string name="agents_bilibili_excluded">Bilibili read tools are never included by “all”; select them explicitly. They also require the global switch in Settings.</string>
-	<string name="agents_bilibili_login_required">Video transcripts and Bilibili AI summaries need the optional Bilibili login in Settings; the four anonymous reads work without it.</string>
+	<string name="agents_bilibili_login_required">Video transcripts and Bilibili AI summaries need the optional Bilibili login in Settings; the other Bilibili reads work without it.</string>
 	<string name="agents_suggestions_title">Follow-up suggestions</string>
 	<string name="agents_suggestions_body">suggest_replies sends one extra request after the answer, to the model chosen here, and keeps the call and its result in the transcript. The chips only fill the composer; they never send. Off for this assistant until you tick it in the list above.</string>
 	<string name="agents_suggestions_format_text">Text</string>

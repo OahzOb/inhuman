@@ -79,36 +79,3 @@ data class BilibiliProfile(
 	val name: String,
 	val vip: Boolean,
 )
-
-/** Why the model asked for a video's text: the order it tries the sources in. */
-enum class BilibiliTranscriptPreference {
-	/** Subtitles first, then Bilibili's own AI summary. */
-	TEXT,
-
-	/** Bilibili's AI summary first, then subtitles. */
-	SUMMARY,
-}
-
-/** Which source answered a transcript request. */
-enum class BilibiliTranscriptSource {
-	SUBTITLE,
-	AI_SUMMARY,
-}
-
-/**
- * A video's readable text, with the source named.
- *
- * The source is part of the value, not a footnote: subtitles are what was said,
- * an AI summary is Bilibili's digest of it. A model that treats the second as
- * the first will misquote the video, so the tag travels with the text.
- */
-data class BilibiliTranscript(
-	val source: BilibiliTranscriptSource,
-	val text: String,
-	/** Subtitle track label (`中文`, `English`) when the source is subtitles. */
-	val language: String? = null,
-	/** True when the subtitles are AI-generated rather than uploaded. */
-	val aiGenerated: Boolean = false,
-	/** Subtitle line count, for the result's "how much was read" note. */
-	val segments: Int = 0,
-)

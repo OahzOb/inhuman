@@ -1,10 +1,6 @@
 package com.inhuman.core.ai.bilibili
 
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.longOrNull
 
 /**
  * Reads the JSON shapes the endpoints actually return into typed values.
@@ -21,6 +17,12 @@ import kotlinx.serialization.json.longOrNull
  * Nullability mirrors the endpoint rather than a convenient model: `desc` is
  * routinely empty, `data` is present only on a successful call, and `pages` is
  * absent for some redirected content.
+ *
+ * ## Why one parser file for four search kinds
+ *
+ * The four searches are one endpoint with one differing field, so they are one
+ * parser with one `when`. The uploader and show pages get their own files
+ * because they are different endpoints with their own shapes.
  */
 internal object BilibiliParsers {
 
@@ -32,6 +34,8 @@ internal object BilibiliParsers {
 			when (item.string("type")) {
 				"video" -> videoHit(item)
 				"article" -> articleHit(item)
+				"bili_user" -> userHit(item)
+				"media_bangumi", "media_ft" -> bangumiHit(item)
 				else -> null
 			}
 		}
@@ -65,8 +69,28 @@ internal object BilibiliParsers {
 					durationSeconds = page.long("duration"),
 				)
 			}.orEmpty(),
+			// The public page lists subtitle tracks with an empty URL; the count
+			// is still the honest answer to "does this video have subtitles".
+			subtitleTracks = data.obj("subtitle")?.array("list")?.size ?: 0,
 		)
 	}
+
+	/** The related list answers with a bare array under `data`. */
+	fun parseRelated(root: JsonObject): List<BilibiliVideoSummary> =
+		root.array("data")?.mapNotNull { element ->
+			val item = element as? JsonObject ?: return@mapNotNull null
+			val bvid = item.string("bvid")?.takeIf { it.isNotBlank() }
+				?: return@mapNotNull null
+			BilibiliVideoSummary(
+				bvid = bvid,
+				title = BilibiliHtml.stripTags(item.string("title").orEmpty()),
+				author = BilibiliHtml.stripTags(item.obj("owner")?.string("name").orEmpty()),
+				play = item.obj("stat")?.long("view") ?: 0L,
+				durationSeconds = item.long("duration"),
+				pubdateSeconds = item.long("pubdate"),
+				category = item.string("tname").orEmpty(),
+			)
+		}.orEmpty()
 
 	fun parseComments(root: JsonObject): BilibiliComments {
 		val data = root.obj("data")
@@ -118,6 +142,7 @@ internal object BilibiliParsers {
 		return BilibiliSearchHit.Video(
 			bvid = bvid,
 			aid = item.long("aid"),
+			ownerMid = item.long("mid"),
 			title = BilibiliHtml.stripTags(item.string("title").orEmpty()),
 			author = BilibiliHtml.stripTags(item.string("author").orEmpty()),
 			play = item.long("play"),
@@ -135,6 +160,7 @@ internal object BilibiliParsers {
 		val cvId = item.long("id").takeIf { it > 0 } ?: return null
 		return BilibiliSearchHit.Article(
 			cvId = cvId,
+			ownerMid = item.long("mid"),
 			title = BilibiliHtml.stripTags(item.string("title").orEmpty()),
 			author = BilibiliHtml.stripTags(item.string("author").orEmpty()),
 			view = item.long("view"),
@@ -142,6 +168,38 @@ internal object BilibiliParsers {
 			replyCount = item.long("reply"),
 			pubdateSeconds = item.long("pubdate"),
 			description = BilibiliHtml.stripTags(item.string("desc").orEmpty()),
+		)
+	}
+
+	private fun userHit(item: JsonObject): BilibiliSearchHit.User? {
+		val mid = item.long("mid").takeIf { it > 0 } ?: return null
+		return BilibiliSearchHit.User(
+			mid = mid,
+			name = BilibiliHtml.stripTags(item.string("uname").orEmpty()),
+			fans = item.long("fans"),
+			videos = item.long("videos"),
+			level = item.int("level"),
+			sign = item.string("usign").orEmpty(),
+			official = item.obj("official_verify")?.string("desc").orEmpty(),
+			live = item.long("is_live") > 0,
+		)
+	}
+
+	private fun bangumiHit(item: JsonObject): BilibiliSearchHit.Bangumi? {
+		val seasonId = item.long("season_id").takeIf { it > 0 } ?: return null
+		val styles = item.string("styles").orEmpty()
+			.split('/')
+			.map { it.trim() }
+			.filter { it.isNotEmpty() }
+		return BilibiliSearchHit.Bangumi(
+			seasonId = seasonId,
+			title = BilibiliHtml.stripTags(item.string("title").orEmpty()),
+			score = item.obj("media_score")?.double("score") ?: 0.0,
+			episodes = item.int("ep_size"),
+			publishSeconds = item.long("pubtime"),
+			styles = styles,
+			description = BilibiliHtml.stripTags(item.string("desc").orEmpty()),
+			status = item.string("index_show").orEmpty(),
 		)
 	}
 
@@ -153,6 +211,7 @@ internal object BilibiliParsers {
 	private fun comment(item: JsonObject): BilibiliComment {
 		val member = item.obj("member")
 		return BilibiliComment(
+			rpid = item.long("rpid"),
 			author = member?.string("uname").orEmpty(),
 			level = member?.obj("level_info")?.int("current_level") ?: 0,
 			content = item.obj("content")?.string("message").orEmpty(),
@@ -204,11 +263,24 @@ internal object BilibiliParsers {
 		}.orEmpty()
 	}
 
-	/** The plain text lines of one downloaded subtitle JSON. */
-	fun parseSubtitleBody(root: JsonObject): List<String> =
+	/**
+	 * The cues of one downloaded subtitle file.
+	 *
+	 * `from` and `to` are seconds as decimals, which is why they go through
+	 * [JsonObject.double] rather than the integer reader: `longOrNull` returns
+	 * null for `"12.5"`, and a whole transcript of null start times would parse
+	 * silently into a timestamp-less result.
+	 */
+	fun parseSubtitleCues(root: JsonObject): List<BilibiliTranscriptCue> =
 		root.array("body")?.mapNotNull { element ->
 			val line = element as? JsonObject ?: return@mapNotNull null
-			line.string("content")?.takeIf { it.isNotBlank() }
+			val text = line.string("content")?.takeIf { it.isNotBlank() }
+				?: return@mapNotNull null
+			BilibiliTranscriptCue(
+				fromSeconds = line.double("from").toLong(),
+				toSeconds = line.double("to").toLong(),
+				text = text,
+			)
 		}.orEmpty()
 
 	/** Bilibili's own AI summary of one part, or null when it has none. */
@@ -261,16 +333,3 @@ internal data class ParsedPoint(
 	val timestampSeconds: Long,
 	val content: String,
 )
-
-private fun JsonObject.obj(name: String): JsonObject? = this[name] as? JsonObject
-
-private fun JsonObject.array(name: String): JsonArray? = this[name] as? JsonArray
-
-private fun JsonObject.string(name: String): String? =
-	(this[name] as? JsonPrimitive)?.takeIf { it.isString }?.content
-
-private fun JsonObject.long(name: String): Long =
-	(this[name] as? JsonPrimitive)?.longOrNull ?: 0L
-
-private fun JsonObject.int(name: String): Int =
-	(this[name] as? JsonPrimitive)?.intOrNull ?: 0

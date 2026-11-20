@@ -970,21 +970,40 @@ It checks the request shape that fixtures cannot, and it is what caught the
 
 ## Bilibili reads: anonymous, read-only, app-proxied
 
-The four `bili_*` tools are the second "app reads something external for the
+The ten `bili_*` tools are the second "app reads something external for the
 assistant" path, after the paid web tools, and the first one that is **free and
 has no key**. `BilibiliClient`
 (`core/ai/src/main/kotlin/com/inhuman/core/ai/bilibili/BilibiliClient.kt`)
-implements the interface in `BilibiliTypes.kt`; the tools are in
+implements the interface in `BilibiliTypes.kt`; parsers are in the sibling
+`Bilibili*Parsers.kt` files plus `BilibiliDanmakuParser.kt` for the protobuf
+surface; the tools are in
 `core/ai/src/main/kotlin/com/inhuman/core/ai/tools/Bilibili*Tool.kt`.
 
-**What it reads.** Public web endpoints only: `x/web-interface/wbi/search/type`
-for video and article search, `x/web-interface/view` for a video's metadata,
-`x/v2/reply/main` for one page of comments, and `x/article/view` for a column's
-text. The request is anonymous — `x/frontend/finger/spi` supplies the public
+**What it reads.** Public web endpoints only, all anonymous:
+
+| Read | Endpoint |
+| --- | --- |
+| search | `x/web-interface/wbi/search/type` — video, article, `bili_user`, `media_bangumi`; optional `order`, `duration`, `pubtime_begin_s`/`pubtime_end_s`, `tids` |
+| video | `x/web-interface/view` (metadata, parts, subtitle-track count) and `x/web-interface/archive/related` |
+| comments | `x/v2/reply/main` (`type=1` video, `type=12` article) and `x/v2/reply/reply` for one comment's thread |
+| article | `x/article/view` |
+| uploader | `x/space/wbi/acc/info`, `x/relation/stat`, `x/space/wbi/arc/search`, `x/polymer/web-space/seasons_series_list`, `x/polymer/web-dynamic/v1/feed/space` |
+| discovery | `x/web-interface/ranking/v2`, `x/web-interface/popular`, `x/web-interface/search/square` |
+| show | `pgc/view/web/season` (by `season_id` or `ep_id`) |
+| live room | `api.live.bilibili.com/room/v1/Room/get_info` (by room id or uid) |
+| danmaku | `x/v2/dm/web/view` (segment config) and `x/v2/dm/web/seg.so` (protobuf per six-minute window) |
+
+The request is anonymous — `x/frontend/finger/spi` supplies the public
 `buvid3`/`buvid4` browsing ids, `x/web-interface/nav` supplies the WBI key
 images, and both live in memory for the process. **No Bilibili account, no
 cookie jar and no stored credential** are involved, which is what makes "no
 account required" true rather than a promise.
+
+The space endpoints need one more thing than the signature: a few `dm_*`
+"browser fingerprint" fields. Without them they answer `-352`, which reads like a
+permission problem but is a request-shape one. That is why `signedGet(...,
+dm = true)` exists and why the uploader read is the only five-request tool in the
+set — it is four calls plus an optional dynamic feed.
 
 **Signature.** The search endpoint needs the WBI signature. `WbiSigner`
 reorders the two key filenames into a 32-character mixin key, adds `wts` and
@@ -1001,12 +1020,42 @@ them. `BilibiliErrors` turns those codes, and `-101`, into one sentence the
 model can use, so "blocked" never looks like "there are no comments".
 
 **The tools and their caps.** `bili_search` returns at most 10 hits from at most
-page 5, `bili_video` caps the description at 2,000 characters and lists up to 10
-parts, `bili_comments` returns at most 30 comments (400 characters each, 2
-replies) and says it read one page, and `bili_article` caps the body at 20,000
-characters with the same truncation marker `web_fetch` uses. Every argument is
-a keyword, a BV id or a cv id — **no URL argument**, so a prompt injection
-cannot turn a read into a general fetch.
+page 5 (and takes the filters above); `bili_video` caps the description at 2,000
+characters, lists up to 10 parts and five related videos (related costs one more
+request and is opt-in); `bili_comments` returns at most 30 comments (400
+characters each, 2 replies) and says it read one page; `bili_article` caps the
+body at 20,000 characters with the same truncation marker `web_fetch` uses;
+`bili_up` reads one page of 10 videos, five collections/series and three dynamic
+posts; `bili_trending` returns at most 20 entries; `bili_bangumi` lists up to 24
+episodes; and `bili_live` is one room. Every argument is a keyword, a BV/cv id, a
+mid, a season/episode id, a room id or a filter — **no URL argument**, so a
+prompt injection cannot turn a read into a general fetch. The only exception is
+the subtitle download inside the login path, which is host-allowlisted.
+
+**The second read surface is still public content.** The uploader page, the
+discovery lists, a show's season, a live room's state and a video's danmaku are
+all readable anonymously, which is why none of them is hidden behind the login.
+Two honesty rules are load-bearing:
+
+- **`bili_danmaku` is a sample, and says so.** Bilibili returns a bounded subset
+  per six-minute window (the endpoint's protobuf is decoded by
+  `BilibiliDanmakuParser`, a hand-written varint reader — no protobuf dependency).
+  The result names the video's window count, which windows were read (first,
+  middle and last by default, at most three) and that it is a sample. Presenting
+  it as the comment section would misstate what viewers think.
+- **The ranking's `rid` and the search's `tids` are different namespaces.** `188`
+  means "tech and digital" to the ranking and something adjacent to "digital" to
+  search, and `36` means "knowledge" to search but "social science/law" to the
+  ranking. `bili_trending` therefore maps friendly category names only against
+  the ranking buckets that answered `code 0`; `bili_search` takes the raw `tids`
+  number with a few verified examples in the description instead of inventing a
+  shared name table. A wrong filter is worse than a missing one.
+
+One small cache sits in the client: a video's metadata is kept in memory for ten
+minutes (bounded, newest eight), because `bili_comments`, `bili_transcript` and
+`bili_danmaku` all need the same `aid`/`cid` and a conversation routinely reads
+the details first. It caches metadata, never page content, and never touches
+disk.
 
 **Registration is two gates.** The entries are `gatedByBilibili` and `optIn`.
 While the global Settings switch is off, `ToolCatalog.visible(...)` and
@@ -1048,14 +1097,23 @@ touching an existing link.
 What the login unlocks:
 
 - `bili_transcript` — subtitles of the selected part, else Bilibili's own AI
-  summary. The result names the source; an AI summary is Bilibili's digest, not
-  a transcript, and the tool description says not to present it as the
-  speaker's words. It is hidden while no account is linked (`optIn` plus
-  `bilibiliLoginRequired`), because a row that would always fail is worse than
-  an absent one.
+  summary. Subtitles are returned as cues with their start time, printed as
+  `[12:34]` lines, so the model can say where something was said. A long
+  transcript is truncated at 20,000 characters and the footer names the
+  timestamp to pass as `from` to continue — without start times the result was
+  either complete or silently worthless past the cap. `language` narrows which
+  track is read (Chinese first by default); `to` ends the window. The result
+  names the source; an AI summary is Bilibili's digest, not a transcript, and
+  the tool description says not to present it as the speaker's words. It is
+  hidden while no account is linked (`optIn` plus `bilibiliLoginRequired`),
+  because a row that would always fail is worse than an absent one.
 - Comment pages after the first: the endpoint documents page 2+ as requiring a
   signed-in caller. `bili_comments` takes a `page` argument and says so when no
   login is linked.
+
+Comment threads, article comments, related videos, the uploader page, discovery
+lists, shows, live rooms and danmaku do **not** need the login: they were
+verified anonymous before their tools were written.
 
 The login does **not** add tools for the user's history, favourites, followings
 or messages: reading those would turn a public-content reader into an
@@ -1068,13 +1126,15 @@ had an AI summary; the three pure-music videos had neither. A video with neither
 returns an explicit "no subtitles and no AI summary" answer, not an empty
 success — the tool description tells the model to report that rather than guess.
 
-**Tests.** `BilibiliParsersTest` runs against fixtures captured from the live
-endpoints (2026-11-20) so the parsing is offline and the shapes are real;
-`BilibiliToolsTest` covers caps, argument rejection and error text against a
-fake service; `BilibiliAuthTest` pins the QR state mapping and cookie parsing.
-`BilibiliLiveTest` (anonymous) and `BilibiliLoginLiveTest` (a linked session read
-from `INHUMAN_BILI_SESSION`, a gitignored scratch file) are skipped unless
-enabled. Run:
+**Tests.** `BilibiliParsersTest` and `BilibiliMoreParsersTest` run against
+fixtures captured from the live endpoints (2026-11-20) so the parsing is offline
+and the shapes are real — including two binary protobuf fixtures for danmaku.
+`BilibiliToolsTest` and `BilibiliMoreToolsTest` cover caps, argument rejection,
+result wording and error text against a shared fake service; `BilibiliAuthTest`
+pins the QR state mapping and cookie parsing. `BilibiliLiveTest` (anonymous)
+and `BilibiliLoginLiveTest` (a linked session read from
+`INHUMAN_BILI_SESSION`, a gitignored scratch file) are skipped unless enabled.
+Run:
 
 ```powershell
 $env:INHUMAN_BILI_LIVE = '1'
@@ -1086,7 +1146,10 @@ $env:INHUMAN_BILI_SESSION = 'C:\path\to\session.json'
 
 The anonymous live test is deliberately paced: an anonymous caller that fires
 seven requests in two seconds is the shape of a scraper, which is what the
-endpoint set's risk control blocks.
+endpoint set's risk control blocks. It opens with an eight-second grace pause
+for the same reason. A `-509` during a deliberate run means the probe was
+throttled; run it again later rather than adding a retry loop — the retry loop is
+the behaviour the live test exists to measure.
 
 ## The SSH tools: read-only, transfer and exec, an address book and an information tool
 

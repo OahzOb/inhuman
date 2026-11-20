@@ -1,0 +1,31 @@
+{
+	"code": 0,
+	"message": "OK",
+	"data": {
+		"trending": {
+			"title": "bilibili热搜",
+			"list": [
+				{
+					"keyword": "习近平主席会见多国领导人",
+					"show_name": "习近平主席会见多国领导人"
+				},
+				{
+					"keyword": "APEC与会领导人感谢习近平主席",
+					"show_name": "APEC与会领导人感谢习近平主席"
+				},
+				{
+					"keyword": "中俄美元首会晤传递哪些信息",
+					"show_name": "中俄美元首会晤传递哪些信息"
+				},
+				{
+					"keyword": "朱雀三号回收火箭传来好消息",
+					"show_name": "朱雀三号回收火箭传来好消息"
+				},
+				{
+					"keyword": "Gemini这次真的不一样了",
+					"show_name": "Gemini这次真的不一样了"
+				}
+			]
+		}
+	}
+}

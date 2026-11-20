@@ -130,7 +130,21 @@ class ToolCatalogVisibilityTest {
 		// is not a remote operation: it reads public content, it does not reach
 		// another machine the way SSH does.
 		val bilibili = ToolCatalog.all.filter { it.gatedByBilibili }
-		assertEquals("five Bilibili read tools", 5, bilibili.size)
+		assertEquals("ten Bilibili read tools", 10, bilibili.size)
+		listOf(
+			"bili_search",
+			"bili_video",
+			"bili_comments",
+			"bili_article",
+			"bili_transcript",
+			"bili_up",
+			"bili_trending",
+			"bili_danmaku",
+			"bili_bangumi",
+			"bili_live",
+		).forEach { name ->
+			assertTrue("$name is missing from the catalogue", name in bilibili.map { it.name })
+		}
 		bilibili.forEach { entry ->
 			assertTrue("${entry.name} must be opt-in", entry.optIn)
 			assertFalse("${entry.name} must not be paid", entry.paid)
@@ -151,8 +165,10 @@ class ToolCatalogVisibilityTest {
 
 		val switchOnly = ToolCatalog.visible(includeSsh = false, includeBilibili = true).map { it.name }
 		assertFalse("a login-only tool must not be offered anonymously", "bili_transcript" in switchOnly)
-		// The anonymous four are unaffected by the login state.
+		// The anonymous reads are unaffected by the login state.
 		assertTrue("bili_search" in switchOnly)
+		assertTrue("bili_up" in switchOnly)
+		assertTrue("bili_danmaku" in switchOnly)
 
 		val withLogin = ToolCatalog.visible(
 			includeSsh = false,

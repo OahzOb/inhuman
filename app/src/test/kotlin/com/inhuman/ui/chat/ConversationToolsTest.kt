@@ -187,7 +187,7 @@ class ConversationToolsTest {
 			.filter { it.gatedByBilibili && !it.bilibiliLoginRequired }
 			.map { it.name }
 			.toSet()
-		assertEquals("the four anonymous read rows appear only with the switch", bilibili, names(on).toSet() - names(off).toSet())
+		assertEquals("the anonymous read rows appear only with the switch", bilibili, names(on).toSet() - names(off).toSet())
 		// A null "all" is not consent to a new external read: the rows are
 		// offered, but unchecked, and only a stored name can turn one on.
 		assertTrue(bilibili.none { it in on.selected })

@@ -1,0 +1,54 @@
+{
+	"code": 0,
+	"message": "OK",
+	"result": {
+		"season_id": 43164,
+		"title": "孤独摇滚！",
+		"jp_title": "",
+		"rating": {
+			"score": 9.9,
+			"count": 134510
+		},
+		"styles": [
+			"漫画改",
+			"音乐",
+			"日常"
+		],
+		"evaluate": "绰号“小孤独”的后藤独，是一个喜爱吉他的孤独少女。经常在家里独自弹奏吉他，但因为一些事情，加入了伊地知虹夏领衔的“纽带乐队”。不敢在他人面前演奏的后藤，能否成为一个出色的乐队成员呢……",
+		"summary": null,
+		"total": 12,
+		"new_ep": {
+			"desc": "已完结, 全12话"
+		},
+		"publish": {
+			"pub_time_show": "2022年10月30日00:30",
+			"pub_time": "2022-10-30 00:30:00"
+		},
+		"episodes": [
+			{
+				"ep_id": 693247,
+				"id": 693247,
+				"aid": 944573356,
+				"cid": 875212290,
+				"bvid": "BV1yW4y1j7Ft",
+				"title": "1",
+				"long_title": "孤独的转机",
+				"pub_time": 1667061000,
+				"duration": 1415000,
+				"badge": ""
+			},
+			{
+				"ep_id": 693248,
+				"id": 693248,
+				"aid": 562117657,
+				"cid": 949870270,
+				"bvid": "BV1Vv4y1D7HP",
+				"title": "2",
+				"long_title": "明天见",
+				"pub_time": 1667665800,
+				"duration": 1425048,
+				"badge": "会员"
+			}
+		]
+	}
+}

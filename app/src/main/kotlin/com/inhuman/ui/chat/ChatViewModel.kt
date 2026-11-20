@@ -72,9 +72,14 @@ import com.inhuman.core.ai.tools.QwenDecisionTool
 import com.inhuman.core.ai.tools.SearchProvider
 import com.inhuman.core.ai.bilibili.BilibiliReadService
 import com.inhuman.core.ai.tools.BilibiliArticleTool
+import com.inhuman.core.ai.tools.BilibiliBangumiTool
 import com.inhuman.core.ai.tools.BilibiliCommentsTool
+import com.inhuman.core.ai.tools.BilibiliDanmakuTool
+import com.inhuman.core.ai.tools.BilibiliLiveTool
 import com.inhuman.core.ai.tools.BilibiliSearchTool
 import com.inhuman.core.ai.tools.BilibiliTranscriptTool
+import com.inhuman.core.ai.tools.BilibiliTrendingTool
+import com.inhuman.core.ai.tools.BilibiliUpTool
 import com.inhuman.core.ai.tools.BilibiliVideoTool
 import com.inhuman.core.ai.tools.SshExecTool
 import com.inhuman.core.ai.model.ModelCapability
@@ -4495,14 +4500,20 @@ class ChatViewModel(
 			fetchProvider()?.let { add(WebFetchTool(it)) }
 			// Anonymous Bilibili reads. Free and account-free, but still an
 			// external data path the user chose, so the global switch is the
-			// first gate; `ToolCatalog.permits` is the second, because all four
-			// entries are opt-in and a null "all tools" selection predates them.
+			// first gate; `ToolCatalog.permits` is the second, because all of
+			// these entries are opt-in and a null "all tools" selection
+			// predates them.
 			val bilibili = bilibiliReadService()
 			if (bilibiliEnabled() && bilibili != null) {
 				add(BilibiliSearchTool(bilibili))
 				add(BilibiliVideoTool(bilibili))
 				add(BilibiliCommentsTool(bilibili))
 				add(BilibiliArticleTool(bilibili))
+				add(BilibiliUpTool(bilibili))
+				add(BilibiliTrendingTool(bilibili))
+				add(BilibiliDanmakuTool(bilibili))
+				add(BilibiliBangumiTool(bilibili))
+				add(BilibiliLiveTool(bilibili))
 				// Only a linked account can answer this one, and only since the
 				// 0.11 login flow exists. Without the login the row is absent,
 				// not present-and-failing (the entry is marked for it, so the
