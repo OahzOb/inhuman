@@ -354,6 +354,18 @@ data class ConversationEntity(
 	val sshAllowed: Boolean = false,
 
 	/**
+	 * The saved SSH hosts this conversation may use, as ids.
+	 *
+	 * Empty means none, and that is a capability, not a preference: with no
+	 * host selected the SSH tools are not registered at all, so an unlisted
+	 * machine cannot be reached even if the model supplies credentials. Only
+	 * the user writes this (the chat's host sheet), and a change takes effect
+	 * on the next turn -- the same rule as [toolsJson], for the same reason.
+	 */
+	@ColumnInfo(defaultValue = "")
+	val sshHostsJson: String = "",
+
+	/**
 	 * The `AGENTS.md` block pinned when this conversation first built a request.
 	 *
 	 * Null means "not pinned yet"; an empty string means "pinned, with no
@@ -366,6 +378,9 @@ data class ConversationEntity(
 ) {
 	/** The selection, or null for every tool. */
 	val tools: List<String>? get() = ToolsColumn.decode(toolsJson)
+
+	/** The hosts this conversation may use; empty means none. */
+	val sshHosts: List<String> get() = HostsColumn.decode(sshHostsJson)
 }
 
 /**
@@ -397,6 +412,29 @@ object ToolsColumn {
 				.orEmpty()
 				.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
 		}.getOrNull()
+	}
+}
+
+/**
+ * The encoding for a conversation's allowed SSH hosts.
+ *
+ * Deliberately unlike [ToolsColumn]: there is no "everything" state. An empty
+ * string and `[]` both mean **no hosts**, because "all saved hosts" would be a
+ * grant the user never made -- adding a host in Settings must not silently
+ * widen an existing conversation.
+ */
+object HostsColumn {
+
+	fun encode(hosts: List<String>): String =
+		if (hosts.isEmpty()) "" else JsonArray(hosts.distinct().map { JsonPrimitive(it) }).toString()
+
+	fun decode(raw: String): List<String> {
+		if (raw.isBlank()) return emptyList()
+		return runCatching {
+			(Json.parseToJsonElement(raw) as? JsonArray)
+				.orEmpty()
+				.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+		}.getOrDefault(emptyList())
 	}
 }
 

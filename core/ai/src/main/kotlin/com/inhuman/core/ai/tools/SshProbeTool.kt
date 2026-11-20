@@ -3,7 +3,6 @@ package com.inhuman.core.ai.tools
 import com.inhuman.core.ai.ToolResult
 import com.inhuman.core.ai.ssh.SshException
 import com.inhuman.core.ai.ssh.SshLimits
-import com.inhuman.core.ai.ssh.SshProfile
 import com.inhuman.core.ai.ssh.SshTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
@@ -26,7 +25,7 @@ class SshProbeTool(
 	private val transport: SshTransport,
 	private val limits: SshLimits = SshLimits(),
 	private val readWorkspaceFile: (String) -> ByteArray? = { null },
-	private val savedConnection: () -> SshProfile? = { null },
+
 ) : SshTool {
 
 	override val name: String = "ssh_probe"
@@ -35,7 +34,7 @@ class SshProbeTool(
 		Read-only snapshot of a remote Linux machine.
 		Runs one fixed script and returns OS, kernel, uptime, load, CPU count, memory, disk, inodes, failed systemd units, listening ports and Docker containers when those commands exist.
 		It never uses sudo, never writes, and accepts no command or path: use ssh_exec for anything not covered.
-		The app can use a connection saved in Settings with useSavedHost=true; otherwise pass host, username and authentication. Prefer identityFile over a password or raw key.
+		${SshArguments.connectionHelp()}
 	""".trimIndent()
 
 	override val parameters: Map<String, Any?> = mapOf(
@@ -49,7 +48,7 @@ class SshProbeTool(
 
 	override suspend fun execute(arguments: JsonObject): ToolResult {
 		val args = SshArguments.normalize(arguments)
-		val connection = when (val parsed = SshArguments.parse(name, args, readWorkspaceFile, savedConnection)) {
+		val connection = when (val parsed = SshArguments.parse(name, args, readWorkspaceFile)) {
 			is SshArguments.Parsed.Error -> return ToolResult.error(parsed.message)
 			is SshArguments.Parsed.Ok -> parsed.value
 		}

@@ -98,6 +98,8 @@
 		<item quantity="other">%d selected</item>
 	</plurals>
 	<string name="home_tap_to_select">Tap conversations to select</string>
+	<string name="home_select_all">Select all</string>
+	<string name="home_deselect_all">Deselect all</string>
 	<string name="home_search_short">Search</string>
 	<string name="home_search_placeholder">Search conversations and messages</string>
 	<string name="home_search_clear">Clear search</string>
@@ -230,7 +232,14 @@
 	<string name="settings_demo_title">Demo mode</string>
 	<string name="settings_demo_body">Replies are scripted on the device, and the file tools run for real. Nothing is sent anywhere and no key is needed. With tools switched on it creates a file and then deletes it, so the tool loop runs end to end without an account.</string>
 	<string name="settings_ssh_title">SSH tool</string>
-	<string name="settings_ssh_body">Off by default. When on, an assistant can be given the SSH tools: ssh_probe takes a read-only host snapshot, ssh_list and ssh_read_file read remote files over SFTP (with optional tailing), ssh_write_file writes a small text file, ssh_upload and ssh_download move files, and ssh_exec runs commands. Selecting only the read tools uses no shell; adding ssh_exec or ssh_upload later resets the conversation\'s consent. You can save one remote connection for convenience; the agent uses that saved host only when a call says so, otherwise the host and credentials in the call. The first SSH call in each conversation shows a consent warning matched to the selected tools; after that, normal tool policy applies. Depending on the selection, the agent can read files, replace files or run any command on the remote machine, which may be irreversible. SSH tool arguments are redacted before the transcript is stored, but text you type is still stored.</string>
+	<string name="settings_ssh_body">Off by default. When on, an assistant can be given the SSH tools: ssh_hosts lists the machines you shared with this conversation (read-only, it does not connect), ssh_probe takes a read-only host snapshot, ssh_list and ssh_read_file read remote files over SFTP, ssh_write_file writes a small text file, ssh_upload and ssh_download move files, and ssh_exec runs commands. Selecting only the read tools uses no shell; adding ssh_exec or ssh_upload later resets the conversation\'s consent. What you save below is an address book: alias, address, port, username and an optional fingerprint -- no password or key. The agent supplies the credential in the call itself (a key file in the workspace, or a password you gave it), so no call ever uses a credential the app stored. The first SSH call in each conversation shows a consent warning matched to the selected tools; after that, normal tool policy applies. Depending on the selection, the agent can read files, replace files or run any command on the remote machine, which may be irreversible.</string>
+	<string name="settings_ssh_hosts_title">SSH hosts</string>
+	<string name="settings_ssh_hosts_body">Address book: alias, address, port, username and an optional fingerprint. There is no password or key here -- a tool never connects with a credential the app stored; the agent has to be given a key file or a password.</string>
+	<string name="settings_ssh_hosts_none">No hosts saved yet.</string>
+	<string name="settings_ssh_host_pinned">Pinned host key: %1$s</string>
+	<string name="settings_ssh_host_add">Add host</string>
+	<string name="settings_ssh_host_name">Name (for example prod-web)</string>
+	<string name="settings_ssh_host_delete">Delete host</string>
 	<string name="settings_ssh_limits_title">SSH limits</string>
 	<string name="settings_ssh_limits_body">The agent may request less than these, never more. A request with no value still uses the app default, not the ceiling.</string>
 	<string name="settings_ssh_command_timeout">Command timeout ceiling</string>
@@ -238,19 +247,13 @@
 	<string name="settings_ssh_list_cap">Directory rows</string>
 	<string name="settings_ssh_read_cap">Text read</string>
 	<string name="settings_host_keys_none">No pinned host keys yet</string>
-	<string name="settings_saved_host_none">Save a remote host</string>
-	<string name="settings_saved_host_saved">Saved host: %1$s</string>
-	<string name="settings_saved_host_title">Saved remote host</string>
-	<string name="settings_saved_host_body">One host, saved for convenience only. It is not a security or privacy guarantee, and it is not included in backups; the password/private key live in the Android Keystore.</string>
-	<string name="settings_saved_host_note">Leave password and private key blank to keep the saved secret. A blank host or username is not saved.</string>
+	<string name="settings_saved_host_title">Remote host</string>
+	<string name="settings_saved_host_body">Address-book information only: alias, address, port, username and an optional fingerprint. There is no password or key; the agent supplies the credential in the call.</string>
+	<string name="settings_saved_host_note">A blank host or username is not saved; a blank fingerprint keeps the saved one.</string>
 	<string name="settings_saved_host_host">Host or IP</string>
 	<string name="settings_saved_host_port">Port</string>
 	<string name="settings_saved_host_user">Username</string>
-	<string name="settings_saved_host_password">Password (optional)</string>
-	<string name="settings_saved_host_key">Private key text (optional)</string>
-	<string name="settings_saved_host_passphrase">Key passphrase (optional)</string>
 	<string name="settings_saved_host_fingerprint">Host key fingerprint (optional)</string>
-	<string name="settings_saved_host_forget">Forget host</string>
 	<string name="settings_saved_host_error">Enter a host, a username and a password or private key.</string>
 	<string name="settings_host_keys_count">Pinned host keys (%1$d)</string>
 	<string name="settings_section_limits">04 / Turn limits</string>
@@ -485,7 +488,7 @@
 	<string name="badge_rewind">REWIND</string>
 	<string name="badge_no_rewind">NO REWIND</string>
 	<string name="notice_paid_tools">web_search and web_fetch call the search/fetch service configured in Settings; the image, video, speech, transcription and decision tools call their configured backends. Each is billed per call by its provider. Tools without the PAID badge do not call a paid service.</string>
-	<string name="notice_remote_tools">The SSH tools can read and move files on another machine; commands run only if ssh_exec is selected. The app does not configure hosts or keep a credential store; the agent uses what you give it. Damage at the remote end can be irreversible. They also require the SSH tool switch in Settings and consent once per conversation.</string>
+	<string name="notice_remote_tools">The SSH tools can read and move files on another machine; commands run only if ssh_exec is selected. ssh_hosts only lists the machines you shared -- it does not connect and carries no credential; to connect, the agent must be given the address and a credential itself (a workspace key or a password). Damage at the remote end can be irreversible. They also require the SSH tool switch in Settings and consent once per conversation.</string>
 
 
 	<!-- Files: the conversation workspace browser. -->
@@ -694,6 +697,8 @@
 	<string name="tool_blurb_read_file">Read a file from the folder</string>
 	<string name="tool_blurb_file_info">Size and modified date of a file</string>
 	<string name="tool_blurb_read_document">Read a CSV, TXT, DOCX, XLSX, PDF, DOC or XLS document</string>
+	<string name="tool_blurb_read_pdf_vision">Read scanned PDF pages with the current vision model (paid per page)</string>
+	<string name="tool_blurb_unavailable_tools">See which app tools this conversation cannot use</string>
 	<string name="tool_blurb_read_time">The current date and time, and date arithmetic</string>
 	<string name="tool_blurb_web_search">Search the web via the configured paid search API</string>
 	<string name="tool_blurb_web_fetch">Fetch a page via the configured paid fetch API</string>
@@ -703,6 +708,7 @@
 	<string name="tool_blurb_video_status">Check a video task and save it when finished</string>
 	<string name="tool_blurb_speak">Convert text to an audio file in the workspace</string>
 	<string name="tool_blurb_transcribe">Transcribe an audio file from the workspace</string>
+	<string name="tool_blurb_ssh_hosts">List the remote machines shared with this conversation</string>
 	<string name="tool_blurb_ssh_list">List one remote directory</string>
 	<string name="tool_blurb_ssh_read_file">Read a remote text file</string>
 	<string name="tool_blurb_ssh_probe">Snapshot a remote Linux machine</string>
@@ -728,13 +734,17 @@
 	<string name="chat_save_workspace">Save workspace as permanent</string>
 	<string name="chat_save_workspace_detail">Keep its files after this conversation is deleted</string>
 	<!-- Export: conversation Markdown and workspace zip. -->
-	<string name="export_chat">Export chat as Markdown…</string>
+	<string name="export_chat">Export or share chat…</string>
 	<string name="export_workspace_zip">Export workspace as zip…</string>
 	<string name="export_workspace_zip_detail">Plain zip of the files; not a backup</string>
-	<string name="export_title">Export chat</string>
-	<string name="export_body">The conversation is written as plain Markdown in the order you see it, including reasoning. The file is not encrypted, so choose where it goes.</string>
+	<string name="export_title">Export or share chat</string>
+	<string name="export_body">The conversation is written as plain Markdown in the order you see it, including reasoning. Export saves a file you choose; Share opens the system share sheet. Neither is encrypted.</string>
 	<string name="export_include_tools">Include tool calls and results</string>
 	<string name="export_conversation_action">Export .md</string>
+	<string name="export_share_action">Share</string>
+	<string name="export_share_chooser">Share conversation</string>
+	<string name="export_share_failed">Could not prepare the conversation for sharing.</string>
+	<string name="export_share_failed_detail">Could not share the conversation: %1$s</string>
 	<string name="export_conversation_done">Conversation exported.</string>
 	<string name="export_working">Exporting…</string>
 	<string name="export_failed">Export failed: %1$s</string>
@@ -749,6 +759,17 @@
 	<string name="export_error_missing_conversation">This conversation no longer exists.</string>
 	<string name="export_error_destination">Could not open the export destination.</string>
 	<string name="export_error_unknown">Unknown error.</string>
+	<string name="chat_upload_conversation">Upload conversation…</string>
+	<string name="chat_upload_conversation_detail">Send the Markdown transcript to the configured server</string>
+	<string name="chat_upload_title">Upload this conversation?</string>
+	<string name="chat_upload_body">The transcript is sent as plain Markdown: title, messages, reasoning and attachment paths. Image bytes are not included. If tool calls and results are included, text those tools returned — including file or document content — is sent too. The server has no authentication, so use only a LAN or Tailscale address.</string>
+	<string name="chat_upload_target">Server: %1$s</string>
+	<string name="chat_upload_action">Upload</string>
+	<string name="chat_upload_working">Uploading…</string>
+	<string name="chat_upload_ok">Uploaded: %1$s</string>
+	<string name="chat_upload_failed">Upload failed: %1$s</string>
+	<string name="chat_upload_no_server">Set the server URL in Settings → Local first.</string>
+	<string name="chat_upload_streaming">Stop the reply before uploading the conversation.</string>
 	<string name="export_role_user">You</string>
 	<string name="export_role_assistant">Assistant</string>
 	<string name="export_role_system">System</string>
@@ -763,6 +784,11 @@
 	<string name="export_tools_omitted">Tool calls and results omitted.</string>
 	<string name="export_attachments_note">Attachment files are not included in this Markdown file.</string>
 	<string name="chat_revoke_ssh">Revoke SSH access</string>
+	<string name="chat_ssh_hosts">SSH hosts…</string>
+	<string name="chat_ssh_hosts_title">Which hosts this conversation may see</string>
+	<string name="chat_ssh_hosts_body">Checked hosts appear in the ssh_hosts result. This is information, not a connection grant: a tool never connects with what the app stored, and the agent still needs a key or a password of its own. A change applies to the next turn.</string>
+	<string name="chat_ssh_hosts_empty">No hosts saved yet. Add them in Settings → Demo and SSH → SSH hosts.</string>
+	<string name="chat_ssh_hosts_note">The agent sees an alias and user@host only; there is no password, key or passphrase to give it.</string>
 	<string name="chat_permanent_workspace">Permanent workspace</string>
 	<string name="chat_temporary_workspace">Temporary workspace</string>
 	<string name="chat_jump_latest">Jump to latest message</string>
@@ -780,6 +806,11 @@
 	<string name="chat_try_demo_strip">Try demo mode — no key, no network</string>
 	<string name="chat_dismiss">Dismiss</string>
 	<string name="chat_retry">Retry</string>
+	<string name="chat_retrying">Connection problem. Retrying %1$d/%2$d…</string>
+	<plurals name="chat_error_retries_exhausted">
+		<item quantity="one">Still failed after %1$d automatic retry.</item>
+		<item quantity="other">Still failed after %1$d automatic retries.</item>
+	</plurals>
 	<string name="chat_compact_retry">Compact and retry</string>
 	<string name="chat_provider_settings">Provider settings</string>
 	<string name="chat_copy_details">Copy details</string>
@@ -888,6 +919,10 @@
 	<string name="chat_rewind_turn">Rewind this turn</string>
 	<string name="chat_changed_files">Changed files</string>
 	<string name="chat_attach_image">Attach an image</string>
+	<string name="chat_attach_from_files">Choose from files</string>
+	<string name="chat_attach_take_photo">Take a photo</string>
+	<string name="chat_camera_failed">Could not open the camera.</string>
+	<string name="chat_camera_empty">The camera returned no photo.</string>
 	<string name="chat_cannot_read_images">This model cannot read images</string>
 	<string name="chat_message_hint">Message the assistant…</string>
 	<string name="chat_voice_empty">The recording was empty or could not be transcribed.</string>
@@ -1048,6 +1083,7 @@
 	<string name="chat_error_summarizer_timeout">The summarizer timed out; nothing changed.</string>
 	<string name="chat_error_summarizer_failed">The summarizer failed: %1$s. The full transcript is still used.</string>
 	<string name="chat_error_summarizer_empty">The summarizer returned nothing; the full transcript is still used.</string>
+	<string name="chat_error_summarizer_truncated">The summarizer used all %1$d output tokens without writing any text: the model spent the budget on reasoning. Pick a model that does not think first, or try again. The full transcript is still used.</string>
 	<string name="chat_error_point_gone">That point is no longer in the conversation.</string>
 	<string name="chat_error_later_ssh">The later part of this turn ran SSH; those effects cannot be undone.</string>
 	<string name="chat_error_checkpoint_missing">The checkpoint for that point is missing, so nothing was changed.</string>

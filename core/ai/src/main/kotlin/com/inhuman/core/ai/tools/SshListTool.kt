@@ -5,7 +5,6 @@ import com.inhuman.core.ai.ssh.SshEntryType
 import com.inhuman.core.ai.ssh.SshException
 import com.inhuman.core.ai.ssh.SshFileTransport
 import com.inhuman.core.ai.ssh.SshLimits
-import com.inhuman.core.ai.ssh.SshProfile
 import com.inhuman.core.ai.ssh.SshRemoteEntry
 import com.inhuman.core.ai.ssh.SshTransport
 import kotlinx.coroutines.CancellationException
@@ -30,7 +29,7 @@ import java.time.format.DateTimeFormatter
 class SshListTool(
 	private val transport: SshFileTransport,
 	private val readWorkspaceFile: (String) -> ByteArray? = { null },
-	private val savedConnection: () -> SshProfile? = { null },
+
 	private val maxEntries: Int = 500,
 ) : SshTool {
 
@@ -39,7 +38,7 @@ class SshListTool(
 	override val description: String = """
 		List one directory on a remote machine over SFTP.
 		Use it to find a file before calling ssh_read_file or ssh_download; it is not recursive and does not run a shell command.
-		The app can use a connection saved in Settings with useSavedHost=true; otherwise pass host, username and authentication. Prefer identityFile over a password or raw key.
+		${SshArguments.connectionHelp()}
 		At most $maxEntries entries are returned, directories first, then by name. Each row shows type, size, modification time and name.
 	""".trimIndent()
 
@@ -63,7 +62,7 @@ class SshListTool(
 
 	override suspend fun execute(arguments: JsonObject): ToolResult {
 		val args = SshArguments.normalize(arguments)
-		val connection = when (val parsed = SshArguments.parse(name, args, readWorkspaceFile, savedConnection)) {
+		val connection = when (val parsed = SshArguments.parse(name, args, readWorkspaceFile)) {
 			is SshArguments.Parsed.Error -> return ToolResult.error(parsed.message)
 			is SshArguments.Parsed.Ok -> parsed.value
 		}

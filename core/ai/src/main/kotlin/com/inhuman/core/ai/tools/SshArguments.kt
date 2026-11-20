@@ -1,7 +1,6 @@
 package com.inhuman.core.ai.tools
 
 import com.inhuman.core.ai.ssh.SshAuth
-import com.inhuman.core.ai.ssh.SshProfile
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -14,6 +13,22 @@ import kotlinx.serialization.json.jsonObject
  * `ssh_exec`, `ssh_upload` and `ssh_download` differ only in what they do once
  * connected; host, port, username and authentication must be read the same way
  * or the consent dialogue and the tool would disagree about what a call means.
+ *
+ * ## Where the connection comes from
+ *
+ * The call carries it. There is no lookup into the hosts saved in Settings: an
+ * alias the user keeps there is **information the app can show the model**
+ * (`ssh_hosts`), never a credential the app will attach to a model-initiated
+ * call. A tool call that reaches another machine must name that machine and its
+ * authentication itself, so the agent can only use what the user handed it --
+ * a key file in the workspace, or a password typed into the conversation.
+ *
+ * That is a deliberate reversal of an earlier design in which `host` was
+ * resolved against the app's saved hosts. It read well ("the model never sees a
+ * credential") and was wrong for the reason the user gave: naming an alias made
+ * the app use a stored secret on the model's behalf, so the "which machines may
+ * the agent see" toggle was really a credential grant. See
+ * `docs/08-port-philosophy.md` §1.2.1.
  */
 data class SshConnectionArgs(
 	val host: String,
@@ -65,17 +80,10 @@ object SshArguments {
 	 * `privateKey` and `password` are alternatives, and the tool has to read
 	 * the workspace key file to decide whether one of them works.
 	 */
-	fun missingRequired(
-		toolName: String,
-		arguments: JsonObject,
-		savedProfile: () -> SshProfile? = { null },
-	): String? {
+	fun missingRequired(toolName: String, arguments: JsonObject): String? {
 		val args = normalize(arguments)
-		val wantsSaved = boolean(args, "useSavedHost") || !args.stringOrNull("profile").isNullOrBlank()
-		val saved = if (wantsSaved) savedProfile() else null
-		if (wantsSaved && saved == null) return "a saved SSH host (none is configured)"
-		if (args.stringOrNull("host").isNullOrBlank() && saved == null) return "host"
-		if (args.stringOrNull("username").isNullOrBlank() && saved == null) return "username"
+		if (args.stringOrNull("host").isNullOrBlank()) return "host"
+		if (args.stringOrNull("username").isNullOrBlank()) return "username"
 		return when (toolName) {
 			"ssh_exec" -> "command".takeIf { args.stringOrNull(it).isNullOrBlank() }
 			"ssh_probe" -> null
@@ -132,20 +140,12 @@ object SshArguments {
 		toolName: String,
 		arguments: JsonObject,
 		readWorkspaceFile: (String) -> ByteArray?,
-		savedProfile: () -> SshProfile? = { null },
 	): Parsed {
 		val args = normalize(arguments)
-		val wantsSaved = boolean(args, "useSavedHost") || !args.stringOrNull("profile").isNullOrBlank()
-		val saved = if (wantsSaved) savedProfile() else null
-		if (wantsSaved && saved == null) {
-			return Parsed.Error("$toolName: no saved SSH connection; add one in Settings")
-		}
-		val host = (args.stringOrNull("host") ?: saved?.host)?.trim().orEmpty()
-		val username = (args.stringOrNull("username") ?: saved?.username)?.trim().orEmpty()
-		if (host.isBlank()) return Parsed.Error("$toolName: host or a saved connection is required")
-		if (username.isBlank()) {
-			return Parsed.Error("$toolName: username or a saved connection is required")
-		}
+		val host = args.stringOrNull("host")?.trim().orEmpty()
+		val username = args.stringOrNull("username")?.trim().orEmpty()
+		if (host.isBlank()) return Parsed.Error("$toolName: host is required")
+		if (username.isBlank()) return Parsed.Error("$toolName: username is required")
 		if (host.any { it.isWhitespace() } || username.any { it.isWhitespace() }) {
 			return Parsed.Error("$toolName: host and username cannot contain whitespace")
 		}
@@ -160,7 +160,7 @@ object SshArguments {
 				primitive.intOrNull
 					?: return Parsed.Error("$toolName: port must be an integer")
 			}
-		} ?: saved?.port ?: 22
+		} ?: 22
 		if (port !in 1..65535) {
 			return Parsed.Error("$toolName: port must be between 1 and 65535")
 		}
@@ -170,12 +170,6 @@ object SshArguments {
 		if (identityFile != null && explicitPrivateKey != null) {
 			return Parsed.Error("$toolName: provide identityFile or privateKey, not both")
 		}
-		val rawPrivateKey = explicitPrivateKey
-			?: if (identityFile == null) {
-				saved?.privateKey?.takeIf { it.isNotEmpty() }
-			} else {
-				null
-			}
 
 		val privateKey = when {
 			identityFile != null -> runCatching { readWorkspaceFile(identityFile) }
@@ -185,14 +179,13 @@ object SshArguments {
 					)
 				}
 				?: return Parsed.Error("$toolName: identityFile not found: $identityFile")
-			rawPrivateKey != null -> rawPrivateKey.toByteArray(Charsets.UTF_8)
+			explicitPrivateKey != null -> explicitPrivateKey.toByteArray(Charsets.UTF_8)
 			else -> null
 		}
 		val password = args.stringOrNull("password")
-			?: if (privateKey == null) saved?.password else null
 		if (privateKey == null && password == null) {
 			return Parsed.Error(
-				"$toolName: authentication is required: identityFile, privateKey, password, or a saved connection",
+				"$toolName: authentication is required: identityFile, privateKey or password",
 			)
 		}
 
@@ -204,10 +197,9 @@ object SshArguments {
 				auth = SshAuth(
 					password = password,
 					privateKey = privateKey,
-					passphrase = (args.stringOrNull("passphrase") ?: saved?.passphrase)
-						?.toByteArray(Charsets.UTF_8),
+					passphrase = args.stringOrNull("passphrase")?.toByteArray(Charsets.UTF_8),
 				),
-				hostKeyFingerprint = (args.stringOrNull("hostKeyFingerprint") ?: saved?.hostKeyFingerprint)
+				hostKeyFingerprint = args.stringOrNull("hostKeyFingerprint")
 					?.trim()
 					?.takeIf { it.isNotEmpty() },
 			),
@@ -236,22 +228,28 @@ object SshArguments {
 	fun int(arguments: JsonObject, name: String, default: Int = 0): Int =
 		(arguments[name] as? JsonPrimitive)?.intOrNull ?: default
 
-	/** The authentication block every SSH tool's schema repeats. */
+	/**
+	 * The authentication block every SSH tool's schema repeats.
+	 *
+	 * There is no `useSavedHost` and no alias lookup. A host saved in Settings
+	 * is a note the user keeps, shown to the model by `ssh_hosts`; it is never
+	 * a credential this layer will resolve on the model's behalf.
+	 */
 	fun connectionParameters(): Map<String, Any?> = mapOf(
-		"useSavedHost" to mapOf(
-			"type" to "boolean",
-			"description" to "Use the one connection saved in Settings; explicit host/username override it.",
-		),
 		"host" to mapOf("type" to "string", "description" to "Hostname or IP address"),
 		"port" to mapOf("type" to "integer", "description" to "SSH port; default 22"),
 		"username" to mapOf("type" to "string", "description" to "Remote user"),
 		"password" to mapOf(
 			"type" to "string",
-			"description" to "Password, only if the user gave one. It becomes part of the conversation.",
+			"description" to
+				"Password. It becomes part of the conversation and is sent to the model provider; " +
+				"prefer identityFile when the user placed a key in the workspace.",
 		),
 		"privateKey" to mapOf(
 			"type" to "string",
-			"description" to "OpenSSH private key text. Prefer identityFile so the key never enters the conversation.",
+			"description" to
+				"OpenSSH private key text. It also becomes part of the conversation; " +
+				"prefer identityFile.",
 		),
 		"identityFile" to mapOf(
 			"type" to "string",
@@ -259,7 +257,7 @@ object SshArguments {
 		),
 		"passphrase" to mapOf(
 			"type" to "string",
-			"description" to "Passphrase for an encrypted private key",
+			"description" to "Passphrase for an encrypted private key; it becomes part of the conversation",
 		),
 		"hostKeyFingerprint" to mapOf(
 			"type" to "string",
@@ -267,8 +265,23 @@ object SshArguments {
 		),
 	)
 
-	private fun JsonObject.stringOrNull(name: String): String? {
-		val primitive = this[name] as? JsonPrimitive ?: return null
-		return if (primitive.isString) primitive.content else null
-	}
+	/**
+	 * The one sentence a tool description uses to say where the connection
+	 * comes from.
+	 *
+	 * The password warning is part of it because that is the moment the model
+	 * decides: a password in the call is stored in the transcript, and a key
+	 * file in the workspace is not.
+	 */
+	fun connectionHelp(): String =
+		"Pass host, username and authentication yourself: identityFile (a workspace " +
+			"path the user placed there) or a password. A password or key text sent here " +
+			"becomes part of the conversation and is visible to the model provider; the " +
+			"app never attaches a credential from its own store."
+}
+
+/** A string field, or null when the value is absent or not a JSON string. */
+private fun JsonObject.stringOrNull(name: String): String? {
+	val primitive = this[name] as? JsonPrimitive ?: return null
+	return if (primitive.isString) primitive.content else null
 }

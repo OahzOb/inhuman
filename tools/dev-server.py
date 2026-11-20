@@ -7,11 +7,13 @@ Tailscale link, not a release service. It has no accounts and no database:
     GET  /update.json   the manifest written by tools/release-apk.ps1
     GET  /...           any file under --dist (the APK)
     POST /log           the app's diagnostic log, saved under --logs
+    POST /conversation  one conversation as Markdown, saved under --logs/conversations
 
 There is no authentication. Bind it only on a network you trust, and prefer
 Tailscale when the phone is not on the same LAN. Anyone who can reach the port
 can read the APK/manifest and upload a file, so do not expose it to the public
-internet.
+internet. A conversation contains the transcript, so treat this endpoint as
+more sensitive than the diagnostic log.
 """
 from __future__ import annotations
 
@@ -23,7 +25,7 @@ import sys
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-MAX_LOG_BYTES = 8 * 1024 * 1024
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 
 
 class UpdateLogServer(ThreadingHTTPServer):
@@ -78,8 +80,17 @@ def make_handler(directory: Path, logs: Path):
             outputfile.flush()
 
         def do_POST(self) -> None:  # noqa: N802 (http.server API)
-            if self.path.split("?", 1)[0] != "/log":
-                self.send_error(404, "only /log is writable")
+            path = self.path.split("?", 1)[0]
+            if path == "/log":
+                directory = logs
+                suffix = ".log"
+                kind = "log"
+            elif path == "/conversation":
+                directory = logs / "conversations"
+                suffix = ".md"
+                kind = "conversation"
+            else:
+                self.send_error(404, "only /log and /conversation are writable")
                 return
             raw_length = self.headers.get("Content-Length")
             if raw_length is None:
@@ -91,20 +102,21 @@ def make_handler(directory: Path, logs: Path):
                 self.send_error(400, "bad Content-Length")
                 return
             if length <= 0:
-                self.send_error(400, "empty log")
+                self.send_error(400, "empty upload")
                 return
-            if length > MAX_LOG_BYTES:
-                self.send_error(413, "log too large")
+            if length > MAX_UPLOAD_BYTES:
+                self.send_error(413, "upload too large")
                 return
             body = self.rfile.read(length)
+            directory.mkdir(parents=True, exist_ok=True)
             stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-            target = logs / f"{stamp}.log"
-            suffix = 1
+            target = directory / f"{stamp}{suffix}"
+            suffix_number = 1
             while target.exists():
-                target = logs / f"{stamp}-{suffix}.log"
-                suffix += 1
+                target = directory / f"{stamp}-{suffix_number}{suffix}"
+                suffix_number += 1
             target.write_bytes(body)
-            print(f"log {len(body)} bytes -> {target}", flush=True)
+            print(f"{kind} {len(body)} bytes -> {target}", flush=True)
             payload = target.name.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; charset=utf-8")

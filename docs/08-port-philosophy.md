@@ -62,15 +62,22 @@ SSH 工具（`ssh_probe`、`ssh_list`、`ssh_read_file`、`ssh_exec`、`ssh_uplo
   工具清单里显式选中要用的每一个 SSH 工具；第一次调用时，会话里再弹一次**能力
   授权**，不是普通的单次审批。`toolsJson = null` 的历史助手**不会**自动获得 SSH——
   `ToolCatalog.permits` 对所有 `remote = true` 的工具特判，必须显式写进清单。
-- **app 提供一台可选保存的远程主机，不是舰队。** 设置里可以保存 host、port、
-  username、password/private key/passphrase 和可选的主机密钥指纹；只保存**一台**，
-  没有 host 列表、没有 allowlist、没有多主机切换。目的只是省去每次重敲，
-  **不构成安全或隐私保证**。凭据放在 `SecureStore`（Android Keystore/DPAPI），
-  与 API key 一样不进入备份、不进入诊断日志；忘记主机时整条删除。工具调用参数
-  在写入 transcript 之前仍会去掉 `password`/`privateKey`/`passphrase`。模型必须
-  显式发送 `useSavedHost: true` 才会使用保存的主机；调用里写明的 host/用户/凭据
-  优先于保存值，不会因为“保存过”就悄悄改连另一台机器。SSH 的会话授权、host key
-  TOFU 和首次调用披露都不因保存而改变。
+- **应用保存的是地址簿，不是凭据库。** 设置里可以有多台主机：别名、地址、端口、
+  用户名、可选的主机密钥指纹。**不保存密码或私钥**，所以任何一次模型发起的调用都
+  不可能用到用户存起来的凭据。整份列表放在 `SecureStore`（Android Keystore）
+  的一个文档里，与 API key 一样不进入备份、不进入诊断日志——地址本身也是隐私。
+- **每个对话勾选"把哪几台告诉 agent"，这是信息，不是权限。** `ssh_hosts` 是只读
+  工具：不联网、不返回凭据，勾选只决定它的返回内容，改动下一回合生效，**不重置
+  SSH 授权**——它没有授予任何东西，也就没有可撤销的授权。清单存在
+  `conversations.sshHostsJson`，只有用户能改。
+- **连接凭据由调用本身携带。** 工具收 `host`/`port`/`username`，加 `identityFile`
+  （工作区里的密钥文件，经 `SessionWorkspace` 读取）或 `password`。密码或私钥文本
+  会进入对话记录并发给模型服务商，工具描述和授权文案都写明这一点；工作区里的密钥
+  同样能被 `read_file` 读到——那是工作区边界的一部分，用户放进去就是交给 agent 的。
+- **为什么不解析别名。** 曾经的设计让 `host` 解析到 app 保存的主机并附上凭据，
+  理由是"模型看不到密码"。但它把"把哪几台告诉模型"变成了"让模型用哪几把钥匙"：
+  模型只要说对别名，app 就用用户从未在那一刻接触过的凭据登录。信息开关和凭据使用权
+  必须分开，而分开的彻底做法是 **app 根本不持有可被工具使用的凭据**。
 - **授权按会话持久化**，可撤销；全局开关关闭会清掉所有会话的授权。
   只读组合（`ssh_probe`、`ssh_list`、`ssh_read_file`、`ssh_download`）不经过
   任意 shell，可以在不选 `ssh_exec` 的情况下使用；`ssh_upload` 和
@@ -138,7 +145,13 @@ key；chat provider 的 key 不授权这两个工具。这类能力有一条独�
 SSH 工具不花钱，但它们能造成比花钱更重的后果。规则和付费披露同构：
 
 - `ToolCatalog.Entry.remote = true`，`REMOTE` 徽标紧挨工具名；助手工具列表上方
-  有常驻说明，明确说 app 最多保存一台 host、远端损坏不可逆、第一次调用要授权。
+  有常驻说明，明确说地址簿里没有凭据、远端损坏不可逆、第一次调用要授权。
+  `ssh_hosts` 是例外的一半：它在同一开关下、同样要显式选中，但 `remote = false`，
+  因为它只列出用户勾选的名字，不连接，也不触发连接授权。
+- **"哪些功能没给你用"可以查，但只能查用户能改的那些。** `unavailable_tools`
+  以 `ToolCatalog.visible(...)` 为全集：开关关掉的能力（SSH、沙箱、follow-up）
+  不在全集里，因此永远不会被这个工具说出名字。否则它就是 §1.2.1 拒绝的那种
+  "灰掉但仍宣传"的行，只是变成了文字，而且提示注入正好想知道这些名字。
 - **能否 rewind 也是工具标签，不是说明文字。** 所有会改变状态的工具在名字旁带
   `REWIND`（本地可恢复）或 `NO REWIND`（不可恢复），和 `PAID`/`REMOTE` 同一行；
   `ssh_exec` 和 `ssh_upload` 同时有 `REMOTE` 和 `NO REWIND`；`ssh_download` 是
@@ -409,7 +422,7 @@ DSH 有 subagent、workflow（几十个子代理扇出）、并行工具调用�
   而一个主张自己安全却不可审计的实现，说服力有限。
 
 **需要你定的**：开源是手段（为了让某件事更容易），还是目标（本来就想开源）？
-这影响依赖选择——如果开源，JLaTeXMath 之类的 GPL 方案就回到桌面上，
+这影响依赖选择——如果开源，JLaTeXMath 之类的 GPL 方案就重新可用，
 而 README 里那些"为了避 GPL 而放弃的功能"需要重新评估。
 
 ---

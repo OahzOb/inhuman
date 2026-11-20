@@ -17,7 +17,7 @@ than implementation; the old feasibility studies are archived under
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
 | `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the per-tool media backends (image/video/speech/transcription/decision)**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)**, and the user-set `SshLimits` ceilings |
-| `docs/04-data-persistence.md` | Room schema v21, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup |
+| `docs/04-data-persistence.md` | Room schema v22, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the file and document tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
@@ -25,7 +25,6 @@ than implementation; the old feasibility studies are archived under
 | `docs/09-approvals.md` | The approval model: why the default is no prompts at all, how per-tool, per-assistant and per-path rules compose, and what of it is built |
 | `docs/10-diagnostics.md` | The flight recorder: what is logged, what is deliberately not, where the file lives and how to share it |
 | `docs/11-conversation-tools.md` | The conversation-level tool sheet: who may change it, the assistant ceiling, when it applies, and why it is not a new SSH exception |
-| `docs/12-desktop.md` | **Windows x64 host**: architecture, feature map, security invariants, build/package/sign commands, verification and known limitations |
 | `docs/13-product.md` | **Technology-neutral product document**: design principles, current features, future plans |
 | `docs/14-documents-voice.md` | The documents/voice decision: format matrix and libraries, the neutral model and loss report, read/write limits, the three tools, Android-only voice |
 | `docs/archive/` | Historical feasibility/design studies; not current documentation |
@@ -37,41 +36,20 @@ Keep the docs current: a commit that changes a documented behaviour changes the
 document in the same commit, or the doc becomes the next "comment that is the
 bug".
 
-## Default scope: Android, not the desktop host
+## Scope: Android only
 
-The Android app is the product; `:desktopApp` is a second host of the same
-shared core. **Unless a request explicitly names the desktop, Windows, or
-`:desktopApp`, do not change the desktop host.** Do not port a new screen,
-menu, string or feature to it "for parity" on your own initiative; that is a
-separate product decision.
+The Android app is the product. The Windows x64 desktop host that once consumed
+the same core was removed on 2026-11-20: it was not used, and its compile, test
+and UI work had begun to tax the Android build for no product reason. Its source
+is in git history before that date, and `docs/archive/` keeps the historical port
+studies. Do not reintroduce a second host, a desktop module, or a "for parity"
+port without an explicit product decision.
 
 A change to a shared core module (`:core:ai`, `:core:files`, `:core:db`,
-`:core:engine`, `:core:common`) can still affect both hosts. When it does, keep
-the desktop compiling and its tests green, but do not extend its UI or feature
-set unless asked.
-
-### The desktop must not gate Android
-
-The desktop is a consumer, not a gatekeeper. A one-off conflict is normal; a
-repeated tax is not. Split the desktop into its own build/repository when any of
-these persists across roughly two Android changes or one release cycle:
-
-- an Android change is blocked or repeatedly delayed by `:desktopApp` compile,
-  test, API or UI work;
-- a shared-core API or schema change cannot land without desktop feature work;
-- Kotlin/Compose/AGP upgrades are held back by the desktop host;
-- desktop packaging or CI failures block an Android release;
-- a desktop constraint forces a worse Android design.
-
-One failed compile is not a trigger — fix the coupling. The trigger is a
-repeatable cost that changes Android's schedule.
-
-A split must preserve the design principles and capabilities: the workspace
-boundary, no full-access mode, the per-turn tool set, default-free approvals
-with an opt-in ask, paid/remote disclosure, SSH consent, and the data/backup
-contract. Split the host first (the desktop consumes the core as an artifact);
-if the core is reimplemented, add conformance tests for those invariants before
-either side ships. A split that loses them is a product fork, not a host split.
+`:core:engine`, `:core:common`, `:core:documents`, `:core:design`) is still a
+shared-core change: keep it platform-free where it already is, and keep its JVM
+tests green. Those modules are plain JVM because that is what makes them testable
+without a device -- not because a second host exists.
 
 ---
 
@@ -102,12 +80,13 @@ Two consequences bind every future change, and neither is negotiable:
   Adding `ssh_exec`, `ssh_upload` or `ssh_write_file` asks again rather than
   inheriting a narrower read-only grant.** When SSH is on, the agent
   can inspect a host, read files, write small text files, transfer files, and —
-  only if `ssh_exec` is selected — run commands on a remote machine whose address
-  and credentials the user supplies; the app can save **one** host for convenience,
-  without a security or privacy promise (`docs/13-product.md`). SSH **credential**
-  arguments (`password`, `privateKey`,
-  `passphrase`) are redacted before storage. Command text, paths and
-  `ssh_write_file` content
+  only if `ssh_exec` is selected — run commands on a remote machine. The app
+  keeps an address book of aliases, addresses, ports, users and optional
+  fingerprints — **never a credential** — and each conversation decides which of
+  those `ssh_hosts` may show it, without a security or privacy promise
+  (`docs/13-product.md`). The connection, including its key or password, is in
+  the call; the agent can only use what the user handed it, and a password sent
+  that way stays in the transcript. Command text, paths and `ssh_write_file` content
   are part of the call and remain in the transcript. Do not add another exception
   without answering `docs/08-port-philosophy.md` §1.2.1 and §1.5.
 
@@ -136,15 +115,19 @@ just the web and media tools.
 
 **Remote capability is disclosed separately.** Every SSH tool carries `remote =
 true`, a filled `REMOTE` badge, a notice above the tool list, and a dedicated
-first-call consent dialog. The app can save one host and its credentials in the
-platform secret store for convenience, never as a security or privacy promise;
-there is no host list or fleet manager, and backups exclude the secret. SSH
-**credential** arguments are redacted
-before the transcript is stored; command text, paths and `ssh_write_file`
-content are not. The ordinary approval dialog must never show a password or
-private key — the SSH tools supply a redacted `details` string; `ssh_upload` and
-`ssh_write_file` are also `NO REWIND` because they replace remote files.
-The rules are `docs/08-port-philosophy.md` §1.2.1 and §1.5.
+first-call consent dialog. Settings holds an **address book** — alias, address,
+port, username, optional fingerprint, **never a password or key** — as one
+document in the platform secret store; backups exclude it, and there is no
+stored credential for any call to use. **`ssh_hosts`** (`optIn`, hidden while the
+switch is off, not `remote`) shows a conversation the entries the user ticked
+(`conversations.sshHostsJson`); that is information, so a change applies to the
+next turn and does **not** reset the SSH grant. The connection is in the call:
+`host`/`port`/`username` plus `identityFile` or `password`, so the agent can only
+use what the user handed it, and a password sent that way is part of the
+conversation. Command text, paths and `ssh_write_file` content are not redacted.
+The ordinary approval dialog must never show a password or private key;
+`ssh_upload` and `ssh_write_file` are `NO REWIND` because they replace remote
+files. The rules are `docs/08-port-philosophy.md` §1.2.1 and §1.5.
 
 Full reasoning, plus the design questions and how each was answered, is in
 `docs/08-port-philosophy.md`. Do not add a mode, a permission prompt, or a "pro"
@@ -321,6 +304,49 @@ Also worth knowing: `adb shell input` is blocked outright on some OEM builds
 (HyperOS refuses synthetic events without an extra developer setting), so a
 physical phone may be deployable and inspectable but not drivable.
 
+### The LAN server: updates and log upload
+
+`tools/dev-server.py` is how a build reaches the phone and a log comes back when
+no cable is attached. It serves `dist/` (the APK and `update.json`) and accepts
+two POSTs: `/log` → `logs/`, `/conversation` → `logs/conversations/`. No
+authentication, no accounts: LAN or Tailscale only, never a public port.
+
+```powershell
+# The interpreter is not interchangeable. Windows firewall has inbound allow
+# rules for C:\python314\python.exe and none for the conda interpreter that
+# plain `python` resolves to, so this exact path is reachable from the phone and
+# the other one is not.
+C:\python314\python.exe tools\dev-server.py --port 8787 --dist dist --logs logs
+```
+
+It prints the addresses it can be reached at (on this machine Tailscale comes
+first; the LAN address is the one for a phone on the same Wi-Fi). Put one in
+Settings → Updates and logs. HTTP is accepted only for private ranges, `*.local`,
+`*.ts.net` and Tailscale CGNAT, so a public host would need HTTPS.
+
+**Publishing a build needs the version bump first.** The updater offers only
+`versionCode >` the installed one, and `release-apk.ps1` deliberately does not
+bump it — bump `app/build.gradle`, then:
+
+```powershell
+.\tools\release-apk.ps1 -Notes 'what changed'
+```
+
+`-Notes` must not contain typographic quotes: PowerShell 7 treats `“ ”` as
+string delimiters, so such a note is split, the leftover words bind to the next
+positional parameter, and the APK and manifest land in a directory named after
+the note instead of `dist/`. Use straight quotes or none.
+
+Without `keystore.properties` the release APK is debug-signed. That still
+updates an install made from an earlier `dist/` build; it cannot update one
+signed with a different key, which means uninstall and restore. The updater
+checks the manifest's SHA-256, package name, version code and the installed
+certificate before `PackageInstaller` asks the user.
+
+Logs the phone uploads land in `logs/` in this checkout, so they can be read
+here instead of asking for them to be sent. What that file does and does not
+contain is `docs/10-diagnostics.md`.
+
 ---
 
 ## Things that are load-bearing
@@ -331,7 +357,7 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   No symlinks, ever, plus a real-path prefix check. On Windows that check must
   use `Path.toRealPath()` for existing components: `File.canonicalFile` does
   **not** resolve a junction, and `Files.isSymbolicLink` does not report one.
-  A junction escape was found by the desktop host and is pinned by
+  A junction escape found by that Windows check is pinned by
   `SessionWorkspaceTest`.
 - **The workspace self-check runs before the first frame and fails closed.**
   `WorkspaceSelfCheck` asks the device the same questions the unit tests ask
@@ -535,7 +561,24 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   `ToolCatalog.visible(sshEnabled)` for user-facing lists; a greyed row still
   advertises the capability. Adding `ssh_exec`, `ssh_upload` or `ssh_write_file`
   to an existing grant resets `sshAllowed`; adding `ssh_probe`, `ssh_list` or
-  `ssh_read_file`, and removing any tool, does not.
+  `ssh_read_file`, and removing any tool, does not. Changing the conversation's
+  host selection does not touch it: the list is information.
+- **The address book is information; the call carries the connection.** Saved
+  entries live in `SecureStore` as one document with **no credential**, and
+  `conversations.sshHostsJson` holds only the ids `ssh_hosts` may return. No
+  tool resolves an alias: `SshArguments` reads `host`/`port`/`username` from the
+  call and a key from the workspace (`identityFile`, through
+  `SessionWorkspace`) or a password. Sharing a host therefore grants nothing and
+  changing the selection does not touch `sshAllowed`; the earlier design, in
+  which `host` was an alias the app turned into a stored password, made the
+  "which machines may the agent see" toggle a credential grant and is recorded
+  as refused in `docs/08-port-philosophy.md` §1.2.1.
+- **The gap report may not name a switched-off capability.** `unavailable_tools`
+  subtracts the registry from `ToolCatalog.visible(...)`, so a tool the user
+  turned off app-wide (SSH, the sandbox, follow-ups) is not in the universe and
+  is never reported -- otherwise the tool is the "greyed row" §1.2.1 refuses, in
+  text form, and a prompt injection learns the name it wanted. It reports only
+  what the user can fix from here: the conversation selection or a missing key.
 - **`ssh_probe` is a fixed script, not a second exec.** It accepts connection
   details only; do not add a command, path or argument that the model can vary.
   The moment it can run model-supplied input it is `ssh_exec` with a better name.
@@ -570,9 +613,9 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   released in `finally`, so a stop or a throw cannot leak a slot. The third turn
   is **refused with an error, not queued** -- a queue nobody can see is a turn
   the user thinks has started. The engine executes calls sequentially and a test
-  measures overlap at one; do not port the desktop's parallel calls or add a
-  subagent without answering `docs/08-port-philosophy.md` Q4 (subagents: one,
-  serial, non-recursive).
+  measures overlap at one; do not add parallel tool calls or a subagent without
+  answering `docs/08-port-philosophy.md` Q4 (subagents: one, serial,
+  non-recursive).
 - **Turn notifications are keyed by conversation.** `ChatViewModel` reports a
   `TurnStatus`; `MainActivity` passes it to `TurnNotifications`; the foreground
   service renders one notification per active turn, and a summary only when
@@ -600,6 +643,15 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   interceptor restores that. Do not fold it into `readTimeout`. Its
   `HeaderTimeoutException` message contains "no response", which is what makes
   `chatErrorAction` offer Retry.
+- **A provider retry is per round and discards that round's output.**
+  `ChatEngine` re-sends a transiently failed request up to five times
+  (`RetryPolicy`), before committing the round and before running any tool in
+  it, so a retry in round 2 cannot replay round 1's write. The failed attempt's
+  text is cleared in the engine, and the Android row swaps its `deltas` channel
+  because the incremental Markdown renderer cannot rewind; appending the retry
+  would duplicate the answer. A `Finish` followed by an `IOException` is a clean
+  end. Do not move retry into the provider (it cannot know what was rendered)
+  and do not retry a whole turn (`docs/07-gotchas.md` A21).
 
 ---
 
@@ -615,7 +667,6 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   :core:files:test `
   :core:documents:test `
   :core:common:test `
-  :desktopApp:test `
   --console=plain --rerun-tasks
 ```
 
@@ -625,18 +676,15 @@ runs exactly this list and fails on the first compiler warning; a CI host should
 call that script rather than duplicate the arguments. Check that the
 warning output is empty as well as the error output — this tree currently
 compiles clean, and that is worth keeping. `:core:common`, `:core:ai`,
-`:core:files`, `:core:documents`, `:core:db` and `:core:engine` are plain JVM modules now;
-`:desktopApp` is the full Compose Desktop Windows host and consumes the same
-jars; its build, packaging and verification details are in
-`docs/12-desktop.md`.
+`:core:files`, `:core:documents`, `:core:db` and `:core:engine` are plain JVM modules now.
 `:core:db` owns the Room schema *and* the platform-free repositories
 (`ConversationRepository`, `AgentRepository`, `PolicyRepository`,
 `SnapshotStore`); `:core:data` is the Android adapter (Keystore `SecureStore`,
 `Database.open(context)`, backup, `DocumentsProvider`). Repositories take a
 `DataPaths` and, where needed, a `SecretStore` -- never a `Context` -- which is
-what lets the desktop open the same database and workspace layout.
-`:core:engine` is the turn loop; the desktop window and every Android provider
-turn use it, SSH included. SSH consent, approval, the start checkpoint and
+what keeps them testable on a plain JVM.
+`:core:engine` is the turn loop; every Android provider turn uses it, SSH
+included. SSH consent, approval, the start checkpoint and
 argument normalisation are injected through the engine's approval hook from
 `ChatViewModel.gateEngineCall`; a missing provider or model is refused before
 the engine starts. There is no second turn loop.
@@ -653,27 +701,6 @@ makes one `/models` call and is a no-op otherwise. The `:core:data`
 instrumentation suite (migrations, workspace lifetime, provider profiles, the
 documents provider) needs a device; its list is in
 `docs/README.md`.
-
-The desktop app compiles to Java 17 but **runs and packages on Java 21+**: the
-Markdown renderer is Java 21 bytecode. Set `INHUMAN_DESKTOP_JAVA_HOME` to a
-**full** JDK 21+ with `jpackage` (Temurin 21 here; Android Studio's JBR has the
-runtime but no `jpackage`) before `:desktopApp:run`, `createDistributable` or
-`packageMsi`; tests and compilation still use the Gradle JDK 17. A run without it
-fails at the first rendered reply, not at build time.
-
-Building the MSI also needs WiX 3 (`candle.exe`/`light.exe`). Point `WIX_PATH` at the
-WiX directory (`C:\android-toolchain\wix314` here); the Compose plugin then uses it
-instead of trying to download WiX from GitHub. The MSI is per-user: it installs to
-`%LOCALAPPDATA%\inhuman` and the app keeps its database/workspaces in the sibling
-`%LOCALAPPDATA%\inhuman-data`, so uninstalling the app does not delete the data.
-It also carries `desktopApp/src/main/resources/icon.ico` and a single-instance
-file lock (`instance.lock` in the data directory).
-
-`tools/sign-msi.ps1 -Msi <file> -Pfx <pfx> -Password <password>` signs the built
-MSI; `-Thumbprint` works for a certificate already in `CurrentUser\My`. The
-checked-in workflow uses a self-signed development certificate under `.signing/`
-(not trusted by default, and gitignored); distributing to other machines needs a
-real code-signing certificate.
 
 Release builds sign from `keystore.properties` when present and fall back to the
 debug key otherwise. The keystore and properties are gitignored; losing them

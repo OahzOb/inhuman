@@ -9,7 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The stored tool-call column, shared by Android and the desktop host.
+ * The stored tool-call column.
  *
  * The argument strings are compared unchanged because the provider cache
  * compares the request it produced; re-serialising a parsed object would change

@@ -1,11 +1,11 @@
 package com.inhuman.core.ai.tools
 
-import com.inhuman.core.ai.ssh.SshProfile
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -108,37 +108,56 @@ class SshArgumentsTest {
 	}
 
 	@Test
-	fun aSavedConnectionCanSupplyTheConnectionFields() {
-		val saved = SshProfile(
-			host = "saved.example",
-			port = 2222,
-			username = "deploy",
-			password = "secret",
-		)
-		val call = args("useSavedHost" to "true", "command" to "uptime")
-
-		assertNull(SshArguments.missingRequired("ssh_exec", call) { saved })
-		val parsed = SshArguments.parse("ssh_exec", call, { null }) { saved }
-
-		val connection = (parsed as SshArguments.Parsed.Ok).value
-		assertEquals("saved.example", connection.host)
-		assertEquals(2222, connection.port)
-		assertEquals("deploy", connection.username)
-		assertEquals("secret", connection.auth.password)
-	}
-
-	@Test
-	fun namingASavedConnectionThatDoesNotExistIsRefused() {
-		val call = args("useSavedHost" to "true", "command" to "uptime")
-		assertEquals(
-			"a saved SSH host (none is configured)",
-			SshArguments.missingRequired("ssh_exec", call),
-		)
-	}
-
-	@Test
 	fun hostnameIsAcceptedAsHost() {
 		val aliased = args("hostname" to "example.test", "username" to "root", "command" to "id")
 		assertNull(SshArguments.missingRequired("ssh_exec", aliased))
+	}
+
+	@Test
+	fun aPasswordInTheCallIsAccepted() {
+		// Allowed on purpose, with the cost stated in the tool description: the
+		// password becomes part of the conversation. The alternative -- the app
+		// attaching a stored credential -- is what this design refuses.
+		val call = args(
+			"host" to "example.test",
+			"username" to "root",
+			"password" to "pw",
+			"command" to "uptime",
+		)
+
+		val parsed = SshArguments.parse("ssh_exec", call, { null })
+
+		val connection = (parsed as SshArguments.Parsed.Ok).value
+		assertEquals("example.test", connection.host)
+		assertEquals(22, connection.port)
+		assertEquals("pw", connection.auth.password)
+		assertNull(connection.auth.privateKey)
+	}
+
+	@Test
+	fun aCallWithoutAnyAuthenticationIsRefused() {
+		val call = args("host" to "example.test", "username" to "root", "command" to "uptime")
+
+		val message = (SshArguments.parse("ssh_exec", call, { null }) as SshArguments.Parsed.Error).message
+
+		assertTrue(message.contains("authentication is required"))
+	}
+
+	@Test
+	fun anIdentityFileIsReadFromTheWorkspaceAndNotFromASavedHost() {
+		val call = args(
+			"host" to "example.test",
+			"username" to "root",
+			"identityFile" to "keys/id_ed25519",
+			"command" to "uptime",
+		)
+
+		val parsed = SshArguments.parse("ssh_exec", call) { path ->
+			if (path == "keys/id_ed25519") "KEY".toByteArray() else null
+		}
+
+		val connection = (parsed as SshArguments.Parsed.Ok).value
+		assertEquals("KEY", connection.auth.privateKey?.toString(Charsets.UTF_8))
+		assertNull(connection.auth.password)
 	}
 }

@@ -19,8 +19,8 @@ import java.io.ByteArrayOutputStream
  *
  * PDFBox is the maintained Android port and is used only for reading; its
  * standard fonts cannot draw CJK, so writing uses `android.graphics.pdf`, whose
- * text goes through the system font stack. A host without this adapter (the
- * desktop build) refuses PDF rather than returning an empty document.
+ * text goes through the system font stack. A document layer without this
+ * adapter refuses PDF rather than returning an empty document.
  */
 class AndroidPdfBackend(context: Context) : PdfBackend {
 
@@ -57,7 +57,8 @@ class AndroidPdfBackend(context: Context) : PdfBackend {
 					""
 				}
 				if (text.isBlank()) {
-					warnings += "page $number has no text layer (it may be scanned)."
+					warnings += "page $number has no text layer (it may be scanned); " +
+						"read_pdf_vision can transcribe it when that tool is available."
 				}
 				extracted += Page(number, text.trim())
 			}

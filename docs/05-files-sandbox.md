@@ -283,8 +283,8 @@ survives an edit even though it cannot be rendered. A read or conversion records
 what the neutral model could not carry in a `LossReport` — unsupported features,
 flattened formulas, skipped sheets, truncation — and the tool result says so.
 A scanned PDF page is reported as having no text layer, not as an empty document.
-PDF/DOC/XLS backends are host-supplied: the Android host passes PDFBox and POI;
-the desktop host has none and refuses those formats with a reason. Android reads
+PDF/DOC/XLS backends are host-supplied: the Android host passes PDFBox and POI,
+and a format with no backend is refused with a reason. Android reads
 and writes XLS, and writes DOC into a bundled blank Word 97 template rather than
 renaming a DOCX/RTF; DOC output is plain paragraphs (tables and formatting are
 flattened), and DOC reads report that structure is not represented. The

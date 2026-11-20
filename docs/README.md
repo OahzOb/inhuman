@@ -5,16 +5,16 @@ project **without reading the source first**. Most state what the code does and,
 where useful, cite the file that decides the behaviour; `13-product.md` is the
 deliberate exception, written at the product level with no code references.
 
-There are now **two hosts** in one repository:
-
-- the Android app (`:app`), which is the original product;
-- the Windows x64 desktop app (`:desktopApp`), which shares the JVM core.
-
-`01`–`11` describe Android/shared behaviour. `12` is the current Windows desktop
-document. `13` is the technology-neutral product document: principles, current
-features and future plans, with no stack or implementation detail. The old
+The project is **Android-only**: the Android app (`:app`) is the product. The
+Windows x64 desktop host (`:desktopApp`) that shared the JVM core was removed on
+2026-11-20 and survives only in git history — it went unused, and the second
+host's compile, test and UI work had begun to tax the Android build. The old
 feasibility studies are in [`archive/`](archive/README.md) and are historical,
 not current documentation.
+
+`01`–`11` describe Android/shared behaviour. `13` is the technology-neutral
+product document: principles, current features and future plans, with no stack or
+implementation detail. `14` is the documents/voice decision.
 
 They are not a replacement for the root `README.md`, and they are not a
 tutorial. The root README explains *what the app is* and what it deliberately is
@@ -28,7 +28,7 @@ not; `AGENTS.md` states the non-negotiable working rules. These files explain
 | [01-overview.md](01-overview.md) | What this is, which module holds what, what the app does today, what is deliberately missing |
 | [02-architecture.md](02-architecture.md) | Module graph, dependency rule, start-up wiring, navigation, build toolchain, build/verify commands |
 | [03-ai-provider.md](03-ai-provider.md) | Provider interface and stream types, provider profiles, OpenAI-compatible / Anthropic / Gemini / Responses adapters, SSE, demo mode, paid web tools, SSH tools and limits |
-| [04-data-persistence.md](04-data-persistence.md) | Room schema v19 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
+| [04-data-persistence.md](04-data-persistence.md) | Room schema v22 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | Turn lifecycle, tool execution, approval gate, cancellation, context gauge, Compose layout |
 | [07-gotchas.md](07-gotchas.md) | Load-bearing invariants, and mistakes that already cost someone a day |
@@ -36,7 +36,6 @@ not; `AGENTS.md` states the non-negotiable working rules. These files explain
 | [09-approvals.md](09-approvals.md) | Approval model: no prompt by default, how per-tool/per-assistant/per-path rules compose, built status |
 | [10-diagnostics.md](10-diagnostics.md) | Flight recorder: what is logged, what is left out, where it lives, how to share it |
 | [11-conversation-tools.md](11-conversation-tools.md) | Conversation-level tool sheet: assistant ceiling, next-turn timing, why it is not a new SSH exception |
-| [12-desktop.md](12-desktop.md) | **Windows x64 host**: architecture, feature map, security invariants, build/package/sign commands, verification and known limitations |
 | [13-product.md](13-product.md) | **Product document, deliberately technology-neutral**: design principles, current features and future plans |
 | [14-documents-voice.md](14-documents-voice.md) | Documents/voice decision: format matrix, libraries, loss reporting, limits, tools, Android-only voice, rejected alternatives |
 
@@ -47,13 +46,12 @@ not have time to read the rest. Everything in it was a real bug.
 setting, a mode, or a permission — it is where the project says which options it
 refuses to have.
 
-`12-desktop.md` is the one to read before changing or packaging the Windows host.
 `13-product.md` is the one to read before a product, platform or stack decision —
 it states what the product promises without naming a technology.
 
 ## Historical archive
 
-These were written before the desktop implementation and are kept for their
+These were written before the port was implemented and are kept for their
 measurements, rejected options and phase estimates:
 
 | File | What it is |
@@ -62,8 +60,17 @@ measurements, rejected options and phase estimates:
 | [archive/port-design.md](archive/port-design.md) | Original layering/event/phasing design |
 | [archive/README.md](archive/README.md) | Why they are archived, and where to go instead |
 
-Do not use them to answer “what does the desktop code do today”. That answer is
-`12-desktop.md`.
+Do not use them to answer “what does the code do today”. The numbered documents
+above are that answer.
+
+## Proposals
+
+Design proposals for features that are **not implemented**. They say what should
+be built and why; they are not a description of current behaviour.
+
+| File | What it proposes |
+| --- | --- |
+| [proposals/continuous-session.md](proposals/continuous-session.md) | A continuous-session mode: the record is never deleted, and the request projection becomes a rolling session brief plus recent turns instead of a user-triggered compaction |
 
 ## Conventions used here
 
@@ -91,10 +98,11 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 .\gradlew.bat :app:assembleDebug :app:testDebugUnitTest `
   :core:data:testDebugUnitTest :core:db:test :core:engine:test `
   :core:ai:test :core:files:test :core:documents:test :core:common:test `
-  :desktopApp:test --console=plain --rerun-tasks
+  --console=plain --rerun-tasks
 ```
 
-Latest run (2026-11-03, the full `--rerun-tasks` list from `AGENTS.md`):
+Latest full run (2026-11-03, before the desktop host was removed; the full
+`--rerun-tasks` list from `AGENTS.md`):
 
 ```
 BUILD SUCCESSFUL, 793 tests in 118 suites, 0 failures, 4 skipped
@@ -118,10 +126,12 @@ The skips are external-credential live tests: `DeepSeekWebLiveTest`,
 | `:core:db` | 9 | 34 |
 | `:core:engine` | 2 | 13 (1 skipped) |
 | `:core:data` | 3 | 19 |
-| `:desktopApp` | 14 | 39 |
 
-The total grows with every fix that lands with a test; treat it as a baseline to
-re-measure rather than a fact to quote. The command above is the authority.
+The totals above are the historical run and include the removed `:desktopApp`
+module's 14 suites and 39 tests; the surviving modules are 754 tests in 104
+suites. The total grows with every fix that lands with a test; treat it as a
+baseline to re-measure rather than a fact to quote. The command above is the
+authority.
 
 ### Device-only suites
 
@@ -136,6 +146,10 @@ These are not in the JVM total because they need an emulator or a phone:
 | `app/src/androidTest/…/web/RealProviderProbeTest` | One real `GET /models` when a key is stored; no-op otherwise |
 | `app/src/androidTest/…/EngineAndroidLiveTest` | One real engine completion; skips without a key |
 | `app/src/androidTest/…/ui/chat/ImagePreprocessorTest` | Android `Bitmap` decode/downscale/WebP pipeline |
+| `app/src/androidTest/…/ui/chat/CameraCaptureTest` | The camera's FileProvider write/read round trip and stale-capture sweep |
+| `app/src/androidTest/…/ui/chat/ConversationShareTest` | The share provider reads back the Markdown handed to the chooser |
+| `app/src/androidTest/…/ui/chat/PdfVisionRenderTest` | PDFBox rasterizes a page to a bounded JPEG |
+| `app/src/androidTest/…/ui/chat/PdfVisionToolTest` | An image-only PDF is rendered, sent as one image part to a fake provider, and its text is returned |
 | `core/data/src/androidTest/…/DocumentCodecAndroidTest` | DOCX/XLSX zip and DOM path on Android's parser |
 | `app/src/androidTest/…/ui/documents/AndroidPdfBackendTest` | PDFBox-Android text extraction and platform PDF creation |
 | `app/src/androidTest/…/ui/documents/LegacyPoiProbeTest` | POI BIFF8 round trip, legacy adapter, DOC-write refusal |
@@ -150,8 +164,7 @@ These are not in the JVM total because they need an emulator or a phone:
 
 Run them with `:app:connectedDebugAndroidTest` /
 `:core:data:connectedDebugAndroidTest`, or `adb shell am instrument`. Counts
-depend on which opt-in live tests are enabled. The desktop counterpart runs on
-the JVM; see [12-desktop.md](12-desktop.md).
+depend on which opt-in live tests are enabled.
 
 ## Which files own which behaviour
 
@@ -197,16 +210,14 @@ repository root; `…/` stands for `src/main/kotlin/com/inhuman/`.
 | HTTP, SSE, decoder, model list, request shape | `core/ai/…/provider/deepseek/` |
 | Provider profiles, model cache, key slots | `core/db/…/AgentRepository.kt`, `app/…/ui/chat/SettingsViewModel.kt` |
 | Demo mode's script and magic words | `core/ai/…/provider/demo/DemoProvider.kt` |
-| Diagnostics and the log file | `core/common/…/diag/`, `app/…/diagnostics/AppDiagnostics.kt`, `desktopApp/…/DesktopDiagnostics.kt` |
+| Diagnostics and the log file | `core/common/…/diag/`, `app/…/diagnostics/AppDiagnostics.kt` |
 | Tables, queries, ordering, migrations | `core/db/…/db/InhumanDatabase.kt`, `Entities.kt` |
 | Creating/deleting conversations, orphan sweep | `core/db/…/ConversationRepository.kt` |
 | Assistants' persistence and model cache | `core/db/…/AgentRepository.kt` |
 | Workspace/rollback directories | `core/db/…/DataPaths.kt` |
-| API key at rest | `core/data/…/secret/SecureStore.kt`, `desktopApp/…/secret/DpapiSecretStore.kt` |
+| API key at rest | `core/data/…/secret/SecureStore.kt` |
 | What the system Files app can do | `core/data/…/provider/WorkspaceDocumentsProvider.kt` |
 | Theme, type, hairlines, measure, wordmark | `core/design/…/` |
-| Windows desktop window/chat/store | `desktopApp/…/Main.kt`, `DesktopChat.kt`, `DesktopStore.kt` |
-| Windows packaging and signing | `desktopApp/build.gradle`, `tools/sign-msi.ps1`, `docs/12-desktop.md` |
 
 Three files carry more weight than their size suggests: `SessionWorkspace.kt`
 (the confinement gate), `Tool.kt` (the `mutates` / `needsApproval` distinction)
@@ -220,6 +231,6 @@ comments in this repository have been found making claims the implementation did
 not honour, and [07-gotchas.md](07-gotchas.md) section C lists the ones that still
 stand — which is the argument for the rule rather than an exception to it.
 
-When the desktop changes, update [12-desktop.md](12-desktop.md) in the same
-commit. When a historical decision is superseded, leave the archive alone and
-change the current document instead.
+When a documented behaviour changes, update the document in the same commit.
+When a historical decision is superseded, leave the archive alone and change the
+current document instead.

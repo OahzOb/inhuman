@@ -27,8 +27,10 @@ import com.inhuman.core.data.db.ProviderReasoning
 import com.inhuman.core.data.db.UsageRow
 import com.inhuman.core.data.oauth.OAuthSession
 import com.inhuman.core.data.secret.SecureStore
-import com.inhuman.core.ai.ssh.SshProfile
-import com.inhuman.ui.ssh.SavedSshHostStore
+import com.inhuman.core.ai.ssh.SshHost
+import com.inhuman.ui.ssh.SshHostStore
+import com.inhuman.ui.ssh.SshHostSummary
+import com.inhuman.ui.ssh.toSummary
 import com.inhuman.ui.backup.BackupReminderPolicy
 import com.inhuman.diagnostics.AppDiagnostics
 import com.inhuman.ui.settings.UsagePeriod
@@ -128,8 +130,8 @@ data class SettingsUiState(
 	val providers: List<ProviderProfileEntity> = emptyList(),
 	val editingProvider: ProviderDraft? = null,
 	val oauthLogin: OAuthLoginUi? = null,
-	/** Host shown for the one saved SSH profile; never includes secrets. */
-	val savedSshHost: String? = null,
+	/** Every saved SSH host, without credentials. */
+	val sshHosts: List<SshHostSummary> = emptyList(),
 	val providerStatus: String? = null,
 	val providerStatusIsError: Boolean = false,
 	val webSearchBackend: String = "deepseek",
@@ -256,7 +258,7 @@ class SettingsViewModel(
 	private val knownHostsFile: File,
 ) : ViewModel() {
 
-	private val savedSshHostStore = SavedSshHostStore(secure)
+	private val savedSshHostStore = SshHostStore(secure)
 
 	private val _state = MutableStateFlow(SettingsUiState())
 	val state: StateFlow<SettingsUiState> = _state.asStateFlow()
@@ -279,43 +281,54 @@ class SettingsViewModel(
 	private val oauth = OAuthSession(secure)
 
 	init {
-		_state.update { it.copy(savedSshHost = savedSshHostStore.load()?.host) }
+		_state.update { it.copy(sshHosts = savedSshHosts()) }
 		refreshRecordingState()
 	}
 
-	fun savedSshHost(): SshProfile? = savedSshHostStore.load()
+	/** Every saved host as the UI may see it: no password, key or passphrase. */
+	fun savedSshHosts(): List<SshHostSummary> =
+		savedSshHostStore.load().map { it.toSummary() }
 
 	/**
-	 * Save or forget the one remote host. A blank password/key keeps the saved
-	 * secret, so editing only the hostname does not silently erase credentials.
+	 * Save one address-book entry. A null [id] creates a new one.
+	 *
+	 * There is no credential here: the app never stores one for the agent to
+	 * use, so there is nothing to keep blank and nothing to preserve. A blank
+	 * fingerprint keeps the previous pin, because clearing it is a deliberate
+	 * act (forget the key) rather than the default result of editing a name.
 	 */
-	fun saveSavedSshHost(
+	fun saveSshHost(
+		id: String?,
+		name: String,
 		host: String,
 		port: Int,
 		username: String,
-		password: String?,
-		privateKey: String?,
-		passphrase: String?,
 		hostKeyFingerprint: String?,
 	) {
-		val previous = savedSshHostStore.load()
-		val saved = SshProfile(
+		val previous = id?.let { savedSshHostStore.find(it) }
+		val saved = SshHost(
+			id = id ?: savedSshHostStore.newId(),
+			name = name.trim(),
 			host = host.trim(),
 			port = port.coerceIn(1, 65535),
 			username = username.trim(),
-			password = password?.takeIf { it.isNotEmpty() } ?: previous?.password,
-			privateKey = privateKey?.takeIf { it.isNotBlank() } ?: previous?.privateKey,
-			passphrase = passphrase?.takeIf { it.isNotEmpty() } ?: previous?.passphrase,
 			hostKeyFingerprint = hostKeyFingerprint?.trim()?.takeIf { it.isNotBlank() }
 				?: previous?.hostKeyFingerprint,
 		)
-		savedSshHostStore.save(saved)
-		_state.update { it.copy(savedSshHost = saved.host) }
+		savedSshHostStore.upsert(saved)
+		_state.update { it.copy(sshHosts = savedSshHosts()) }
 	}
 
-	fun clearSavedSshHost() {
-		savedSshHostStore.clear()
-		_state.update { it.copy(savedSshHost = null) }
+	/**
+	 * Delete one host.
+	 *
+	 * Conversations that selected it keep the id; it resolves to nothing and
+	 * becomes unavailable, which is the intended failure -- deleting a host in
+	 * Settings must not silently hand a conversation a different machine.
+	 */
+	fun deleteSshHost(id: String) {
+		savedSshHostStore.remove(id)
+		_state.update { it.copy(sshHosts = savedSshHosts()) }
 	}
 
 	/** The verified download waiting for the Install button. */
@@ -448,6 +461,18 @@ class SettingsViewModel(
 
 	fun onLocalServerUrlChange(value: String) {
 		_state.value = _state.value.copy(localServerUrl = value)
+		// Keep the store in step with the edit. Uploading a conversation from
+		// the chat screen reads SecureStore directly: waiting for a Settings
+		// action to persist the URL made a fully typed address look unset there
+		// until the user happened to press Check for updates or Upload log.
+		// An invalid/cleared field removes the old value rather than leaving a
+		// hidden target behind the visible one.
+		val normalized = normalizeServerUrl(value)
+		if (normalized != null) {
+			secure.put(SecureStore.KEY_LOCAL_SERVER_URL, normalized)
+		} else {
+			secure.remove(SecureStore.KEY_LOCAL_SERVER_URL)
+		}
 	}
 
 	/**

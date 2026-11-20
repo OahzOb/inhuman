@@ -121,6 +121,39 @@
 				android:resource="@xml/diagnostics_paths" />
 		</provider>
 
+		<!--
+			The composer's camera capture. A separate authority over the cache
+			scratch directory: the camera app receives a write grant for one
+			photo, never for the diagnostics directory. The URI is created by
+			CameraCapture and the file is deleted once the image has been copied
+			into the workspace; no storage permission is involved.
+		-->
+		<provider
+			android:name=".ui.chat.CaptureFileProvider"
+			android:authorities="${applicationId}.capture"
+			android:exported="false"
+			android:grantUriPermissions="true">
+			<meta-data
+				android:name="android.support.FILE_PROVIDER_PATHS"
+				android:resource="@xml/capture_paths" />
+		</provider>
+
+		<!--
+			One conversation's Markdown, for the system share sheet. A separate
+			authority over cache/share/: the receiving app gets exactly the file
+			the user chose, not a path to diagnostics or the camera scratch
+			directory.
+		-->
+		<provider
+			android:name=".ui.chat.ShareFileProvider"
+			android:authorities="${applicationId}.share"
+			android:exported="false"
+			android:grantUriPermissions="true">
+			<meta-data
+				android:name="android.support.FILE_PROVIDER_PATHS"
+				android:resource="@xml/share_paths" />
+		</provider>
+
 	</application>
 
 </manifest>

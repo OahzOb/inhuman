@@ -35,7 +35,8 @@ dependencies {
 	// use are the same lifecycle.
 	api project(':core:files')
 	api project(':core:ai')
-	// The database/entities/DAOs are shared with the desktop JVM module.
+	// The database/entities/DAOs are platform-free, so the repositories can be
+	// tested on the JVM without an Android device.
 	api project(':core:db')
 
 	implementation libs.androidx.room.runtime

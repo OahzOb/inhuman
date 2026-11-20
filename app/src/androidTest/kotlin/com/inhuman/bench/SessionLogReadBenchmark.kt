@@ -19,9 +19,9 @@ import java.util.Random
  * median 365 bytes apart, each decompressing to roughly 4.3 KB of JSON.
  * Everything the product shows is a projection folded over that log, so a
  * port's cold start *is* "read the log". Whether that is affordable on a phone
- * decides whether porting the runtime is viable at all, and no desktop
- * measurement answers it: the same walk cost 177 ms per 24 MB on a desktop CPU,
- * and ARM64 could plausibly be five to ten times slower.
+ * decides whether porting the runtime is viable at all, and a fast x86 CPU does
+ * not answer it: the same walk cost 177 ms per 24 MB there, and ARM64 could
+ * plausibly be five to ten times slower.
  *
  * ## Why the file is generated rather than copied
  *

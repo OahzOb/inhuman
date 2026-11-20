@@ -1,12 +1,8 @@
 # inhuman
 
-An Android app and a Windows x64 desktop client where **every conversation works
-inside a workspace**, and the assistant can read and write files inside that
-workspace — and nowhere else, except for the opt-in SSH tools described below.
-
-Both hosts share the same JVM core, Room database schema, workspace layout, tool
-catalogue, turn loop, SSH transport and backup format. The Android app is the
-original product; the Windows client is the desktop host of the same runtime.
+An Android app where **every conversation works inside a workspace**, and the
+assistant can read and write files inside that workspace — and nowhere else,
+except for the opt-in SSH tools described below.
 
 > For a **technology-neutral** description of the product — design principles,
 > current features and future plans — see
@@ -55,7 +51,9 @@ provider switching and model/reasoning effort read from the provider, **native
 Anthropic Messages and Google Gemini adapters alongside DeepSeek and
 OpenAI-compatible profiles**, an approval gate that is
 **configurable per tool, per assistant and per path and asks nothing by
-default**, branch switching, image attachments, usage reporting, a context
+default**, branch switching, image attachments (picked or photographed), scanned
+PDF pages read by the conversation's vision model (an opt-in paid tool), usage
+reporting, a context
 gauge above the composer, a **Usage** section that totals provider-reported
 tokens and paid tool calls by day and conversation without converting prices,
 **plain-text export** of one conversation to Markdown (optionally with tool
@@ -70,36 +68,14 @@ Stop/Stop all and an approval **Review** action, a readable wire inspector for
 the exact system message, tool schemas, messages and raw tool calls (including
 final replies and reasoning), with long text collapsed, an in-app text editor,
 Open with… support so another app can edit and save a workspace file, and
-multi-select deletion for conversations and permanent workspaces. The app
+multi-select deletion for conversations (with select all) and permanent
+workspaces. The app
 starts in Chinese; Settings → **11 / Language** switches to English, as does
 the system's per-app language screen. The layout
 follows the window's width **and** height, with an Auto/Compact/Comfortable
 override; Settings is folded by concern; tool rounds and total tool calls have
 separate global budgets; and every SSH tool is absent from every picker while its
 global switch is off.
-
-### Windows x64 desktop
-
-The desktop client is functionally complete for the scope in this repository.
-It provides the conversation rail (search/pin/rename/delete), assistants and
-provider settings with DPAPI-backed API keys, Markdown streaming, tools and
-approval, the seven SSH tools with per-conversation consent, multi-turn rewind,
-context gauge and compaction, workspace file browse/import/export/edit/open,
-image attachments and drag/drop, encrypted backup/restore, diagnostics, a
-Chinese/English switch, tray notifications and keyboard shortcuts.
-
-It ships as a per-user MSI with a bundled Java 21 runtime. The installer and
-data directory are deliberately separate:
-
-```
-%LOCALAPPDATA%\inhuman\        application and bundled runtime
-%LOCALAPPDATA%\inhuman-data\  inhuman.db, files/, secrets.bin, logs/
-```
-
-The current MSI is signed with the development certificate in `.signing/`; a
-public release still needs a trusted code-signing certificate. Full desktop
-documentation, commands and known limitations are in
-[docs/12-desktop.md](docs/12-desktop.md).
 
 **Demo mode exercises the tool loop, not just the stream.** With file tools
 switched on it creates a file and then deletes it, so the tool loop, the
@@ -368,7 +344,6 @@ core/db/             Room schema + platform-free repositories
 core/engine/         shared turn loop
 core/ai/             provider + streaming + tools       (no Compose, no Activity)
 core/files/          the workspace sandbox
-desktopApp/          Compose Desktop Windows host
 ```
 
 The rule the split exists to enforce: **a module with no Android UI must not
@@ -429,7 +404,6 @@ quotas.
 $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 .\gradlew.bat :app:assembleDebug
 .\gradlew.bat :core:files:test
-.\gradlew.bat :desktopApp:run
 ```
 
 ### Another machine
@@ -460,11 +434,6 @@ the first `gradlew` then downloads once. `-NoRepair` reports without touching
 anything. It installs nothing and downloads nothing itself: two of the three
 need a licence click, and a script that guesses SDK paths is a second source of
 truth.
-
-The desktop host needs a **full JDK 21+ with `jpackage`** (not just a runtime)
-and WiX 3 for the MSI; see [docs/12-desktop.md](docs/12-desktop.md) for
-`INHUMAN_DESKTOP_JAVA_HOME`, `WIX_PATH`, packaging, signing and the Windows
-data layout.
 
 For the Android loop — build, install to the emulator, launch, screenshot:
 
@@ -498,7 +467,7 @@ Then:
 
 If the properties file is absent, the release build falls back to the debug
 signing key so a fresh clone can still build; that build cannot update a
-production signing identity. The release version is `0.8.9` / versionCode 45.
+production signing identity. The release version is `0.9.2` / versionCode 48.
 `lintVital` is skipped in this offline environment (`checkReleaseBuilds =
 false`); run lint separately when the network is available.
 
@@ -510,11 +479,12 @@ the first document or SSH call, not at build time. That cut the APK from about
 72 MB to about 21 MB, most of it the unused Material icons. A new dependency
 that reflects over its own classes needs a keep rule there before release.
 
-### Local updates and log upload
+### Local updates, log and conversation upload
 
-The app can install an update and upload a diagnostic log over a LAN or
-Tailscale link. Both use one base URL, set in **Settings → 08 Local**; nothing
-is checked or uploaded until you tap a button.
+The app can install an update, upload a diagnostic log, and upload one
+conversation over a LAN or Tailscale link. All use one base URL, set in
+**Settings → 09 Local**; nothing is checked or uploaded until you tap a button,
+and the conversation upload additionally has a preview/confirmation dialog.
 
 ```powershell
 # Bump versionCode/versionName in app/build.gradle first: Android refuses a
@@ -532,12 +502,21 @@ Tailscale URLs. To start it at logon, put a shortcut to it in
 
 `release-apk.ps1` builds `:app:assembleRelease`, verifies the APK with
 `apksigner`, copies it to `dist/`, and writes `dist/update.json` with the
-version, relative APK URL and SHA-256. `dev-server.py` serves that directory
-and accepts `POST /log`, saving each uploaded log under `logs/`; it prints the
-LAN addresses it sees. Use the PC's LAN address (for example
-`http://192.168.1.50:8787`) or a Tailscale `100.x`/MagicDNS address. Plain HTTP
-is accepted only for private, LAN or Tailscale hosts; a public host must use
-HTTPS.
+version, relative APK URL and SHA-256. `dev-server.py` serves that directory,
+accepts `POST /log` into `logs/`, and accepts the explicit
+`POST /conversation` into `logs/conversations/`; it prints the LAN addresses it
+sees. Use the PC's LAN address (for example `http://192.168.1.50:8787`) or a
+Tailscale `100.x`/MagicDNS address. Plain HTTP is accepted only for private, LAN
+or Tailscale hosts; a public host must use HTTPS.
+
+The **Upload conversation** action is separate from **Upload log**: it sends
+the conversation as plain Markdown (title, messages, reasoning, attachment
+paths, and tool calls/results only when the checkbox is on), with no image or
+attachment bytes; note that tool results can carry file or document text, which
+is why that checkbox is off by default. The upload happens only after the
+preview names the server. The server has no authentication, so keep it on a
+trusted network. **Export or share chat** remains local: Export writes a
+document you choose, Share opens the system share sheet with a cache copy.
 
 The install itself is still the system's: the app verifies the SHA-256, package
 name, version code and signing certificate, then hands the APK to
@@ -547,17 +526,17 @@ after a restart, until the manifest names a different build or the installed
 version catches up. All future builds must use the same key, which is why the
 release keystore above matters before the first distributed APK.
 
-The updater and log upload are app-level, user-initiated features, not tools;
-the agent still has no network path.
+The updater, log upload and conversation upload are app-level, user-initiated
+features, not tools; the agent still has no network path.
 
 ### Backup and long turns
 
 Settings → **06 / Backup** writes one AES-256-GCM encrypted file of the
 database and every workspace file, using PBKDF2-HMAC-SHA256 (210,000 iterations).
 The passphrase is never stored and cannot be recovered. **API keys are not in the
-backup** — they are Keystore-backed on Android and DPAPI-backed on Windows, and
-not portable. Rollback snapshots are also omitted; import clears them rather than
-offering a rewind to files that are not present.
+backup** — they are Keystore-backed on Android and not portable. Rollback
+snapshots are also omitted; import clears them rather than offering a rewind to
+files that are not present.
 
 Import decrypts and validates into a staging directory while the app runs, then
 asks for a restart. The swap happens in `InhumanApp.onCreate`, before Room opens,
@@ -596,10 +575,7 @@ which this setup does not use.
   of a per-conversation directory, which needs no shell. Skipping it also removes
   a real security problem: PRoot runs at the app's own UID, so "sandboxed" Linux
   code could read the conversation database and the stored API keys.
-- **No Linux desktop build in the current release.** Windows x64 is the desktop
-  target; Linux is not built or verified. See
-  [docs/12-desktop.md](docs/12-desktop.md).
-- **LaTeX rendering is implemented on the Android host.** `$...$` and `$$...$$`
+- **LaTeX rendering is implemented in the Android app.** `$...$` and `$$...$$`
   are rewritten to intercepted image links and drawn offline with the bundled
   JLaTeXMath-Android fonts; a formula is also handled while the answer streams.
   The licence was never the obstacle — the app is Apache-2.0 and JLaTeXMath

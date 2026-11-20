@@ -1,12 +1,15 @@
 package com.inhuman.core.ai.ssh
 
 /**
- * A saved SSH endpoint, used only when a tool call names `profile = "saved"`.
+ * A saved SSH endpoint, used only when a tool call asks for it.
  *
- * The model receives the name, never the secret: [password], [privateKey] and
- * [passphrase] are resolved on the host and redacted from the transcript like
- * inline credentials. This is convenience, not a security promise -- a device
- * that is compromised can use the saved connection just as the app can.
+ * The call asks with `useSavedHost = true`, or by sending a non-blank `profile`
+ * (`SshArguments` accepts both); an ordinary call with explicit host and
+ * credentials never reads this. The model receives the name, never the secret:
+ * [password], [privateKey] and [passphrase] are resolved on the host and
+ * redacted from the transcript like inline credentials. This is convenience,
+ * not a security promise -- a device that is compromised can use the saved
+ * connection just as the app can.
  */
 data class SshProfile(
 	val host: String,

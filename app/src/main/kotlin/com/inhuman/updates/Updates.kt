@@ -51,6 +51,16 @@ fun updateManifestUrl(base: String): String = "$base/update.json"
 
 fun logUploadUrl(base: String): String = "$base/log"
 
+/**
+ * One conversation, deliberately not the diagnostics endpoint.
+ *
+ * The two bodies have different content and different retention: `/log` is
+ * metadata with no message text, while a conversation is the transcript
+ * itself. Keeping the paths separate makes the consent text and the server's
+ * storage directory unambiguous.
+ */
+fun conversationUploadUrl(base: String): String = "$base/conversation"
+
 fun isNewerVersion(remote: Long, current: Long): Boolean = remote > current
 
 /**

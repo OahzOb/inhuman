@@ -165,6 +165,19 @@ interface ConversationDao {
 	suspend fun setSshAllowed(id: String, allowed: Boolean)
 
 	/**
+	 * Replace a conversation's allowed-host selection.
+	 *
+	 * No `updatedAt` bump, for the same reason as [setTools]: which machines a
+	 * conversation may reach is a capability edit, not new conversation
+	 * activity.
+	 */
+	@Query("UPDATE conversations SET sshHostsJson = :json WHERE id = :id")
+	suspend fun setSshHosts(id: String, json: String)
+
+	@Query("SELECT sshHostsJson FROM conversations WHERE id = :id")
+	suspend fun sshHosts(id: String): String?
+
+	/**
 	 * Replace a conversation's tool selection.
 	 *
 	 * No `updatedAt` bump: changing which tools exist is not new conversation
@@ -626,13 +639,14 @@ interface SavedPromptDao {
 	// latency, again for assistants, again for the approval rules, again for
 	// the approval audit, again for the saved-prompt library, again for the
 	// Anthropic thinking signature, and again for OpenAI Responses provider
-	// state, again for the per-assistant follow-up suggestion settings, and
-	// again for the OpenCode reasoning-mode correction. Room refuses to open a
-	// database whose schema hash does not match rather than guessing, which is
-	// how each was caught: the app crashed on launch with "Looks like you've
-	// changed schema but forgot to update the version number" instead of
-	// quietly losing conversations.
-	version = 21,
+	// state, again for the per-assistant follow-up suggestion settings, again
+	// for the OpenCode reasoning-mode correction, again for the pinned
+	// workspace instructions, and again for the per-conversation SSH host
+	// selection. Room refuses to open a database whose schema hash does not
+	// match rather than guessing, which is how each was caught: the app crashed
+	// on launch with "Looks like you've changed schema but forgot to update the
+	// version number" instead of quietly losing conversations.
+	version = 22,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -650,7 +664,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 		const val NAME = "inhuman.db"
 
 		/** Mirrors the Room annotation; backups record it without reflection. */
-		const val VERSION = 20
+		const val VERSION = 22
 
 		/**
 		 * 1 -> 2: tool-call columns.
@@ -1133,13 +1147,29 @@ abstract class InhumanDatabase : RoomDatabase() {
 		}
 
 		/**
+		 * 21 -> 22: a conversation can be given a set of saved SSH hosts.
+		 *
+		 * Additive with an empty default, and the default is the safe answer:
+		 * an old conversation has no host selected, so its SSH tools stay
+		 * unregistered until the user picks one. Nothing is inferred from the
+		 * one host an earlier release could save -- that connection was never a
+		 * grant to a conversation.
+		 */
+		val MIGRATION_21_22 = object : Migration(21, 22) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"ALTER TABLE conversations ADD COLUMN sshHostsJson TEXT NOT NULL DEFAULT ''",
+				)
+			}
+		}
+
+		/**
 		 * Every migration, in order.
 		 *
-		 * A host that builds the database itself must not copy this list. The
-		 * Android host has `Room.databaseBuilder(context, ...)`; the desktop host
-		 * builds from a file path, and forgetting one entry there would turn a
-		 * schema upgrade into a failure the moment a desktop install is older
-		 * than the code.
+		 * A builder must not copy this list. `:core:data` uses
+		 * `Room.databaseBuilder(context, ...)`; a test or another builder that
+		 * omitted one entry would turn a schema upgrade into a failure the
+		 * moment an install is older than the code.
 		 */
 		val MIGRATIONS = arrayOf(
 			MIGRATION_1_2,
@@ -1162,14 +1192,15 @@ abstract class InhumanDatabase : RoomDatabase() {
 			MIGRATION_18_19,
 			MIGRATION_19_20,
 			MIGRATION_20_21,
+			MIGRATION_21_22,
 		)
 
 		/**
-		 * What every host installs, on create and on open.
+		 * What every builder installs, on create and on open.
 		 *
 		 * The seeding lives here rather than in an anonymous callback in
-		 * `:core:data` because the desktop host has no `Context` builder to put
-		 * one in, and an install with no default assistant would create
+		 * `:core:data` because it must run for any builder, not only the
+		 * Android one, and an install with no default assistant would create
 		 * conversations with nothing to attach to.
 		 */
 		fun callback(): RoomDatabase.Callback = object : RoomDatabase.Callback() {

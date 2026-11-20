@@ -2,7 +2,7 @@
 
 > **Historical document.** This is the original design draft, written before the
 > desktop host existed. It is not a description of the current code. Current
-> implementation: [../12-desktop.md](../12-desktop.md).
+> implementation: [../01-overview.md](../01-overview.md).
 
 配套文档：[`port-assessment.md`](port-assessment.md)（可行性、实测数据、结论依据）。
 本文是**怎么做**，那篇是**为什么值得做、代价多大**。

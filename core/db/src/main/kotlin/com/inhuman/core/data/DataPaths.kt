@@ -6,8 +6,8 @@ import java.io.File
  * The directories the data layer owns, supplied by the host.
  *
  * These used to be derived from Android's `context.filesDir` inside the
- * repository, which is precisely why the repository could not run on the
- * desktop JVM. The layout is unchanged -- `conversations/` for one workspace
+ * repository, which is precisely why the repository could not run on a plain
+ * JVM. The layout is unchanged -- `conversations/` for one workspace
  * per conversation and `rollback/` for the checkpoint store, both under the
  * app's private files directory -- so an existing Android install opens the
  * same files after the repository moved modules.

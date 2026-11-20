@@ -2,9 +2,8 @@
 
 ## What the app is
 
-An Android app and a Windows x64 desktop host where **every conversation owns a
-folder**, and the assistant can read and write files inside that folder — and
-nowhere else (`README.md:3`).
+An Android app where **every conversation owns a folder**, and the assistant can
+read and write files inside that folder — and nowhere else (`README.md:3`).
 
 The sandbox is the product. It is enforced by the interface rather than
 requested in a prompt: a tool never receives the workspace root and never builds
@@ -24,15 +23,14 @@ supplies. With SSH off — the
 default — the paragraph above is true as written. See
 [03-ai-provider.md](03-ai-provider.md) and [08-port-philosophy.md](08-port-philosophy.md) §1.2.1.
 
-Single user; the Android app and the Windows host read the same data model on
-their respective machines. DeepSeek is the seeded provider; additional
+Single user. DeepSeek is the seeded provider; additional
 OpenAI-compatible profiles can be configured per assistant. Open source under
 Apache-2.0 (`LICENSE`): the fence around a conversation is a security claim, and
 an unauditable one would be worth very little (`README.md:359-363`).
 
 ## Shape of the repository
 
-Ten Gradle modules; `_research/` and `tools/` are not modules:
+Nine Gradle modules; `_research/` and `tools/` are not modules:
 
 ```
 app                      UI, theme, entry point, all ViewModels
@@ -40,11 +38,10 @@ core/common              platform-free shared code (the diagnostics facade)
 core/design              colour, type, theme, layout constants
 core/data                Android adapters: Keystore secrets, Database.open, backup, DocumentsProvider
 core/db                  Room schema + platform-free repositories       (plain JVM)
-core/engine              the turn loop, shared with the desktop host (plain JVM)
+core/engine              the turn loop (plain JVM)
 core/ai                  provider + streaming + tools                (plain JVM)
 core/files               the workspace sandbox and the 11 file/document tools (plain JVM)
 core/documents           CSV/TXT/DOCX/XLSX read/write, neutral model, loss report (plain JVM)
-desktopApp               Windows x64 Compose Desktop host (same core + Room schema)
 _research/               background investigations, kept as evidence — not compiled
 tools/                   PowerShell device-driving and verification scripts
 docs/                    this set
@@ -57,14 +54,14 @@ without a device. Dependencies run one way only — `app` depends on six of the
 seven `core` modules (`core:db` arrives through `core:data`'s API), and no
 `core` module depends on `app` or on another `core` module's UI.
 
-## Two hosts
+## One host
 
-The Android app is the original product. The Windows x64 desktop host
-(`:desktopApp`) is functionally complete for the scope of this repository and
-shares the JVM core: the same Room schema, workspace sandbox, tool catalogue,
-turn loop, SSH transport, provider adapter and backup format. Its architecture,
-feature map, security invariants and build/sign commands are in
-[12-desktop.md](12-desktop.md). Linux is out of scope.
+The Android app is the product. The Windows x64 desktop host that consumed the
+same JVM core was removed on 2026-11-20 and survives only in git history: it went
+unused, and the second host's compile, test and UI work had begun to tax the
+Android build for no product reason. The core modules stay plain JVM because that
+is what makes them testable without a device, not because a second consumer
+exists.
 
 ## What works today
 
@@ -97,8 +94,11 @@ Confirmed by `README.md:17-29` and by the code:
 - Per-conversation model and reasoning effort, read from the provider.
 - The model can run commands and move files on a remote machine over SSH, but only
   after the user turns the global switch on, gives the assistant the SSH tools,
-  and allows it once per conversation; one saved host may be reused only when the
-  call asks for it, and SSH tool-call arguments are redacted before storage
+  and allows it once per conversation. Settings holds an address book of hosts
+  (alias, address, port, user, optional fingerprint -- no credential), and
+  `ssh_hosts` shows a conversation the entries the user ticked; the connection and
+  its key or password are supplied in the call itself, and SSH tool-call arguments
+  are redacted before storage
   ([03-ai-provider.md](03-ai-provider.md)).
 - SSH also has a read-only profile: `ssh_probe` takes a fixed host snapshot,
   `ssh_list` and `ssh_read_file` browse over SFTP without a shell (with optional
@@ -157,7 +157,7 @@ Confirmed by `README.md:17-29` and by the code:
 - LaTeX formulas (`$...$` and `$$...$$`) are rendered on the device, inline and
   as blocks, using bundled fonts. Nothing is downloaded; code and currency are
   left alone ([06-agent-loop-ui.md](06-agent-loop-ui.md),
-  [THIRD-PARTY-NOTICES](<app/src/main/assets/THIRD-PARTY-NOTICES.md>)).
+  [THIRD-PARTY-NOTICES](<../app/src/main/assets/THIRD-PARTY-NOTICES.md>)).
 - Answers can be retried. **Rewind** is the single restart control. **Answer
   again** keeps the tool **definitions** so the request prefix can still hit the
   context cache, but appends a transient system instruction forbidding a call;
@@ -166,7 +166,11 @@ Confirmed by `README.md:17-29` and by the code:
   group in the last turn: the prefix and its results stay, the suffix is deleted
   and its checkpoint restored, and the request runs **with tools**
   ([07-gotchas.md](07-gotchas.md) B20, B23).
-- Image attachments.
+- Image attachments, chosen from a file — several at once — or taken with the
+  camera. There is no app-side count ceiling: the provider's own request limits
+  are the boundary. The camera writes into app cache through a dedicated
+  FileProvider, and the untouched capture is deleted after its prepared copy is
+  staged; it is not added to the gallery.
 - A context ring in the composer's action row, with the figures one tap away
   and explicit, reversible compaction of older complete turns.
 - A root `AGENTS.md` in the conversation's workspace is pinned on the
@@ -181,10 +185,12 @@ Confirmed by `README.md:17-29` and by the code:
   day and by conversation. It is derived from the transcript, so deleted or
   rewound turns and compaction summaries are not counted, and no price is
   converted.
-- **Plain-text export**: one conversation to Markdown (optionally with tool calls
-  and results; reasoning is included, attachment paths are listed without their
-  bytes) and a workspace to zip from the chat menu or the workspace detail
-  screen. The user chooses the destination; an export is not an encrypted
+- **Plain-text export and share**: one conversation to Markdown (optionally with
+  tool calls and results; reasoning is included, attachment paths are listed
+  without their bytes), either saved to a user-chosen document, handed to the
+  system share sheet, or posted to the configured LAN/Tailscale server's
+  `/conversation` endpoint after a preview. A workspace exports to zip from the
+  chat menu or the workspace detail screen. None of these is an encrypted
   backup.
 - The app starts in **Chinese**. Settings → **11 / Language** switches to
   English, and the system per-app language screen does the same; the platform
@@ -196,6 +202,9 @@ Confirmed by `README.md:17-29` and by the code:
   opens it on tap, and offers **Stop**.
 - Global search over conversation titles and message text, with jump-to-message
   and a temporary highlight.
+- Transient provider disconnects are retried automatically up to five times
+  before the error banner appears; the row says which retry it is on, and a
+  failed attempt's partial text is discarded rather than concatenated.
 - Actionable chat errors: Retry, Compact and retry, or Provider settings, plus
   Copy details; no error is only a dead-end Dismiss.
 - Encrypted backup import shows a preview (conversation/message/workspace
@@ -218,14 +227,12 @@ incremental and is visible in `git log`.
 From the README's non-goals and planned-work section; these are decisions or
 deferred items, not gaps. Do not "fix" the non-goals without a conversation.
 LaTeX and native Anthropic/Gemini adapters (including thinking-signature replay)
-are implemented on the Android host; see [13-product.md](13-product.md). The
+are implemented in the Android app; see [13-product.md](13-product.md). The
 notes below explain what is still absent.
 
 - **No Linux/PRoot environment on Android.** Per-conversation files need no shell. PRoot
   also runs at the app's own UID, so "sandboxed" Linux code could read the
   conversation database and the stored API key.
-- **No Linux desktop build.** Windows x64 is the desktop target; Linux packaging
-  is not built or verified (see [12-desktop.md](12-desktop.md)).
 - **No `MANAGE_EXTERNAL_STORAGE`**, and no `READ/WRITE_EXTERNAL_STORAGE`.
 - **Native Anthropic/Gemini basics, thinking-signature replay, OpenAI Responses
   and generic OAuth PKCE exist; no provider OAuth client is bundled.** The
@@ -243,11 +250,16 @@ notes below explain what is still absent.
   tables and formatting are flattened and reported. DOCX/XLSX keep package parts
   this app does not understand and report what the neutral model cannot carry.
   The decision is [14-documents-voice.md](14-documents-voice.md).
-- **Voice input is implemented on Android.** A composer microphone records into
+- **Scanned PDFs can be read through the current vision model, as an opt-in
+  paid tool.** `read_pdf_vision` renders at most four pages and sends one image
+  per page to the model that is already handling the conversation; it is not
+  local OCR, and it does not save the images. Use it when `read_document`
+  reports that a page has no text layer.
+- **Voice input is implemented.** A composer microphone records into
   memory, sends the WAV to the already-configured transcription backend, and
   inserts the text into the composer; it never writes a recording to the
   workspace and never sends automatically. No transcription backend means no
-  microphone row, not a row that fails. Desktop has no voice path.
+  microphone row, not a row that fails.
 
 Two more that are stated as behaviour rather than as policy:
 

@@ -151,6 +151,19 @@ class DeepSeekProvider(
 
 		call.enqueue(object : Callback {
 			override fun onFailure(call: Call, e: IOException) {
+				// The header timeout is a cancel too: its interceptor calls
+				// `call.cancel()` to unblock the socket, then throws
+				// `HeaderTimeoutException`. Checking `isCanceled()` first
+				// therefore mistook every silent connection for a user stop
+				// and closed the flow cleanly -- no error, no retry, and a
+				// reply bubble that simply vanished. The exception is what
+				// tells the two apart.
+				if (e is HeaderTimeoutException) {
+					Diag.w("http", "no response headers: ${e.message}")
+					trySend(StreamChunk.Failure(e.message ?: "no response headers", e))
+					close()
+					return
+				}
 				// A cancel arrives here too, as an IOException on a closed
 				// socket. Reporting it as a stream failure would make every
 				// user-initiated stop look like an error in the transcript.
@@ -204,6 +217,7 @@ class DeepSeekProvider(
 							StreamChunk.Failure(
 								"HTTP ${res.code} ${res.message}" +
 									if (detail.isNullOrBlank()) "" else ": $detail",
+								statusCode = res.code,
 							),
 						)
 						close()

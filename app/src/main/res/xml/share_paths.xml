@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+	Only the cache directory used by the conversation share sheet. The
+	receiving app gets a read grant for the one Markdown file the user picked;
+	it does not get a path back into the app.
+-->
+<paths>
+	<cache-path name="share" path="share/" />
+</paths>

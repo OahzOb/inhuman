@@ -95,8 +95,8 @@ interface Tool {
 	 * wire contract: every assistant `tool_calls` block needs results before the
 	 * next request, and a host that stopped by itself would still have to
 	 * persist the result and close the turn. Declaring it here means the engine
-	 * that already owns the loop also owns the stop, and both hosts get the same
-	 * answer.
+	 * that already owns the loop also owns the stop, so the answer does not
+	 * depend on which caller ran it.
 	 *
 	 * `suggest_replies` is the reason it exists (`docs/06-agent-loop-ui.md`):
 	 * its result is the suggestions, and asking the model to read them back

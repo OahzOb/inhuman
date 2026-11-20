@@ -3,7 +3,6 @@ package com.inhuman.core.ai.tools
 import com.inhuman.core.ai.ToolResult
 import com.inhuman.core.ai.ssh.SshException
 import com.inhuman.core.ai.ssh.SshLimits
-import com.inhuman.core.ai.ssh.SshProfile
 import com.inhuman.core.ai.ssh.SshTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
@@ -33,30 +32,21 @@ class SshExecTool(
 	private val limits: SshLimits = SshLimits(),
 	/** Reads a workspace-relative private-key file. */
 	private val readWorkspaceFile: (String) -> ByteArray? = { null },
-	private val savedConnection: () -> SshProfile? = { null },
 ) : SshTool {
 
 	override val name: String = "ssh_exec"
 
 	override val description: String = """
 		Run one non-interactive command on a remote machine over SSH.
-		Use it only when the user has given you a host, a username and a way to authenticate, or use useSavedHost=true for the connection saved in Settings. SSH tool arguments are redacted before storage.
-		Prefer identityFile (a workspace-relative private-key path the user placed there) over pasting a private key; a password is accepted only if the user gave you one.
+		${SshArguments.connectionHelp()}
 		There is no PTY: commands that wait for input will time out. There is no port forwarding.
 		The command may run for at most ${limits.commandTimeoutCeilingSeconds}s; timeoutSeconds may lower that, never raise it. Output is capped at ${limits.outputCeilingBytes} bytes per stream; maxOutputBytes may lower it.
-		The user is asked once per conversation, before the first SSH call, that the agent may run any command on any host it is given. After that, normal tool policy applies.
+		The user is asked once per conversation, before the first SSH call, that the agent may run any command on the hosts selected for this conversation. After that, normal tool policy applies.
 	""".trimIndent()
 
 	override val parameters: Map<String, Any?> = mapOf(
 		"type" to "object",
-		"properties" to mapOf(
-			"useSavedHost" to mapOf(
-				"type" to "boolean",
-				"description" to "Use the one connection saved in Settings; explicit host/username override it.",
-			),
-			"host" to mapOf("type" to "string", "description" to "Hostname or IP address"),
-			"port" to mapOf("type" to "integer", "description" to "SSH port; default 22"),
-			"username" to mapOf("type" to "string", "description" to "Remote user"),
+		"properties" to SshArguments.connectionParameters() + mapOf(
 			"command" to mapOf("type" to "string", "description" to "Command to run"),
 			"timeoutSeconds" to mapOf(
 				"type" to "integer",
@@ -65,23 +55,6 @@ class SshExecTool(
 			"maxOutputBytes" to mapOf(
 				"type" to "integer",
 				"description" to "Optional stdout/stderr cap, at most ${limits.outputCeilingBytes} bytes; larger values are clamped",
-			),
-			"password" to mapOf(
-				"type" to "string",
-				"description" to "Password, only if the user gave one. It becomes part of the conversation.",
-			),
-			"privateKey" to mapOf(
-				"type" to "string",
-				"description" to "OpenSSH private key text. Prefer identityFile so the key never enters the conversation.",
-			),
-			"identityFile" to mapOf(
-				"type" to "string",
-				"description" to "Workspace-relative path to an OpenSSH private key file",
-			),
-			"passphrase" to mapOf("type" to "string", "description" to "Passphrase for an encrypted private key"),
-			"hostKeyFingerprint" to mapOf(
-				"type" to "string",
-				"description" to "Optional SHA256:... host-key fingerprint; first use is trust-on-first-use",
 			),
 		),
 		"required" to listOf("command"),
@@ -99,7 +72,7 @@ class SshExecTool(
 		val command = args.string("command")?.trim().orEmpty()
 		if (command.isBlank()) return ToolResult.error("ssh_exec: command is required")
 		val connection = when (
-			val parsed = SshArguments.parse(name, args, readWorkspaceFile, savedConnection)
+			val parsed = SshArguments.parse(name, args, readWorkspaceFile)
 		) {
 			is SshArguments.Parsed.Error -> return ToolResult.error(parsed.message)
 			is SshArguments.Parsed.Ok -> parsed.value

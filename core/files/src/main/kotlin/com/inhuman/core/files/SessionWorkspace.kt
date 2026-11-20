@@ -117,7 +117,7 @@ class SessionWorkspace private constructor(
 				// does **not** resolve, and `Files.isSymbolicLink` does not report
 				// them as symlinks. `toRealPath()` does follow the reparse point,
 				// so an existing junction is tested against the real root here.
-				// This was found by the desktop spike: a junction under the
+				// Found by an early Windows probe: a junction under the
 				// workspace pointed at a temp folder outside it, and the old
 				// canonical-prefix check returned Ok.
 				if (Files.exists(cursor.toPath(), LinkOption.NOFOLLOW_LINKS)) {

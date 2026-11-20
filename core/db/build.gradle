@@ -38,7 +38,7 @@ dependencies {
 	api project(':core:files')
 	implementation project(':core:common')
 	// OAuth token exchange and refresh are plain HTTP. Keeping them here means
-	// both hosts share the flow; the token endpoint is user configuration.
+	// one flow, not one per caller; the token endpoint is user configuration.
 	implementation libs.okhttp
 	implementation libs.kotlinx.serialization.json
 	ksp libs.androidx.room.compiler

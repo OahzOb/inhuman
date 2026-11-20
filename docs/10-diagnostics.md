@@ -39,6 +39,15 @@ owns, which survives the process and a crash.
   `tools/dev-server.py` saves it under `logs/`. The server URL is set in
   **Settings → Updates and logs** and shared with the in-app updater. It is a
   user action, not polling: nothing is uploaded until the button is pressed.
+- **Upload conversation** is a different action and a different endpoint:
+  `<server>/conversation`, saved under `logs/conversations/`. It posts the
+  conversation's Markdown, so unlike this recorder it contains message text,
+  reasoning, attachment paths, and — when the tool-result checkbox is on; it is
+  off by default — tool calls and results, which can contain file or document
+  text. It is invoked only from the chat menu after a preview, and it is never
+  part of **Upload log**. Image and attachment bytes are not included. The
+  recorder's promise below is about the diagnostic log, not about this explicit
+  transcript export.
 - Debug builds can also be read directly:
 
   ```powershell
@@ -67,12 +76,13 @@ supported path.
 | Database | opening, opened, created (and the stack trace if it will not open) |
 | Turn | send (chars, attachments, demo), run start (provider, model, thinking, effort, tool count, round limit), run end (rounds, reply id), round limit reached, stop, regenerate refused and why |
 | Stream | request shape (history size, tool count, reply id), first-text latency, end line (finish reason, chunk count, text and reasoning lengths, call count, prompt/completion/cached tokens, TTFT, generation time, total), failure chunk text |
-| HTTP | chat request shape (model, message/tool counts, thinking, effort, payload bytes), response status, failure body (first 300 chars), stream end (SSE lines/frames/chunks, duration), network failure class and message |
+| HTTP | chat request shape (model, message/tool counts, thinking, effort, payload bytes), response status, failure body (first 300 chars), stream end (SSE lines/frames/chunks, duration), network failure class and message, automatic retry (round, attempt, delay, whether a partial answer was discarded) |
 | Search | request (`api=search`, count, query length), response status and bytes, result count, HTTP failure body |
 | Fetch | request (URL length), response status and bytes, title and content lengths, HTTP failure body |
 | Models | `/models` request base, response status/bytes/duration, failure; picker cache hit, background refresh, 20s call timeout and 25s dialog timeout |
 | Updates | check (current and remote version code, newer flag), download requested/verified (version, bytes), install requested; log upload (bytes, saved file name). No server URL or credential is written. |
 | Tools | run (name, normalised path, argument bytes), done (ok, result bytes, duration), error text (first 240 chars), unknown tool, unparsable arguments, skipped call |
+| Compaction | summary written (omitted messages and chars), a summary that came back empty (finish reason, reasoning length, model), and a save failure with its stack trace; never the summary text |
 | SSH | global switch or ceilings changed; consent ask/allow/deny/revoke (host and user only); connect (host, port, user, auth type); connected (host and `SHA256:` fingerprint); exec done (exit code, stdout/stderr lengths, truncation, duration); list/tail/upload/download/write done (path, entries or bytes; never file content) |
 | Rollback | snapshot captured or refused, restore success/failure, subtree delete request; ids and outcomes only, never file contents |
 | Approval | asked (tool, path, whether a configured rule or the tool's own hook asked, argument bytes), allow, decline |
@@ -102,6 +112,11 @@ bytes in a file.
 `Diag.redact` is a second line of defence, not the first: call sites are expected
 not to pass secrets at all. It masks `sk-…` shapes, bearer tokens and
 `key=value`-shaped secrets before a line is written.
+
+The two transcript egresses — the system share sheet and **Upload conversation**
+— are not this recorder. The share sheet reads a cache copy after the user picks
+a destination; the upload posts to `/conversation` after the preview. Neither
+writes message text into `app.log`, and neither runs automatically.
 
 For SSH the omission is explicit: **no command text, no password, no private
 key, no passphrase, no file contents.** The command length and the exit code are

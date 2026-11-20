@@ -4,6 +4,7 @@ import com.inhuman.core.data.Branches
 import com.inhuman.core.data.SnapshotStats
 import com.inhuman.core.data.SnapshotTurn
 import com.inhuman.core.data.WorkspaceChange
+import com.inhuman.ui.ssh.SshHostSummary
 
 /**
  * One rendered region of an assistant reply.
@@ -152,6 +153,19 @@ data class ChatUiState(
 	val pendingSshConsent: SshConsent? = null,
 	/** Whether this conversation may run ssh_exec without asking again. */
 	val sshAllowed: Boolean = false,
+	/**
+	 * The machines saved in Settings, for the host sheet to list.
+	 *
+	 * Names and addresses only -- the credentials never leave the secret store.
+	 */
+	val sshHosts: List<SshHostSummary> = emptyList(),
+	/**
+	 * The ids of [sshHosts] this conversation may use.
+	 *
+	 * Empty means none: with no host selected the SSH tools are not registered
+	 * at all, so the model cannot reach a machine the user did not check.
+	 */
+	val sshHostIds: List<String> = emptyList(),
 	/** Whether the global SSH capability is on; off hides every SSH affordance. */
 	val sshToolEnabled: Boolean = false,
 	/** Whether the follow-up tool is available to pick at all. */
@@ -279,6 +293,20 @@ data class PendingAttachment(
 	val displayName: String get() = relativePath.substringAfterLast('/')
 }
 
+/**
+ * One image the picker or the camera returned, resolved before its bytes are
+ * read.
+ *
+ * [open] is a stream factory rather than a stream: the preprocessor opens the
+ * source three times (bounds, EXIF and pixels), and the camera path can only
+ * delete its cache original once staging has ended.
+ */
+class PickedImage(
+	val displayName: String,
+	val mimeType: String,
+	val open: () -> java.io.InputStream,
+)
+
 data class ChatMessageUi(
 	val id: String,
 	/** The message this one answers. Kept so a branch can be extended later. */
@@ -319,6 +347,15 @@ data class ChatMessageUi(
 	val finishReason: String? = null,
 	val usage: UsageUi? = null,
 	val error: String? = null,
+	/**
+	 * "Reconnecting (2/5)" while the current round is being retried.
+	 *
+	 * Transient and never persisted: it describes a request in flight, not the
+	 * answer. The row is still `isStreaming`, and its parts were cleared when
+	 * the failed attempt was discarded, so this is what tells the reader the
+	 * spinner is doing something other than waiting for a first token.
+	 */
+	val retryNotice: String? = null,
 	/** Tool calls this turn requested. */
 	val toolCalls: List<ToolCallUi> = emptyList(),
 	/**

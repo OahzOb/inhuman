@@ -26,6 +26,17 @@ package com.inhuman.core.ai.tools
  */
 object ToolCatalog {
 
+	/**
+	 * The one tool that is implemented only by the Android host.
+	 *
+	 * It renders PDF pages to bitmaps and asks a vision model to transcribe
+	 * them. [visible] keeps it out unless a host explicitly asks for it, so a
+	 * catalogue consumer without that renderer and request path cannot offer a
+	 * row it cannot execute. Keeping the name here means the catalogue, the
+	 * picker filter and the registry cannot drift apart.
+	 */
+	const val PDF_VISION_TOOL = "read_pdf_vision"
+
 	/** One entry: the name the model calls, and what to tell a person. */
 	data class Entry(
 		val name: String,
@@ -90,6 +101,17 @@ object ToolCatalog {
 		 * ticks it.
 		 */
 		val optIn: Boolean = false,
+		/**
+		 * Whether the tool belongs to the SSH capability without reaching it.
+		 *
+		 * `ssh_hosts` lists the machines the user shared; it opens no socket.
+		 * It is still hidden while the global switch is off, because the list
+		 * is part of that capability's disclosure -- but it must not trigger
+		 * the first-call consent dialogue, which is about connecting. This flag
+		 * is that distinction, and it is separate from [remote] for exactly the
+		 * reason the consent gate is keyed on [remote].
+		 */
+		val gatedBySsh: Boolean = false,
 	)
 
 	/**
@@ -124,10 +146,23 @@ object ToolCatalog {
 			mutates = false,
 			workspaceBound = true,
 		),
+		Entry(
+			PDF_VISION_TOOL,
+			"Read scanned PDF pages with the current vision model",
+			mutates = false,
+			paid = true,
+			workspaceBound = true,
+			optIn = true,
+		),
 		Entry("read_time", "The current date and time, and date arithmetic", mutates = false),
 		Entry(
 			"run_javascript",
 			"Run a short JavaScript calculation in an isolated no-network sandbox",
+			mutates = false,
+		),
+		Entry(
+			"unavailable_tools",
+			"See which app tools this conversation cannot use, and why",
 			mutates = false,
 		),
 		Entry(
@@ -161,6 +196,13 @@ object ToolCatalog {
 			mutates = false,
 			paid = true,
 			workspaceBound = true,
+		),
+		Entry(
+			"ssh_hosts",
+			"List the remote machines the user shared with this conversation",
+			mutates = false,
+			optIn = true,
+			gatedBySsh = true,
 		),
 		Entry(
 			"ssh_probe",
@@ -297,21 +339,29 @@ object ToolCatalog {
 	 *
 	 * [includeSuggestions] is the same rule again for the follow-up tool: while
 	 * its global switch is off it is absent from every picker, approval table
-	 * and home summary, not a greyed row. The default is false so a host that
-	 * has not implemented the capability (the desktop window) does not offer a
-	 * row that would do nothing there.
+	 * and home summary, not a greyed row. The default is false so a consumer
+	 * that has not implemented the capability does not offer a row that would
+	 * do nothing there.
 	 */
 	fun visible(
 		includeSsh: Boolean,
 		includeWorkspaceBound: Boolean = true,
 		includeSandbox: Boolean = true,
 		includeSuggestions: Boolean = false,
+		/**
+		 * Whether the host implements [PDF_VISION_TOOL]. Unlike SSH or the
+		 * sandbox this is not a runtime capability switch: it is a statement
+		 * about the binary. The Android pickers pass true; the default keeps a
+		 * caller without an executor from offering a row it cannot run.
+		 */
+		includePdfVision: Boolean = false,
 	): List<Entry> =
 		all.filter { entry ->
-			(includeSsh || !entry.remote) &&
+			(includeSsh || !(entry.remote || entry.gatedBySsh)) &&
 				(includeWorkspaceBound || !entry.workspaceBound) &&
 				(includeSandbox || entry.name != "run_javascript") &&
-				(includeSuggestions || entry.name != "suggest_replies")
+				(includeSuggestions || entry.name != "suggest_replies") &&
+				(includePdfVision || entry.name != PDF_VISION_TOOL)
 		}
 
 	/**

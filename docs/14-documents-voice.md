@@ -67,6 +67,13 @@ Why the split:
   scanned PDF is reported as "no text layer", not as an empty document. Writing
   PDF uses Android's platform PDF writer, because PDFBox's standard fonts cannot
   draw CJK; the original layout is not preserved when converting a DOCX to PDF.
+- **Scanned pages use the conversation's vision model, explicitly.** When
+  `read_document` reports no text layer, the opt-in `read_pdf_vision` tool
+  renders at most four pages (120 dpi, long edge ≤1568 px, JPEG) and sends one
+  image per page to the provider/model already handling the conversation. This
+  is not local OCR and adds one paid request per page; the images are request
+  payload and are not saved in the workspace. A text-only model does not get the
+  tool.
 - **CSV is not Excel.** It has no types, no formulas and no sheets. Reading a
   sheet to CSV reports the sheet that was chosen and that formulas became their
   cached values; writing CSV from a multi-sheet workbook is refused unless the
@@ -113,6 +120,8 @@ with explicit ceilings:
 - DOCX/XLSX: 4 MB compressed input, 20k paragraphs / 50k cells per read;
 - PDF: 200 pages per read, with an explicit `pages` range; the text of one page
   is bounded;
+- `read_pdf_vision`: at most four pages per call, 4 MB input, 1568 px long edge,
+  one vision request per page; it is opt-in and paid;
 - DOC/XLS: 4 MB and the same row/paragraph limits;
 - every result reports `truncated = true` and what was omitted.
 
@@ -166,8 +175,7 @@ Voice is an **Android-only composer feature**, not a tool:
 - the recording is never written to the conversation transcript and never
   attached to a message.
 
-Desktop does not get voice in this release: the Android app is the product, and
-a desktop microphone path would be a separate product decision.
+Voice is Android-only because the phone app is the product.
 
 ## 7. Verification
 
@@ -194,7 +202,9 @@ a desktop microphone path would be a separate product decision.
   a format that is already a zip of XML; the subset writer preserves unknown
   parts and is testable on the JVM.
 - **OCR in the first batch**: a scanned PDF is reported as having no text layer.
-  Adding OCR is a separate paid/local-model decision, not a hidden fallback.
+  The opt-in `read_pdf_vision` tool asks the current vision model to transcribe
+  bounded page images; it is not local OCR, and there is no hidden fallback.
+  Adding a local OCR engine is still a separate decision.
 - **Voice through the assistant**: recording triggered by or exposed to the
   model would turn a microphone into an agent capability. The button is user
   input only, like the keyboard.

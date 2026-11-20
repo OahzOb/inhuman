@@ -5,9 +5,9 @@ package com.inhuman.core.data.secret
  *
  * `AgentRepository` reads and writes provider keys through this; it does not
  * care that Android stores them behind the Keystore. The interface exists so
- * the repository can live in a plain JVM module: the Android host passes its
- * Keystore-backed `SecureStore`, and a desktop host would pass DPAPI or a
- * Secret Service binding with the same key names.
+ * the repository can live in a plain JVM module and be tested without a device:
+ * Android passes its Keystore-backed `SecureStore`, and a test passes an
+ * in-memory one with the same key names.
  *
  * [get] answers null for a value that exists but cannot be decrypted, rather
  * than throwing. That is what lets a key invalidated by a device-credential

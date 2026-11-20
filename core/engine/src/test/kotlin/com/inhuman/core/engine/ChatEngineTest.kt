@@ -28,6 +28,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 
 class ChatEngineTest {
@@ -147,6 +148,104 @@ class ChatEngineTest {
 	}
 
 	@Test
+	fun `transient failures are retried and the partial attempt is discarded`() = runBlocking {
+		val provider = FlakyProvider(failures = 2, partial = true)
+		val events = ChatEngine(provider, retryPolicy = noWaitRetries()).run(
+			EngineTurn(
+				model = "flaky",
+				messages = listOf(ChatMessage(Role.User, "hello")),
+			),
+		).toList()
+
+		assertEquals(3, provider.requests)
+		// One row for the round, not one per attempt.
+		assertEquals(1, events.filterIsInstance<EngineEvent.RoundStarted>().size)
+		assertEquals(2, events.filterIsInstance<EngineEvent.Retrying>().size)
+		val answer = events.filterIsInstance<EngineEvent.AssistantMessage>().single().message
+		assertEquals("done", answer.content)
+		assertTrue(events.none { it is EngineEvent.Failed })
+	}
+
+	@Test
+	fun `the fifth retry is the last one`() = runBlocking {
+		val provider = FlakyProvider(failures = 6)
+		val events = ChatEngine(provider, retryPolicy = noWaitRetries()).run(
+			EngineTurn(
+				model = "flaky",
+				messages = listOf(ChatMessage(Role.User, "hello")),
+			),
+		).toList()
+
+		assertEquals(6, provider.requests)
+		assertEquals(5, events.filterIsInstance<EngineEvent.Retrying>().size)
+		val failure = events.filterIsInstance<EngineEvent.Failed>().single()
+		assertEquals(5, failure.retries)
+		assertEquals(EngineFailure.Provider, failure.cause)
+		assertTrue(events.none { it is EngineEvent.AssistantMessage })
+	}
+
+	@Test
+	fun `a permanent failure is not retried`() = runBlocking {
+		val provider = FlakyProvider(
+			failures = 1,
+			failure = { StreamChunk.Failure("HTTP 401 Unauthorized", statusCode = 401) },
+		)
+		val events = ChatEngine(provider, retryPolicy = noWaitRetries()).run(
+			EngineTurn(
+				model = "flaky",
+				messages = listOf(ChatMessage(Role.User, "hello")),
+			),
+		).toList()
+
+		assertEquals(1, provider.requests)
+		assertTrue(events.none { it is EngineEvent.Retrying })
+		assertEquals(0, events.filterIsInstance<EngineEvent.Failed>().single().retries)
+	}
+
+	@Test
+	fun `a retry in a later round does not run an earlier tool twice`() = runBlocking {
+		val tool = RecordingTool()
+		val provider = ToolThenFlaky(tool.name)
+		val events = ChatEngine(provider, retryPolicy = noWaitRetries()).run(
+			EngineTurn(
+				model = "flaky",
+				messages = listOf(ChatMessage(Role.User, "probe")),
+				tools = listOf(tool),
+				maxRounds = 3,
+			),
+		).toList()
+
+		assertEquals(1, tool.executions)
+		assertEquals(3, provider.requests)
+		assertEquals(2, events.filterIsInstance<EngineEvent.Retrying>().first().round)
+		assertTrue(events.any { it is EngineEvent.Finished })
+		assertTrue(events.none { it is EngineEvent.Failed })
+	}
+
+	@Test
+	fun `a transport failure after Finish is not retried`() = runBlocking {
+		val provider = object : ChatProvider {
+			override val id = "closing-noise"
+			override suspend fun listModels(): List<RemoteModel> = emptyList()
+			override fun stream(request: ChatRequest): Flow<StreamChunk> = flow {
+				emit(StreamChunk.TextDelta("done"))
+				emit(StreamChunk.Finish(FinishReason.Stop))
+				emit(StreamChunk.Failure("socket closed after the answer", IOException("reset")))
+			}
+		}
+		val events = ChatEngine(provider, retryPolicy = noWaitRetries()).run(
+			EngineTurn(
+				model = "noise",
+				messages = listOf(ChatMessage(Role.User, "hello")),
+			),
+		).toList()
+
+		assertTrue(events.none { it is EngineEvent.Retrying })
+		assertTrue(events.none { it is EngineEvent.Failed })
+		assertEquals("done", events.filterIsInstance<EngineEvent.AssistantMessage>().single().message.content)
+	}
+
+	@Test
 	fun `the tool receives normalised arguments`() = runBlocking {
 		val tool = RecordingTool(transform = SshArguments::normalize)
 		val provider = AnswersAfterOneCall(
@@ -225,8 +324,7 @@ class ChatEngineTest {
 
 	@Test
 	fun `two calls in one round run one at a time`() = runBlocking {
-		// The mobile ceiling is one tool at a time (docs/08 Q4: the desktop's
-		// parallel calls are deliberately not ported). This pins the property
+		// The ceiling is one tool at a time (docs/08 Q4). This pins the property
 		// by measuring overlap, not by reading the loop: a future "run them
 		// concurrently" change would raise `maxConcurrent` above one.
 		val tool = ConcurrencyTrackingTool()
@@ -266,6 +364,77 @@ class ChatEngineTest {
 		assertEquals("think-sig", sentBack?.reasoningSignature)
 		assertEquals("call-sig", sentBack?.toolCalls?.single()?.thoughtSignature)
 		assertTrue(sentBack?.providerState?.contains("sealed-state") == true)
+	}
+
+	private fun noWaitRetries(maxRetries: Int = RetryPolicy.DEFAULT_MAX_RETRIES) =
+		RetryPolicy(
+			maxRetries = maxRetries,
+			initialDelayMillis = 0,
+			maxDelayMillis = 0,
+			jitterMillis = 0,
+		)
+
+	/** Fails the first [failures] requests, then answers. */
+	private class FlakyProvider(
+		private val failures: Int,
+		private val partial: Boolean = false,
+		private val failure: () -> StreamChunk.Failure = {
+			StreamChunk.Failure(
+				"Failed to connect: network is unreachable",
+				IOException("network is unreachable"),
+			)
+		},
+	) : ChatProvider {
+		override val id = "flaky"
+		override suspend fun listModels(): List<RemoteModel> = emptyList()
+		var requests = 0
+
+		override fun stream(request: ChatRequest): Flow<StreamChunk> = flow {
+			requests++
+			if (requests <= failures) {
+				if (partial) emit(StreamChunk.TextDelta("partial"))
+				emit(failure())
+			} else {
+				emit(StreamChunk.TextDelta("done"))
+				emit(StreamChunk.Finish(FinishReason.Stop))
+			}
+		}
+	}
+
+	/**
+	 * Calls a tool, then fails once on the next round before answering.
+	 *
+	 * The failure is deliberately in the round after the tool: a retry that
+	 * replayed the whole turn would execute `probe` a second time, and no
+	 * event would say so.
+	 */
+	private class ToolThenFlaky(private val toolName: String) : ChatProvider {
+		override val id = "flaky"
+		override suspend fun listModels(): List<RemoteModel> = emptyList()
+		var requests = 0
+
+		override fun stream(request: ChatRequest): Flow<StreamChunk> = flow {
+			when (++requests) {
+				1 -> {
+					emit(StreamChunk.ToolCallStart(0, "call-1", toolName))
+					emit(StreamChunk.ToolCallDelta(0, inputDelta = "{}"))
+					emit(StreamChunk.ToolCallEnd(0))
+					emit(StreamChunk.Finish(FinishReason.ToolCalls))
+				}
+
+				2 -> emit(
+					StreamChunk.Failure(
+						"Failed to connect: connection reset",
+						IOException("connection reset"),
+					),
+				)
+
+				else -> {
+					emit(StreamChunk.TextDelta("done"))
+					emit(StreamChunk.Finish(FinishReason.Stop))
+				}
+			}
+		}
 	}
 
 	/** Emits one signed call, then captures the request that replayed it. */

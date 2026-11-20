@@ -23,7 +23,13 @@ class ConversationToolsTest {
 		assertTrue("read_file" in names(plan))
 		assertTrue("write_file" in names(plan))
 		assertFalse("ssh_exec is not part of a null ceiling", "ssh_exec" in names(plan))
-		assertEquals(names(plan).toSet(), plan.selected)
+		assertFalse("read_pdf_vision is opt-in", ToolCatalog.PDF_VISION_TOOL in plan.selected)
+		// Every opt-in tool is offered but unchecked: the SSH ones because a
+		// null ceiling predates them, `ssh_hosts` and the paid follow-ups
+		// because they are chosen, never inherited.
+		val optIn = ToolCatalog.all.filter { it.optIn }.map { it.name }.toSet()
+		assertTrue("ssh_hosts is opt-in", "ssh_hosts" in optIn)
+		assertEquals(names(plan).toSet() - optIn, plan.selected)
 	}
 
 	@Test

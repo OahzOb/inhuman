@@ -57,11 +57,11 @@ internal fun closeDanglingCalls(
 /**
  * Android's name for the shared SSH redaction.
  *
- * The implementation lives on `SshArguments` so the desktop host, which writes
- * the same `toolCallsJson` column through `ToolCallsColumn`, cannot drift from
- * it. The in-memory call keeps the real arguments for the turn; the persisted
- * form keeps host/port/user/command/identityFile and drops the three secret
- * fields.
+ * The implementation lives on `SshArguments` so the persisted form, which
+ * writes the same `toolCallsJson` column through `ToolCallsColumn`, cannot
+ * drift from it. The in-memory call keeps the real arguments for the turn; the
+ * persisted form keeps host/port/user/command/identityFile and drops the three
+ * secret fields.
  */
 internal fun redactSshArguments(raw: String): String = SshArguments.redact(raw)
 

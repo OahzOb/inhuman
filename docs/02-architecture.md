@@ -5,12 +5,6 @@
 Verified against each module's `build.gradle`:
 
 ```
-desktopApp ──┬──> core:common
-             ├──> core:ai      (plain JVM)
-             ├──> core:files   (plain JVM)
-             ├──> core:db      (plain JVM, schema + repositories)
-             └──> core:engine  (plain JVM, first turn-loop slice)
-
 app ──────────┬──> core:common  (plain JVM)
               ├──> core:design  (Compose Android; depends on no core module)
               ├──> core:data ──api──> core:files ──impl──> core:ai ──impl──> core:common
@@ -24,27 +18,24 @@ Read the arrows as "must be able to compile against". `core:data`, `core:ai` and
 `core:files` each also depend on `core:common` directly, with `implementation`;
 the diagram leaves that leaf edge out rather than drawing three lines to the same
 node. `:core:common`, `:core:ai`, `:core:files`, `:core:documents`, `:core:db` and
-`:core:engine` are **plain Kotlin/JVM modules** now, not Android libraries: the
-desktop host depends on the same jars the Android app consumes. `:core:data` and
-`:core:design` remain Android-only. `:core:documents` is a plain JVM module for
-the offline document readers/writers; `:core:files` depends on it and appends the
-three document tools to `FileTools.all`, so both hosts get them. `:core:db` owns
+`:core:engine` are **plain Kotlin/JVM modules** now, not Android libraries.
+`:core:data` and `:core:design` remain Android-only. `:core:documents` is a plain
+JVM module for the offline document readers/writers; `:core:files` depends on it
+and appends the three document tools to `FileTools.all`. `:core:db` owns
 the Room entities, DAOs, database, migrations and the platform-free repositories;
 `:core:data` is the Android adapter around it (`Database.open(context)`, the
 Keystore-backed `SecureStore`, the encrypted backup and the `DocumentsProvider`).
-The split is what lets the desktop host create a conversation and append messages
-against the same schema without a `Context`.
+The split is what keeps the repositories testable without a device: they take an
+`InhumanDatabase`, a `DataPaths` and a `SecretStore`, never a `Context`.
 
 `:core:engine` is the turn loop: it streams a provider, assembles tool calls,
 asks an `EngineApproval` hook, executes tools and repeats until the model
 answers without a call or a budget is hit. It does not own persistence,
-snapshots, compaction or consent; the host injects those through the hook. The
-desktop window and every Android provider turn use it, SSH included.
-`ChatViewModel.gateEngineCall` is where the Android host applies the SSH
-capability grant, the approval rules, the start checkpoint and argument
-normalisation; `DesktopChat` does the equivalent for the desktop host. A missing
-provider or model is refused before the engine starts. There is no second turn
-loop.
+snapshots, compaction or consent; the host injects those through the hook. Every
+Android provider turn uses it, SSH included. `ChatViewModel.gateEngineCall` is
+where the Android app applies the SSH capability grant, the approval rules, the
+start checkpoint and argument normalisation. A missing provider or model is
+refused before the engine starts. There is no second turn loop.
 Three things about this graph are deliberate and are commented where they
 are declared:
 
@@ -276,7 +267,6 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
   :core:ai:test `
   :core:files:test `
   :core:common:test `
-  :desktopApp:test `
   --console=plain --rerun-tasks
 ```
 
@@ -288,8 +278,7 @@ and that is worth keeping (`AGENTS.md`).
 Two tests are skipped by design: `DeepSeekWebLiveTest` talks to the real Search
 and Fetch APIs and needs a key, and `SshLiveProbeTest` needs real SSH credentials.
 Everything else runs on the JVM — including the file tests, which use a temp
-directory because `:core:files` needs real filesystem semantics, and the desktop
-smoke tests, which run `core:ai`/`core:files` on a plain JVM.
+directory because `:core:files` needs real filesystem semantics.
 
 ## Localization
 
@@ -364,10 +353,10 @@ update/log scripts build an APK or serve it.
 | Script | What it does |
 | --- | --- |
 | `build-and-shot.ps1` | The whole loop: build, install, launch, screenshot with brightness check. `-Serial`, `-Label`, `-SkipBuild`. |
-| `ci.ps1` | The verification gate a CI host calls: runs `setup-machine.ps1`, then `:app:assembleDebug` plus every JVM test with `--rerun-tasks --no-build-cache --no-configuration-cache`, and fails on any compiler warning (a Kotlin daemon lifecycle notice is not a compiler warning and is excluded). `-SkipDesktop`, `-LogPath`. |
+| `ci.ps1` | The verification gate a CI host calls: runs `setup-machine.ps1`, then `:app:assembleDebug` plus every JVM test with `--rerun-tasks --no-build-cache --no-configuration-cache`, and fails on any compiler warning (a Kotlin daemon lifecycle notice is not a compiler warning and is excluded). `-LogPath`. |
 | `start-server.cmd` | Double-click launcher for `dev-server.py` on port 8787; prints the LAN/Tailscale URLs and keeps the console open. Closing it stops the server. |
 | `release-apk.ps1` | Builds `:app:assembleRelease`, verifies the APK with `apksigner`, computes SHA-256 and writes `dist/update.json` plus the APK for the in-app updater. |
-| `dev-server.py` | Standard-library Python server for a LAN/Tailscale link: serves `dist/` at `/update.json` and the APK, and accepts `POST /log` into `logs/`. No authentication; bind only on a trusted network. |
+| `dev-server.py` | Standard-library Python server for a LAN/Tailscale link: serves `dist/` at `/update.json` and the APK, accepts `POST /log` into `logs/`, and the explicit `POST /conversation` into `logs/conversations/`. No authentication; bind only on a trusted network. |
 | `device-flow.ps1` | End-to-end on a real device: clear app data, enter the API key from `C:\android-toolchain\.deepseek-key`, create a file through the agent, then ask it to delete one. It reports whether the approval dialog appeared — by default it will not, since deletion asks nothing — and dumps the transcript either way. |
 | `verify-features.ps1`, `verify-agents.ps1`, `verify-model-picker.ps1`, `verify-regenerate-guard.ps1`, `verify-back-and-delete.ps1`, `verify-migration.ps1` | Feature verification flows, each asserting on dumped UI state. |
 | `inspect-agent-state.ps1`, `measure-screen.ps1`, `measure-usage.ps1` | Read-only probes: what the UI currently says, what fits on a screen, what a turn cost. |

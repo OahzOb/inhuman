@@ -3,6 +3,7 @@ package com.inhuman.ui.chat
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.widget.Toast
@@ -34,6 +35,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DataObject
@@ -161,6 +163,7 @@ import com.inhuman.ui.common.RewindBadge
 import com.inhuman.ui.common.toolBlurb
 import com.inhuman.ui.common.openWorkspaceFile
 import com.inhuman.ui.common.exportFileName
+import com.inhuman.ui.ssh.SshHostSummary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -169,6 +172,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import java.io.File
+import java.io.FileInputStream
 import java.text.DateFormat
 import java.util.Date
 
@@ -312,18 +317,68 @@ fun ChatScreen(
 	var audioTranscript by remember { mutableStateOf<String?>(null) }
 	var audioError by remember { mutableStateOf<String?>(null) }
 
-	// The image picker. ACTION_OPEN_DOCUMENT like the file browser's import,
-	// and for the same reasons: a real filename and a grant that survives long
-	// enough to copy the bytes through it.
+	// The image picker: ACTION_OPEN_DOCUMENT with EXTRA_ALLOW_MULTIPLE
+	// (`OpenMultipleDocuments`), so one launch can return several images.
+	//
+	// The single-document contract was a silent one-image ceiling: its
+	// `parseResult` returns only `intent.data` and ignores `clipData`, so on a
+	// picker that still lets the user tick several files (HyperOS does) the rest
+	// were dropped without a word. The composer has always held a list; the
+	// contract was the limit.
+	//
+	// Names and MIME types are resolved off the main thread: a large pick is one
+	// ContentResolver round trip per image.
 	val importer = rememberLauncherForActivityResult(
-		ActivityResultContracts.OpenDocument(),
-	) { uri ->
-		if (uri != null) {
-			val name = queryImageName(ctx, uri)
-			val mime = ctx.contentResolver.getType(uri) ?: "image/*"
-			viewModel.attachImage(name, mime) {
-				ctx.contentResolver.openInputStream(uri)
-					?: error("could not open the selected image")
+		ActivityResultContracts.OpenMultipleDocuments(),
+	) { uris ->
+		if (uris.isNotEmpty()) {
+			scope.launch {
+				val picked = withContext(Dispatchers.IO) {
+					uris.map { uri ->
+						PickedImage(
+							displayName = queryImageName(ctx, uri),
+							mimeType = ctx.contentResolver.getType(uri) ?: "image/*",
+							open = {
+								ctx.contentResolver.openInputStream(uri)
+									?: error("could not open the selected image")
+							},
+						)
+					}
+				}
+				viewModel.attachImages(picked)
+			}
+		}
+	}
+
+	// The camera writes one photo into app cache through a FileProvider. The
+	// name is saveable because the camera activity routinely outlives this
+	// process: on return the launcher is recreated with no `remember` left, and
+	// the result is still delivered to it.
+	var captureName by rememberSaveable { mutableStateOf<String?>(null) }
+	val camera = rememberLauncherForActivityResult(
+		ActivityResultContracts.TakePicture(),
+	) { saved ->
+		val name = captureName
+		if (name != null) {
+			captureName = null
+			val file = CameraCapture.file(ctx, name)
+			// A cancelled camera leaves the empty file behind. A camera that
+			// reports success without writing is the same thing from here, and
+			// must not become a zero-byte attachment.
+			if (!saved || file.length() == 0L) {
+				file.delete()
+				if (saved) {
+					Diag.w("attach", "camera reported success with no bytes")
+					Toast.makeText(ctx, R.string.chat_camera_empty, Toast.LENGTH_LONG).show()
+				}
+			} else {
+				Diag.i("attach", "camera captured bytes=${file.length()}")
+				viewModel.attachImage(
+					displayName = CameraCapture.DISPLAY_NAME,
+					mimeType = CameraCapture.MIME_TYPE,
+					open = { FileInputStream(file) },
+					onFinished = { file.delete() },
+				)
 			}
 		}
 	}
@@ -362,6 +417,15 @@ fun ChatScreen(
 	// disabled until the write finishes and say that it started, so a second tap
 	// does not start a second document and the screen is not silent.
 	var exporting by remember { mutableStateOf(false) }
+	// Conversation upload is a separate, explicit egress from the diagnostics
+	// upload: the body is the transcript. The target is read when the dialog
+	// opens so the preview can name it, and editing Settings afterwards does
+	// not silently retarget an open confirmation.
+	var uploadTarget by remember { mutableStateOf<String?>(null) }
+	var showUploadDialog by remember { mutableStateOf(false) }
+	var uploadIncludeTools by remember { mutableStateOf(true) }
+	var uploadBusy by remember { mutableStateOf(false) }
+	var uploadError by remember { mutableStateOf<String?>(null) }
 	val conversationExportedText = stringResource(R.string.export_conversation_done)
 	val conversationExporter = rememberLauncherForActivityResult(
 		ActivityResultContracts.CreateDocument("text/markdown"),
@@ -418,6 +482,43 @@ fun ChatScreen(
 			}
 		}
 	}
+
+	// A share is a read grant on a cache copy. The Markdown is written before
+	// the chooser opens, so a failed write cannot hand the user a chooser for a
+	// file that does not exist, and the file is not the diagnostics provider's
+	// or the camera's.
+	fun shareCurrentConversation(includeTools: Boolean) {
+		scope.launch {
+			viewModel.buildConversationMarkdown(includeTools)
+				.onSuccess { markdown ->
+					val file = withContext(Dispatchers.IO) {
+						runCatching {
+							ConversationShare.newFile(
+								ctx,
+								exportFileName(displayTitle, "md"),
+							).apply { writeText(markdown) }
+						}
+					}.getOrNull()
+					if (file == null) {
+						Toast.makeText(ctx, R.string.export_share_failed, Toast.LENGTH_LONG).show()
+					} else {
+						shareConversationFile(ctx, file, displayTitle)
+					}
+				}
+				.onFailure { failure ->
+					Diag.w("export", "share markdown failed", failure)
+					Toast.makeText(
+						ctx,
+						ctx.getString(
+							R.string.export_share_failed_detail,
+							failure.message ?: ctx.getString(R.string.export_error_unknown),
+						),
+						Toast.LENGTH_LONG,
+					).show()
+				}
+		}
+	}
+
 	// ## Why the transcript is read down there and not here
 	//
 	// The scaffold below wants six values that change on a human timescale: a
@@ -452,6 +553,8 @@ fun ChatScreen(
 	}
 	val sshAllowed by fieldOf(viewModel.state, false) { it.sshAllowed }
 	val sshToolEnabled by fieldOf(viewModel.state, false) { it.sshToolEnabled }
+	val sshHosts by fieldOf(viewModel.state, emptyList()) { it.sshHosts }
+	val sshHostIds by fieldOf(viewModel.state, emptyList()) { it.sshHostIds }
 	val suggestionsEnabled by fieldOf(viewModel.state, false) { it.suggestionsEnabled }
 	val agentTools by fieldOf(viewModel.state, null) { it.agentTools }
 	val conversationTools by fieldOf(viewModel.state, null) { it.conversationTools }
@@ -539,6 +642,7 @@ fun ChatScreen(
 	var turnWireMessages by remember { mutableStateOf<List<ChatMessageUi>?>(null) }
 	var showToolLimitDialog by remember { mutableStateOf(false) }
 	var showToolsDialog by remember { mutableStateOf(false) }
+	var showSshHostsDialog by remember { mutableStateOf(false) }
 	var showRenameDialog by remember { mutableStateOf(false) }
 	var renameInput by remember { mutableStateOf("") }
 	var showSaveWorkspaceDialog by remember { mutableStateOf(false) }
@@ -553,7 +657,7 @@ fun ChatScreen(
 		showSnapshotDialog || showToolLimitDialog || showRenameDialog || showWireDialog ||
 		showApprovalHistory || showCapabilityDetails ||
 		turnWireMessages != null || showToolsDialog || showTurnPicker ||
-			showSaveWorkspaceDialog || showExportDialog
+			showSaveWorkspaceDialog || showExportDialog || showSshHostsDialog
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
 	// Re-read the key and demo setting whenever this screen appears. The view
@@ -734,7 +838,7 @@ fun ChatScreen(
 	// `ChatBottomBar` can skip the rebuild instead of invalidating the text
 	// field and the send button several times a second.
 	val currentOnOpenSettings by rememberUpdatedState(onOpenSettings)
-	val composerActions = remember(viewModel, importer, compaction) {
+	val composerActions = remember(viewModel, importer, camera, compaction) {
 		ChatComposerActions(
 			onSend = {
 				// Sending is an explicit request to show the new turn. If the
@@ -744,7 +848,32 @@ fun ChatScreen(
 			},
 			onStop = viewModel::stop,
 			onInputChange = viewModel::onInputChange,
-			onAttach = { importer.launch(arrayOf("image/*")) },
+			onAttachFromFiles = { importer.launch(arrayOf("image/*")) },
+			onCapturePhoto = {
+				// The camera writes into a fresh cache file, never over the
+				// previous result: a slow attach may still be reading that one.
+				val file = try {
+					CameraCapture.newFile(ctx)
+				} catch (failure: Exception) {
+					Diag.w("attach", "camera temp file could not be created", failure)
+					Toast.makeText(ctx, R.string.chat_camera_failed, Toast.LENGTH_LONG).show()
+					null
+				}
+				if (file != null) {
+					captureName = file.name
+					try {
+						camera.launch(CameraCapture.uri(ctx, file))
+					} catch (failure: Exception) {
+						// No camera app, or a provider the platform refused.
+						// Report it here rather than leaving an empty composer
+						// and a cache file that will never be deleted.
+						captureName = null
+						file.delete()
+						Diag.w("attach", "camera launch failed", failure)
+						Toast.makeText(ctx, R.string.chat_camera_failed, Toast.LENGTH_LONG).show()
+					}
+				}
+			},
 			onRemoveAttachment = viewModel::removeAttachment,
 			onTranscribeVoice = viewModel::transcribeVoice,
 			onVoiceText = viewModel::appendVoiceText,
@@ -981,6 +1110,31 @@ fun ChatScreen(
 								DropdownMenuItem(
 									text = {
 										Column {
+											Text(stringResource(R.string.chat_upload_conversation))
+											Text(
+												text = stringResource(
+													R.string.chat_upload_conversation_detail,
+												),
+												style = MaterialTheme.typography.bodySmall,
+												color = MaterialTheme.colorScheme.onSurfaceVariant,
+											)
+										}
+									},
+									enabled = !isStreaming && !exporting && !uploadBusy,
+									onClick = {
+										showChatMenu = false
+										uploadTarget = viewModel.conversationUploadTarget()
+										// Tool results can carry file/document text,
+										// so the upload defaults to the narrower
+										// body; the checkbox is an explicit opt-in.
+										uploadIncludeTools = false
+										uploadError = null
+										showUploadDialog = true
+									},
+								)
+								DropdownMenuItem(
+									text = {
+										Column {
 											Text(stringResource(R.string.export_workspace_zip))
 											Text(
 												text = stringResource(R.string.export_workspace_zip_detail),
@@ -1196,6 +1350,16 @@ fun ChatScreen(
 									)
 								}
 								if (sshToolEnabled) {
+									// Which machines this conversation may reach. User-only,
+									// next turn -- the same rule as the tool selection.
+									DropdownMenuItem(
+										text = { Text(stringResource(R.string.chat_ssh_hosts)) },
+										enabled = !isStreaming,
+										onClick = {
+											showChatMenu = false
+											showSshHostsDialog = true
+										},
+									)
 									DropdownMenuItem(
 										text = { Text(stringResource(R.string.chat_revoke_ssh)) },
 										enabled = sshAllowed,
@@ -2304,6 +2468,18 @@ fun ChatScreen(
 		)
 	}
 
+	if (showSshHostsDialog) {
+		SshHostsDialog(
+			hosts = sshHosts,
+			selected = sshHostIds,
+			onApply = { ids ->
+				viewModel.setSshHosts(ids)
+				showSshHostsDialog = false
+			},
+			onDismiss = { showSshHostsDialog = false },
+		)
+	}
+
 	if (showRenameDialog) {
 		AlertDialog(
 			onDismissRequest = { showRenameDialog = false },
@@ -2398,18 +2574,130 @@ fun ChatScreen(
 				}
 			},
 			confirmButton = {
-				TextButton(
-					onClick = {
-						showExportDialog = false
-						pendingExportTools = exportIncludeTools
-						conversationExporter.launch(exportFileName(displayTitle, "md"))
-					},
-				) { Text(stringResource(R.string.export_conversation_action)) }
+				Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+					TextButton(
+						onClick = {
+							showExportDialog = false
+							pendingExportTools = exportIncludeTools
+							conversationExporter.launch(exportFileName(displayTitle, "md"))
+						},
+					) { Text(stringResource(R.string.export_conversation_action)) }
+					TextButton(
+						onClick = {
+							showExportDialog = false
+							shareCurrentConversation(exportIncludeTools)
+						},
+					) { Text(stringResource(R.string.export_share_action)) }
+				}
 			},
 			dismissButton = {
 				TextButton(onClick = { showExportDialog = false }) {
 					Text(stringResource(R.string.common_cancel))
 				}
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+
+	if (showUploadDialog) {
+		// Snapshot the target: the preview must name the server the upload will
+		// actually use, even though Settings can be edited behind the dialog.
+		val target = uploadTarget
+		AlertDialog(
+			onDismissRequest = { if (!uploadBusy) showUploadDialog = false },
+			title = { Text(stringResource(R.string.chat_upload_title)) },
+			text = {
+				Column(
+					modifier = Modifier.verticalScroll(rememberScrollState()),
+					verticalArrangement = Arrangement.spacedBy(8.dp),
+				) {
+					Text(
+						text = stringResource(R.string.chat_upload_body),
+						style = MaterialTheme.typography.bodyMedium,
+					)
+					if (target == null) {
+						Text(
+							text = stringResource(R.string.chat_upload_no_server),
+							style = MaterialTheme.typography.bodyMedium,
+							color = MaterialTheme.colorScheme.error,
+						)
+					} else {
+						Text(
+							text = stringResource(R.string.chat_upload_target, target),
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+					Row(
+						modifier = Modifier
+							.fillMaxWidth()
+							.clickable(enabled = !uploadBusy) {
+								uploadIncludeTools = !uploadIncludeTools
+							},
+						verticalAlignment = Alignment.CenterVertically,
+					) {
+						Checkbox(
+							checked = uploadIncludeTools,
+							onCheckedChange = { uploadIncludeTools = it },
+							enabled = !uploadBusy,
+						)
+						Text(
+							text = stringResource(R.string.export_include_tools),
+							style = MaterialTheme.typography.bodyMedium,
+						)
+					}
+					uploadError?.let { message ->
+						Text(
+							text = message,
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.error,
+						)
+					}
+				}
+			},
+			confirmButton = {
+				TextButton(
+					enabled = !uploadBusy && target != null,
+					onClick = {
+						uploadBusy = true
+						uploadError = null
+						viewModel.uploadConversation(uploadIncludeTools) { result ->
+							uploadBusy = false
+							result.onSuccess { saved ->
+								showUploadDialog = false
+								Toast.makeText(
+									ctx,
+									ctx.getString(R.string.chat_upload_ok, saved),
+									Toast.LENGTH_LONG,
+								).show()
+							}.onFailure { failure ->
+								uploadError = ctx.getString(
+									R.string.chat_upload_failed,
+									failure.message
+										?: ctx.getString(R.string.export_error_unknown),
+								)
+							}
+						}
+					},
+				) {
+					Text(
+						stringResource(
+							if (uploadBusy) {
+								R.string.chat_upload_working
+							} else {
+								R.string.chat_upload_action
+							},
+						),
+					)
+				}
+			},
+			dismissButton = {
+				TextButton(
+					onClick = { if (!uploadBusy) showUploadDialog = false },
+					enabled = !uploadBusy,
+				) { Text(stringResource(R.string.common_cancel)) }
 			},
 			containerColor = MaterialTheme.colorScheme.surface,
 			titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -3742,11 +4030,23 @@ private fun MessageBubble(
 				}
 
 				if (message.isStreaming && message.parts.isEmpty()) {
-					CircularProgressIndicator(
-						modifier = Modifier.size(16.dp),
-						strokeWidth = 2.dp,
-						color = MaterialTheme.colorScheme.primary,
-					)
+					Row(
+						verticalAlignment = Alignment.CenterVertically,
+						horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
+					) {
+						CircularProgressIndicator(
+							modifier = Modifier.size(16.dp),
+							strokeWidth = 2.dp,
+							color = MaterialTheme.colorScheme.primary,
+						)
+						message.retryNotice?.let { notice ->
+							Text(
+								text = notice,
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+							)
+						}
+					}
 				}
 
 				// Follow-ups the model offered with this answer. They are chips,
@@ -3982,7 +4282,8 @@ private class ChatComposerActions(
 	val onSend: () -> Unit,
 	val onStop: () -> Unit,
 	val onInputChange: (String) -> Unit,
-	val onAttach: () -> Unit,
+	val onAttachFromFiles: () -> Unit,
+	val onCapturePhoto: () -> Unit,
 	val onRemoveAttachment: (PendingAttachment) -> Unit,
 	val onTranscribeVoice: suspend (ByteArray) -> Result<String>,
 	val onVoiceText: (String) -> Unit,
@@ -4120,7 +4421,8 @@ private fun ChatBottomBar(
 				enabled = configured,
 				attachments = pendingAttachments,
 				canAttachImages = modelSupportsVision,
-				onAttach = actions.onAttach,
+				onAttachFromFiles = actions.onAttachFromFiles,
+				onCapturePhoto = actions.onCapturePhoto,
 				onRemoveAttachment = actions.onRemoveAttachment,
 				voiceEnabled = voiceReady,
 				onTranscribeVoice = actions.onTranscribeVoice,
@@ -4151,7 +4453,8 @@ private fun Composer(
 	enabled: Boolean,
 	attachments: List<PendingAttachment>,
 	canAttachImages: Boolean,
-	onAttach: () -> Unit,
+	onAttachFromFiles: () -> Unit,
+	onCapturePhoto: () -> Unit,
 	onRemoveAttachment: (PendingAttachment) -> Unit,
 	/** The microphone is present only when a transcription backend is configured. */
 	voiceEnabled: Boolean,
@@ -4179,6 +4482,10 @@ private fun Composer(
 	var costAcknowledged by rememberSaveable { mutableStateOf(false) }
 	var showVoiceCost by remember { mutableStateOf(false) }
 	var elapsedSeconds by remember { mutableStateOf(0) }
+	// The image source menu. Local to the composer: it is about the next
+	// message's attachment, not screen navigation, and it must not survive a
+	// configuration change as an open popup.
+	var attachSources by remember { mutableStateOf(false) }
 	val emptyVoice = stringResource(R.string.chat_voice_empty)
 	val permissionVoice = stringResource(R.string.chat_voice_permission)
 	val tooLongVoice = stringResource(R.string.chat_voice_too_long)
@@ -4333,11 +4640,16 @@ private fun Composer(
 
 		// Staged images sit above the field, so they read as part of the message
 		// being written rather than as a toolbar beside it.
+		//
+		// One scrolling row rather than a wrapping grid: the picker can return any
+		// number of images, and the composer must not grow into the transcript. A
+		// chip that is off-screen is still reachable by scrolling.
 		if (attachments.isNotEmpty()) {
 			Row(
 				modifier = Modifier
 					.fillMaxWidth()
-					.padding(horizontal = comfortableGutter(), vertical = 4.dp),
+					.padding(horizontal = comfortableGutter(), vertical = 4.dp)
+					.horizontalScroll(rememberScrollState()),
 				horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
 			) {
 				attachments.forEach { attachment ->
@@ -4485,23 +4797,57 @@ private fun Composer(
 					// matters here because sending an image to a text-only model does not
 					// fail -- it returns 200 and the model describes a placeholder -- so
 					// there is no other place the reason could surface.
-					IconButton(
-						onClick = onAttach,
-						enabled = enabled && canAttachImages && !isCompacting,
-					) {
-						Icon(
-							Icons.Outlined.Image,
-							contentDescription = if (canAttachImages) {
-								stringResource(R.string.chat_attach_image)
-							} else {
-								stringResource(R.string.chat_cannot_read_images)
-							},
-							tint = if (enabled && canAttachImages && !isCompacting) {
-								MaterialTheme.colorScheme.onSurfaceVariant
-							} else {
-								MaterialTheme.colorScheme.outlineVariant
-							},
-						)
+					//
+					// Tapping it asks for the source rather than opening the picker
+					// directly. The camera is one more way to produce an image, not a
+					// separate kind of attachment, so it belongs behind the same icon;
+					// a second camera glyph in a 48dp row would compete with the
+					// microphone and the context ring for a distinction the menu makes
+					// in words.
+					Box {
+						IconButton(
+							onClick = { attachSources = true },
+							enabled = enabled && canAttachImages && !isCompacting,
+						) {
+							Icon(
+								Icons.Outlined.Image,
+								contentDescription = if (canAttachImages) {
+									stringResource(R.string.chat_attach_image)
+								} else {
+									stringResource(R.string.chat_cannot_read_images)
+								},
+								tint = if (enabled && canAttachImages && !isCompacting) {
+									MaterialTheme.colorScheme.onSurfaceVariant
+								} else {
+									MaterialTheme.colorScheme.outlineVariant
+								},
+							)
+						}
+						DropdownMenu(
+							expanded = attachSources,
+							onDismissRequest = { attachSources = false },
+						) {
+							DropdownMenuItem(
+								text = { Text(stringResource(R.string.chat_attach_from_files)) },
+								leadingIcon = {
+									Icon(Icons.Outlined.FolderOpen, contentDescription = null)
+								},
+								onClick = {
+									attachSources = false
+									onAttachFromFiles()
+								},
+							)
+							DropdownMenuItem(
+								text = { Text(stringResource(R.string.chat_attach_take_photo)) },
+								leadingIcon = {
+									Icon(Icons.Outlined.PhotoCamera, contentDescription = null)
+								},
+								onClick = {
+									attachSources = false
+									onCapturePhoto()
+								},
+							)
+						}
 					}
 
 					Spacer(Modifier.weight(1f))
@@ -4568,6 +4914,83 @@ private fun copyReply(context: android.content.Context, text: String) {
  * checkboxes are limited to `available` (assistant ceiling or the conversation's
  * existing tools), so there is no path here to a capability neither has.
  */
+@Composable
+private fun SshHostsDialog(
+	hosts: List<SshHostSummary>,
+	selected: List<String>,
+	onApply: (List<String>) -> Unit,
+	onDismiss: () -> Unit,
+) {
+	var checked by remember(selected) { mutableStateOf(selected.toSet()) }
+
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text(stringResource(R.string.chat_ssh_hosts_title)) },
+		text = {
+			Column(
+				modifier = Modifier
+					.fillMaxWidth()
+					.heightIn(max = 460.dp)
+					.verticalScroll(rememberScrollState()),
+			) {
+				Text(
+					text = stringResource(R.string.chat_ssh_hosts_body),
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Spacer(Modifier.height(8.dp))
+				if (hosts.isEmpty()) {
+					Text(
+						text = stringResource(R.string.chat_ssh_hosts_empty),
+						style = MaterialTheme.typography.bodyMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
+				hosts.forEach { host ->
+					val isChecked = host.id in checked
+					Row(
+						modifier = Modifier
+							.fillMaxWidth()
+							.clickable {
+								checked = if (isChecked) checked - host.id else checked + host.id
+							}
+							.padding(vertical = 5.dp),
+						verticalAlignment = Alignment.Top,
+					) {
+						Checkbox(
+							checked = isChecked,
+							onCheckedChange = { on ->
+								checked = if (on) checked + host.id else checked - host.id
+							},
+						)
+						Column(
+							modifier = Modifier
+								.weight(1f)
+								.padding(start = 2.dp, top = 1.dp),
+						) {
+							Text(host.label, style = MaterialTheme.typography.bodyMedium)
+						}
+					}
+				}
+				Spacer(Modifier.height(8.dp))
+				Text(
+					text = stringResource(R.string.chat_ssh_hosts_note),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+		},
+		confirmButton = {
+			TextButton(onClick = { onApply(checked.toList()) }) {
+				Text(stringResource(R.string.common_save))
+			}
+		},
+		dismissButton = {
+			TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
+		},
+	)
+}
+
 @Composable
 private fun ConversationToolsDialog(
 	available: List<ToolCatalog.Entry>,
@@ -4705,6 +5128,36 @@ private fun queryImageName(context: android.content.Context, uri: android.net.Ur
 			if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
 		}
 	}.getOrNull()?.takeIf { it.isNotBlank() } ?: "image"
+
+/**
+ * Hand one cached Markdown file to the system share sheet.
+ *
+ * The ClipData is part of the grant on API 34+, not decoration: some receiving
+ * apps read the stream from the clip rather than EXTRA_STREAM, and a missing
+ * clip is the difference between "shared" and "could not open attachment".
+ */
+private fun shareConversationFile(
+	context: android.content.Context,
+	file: File,
+	title: String,
+) {
+	val uri = ConversationShare.uri(context, file)
+	val send = Intent(Intent.ACTION_SEND).apply {
+		type = "text/plain"
+		putExtra(Intent.EXTRA_STREAM, uri)
+		putExtra(Intent.EXTRA_SUBJECT, title)
+		clipData = ClipData.newRawUri(title, uri)
+		addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+	}
+	runCatching {
+		context.startActivity(
+			Intent.createChooser(send, context.getString(R.string.export_share_chooser)),
+		)
+	}.onFailure { failure ->
+		Diag.w("export", "share chooser failed", failure)
+		Toast.makeText(context, R.string.export_share_failed, Toast.LENGTH_LONG).show()
+	}
+}
 
 @Composable
 private fun GenerateImageDialog(

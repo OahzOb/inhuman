@@ -152,8 +152,18 @@ sealed interface StreamChunk {
 	 *
 	 * Surfaced as a chunk rather than thrown so it lands in the same stream the
 	 * UI is already collecting, in order, after whatever text arrived first.
+	 *
+	 * [statusCode] is the HTTP status when the failure was a response rather
+	 * than a broken socket. The retry policy reads it instead of matching the
+	 * message, because "HTTP 503" is a fact and a body that happens to contain
+	 * the word "timeout" is not: a 400 whose JSON mentions a timeout must not
+	 * be sent five more times.
 	 */
-	data class Failure(val message: String, val cause: Throwable? = null) : StreamChunk
+	data class Failure(
+		val message: String,
+		val cause: Throwable? = null,
+		val statusCode: Int? = null,
+	) : StreamChunk
 
 	/** Extra provider payload that has no common representation yet. */
 	data class Raw(val data: JsonObject) : StreamChunk

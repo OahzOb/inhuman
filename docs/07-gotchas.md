@@ -177,6 +177,29 @@ tools use neither. Do not "simplify" these into one slot: the first is a chat
 credential, the second is a per-profile credential, and the third is a paid-tool
 credential with a different blast radius.
 
+### A21. An automatic retry is per round, and it discards that round's output
+
+`ChatEngine` retries a failed provider request itself, up to
+`RetryPolicy.DEFAULT_MAX_RETRIES` (five re-sends). Three properties are
+load-bearing:
+
+- **The unit is a round, not the turn.** Retrying the turn would replay every
+  completed round's tool calls, including a write or `ssh_exec`. The engine
+  retries only the request that failed, before its assistant message is
+  committed and before its tools run.
+- **The failed attempt's bytes are dropped.** These APIs offer no resume. The
+  engine clears its accumulators and emits `EngineEvent.Retrying`; the host
+  simulates a fresh row by clearing `parts` and replacing the `deltas` channel.
+  Appending a retry to the partial text produces `HiHi`-style duplicates that
+  are invisible until the stream ends.
+- **A `Finish` followed by an `IOException` is a clean answer.** The closing
+  socket is not a reason to pay for the completion again; only an `IOException`
+  after `Finish` is ignored this way, because a decoder failure can mean a lost
+  tool call.
+
+`ChatEngineTest` pins the tool execution count across a later-round retry, the
+five-retry exhaustion, the permanent-failure path, and the post-`Finish` case.
+
 ---
 
 ## B. Defects that were found here — and where each one now stands
@@ -905,7 +928,7 @@ missing control was a composition decision no pure classifier could catch.
 prefixes. A Windows directory junction is neither: `Files.isSymbolicLink()` says
 false, and `File.canonicalFile` does not resolve a reparse point, so a junction
 inside the workspace pointing at `C:\...\outside` resolved as an ordinary
-directory. The desktop host's `mklink /J` test failed with `Ok` for
+directory. A `mklink /J` test on Windows failed with `Ok` for
 `junction/secret.txt`.
 
 The walk now calls `toRealPath()` on every existing component and compares it
@@ -1045,6 +1068,35 @@ distinct finished answer on `Dispatchers.Default` into a `State`, caches it by
 text, and `MarkdownText` renders the ready state. A miss still falls back to the
 immediate parse so a cold row cannot compose short. The follow logic, fling
 feel and streaming path are unchanged.
+
+### B36. Two FileProvider declarations with the same class silently lose the second — **FIXED**
+
+The camera provider was first declared as a second
+`androidx.core.content.FileProvider` with authority
+`${applicationId}.capture`. The manifest merged and `dumpsys package` showed
+both authorities, but PackageManager logged "Provider
+ComponentInfo{com.inhuman/androidx.core.content.FileProvider} already defined;
+ignoring": providers are keyed by **component name**, not by authority. The
+surviving diagnostics instance served `com.inhuman.capture`, and the camera app
+crashed while saving with `SecurityException: The authority
+com.inhuman.capture does not match the one of the contentProvider:
+com.inhuman.diagnostics`. The camera app died and nothing was staged, so the
+only visible symptom was a missing attachment.
+
+The capture provider is now `CaptureFileProvider`, a distinct subclass with its
+own `capture_paths` meta-data. `CameraCaptureTest` performs the write/read round
+trip through `content://com.inhuman.capture/camera/...`, which fails if the
+registration is lost again.
+
+### B37. A typed server URL was invisible to conversation upload — **FIXED**
+
+`SettingsViewModel.onLocalServerUrlChange` updated the field but only
+`requireServerUrl` wrote SecureStore, and that ran when Check for updates or
+Upload log was pressed. Conversation upload reads SecureStore from
+`ChatViewModel`, so a freshly typed address made the upload dialog say "set the
+server URL first" even though the field was filled. Every valid edit is now
+normalized and persisted; an invalid or cleared field removes the old value so
+a hidden target cannot outlive the visible one.
 
 ## C. Comments that contradict the code
 

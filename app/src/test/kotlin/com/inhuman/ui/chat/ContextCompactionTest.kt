@@ -1,6 +1,8 @@
 package com.inhuman.ui.chat
 
+import com.inhuman.core.ai.FinishReason
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -108,5 +110,20 @@ class ContextCompactionTest {
 		assertTrue(summary.contains("Earlier context"))
 		assertTrue(summary.contains("write a report"))
 		assertTrue(summary.contains("1 earlier user turn"))
+	}
+
+	@Test
+	fun `a blank summary blames reasoning only when the budget ran out there`() {
+		// The case that was reported: a model thought through the whole
+		// `max_tokens` budget and stopped before writing the summary.
+		assertTrue(summaryStarvedByReasoning(FinishReason.Length, reasoningChars = 3_500))
+
+		// A model that stopped on its own and still wrote nothing is not the
+		// same failure, and the message must not claim it is.
+		assertFalse(summaryStarvedByReasoning(FinishReason.Stop, reasoningChars = 3_500))
+		assertFalse(summaryStarvedByReasoning(FinishReason.Length, reasoningChars = 0))
+		// No finish reason at all (a transport that ended without one) cannot
+		// be evidence of a budget.
+		assertFalse(summaryStarvedByReasoning(null, reasoningChars = 3_500))
 	}
 }

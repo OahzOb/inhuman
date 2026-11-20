@@ -101,7 +101,7 @@ import com.inhuman.diagnostics.AppDiagnostics
 import com.inhuman.updates.UpdateInfo
 import com.inhuman.core.ai.oauth.OAuthProtocol
 import com.inhuman.ui.chat.ProviderDraft
-import com.inhuman.core.ai.ssh.SshProfile
+import com.inhuman.ui.ssh.SshHostSummary
 import com.inhuman.ui.chat.OAuthLoginUi
 import com.inhuman.ui.chat.SettingsViewModel
 import com.inhuman.ui.chat.MediaCapability
@@ -158,7 +158,8 @@ fun SettingsScreen(
 	// is closed. The Usage report is large enough to be worth deferring: it is
 	// requested when that section is opened, below, rather than on entry.
 	var showHostKeysDialog by remember { mutableStateOf(false) }
-	var showSavedSshDialog by remember { mutableStateOf(false) }
+	var showSshHostDialog by remember { mutableStateOf(false) }
+	var editingSshHost by remember { mutableStateOf<com.inhuman.ui.ssh.SshHostSummary?>(null) }
 	var backupMode by remember { mutableStateOf<BackupMode?>(null) }
 	var backupUri by remember { mutableStateOf<Uri?>(null) }
 	var showBackupPassphrase by remember { mutableStateOf(false) }
@@ -660,14 +661,59 @@ fun SettingsScreen(
 						},
 					)
 				}
-				TextButton(onClick = { showSavedSshDialog = true }) {
+				HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+				Text(
+					text = stringResource(R.string.settings_ssh_hosts_title),
+					style = MaterialTheme.typography.titleSmall,
+					color = MaterialTheme.colorScheme.onBackground,
+				)
+				Text(
+					text = stringResource(R.string.settings_ssh_hosts_body),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				if (state.sshHosts.isEmpty()) {
 					Text(
-						if (state.savedSshHost == null) {
-							stringResource(R.string.settings_saved_host_none)
-						} else {
-							stringResource(R.string.settings_saved_host_saved, state.savedSshHost ?: "")
-						},
+						text = stringResource(R.string.settings_ssh_hosts_none),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
+				}
+				state.sshHosts.forEach { host ->
+					Row(
+						modifier = Modifier
+							.fillMaxWidth()
+							.clickable {
+								editingSshHost = host
+								showSshHostDialog = true
+							}
+							.padding(vertical = 8.dp),
+						horizontalArrangement = Arrangement.SpaceBetween,
+						verticalAlignment = Alignment.CenterVertically,
+					) {
+						Column(modifier = Modifier.weight(1f)) {
+							Text(
+								text = host.label,
+								style = MaterialTheme.typography.bodyMedium,
+								color = MaterialTheme.colorScheme.onBackground,
+							)
+							host.hostKeyFingerprint?.takeIf { it.isNotBlank() }?.let { pinned ->
+								Text(
+									text = stringResource(R.string.settings_ssh_host_pinned, pinned),
+									style = MaterialTheme.typography.bodySmall,
+									color = MaterialTheme.colorScheme.onSurfaceVariant,
+								)
+							}
+						}
+					}
+				}
+				TextButton(
+					onClick = {
+						editingSshHost = null
+						showSshHostDialog = true
+					},
+				) {
+					Text(stringResource(R.string.settings_ssh_host_add))
 				}
 
 				HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -1148,26 +1194,25 @@ fun SettingsScreen(
 		)
 	}
 
-	if (showSavedSshDialog) {
-		SavedSshHostDialog(
-			initial = viewModel.savedSshHost(),
-			onSave = { host, port, username, password, privateKey, passphrase, fingerprint ->
-				viewModel.saveSavedSshHost(
+	if (showSshHostDialog) {
+		SshHostDialog(
+			initial = editingSshHost,
+			onSave = { name, host, port, username, fingerprint ->
+				viewModel.saveSshHost(
+					id = editingSshHost?.id,
+					name = name,
 					host = host,
 					port = port,
 					username = username,
-					password = password,
-					privateKey = privateKey,
-					passphrase = passphrase,
 					hostKeyFingerprint = fingerprint,
 				)
-				showSavedSshDialog = false
+				showSshHostDialog = false
 			},
-			onForget = {
-				viewModel.clearSavedSshHost()
-				showSavedSshDialog = false
+			onDelete = {
+				editingSshHost?.let { viewModel.deleteSshHost(it.id) }
+				showSshHostDialog = false
 			},
-			onDismiss = { showSavedSshDialog = false },
+			onDismiss = { showSshHostDialog = false },
 		)
 	}
 
@@ -1500,26 +1545,22 @@ private fun MediaCapability.title(): String = when (this) {
 }
 
 @Composable
-private fun SavedSshHostDialog(
-	initial: SshProfile?,
+private fun SshHostDialog(
+	initial: SshHostSummary?,
 	onSave: (
+		name: String,
 		host: String,
 		port: Int,
 		username: String,
-		password: String,
-		privateKey: String,
-		passphrase: String,
 		fingerprint: String,
 	) -> Unit,
-	onForget: () -> Unit,
+	onDelete: () -> Unit,
 	onDismiss: () -> Unit,
 ) {
+	var name by remember(initial) { mutableStateOf(initial?.name.orEmpty()) }
 	var host by remember(initial) { mutableStateOf(initial?.host.orEmpty()) }
 	var port by remember(initial) { mutableStateOf((initial?.port ?: 22).toString()) }
 	var username by remember(initial) { mutableStateOf(initial?.username.orEmpty()) }
-	var password by remember(initial) { mutableStateOf("") }
-	var privateKey by remember(initial) { mutableStateOf("") }
-	var passphrase by remember(initial) { mutableStateOf("") }
 	var fingerprint by remember(initial) { mutableStateOf(initial?.hostKeyFingerprint.orEmpty()) }
 	var error by remember { mutableStateOf<String?>(null) }
 	val errorText = stringResource(R.string.settings_saved_host_error)
@@ -1552,6 +1593,13 @@ private fun SavedSshHostDialog(
 					Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 				}
 				OutlinedTextField(
+					value = name,
+					onValueChange = { name = it; error = null },
+					label = { Text(stringResource(R.string.settings_ssh_host_name)) },
+					singleLine = true,
+					modifier = Modifier.fillMaxWidth(),
+				)
+				OutlinedTextField(
 					value = host,
 					onValueChange = { host = it; error = null },
 					label = { Text(stringResource(R.string.settings_saved_host_host)) },
@@ -1577,28 +1625,6 @@ private fun SavedSshHostDialog(
 					modifier = Modifier.fillMaxWidth(),
 				)
 				OutlinedTextField(
-					value = password,
-					onValueChange = { password = it; error = null },
-					label = { Text(stringResource(R.string.settings_saved_host_password)) },
-					singleLine = true,
-					visualTransformation = PasswordVisualTransformation(),
-					modifier = Modifier.fillMaxWidth(),
-				)
-				OutlinedTextField(
-					value = privateKey,
-					onValueChange = { privateKey = it; error = null },
-					label = { Text(stringResource(R.string.settings_saved_host_key)) },
-					modifier = Modifier.fillMaxWidth(),
-				)
-				OutlinedTextField(
-					value = passphrase,
-					onValueChange = { passphrase = it; error = null },
-					label = { Text(stringResource(R.string.settings_saved_host_passphrase)) },
-					singleLine = true,
-					visualTransformation = PasswordVisualTransformation(),
-					modifier = Modifier.fillMaxWidth(),
-				)
-				OutlinedTextField(
 					value = fingerprint,
 					onValueChange = { fingerprint = it; error = null },
 					label = { Text(stringResource(R.string.settings_saved_host_fingerprint)) },
@@ -1610,19 +1636,14 @@ private fun SavedSshHostDialog(
 		confirmButton = {
 			TextButton(
 				onClick = {
-					val hasNewSecret = password.isNotBlank() || privateKey.isNotBlank()
-					if (host.isBlank() || username.isBlank() ||
-						(!hasNewSecret && initial?.hasAuthentication != true)
-					) {
+					if (host.isBlank() || username.isBlank()) {
 						error = errorText
 					} else {
 						onSave(
+							name,
 							host,
 							port.toIntOrNull() ?: 22,
 							username,
-							password,
-							privateKey,
-							passphrase,
 							fingerprint,
 						)
 					}
@@ -1632,8 +1653,8 @@ private fun SavedSshHostDialog(
 		dismissButton = {
 			Row {
 				if (initial != null) {
-					TextButton(onClick = onForget) {
-						Text(stringResource(R.string.settings_saved_host_forget))
+					TextButton(onClick = onDelete) {
+						Text(stringResource(R.string.settings_ssh_host_delete))
 					}
 				}
 				TextButton(onClick = onDismiss) {
@@ -2668,6 +2689,7 @@ private fun ApprovalRulesSection(
 			includeWorkspaceBound = AppCapabilities.workspaceOk,
 			includeSandbox = AppCapabilities.sandboxOk == true,
 			includeSuggestions = suggestionsEnabled,
+			includePdfVision = true,
 		)) {
 			val current = rules[entry.name] ?: ToolPolicy.Free
 			ApprovalRuleRow(

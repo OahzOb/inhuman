@@ -46,16 +46,18 @@ remote tools, and let `conversation.tools == null` mean the same for that
 conversation.
 
 - `agent.tools == null`: the ceiling is every non-remote catalogue entry that is
-  not opt-in. A remote tool, and `suggest_replies` (opt-in because it spends an
-  extra request), is available only if the conversation or assistant already
-  names it.
+  not opt-in. A remote tool, `suggest_replies` (opt-in because it spends an
+  extra request) and `read_pdf_vision` (opt-in because it spends one request per
+  page) are available only if the conversation or assistant already names them.
 - `agent.tools` is a list: the ceiling is that list. The conversation's existing
   names are added to the available set as well, so a tool the assistant no longer
   has can be restored but not invented.
 - `ToolCatalog.visible(sshEnabled, includeWorkspaceBound = workspaceToolsEnabled,
-  includeSuggestions = suggestionsEnabled)` is applied last: with SSH off, no
-  remote row is shown; with the follow-up switch off, no `suggest_replies` row
-  is shown. Existing names are kept in storage but not registered in the turn.
+  includeSuggestions = suggestionsEnabled, includePdfVision = true)` is applied
+  last: with SSH off, no remote row is shown; with the follow-up switch off, no
+  `suggest_replies` row is shown; a host without the PDF renderer keeps
+  `read_pdf_vision` hidden. Existing names are kept in storage but not registered
+  in the turn.
   With the startup workspace self-check failed, every workspace-bound row --
   files, media and SSH -- is absent for the same reason; the stored names
   survive, so a later healthy start restores them without the user re-picking

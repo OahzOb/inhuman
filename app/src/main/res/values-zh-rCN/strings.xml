@@ -89,6 +89,8 @@
 		<item quantity="other">已选择 %d 个</item>
 	</plurals>
 	<string name="home_tap_to_select">点按对话以选择</string>
+	<string name="home_select_all">全选</string>
+	<string name="home_deselect_all">取消全选</string>
 	<string name="home_search_short">搜索</string>
 	<string name="home_search_placeholder">搜索对话和消息</string>
 	<string name="home_search_clear">清除搜索</string>
@@ -216,7 +218,14 @@
 	<string name="settings_demo_title">演示模式</string>
 	<string name="settings_demo_body">回复由设备本地按脚本生成，文件工具会真实执行；不会向任何地方发送内容，也不需要密钥。开启工具后，它会先创建一个文件再删除，因此不用账号也能完整跑通工具循环。</string>
 	<string name="settings_ssh_title">SSH 工具</string>
-	<string name="settings_ssh_body">默认关闭。开启后，可以给助手授予 SSH 工具：ssh_probe 读取主机快照，ssh_list 和 ssh_read_file 通过 SFTP 读取远端文件（可只看末尾几行），ssh_write_file 写入小型文本文件，ssh_upload 和 ssh_download 传输文件，ssh_exec 执行命令。只选读取类工具就不经过 shell；之后再加 ssh_exec 或 ssh_upload 会重置这个对话的授权。可以保存一台远程主机省去重复输入；只有调用明确要求时才使用保存值，否则使用调用里的地址和凭据。每个对话首次调用 SSH 时会显示与所选工具匹配的授权提示，之后按普通工具策略执行。按选择不同，助手可以读取文件、替换文件或在远程机器上执行任意命令，这些操作可能无法撤销。SSH 工具参数在写入记录前会脱敏，但你输入的文本仍会被保存。</string>
+	<string name="settings_ssh_body">默认关闭。开启后，可以给助手授予 SSH 工具：ssh_hosts 列出你分享给这个对话的主机信息（只读，不连接），ssh_probe 读取主机快照，ssh_list 和 ssh_read_file 通过 SFTP 读取远端文件，ssh_write_file 写入小型文本文件，ssh_upload 和 ssh_download 传输文件，ssh_exec 执行命令。只选读取类工具就不经过 shell；之后再加 ssh_exec 或 ssh_upload 会重置这个对话的授权。下面保存的是地址簿：只有别名、地址、端口、用户名和可选指纹，不保存密码或私钥。连接凭据由助手在调用里给出（工作区里的密钥文件，或你告诉它的密码），所以任何一次调用都不需要 app 保存的凭据。每个对话首次调用 SSH 时会显示与所选工具匹配的授权提示，之后按普通工具策略执行。按选择不同，助手可以读取文件、替换文件或在远程机器上执行任意命令，这些操作可能无法撤销。</string>
+	<string name="settings_ssh_hosts_title">SSH 主机</string>
+	<string name="settings_ssh_hosts_body">地址簿：别名、地址、端口、用户名、可选指纹。这里没有密码或私钥——工具永远不会用 app 保存的凭据去连接，助手必须自己拿到密钥文件或密码。</string>
+	<string name="settings_ssh_hosts_none">还没有保存的主机。</string>
+	<string name="settings_ssh_host_pinned">已固定主机密钥：%1$s</string>
+	<string name="settings_ssh_host_add">添加主机</string>
+	<string name="settings_ssh_host_name">名称（例如 prod-web）</string>
+	<string name="settings_ssh_host_delete">删除主机</string>
 	<string name="settings_ssh_limits_title">SSH 上限</string>
 	<string name="settings_ssh_limits_body">agent 只能请求比这些更小的值，不能更大。不传值时使用应用默认值，而不是上限。</string>
 	<string name="settings_ssh_command_timeout">命令超时上限</string>
@@ -224,19 +233,13 @@
 	<string name="settings_ssh_list_cap">目录条数上限</string>
 	<string name="settings_ssh_read_cap">文本读取上限</string>
 	<string name="settings_host_keys_none">还没有固定的主机密钥</string>
-	<string name="settings_saved_host_none">保存远程主机</string>
-	<string name="settings_saved_host_saved">已保存主机：%1$s</string>
-	<string name="settings_saved_host_title">保存的远程主机</string>
-	<string name="settings_saved_host_body">只保存一台主机，仅为省去重复输入；不是安全或隐私保证，也不进入备份；密码/私钥保存在 Android Keystore。</string>
-	<string name="settings_saved_host_note">密码和私钥留空表示保留已保存的值；主机或用户名留空不会保存。</string>
+	<string name="settings_saved_host_title">远程主机</string>
+	<string name="settings_saved_host_body">只保存地址簿信息：别名、地址、端口、用户名和可选指纹。这里没有密码或私钥；连接时由助手在调用里给出凭据。</string>
+	<string name="settings_saved_host_note">主机或用户名留空不会保存；指纹留空表示沿用已保存的值。</string>
 	<string name="settings_saved_host_host">主机或 IP</string>
 	<string name="settings_saved_host_port">端口</string>
 	<string name="settings_saved_host_user">用户名</string>
-	<string name="settings_saved_host_password">密码（可选）</string>
-	<string name="settings_saved_host_key">私钥文本（可选）</string>
-	<string name="settings_saved_host_passphrase">私钥口令（可选）</string>
 	<string name="settings_saved_host_fingerprint">主机密钥指纹（可选）</string>
-	<string name="settings_saved_host_forget">忘记主机</string>
 	<string name="settings_saved_host_error">请填写主机、用户名，以及密码或私钥。</string>
 	<string name="settings_host_keys_count">已固定 %1$d 个主机密钥</string>
 	<string name="settings_section_limits">04 / 轮次上限</string>
@@ -466,7 +469,7 @@
 	<string name="badge_rewind">可回退</string>
 	<string name="badge_no_rewind">不可回退</string>
 	<string name="notice_paid_tools">web_search 和 web_fetch 会调用设置中选定的搜索/抓取服务；图片、视频、语音、转写和决策工具会调用各自配置的后端。它们都按调用计费；没有 PAID 标记的工具不会调用付费服务。</string>
-	<string name="notice_remote_tools">SSH 工具可以读取、传输远端文件；只有显式选中 ssh_exec 才会执行命令。应用不配置主机，也不保存凭据，助手使用你提供的信息。远端的损坏可能无法撤销。使用前需要在设置中打开 SSH 开关，每个对话还要授权一次。</string>
+	<string name="notice_remote_tools">SSH 工具可以读取、传输远端文件；只有显式选中 ssh_exec 才会执行命令。ssh_hosts 只列出你分享的主机信息，不连接、不含凭据；连接时助手必须自己给出地址和凭据（工作区密钥或密码）。远端的损坏可能无法撤销。使用前需要在设置中打开 SSH 开关，每个对话还要授权一次。</string>
 
 
 	<!-- 文件：对话工作区浏览器。 -->
@@ -674,6 +677,8 @@
 	<string name="tool_blurb_read_file">读取文件夹里的文件</string>
 	<string name="tool_blurb_file_info">查看文件大小和修改时间</string>
 	<string name="tool_blurb_read_document">读取 CSV、TXT、DOCX、XLSX、PDF、DOC 或 XLS 文档</string>
+	<string name="tool_blurb_read_pdf_vision">用当前视觉模型读取扫描版 PDF 页面（按页计费）</string>
+	<string name="tool_blurb_unavailable_tools">查看 app 提供、但这个对话不能用的工具</string>
 	<string name="tool_blurb_read_time">当前日期时间，以及日期计算</string>
 	<string name="tool_blurb_web_search">通过配置的付费搜索 API 搜索网页</string>
 	<string name="tool_blurb_web_fetch">通过配置的付费抓取 API 读取网页</string>
@@ -683,6 +688,7 @@
 	<string name="tool_blurb_video_status">检查视频任务并在完成时保存</string>
 	<string name="tool_blurb_speak">把文本转成音频文件保存到 workspace</string>
 	<string name="tool_blurb_transcribe">转写 workspace 里的音频文件</string>
+	<string name="tool_blurb_ssh_hosts">列出你分享给这个对话的远程主机</string>
 	<string name="tool_blurb_ssh_list">列出一个远端目录</string>
 	<string name="tool_blurb_ssh_read_file">读取远端文本文件</string>
 	<string name="tool_blurb_ssh_probe">查看远端 Linux 机器状态</string>
@@ -708,13 +714,17 @@
 	<string name="chat_save_workspace">保存为永久工作区</string>
 	<string name="chat_save_workspace_detail">删除对话后保留文件</string>
 	<!-- 导出：对话 Markdown 与工作区 zip。 -->
-	<string name="export_chat">导出对话为 Markdown…</string>
+	<string name="export_chat">导出或分享对话…</string>
 	<string name="export_workspace_zip">导出工作区为 zip…</string>
 	<string name="export_workspace_zip_detail">文件的明文 zip，不是备份</string>
-	<string name="export_title">导出对话</string>
-	<string name="export_body">对话会按你看到的顺序写成纯文本 Markdown，包含推理过程。文件不加密，请自己选择保存位置。</string>
+	<string name="export_title">导出或分享对话</string>
+	<string name="export_body">对话会按你看到的顺序写成纯文本 Markdown，包含推理过程。导出会保存到你选择的文件；分享会打开系统分享面板。两者都不加密。</string>
 	<string name="export_include_tools">包含工具调用和结果</string>
 	<string name="export_conversation_action">导出 .md</string>
+	<string name="export_share_action">分享</string>
+	<string name="export_share_chooser">分享对话</string>
+	<string name="export_share_failed">无法准备要分享的对话。</string>
+	<string name="export_share_failed_detail">分享失败：%1$s</string>
 	<string name="export_conversation_done">对话已导出。</string>
 	<string name="export_working">正在导出…</string>
 	<string name="export_failed">导出失败：%1$s</string>
@@ -727,6 +737,17 @@
 	<string name="export_error_missing_conversation">这段对话已不存在。</string>
 	<string name="export_error_destination">无法打开导出位置。</string>
 	<string name="export_error_unknown">未知错误。</string>
+	<string name="chat_upload_conversation">上传对话…</string>
+	<string name="chat_upload_conversation_detail">把 Markdown 记录发送到已配置的服务端</string>
+	<string name="chat_upload_title">上传这段对话？</string>
+	<string name="chat_upload_body">将以明文 Markdown 发送：标题、消息、推理过程和附件路径。不包含图片字节。若勾选工具调用和结果，工具返回的文本（可能包含文件或文档内容）也会一并发送。服务端没有鉴权，只应使用局域网或 Tailscale 地址。</string>
+	<string name="chat_upload_target">服务端：%1$s</string>
+	<string name="chat_upload_action">上传</string>
+	<string name="chat_upload_working">正在上传…</string>
+	<string name="chat_upload_ok">已上传：%1$s</string>
+	<string name="chat_upload_failed">上传失败：%1$s</string>
+	<string name="chat_upload_no_server">请先在 设置 → 本地 中填写服务端地址。</string>
+	<string name="chat_upload_streaming">请先停止回复再上传对话。</string>
 	<string name="export_role_user">你</string>
 	<string name="export_role_assistant">助手</string>
 	<string name="export_role_system">系统</string>
@@ -741,6 +762,11 @@
 	<string name="export_tools_omitted">未包含工具调用和结果。</string>
 	<string name="export_attachments_note">附件文件不包含在这个 Markdown 文件里。</string>
 	<string name="chat_revoke_ssh">撤销 SSH 访问</string>
+	<string name="chat_ssh_hosts">SSH 主机…</string>
+	<string name="chat_ssh_hosts_title">把哪些主机告诉这个对话</string>
+	<string name="chat_ssh_hosts_body">勾选的主机会出现在 ssh_hosts 的返回里。这是信息，不是连接权限：工具不会用 app 保存的信息去连接，助手仍然需要自己拿到密钥或密码。改动下一回合生效。</string>
+	<string name="chat_ssh_hosts_empty">还没有保存的主机。先到 设置 → 演示与 SSH → SSH 主机 添加。</string>
+	<string name="chat_ssh_hosts_note">助手只会看到别名和 user@host；没有密码、私钥或口令可给。</string>
 	<string name="chat_permanent_workspace">永久工作区</string>
 	<string name="chat_temporary_workspace">临时工作区</string>
 	<string name="chat_jump_latest">跳到最新消息</string>
@@ -758,6 +784,10 @@
 	<string name="chat_try_demo_strip">试试演示模式：无需密钥，也无需联网</string>
 	<string name="chat_dismiss">忽略</string>
 	<string name="chat_retry">重试</string>
+	<string name="chat_retrying">连接异常，正在重试（%1$d/%2$d）…</string>
+	<plurals name="chat_error_retries_exhausted">
+		<item quantity="other">已自动重试 %1$d 次，仍未成功。</item>
+	</plurals>
 	<string name="chat_compact_retry">压缩后重试</string>
 	<string name="chat_provider_settings">服务商设置</string>
 	<string name="chat_copy_details">复制详情</string>
@@ -866,6 +896,10 @@
 	<string name="chat_rewind_turn">回退这一回合</string>
 	<string name="chat_changed_files">更改的文件</string>
 	<string name="chat_attach_image">添加图片</string>
+	<string name="chat_attach_from_files">从文件中选择</string>
+	<string name="chat_attach_take_photo">拍照</string>
+	<string name="chat_camera_failed">无法启动相机。</string>
+	<string name="chat_camera_empty">相机没有返回照片。</string>
 	<string name="chat_cannot_read_images">当前模型无法读取图片</string>
 	<string name="chat_message_hint">给助手发消息…</string>
 	<string name="chat_voice_empty">没有录到内容，或转写失败。</string>
@@ -1024,6 +1058,7 @@
 	<string name="chat_error_summarizer_timeout">生成摘要超时，未做任何更改。</string>
 	<string name="chat_error_summarizer_failed">生成摘要失败：%1$s。将改用完整记录。</string>
 	<string name="chat_error_summarizer_empty">摘要没有返回内容；将改用完整记录。</string>
+	<string name="chat_error_summarizer_truncated">摘要用完了 %1$d 个输出 token，却没有写出正文：预算被推理占用了。换一个不先思考的模型，或再试一次；将改用完整记录。</string>
 	<string name="chat_error_point_gone">那个位置已经不在对话中了。</string>
 	<string name="chat_error_later_ssh">这一回合的后续步骤运行了 SSH，造成的影响无法撤销。</string>
 	<string name="chat_error_checkpoint_missing">那个位置的快照缺失，因此没有做任何更改。</string>

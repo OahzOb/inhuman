@@ -47,6 +47,7 @@ internal fun conversationToolPlan(
 		includeWorkspaceBound = workspaceToolsEnabled,
 		includeSandbox = AppCapabilities.sandboxOk == true,
 		includeSuggestions = suggestionsEnabled,
+		includePdfVision = true,
 	)
 		.filter { it.name in ceiling || it.name in current }
 

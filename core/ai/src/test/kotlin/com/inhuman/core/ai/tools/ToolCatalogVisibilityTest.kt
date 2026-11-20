@@ -70,6 +70,17 @@ class ToolCatalogVisibilityTest {
 	}
 
 	@Test
+	fun pdfVisionIsAbsentUntilTheHostOffersIt() {
+		// A host without the renderer or vision request path must not show a
+		// row it cannot execute; the Android pickers pass the flag.
+		val without = ToolCatalog.visible(includeSsh = false).map { it.name }
+		assertFalse("read_pdf_vision" in without)
+
+		val with = ToolCatalog.visible(includeSsh = false, includePdfVision = true).map { it.name }
+		assertTrue("read_pdf_vision" in with)
+	}
+
+	@Test
 	fun everyWorkspaceDependentToolIsMarked() {
 		val marked = ToolCatalog.all.filter { it.workspaceBound }.map { it.name }.toSet()
 
@@ -77,6 +88,7 @@ class ToolCatalogVisibilityTest {
 			"list_files",
 			"read_file",
 			"write_file",
+			"read_pdf_vision",
 			"transcribe",
 			"generate_image",
 			"generate_video",

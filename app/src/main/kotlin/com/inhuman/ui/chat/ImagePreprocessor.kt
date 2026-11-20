@@ -91,8 +91,9 @@ internal data class PreparedImage(
  * The stored copy is the prepared one. The original is not kept: the
  * transcript only stores the path, and retaining both would double the
  * workspace and quota use for an image the model will never see at full size.
- * A user who wants the untouched original still has it in the gallery; the
- * conversation keeps what it can actually send.
+ * A picked file's untouched original still exists wherever it was picked from.
+ * A camera capture has no such copy -- its cache original is deleted after
+ * staging -- so the prepared image is the only one.
  *
  * ## Format
  *

@@ -123,17 +123,6 @@ if (-not $sdk -or -not (Test-Path $sdk)) {
 	if ($buildTools) { Pass "build-tools: $(($buildTools | Sort-Object Name | Select-Object -Last 1).Name)" } else { Fail "no build-tools" "sdkmanager `"build-tools;36.0.0`"" }
 }
 
-# --- Optional: desktop host ------------------------------------------------
-
-$desktopJava = $env:INHUMAN_DESKTOP_JAVA_HOME
-if ($desktopJava) {
-	Pass "desktop: INHUMAN_DESKTOP_JAVA_HOME=$desktopJava"
-} else {
-	Pass "desktop: not configured (only needed for :desktopApp:run / packageMsi; set INHUMAN_DESKTOP_JAVA_HOME to a full JDK 21+)"
-}
-$wix = $env:WIX_PATH
-if ($wix) { Pass "desktop packaging: WIX_PATH=$wix" } else { Pass "desktop packaging: WIX_PATH unset (only needed for packageMsi)" }
-
 # --- Report ----------------------------------------------------------------
 
 Write-Host ""

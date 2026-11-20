@@ -113,6 +113,7 @@ class GeminiProvider(
 							StreamChunk.Failure(
 								"HTTP ${res.code} ${res.message}" +
 									if (detail.isNullOrBlank()) "" else ": $detail",
+								statusCode = res.code,
 							),
 						)
 						close()

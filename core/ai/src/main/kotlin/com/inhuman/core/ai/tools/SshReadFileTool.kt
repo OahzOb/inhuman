@@ -4,7 +4,6 @@ import com.inhuman.core.ai.ToolResult
 import com.inhuman.core.ai.ssh.SshException
 import com.inhuman.core.ai.ssh.SshFileTransport
 import com.inhuman.core.ai.ssh.SshLimits
-import com.inhuman.core.ai.ssh.SshProfile
 import com.inhuman.core.ai.ssh.SshTransport
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
@@ -24,7 +23,7 @@ import kotlinx.serialization.json.JsonObject
 class SshReadFileTool(
 	private val transport: SshFileTransport,
 	private val readWorkspaceFile: (String) -> ByteArray? = { null },
-	private val savedConnection: () -> SshProfile? = { null },
+
 	private val maxBytes: Long = 64L * 1024,
 ) : SshTool {
 
@@ -33,7 +32,7 @@ class SshReadFileTool(
 	override val description: String = """
 		Read one text file from a remote machine over SFTP.
 		Use it for a config, a log tail or a small source file; the content is returned directly and becomes part of the conversation.
-		The app can use a connection saved in Settings with useSavedHost=true; otherwise pass host, username and authentication. Prefer identityFile over a password or raw key.
+		${SshArguments.connectionHelp()}
 		Without tailLines, the first $maxBytes bytes are returned and a larger file is refused; use ssh_download for a large file. With tailLines=N, the last N lines are returned from a bounded tail window. Binary files are refused.
 	""".trimIndent()
 
@@ -61,7 +60,7 @@ class SshReadFileTool(
 
 	override suspend fun execute(arguments: JsonObject): ToolResult {
 		val args = SshArguments.normalize(arguments)
-		val connection = when (val parsed = SshArguments.parse(name, args, readWorkspaceFile, savedConnection)) {
+		val connection = when (val parsed = SshArguments.parse(name, args, readWorkspaceFile)) {
 			is SshArguments.Parsed.Error -> return ToolResult.error(parsed.message)
 			is SshArguments.Parsed.Ok -> parsed.value
 		}

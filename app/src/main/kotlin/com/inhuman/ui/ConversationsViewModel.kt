@@ -318,6 +318,26 @@ class ConversationsViewModel(
 		_state.update { it.copy(selecting = false, selectedIds = emptySet()) }
 	}
 
+	/**
+	 * Select every conversation, or clear the checks when they all are.
+	 *
+	 * The set is derived from the list at tap time rather than stored as an
+	 * "all" flag. A conversation created by a running turn must not become
+	 * selected without a tap, and the delete dialog must name exactly the rows
+	 * the user saw checked.
+	 */
+	fun toggleSelectAll() {
+		_state.update { current ->
+			val all = current.conversations.mapTo(mutableSetOf()) { it.id }
+			val next = if (all.isNotEmpty() && current.selectedIds.containsAll(all)) {
+				emptySet<String>()
+			} else {
+				all
+			}
+			current.copy(selecting = true, selectedIds = next)
+		}
+	}
+
 	fun clearError() {
 		_state.update { it.copy(error = null) }
 	}

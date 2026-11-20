@@ -212,6 +212,7 @@ fun ConversationsScreen(
 							error = state.error,
 							onBeginSelection = viewModel::beginSelection,
 							onToggleSelection = viewModel::toggleSelection,
+							onToggleSelectAll = viewModel::toggleSelectAll,
 							onCancelSelection = viewModel::cancelSelection,
 							onDeleteSelected = { showBulkDelete = true },
 							onClearError = viewModel::clearError,
@@ -245,6 +246,7 @@ fun ConversationsScreen(
 					error = state.error,
 					onBeginSelection = viewModel::beginSelection,
 					onToggleSelection = viewModel::toggleSelection,
+					onToggleSelectAll = viewModel::toggleSelectAll,
 					onCancelSelection = viewModel::cancelSelection,
 					onDeleteSelected = { showBulkDelete = true },
 					onClearError = viewModel::clearError,
@@ -905,6 +907,7 @@ private fun ConversationPanel(
 	error: String?,
 	onBeginSelection: (String?) -> Unit,
 	onToggleSelection: (String) -> Unit,
+	onToggleSelectAll: () -> Unit,
 	onCancelSelection: () -> Unit,
 	onDeleteSelected: () -> Unit,
 	onClearError: () -> Unit,
@@ -925,6 +928,10 @@ private fun ConversationPanel(
 	modifier: Modifier = Modifier,
 ) {
 	val compact = compactLayout
+	// All rows the delete action would name. Not a separate "all" flag: the
+	// list can change while selection mode is open, and the header must
+	// describe the checkboxes that are actually on screen.
+	val allSelected = conversations.isNotEmpty() && conversations.all { it.id in selectedIds }
 	// `fillMaxSize` here, not only at the single-pane call site: in the
 	// two-pane branch the default modifier let the Box wrap its 760dp child,
 	// so the list sat against the rail instead of centring in the pane.
@@ -961,6 +968,21 @@ private fun ConversationPanel(
 						style = MaterialTheme.typography.labelMedium,
 						color = MaterialTheme.colorScheme.primary,
 					)
+					// The list-level action belongs beside the count, not in
+					// the Cancel/Delete row: on a 360dp phone four controls
+					// there left the hint with no width of its own.
+					Spacer(Modifier.width(2.dp))
+					TextButton(
+						onClick = onToggleSelectAll,
+						enabled = conversations.isNotEmpty() && !deletingSelection,
+					) {
+						Text(
+							stringResource(
+								if (allSelected) R.string.home_deselect_all else R.string.home_select_all,
+							),
+							style = MaterialTheme.typography.labelMedium,
+						)
+					}
 				} else {
 					Text(
 						text = twoDigits(conversations.size),

@@ -5,6 +5,7 @@ import androidx.room.useWriterConnection
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.ConversationStore
+import com.inhuman.core.data.db.HostsColumn
 import com.inhuman.core.data.db.InhumanDatabase
 import com.inhuman.core.data.db.MessageEntity
 import com.inhuman.core.data.db.MessageTurnRow
@@ -95,7 +96,7 @@ class ConversationRepository(
 	 * Where workspaces and rollback snapshots live.
 	 *
 	 * Injected rather than read from `context.filesDir` so this repository runs
-	 * on the desktop JVM too. Android passes `DataPaths(context.filesDir)`; the
+	 * on a plain JVM. Android passes `DataPaths(context.filesDir)`; the
 	 * directory layout is unchanged, so an existing install opens the same
 	 * files.
 	 */
@@ -436,6 +437,19 @@ class ConversationRepository(
 		db.conversations().setSshAllowed(id, allowed)
 
 	suspend fun sshAllowed(id: String): Boolean? = db.conversations().sshAllowed(id)
+
+	/**
+	 * Replace the set of saved hosts this conversation may use.
+	 *
+	 * The whole set, not a delta, and empty means none: a conversation that has
+	 * not been given a host gets no SSH tool at all. Only the chat's host sheet
+	 * writes this; no tool and no model output can widen it.
+	 */
+	suspend fun setSshHosts(id: String, hosts: List<String>) =
+		db.conversations().setSshHosts(id, HostsColumn.encode(hosts))
+
+	suspend fun sshHosts(id: String): List<String> =
+		db.conversations().sshHosts(id)?.let(HostsColumn::decode).orEmpty()
 
 	/** Turning the global SSH switch off revokes every conversation's consent. */
 	suspend fun clearAllSshAllowed() = db.conversations().clearAllSshAllowed()

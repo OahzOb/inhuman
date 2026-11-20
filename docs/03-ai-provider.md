@@ -10,7 +10,9 @@ here; if you are adding UI, it does not.
 is deliberately thin: `id`, `listModels()`, and
 `stream(request): Flow<StreamChunk>`. The file states what is *not* in it —
 retries, key management, persistence, tool execution — because those are policy
-and belong to the layer with the context to decide.
+and belong to the layer with the context to decide. **That is still true of the
+provider: the retry policy lives in `ChatEngine`, not here** (see "Retrying a
+failed round" below).
 
 Its contract, worth quoting because callers rely on it: the flow **completes
 normally on a clean finish** and emits `StreamChunk.Failure` for anything that
@@ -73,7 +75,50 @@ Three facts drive the shape, and all three are places implementations go wrong:
 
 `Finish` is an explicit signal rather than an inference from the socket closing,
 so a truncated connection can be told apart from a clean finish — one should be
-retried and the other should not (`StreamChunk.kt:101-107`).
+retried and the other should not (`StreamChunk.kt:101-107`). The engine retries
+the failure chunk; a `Finish` is trusted, including `Unknown`, because some
+compatible servers simply stop without a finish frame.
+
+## Retrying a failed round
+
+The provider has no retry. `DeepSeekProvider` even sets
+`retryOnConnectionFailure(false)`; OkHttp cannot know whether a retried POST
+already produced billable tokens. The **engine** retries instead
+(`core/engine/…/RetryPolicy.kt`, applied in `ChatEngine`), because it is the
+first layer that knows what the failed attempt already did.
+
+- **Five re-sends, six requests.** `RetryPolicy.DEFAULT_MAX_RETRIES = 5`. The
+  delay starts at 1 s, doubles, and is capped at 15 s, with up to 250 ms of
+  jitter; the fifth wait is 15 s, so exhaustion takes roughly half a minute
+  before the manual Retry banner appears. The error says how many retries
+  happened.
+- **Only transient failures.** HTTP 408/425/429 and 5xx, an `IOException`
+  (connection reset, DNS, TLS read, no response headers), or a message with a
+  transient marker. Authentication, billing/quota exhaustion, context overflow,
+  a malformed request and a certificate/hostname failure are not retried: they
+  will not change, and five more sends only make the message arrive later.
+  `StreamChunk.Failure.statusCode` is the HTTP status when one exists; the policy
+  prefers it over matching the body, because a 400 whose JSON mentions a timeout
+  is still a refused request.
+- **Per round, never across a completed tool group.** A round is retried before
+  its assistant message is committed and before any tool in it runs. A retry in
+  round 2 therefore cannot re-execute round 1's `write_file` or `ssh_exec`;
+  `ChatEngineTest` pins the tool execution count at one.
+- **The failed attempt's output is discarded.** These APIs offer no resume, so a
+  retry is a fresh completion. The engine clears its text/reasoning/tool builders
+  and tells the host with `EngineEvent.Retrying`; the Android row drops its parts
+  and replaces its delta channel so the incremental Markdown renderer starts from
+  an empty document rather than appending the second answer to the first. Any
+  tokens the provider billed for the abandoned attempt are not visible in the
+  usage line, which reports the successful attempt.
+- **`Finish` beats a closing socket.** An `IOException` that arrives *after* a
+  `Finish` chunk is treated as closing noise, not as a reason to replay the
+  answer. A decoder failure after `Finish` is not ignored this way; it can mean a
+  lost tool call.
+
+The manual **Retry** (`chatErrorAction`) remains for the case where five
+re-sends did not help, and for non-transient failures where retrying would be
+wrong.
 
 ## Request and message types
 
@@ -135,6 +180,14 @@ OpenAI-compatible one. The provider's own resize rule is documented in
 [DeepSeek's Vision guide](https://api-docs.deepseek.com/guides/vision): images
 are scaled to roughly a 1300×1300 pixel budget and capped at 1024 tokens each,
 so a 2000×2000 and a 5000×5000 image cost the same after resizing.
+
+**The app adds no image-count ceiling of its own.** The provider's documented
+limits are the boundary: 600 images per request, a 48 MiB request body, 32 MiB
+per inline image, 64 MiB of images per request without the Files API, and an
+8192 px side that drops to 4096 px once a request carries 15 or more images. At
+the app's 1 MiB prepared size the 48 MiB body binds long before the count does,
+so a smaller client number would refuse requests the API accepts. The Android
+composer stages a multi-pick one image at a time but does not cap the count.
 
 **Capabilities are checked before the image is ever built**
 (`ChatTypes.kt:56-61`). Sending an image to a text-only model returns **200** and
@@ -314,8 +367,9 @@ Settings, all deliberate (`DeepSeekProvider.kt:204-209`):
   resending the user's message.
 - `connectTimeout(30, SECONDS)`.
 - **`retryOnConnectionFailure(false)`.** A retried POST that already produced
-  tokens duplicates the answer; the caller is better placed to decide whether
-  re-running is safe.
+  tokens duplicates the answer; OkHttp cannot know whether this attempt already
+  showed text or ran a tool. The engine retries deliberately instead, per round
+  and only for transient failures (see "Retrying a failed round").
 
 ### Cancellation actually closes the socket
 
@@ -904,7 +958,7 @@ $env:DEEPSEEK_LIVE_KEY = 'sk-...'
 It checks the request shape that fixtures cannot, and it is what caught the
 `&amp;` URL-encoding issue above.
 
-## The SSH tools: read-only, transfer and exec, one saved host
+## The SSH tools: read-only, transfer and exec, an address book and an information tool
 
 `SshClient` (`core/ai/src/main/kotlin/com/inhuman/core/ai/ssh/SshClient.kt`) wraps
 **sshj 0.41.2**. JSch was tried first and rejected: its EdDSA implementation
@@ -923,29 +977,49 @@ The client is deliberately narrow:
   `hostKeyFingerprint` argument overrides first use and is stored. Settings →
   Pinned host keys lists them and can forget them, which is the only in-app
   recovery when a server legitimately changes its key;
-- **one** SSH connection can be saved under Settings → SSH, in `SecretStore`
-  (host, port, username, password/private key/passphrase, optional fingerprint).
-  It is convenience, not a security or privacy promise, is absent from backups,
-  and is used only when a call sends `useSavedHost=true`; explicit host/username
-  arguments override it. SSH tool-call arguments are redacted before the
-  transcript is persisted.
-
-`SshExecTool` (`tools/SshExecTool.kt`) takes `host`, `port`, `username`,
-`command`, and one of `password`, `privateKey` (OpenSSH text) or `identityFile`
-(a workspace-relative path read through `SessionWorkspace`), **or**
-`useSavedHost=true` to use the saved connection. The file path keeps the key out
-of the tool arguments that are sent to DeepSeek. It is **not** a
-secret store — the file is workspace content, so the model can also call
-`read_file` on it, and the transcript would then hold the key. A password/key
-supplied as a **tool argument** is sent to
-DeepSeek with the request but is removed before the tool-call row is persisted;
-the stored transcript keeps host, user, command and `identityFile`, not the
-secret. Text the user typed into a message is still stored verbatim — that is
-the conversation, and the consent dialog says so. The tool is `mutates = true` (a
+- **Settings holds an address book, not a credential store.** Any number of
+  entries, each an alias, host, port, username and an optional pinned host-key
+  fingerprint -- and **no password or private key**, so no call can ever use a
+  credential the app stored. The list is one JSON document in `SecretStore`
+  (`SshHostStore`, key `ssh.hosts`), absent from the database, a backup and the
+  diagnostics log, because the addresses are private too. The single host an
+  earlier release saved (`ssh.saved_connection`) is converted once -- address
+  and user kept, secrets dropped -- and the old key removed.
+- **`ssh_hosts` shows a conversation the entries it was given.** The tool is
+  read-only, opens no socket, returns no credential, and is hidden while the
+  global SSH switch is off. `conversations.sshHostsJson` (schema v22) lists the
+  ids it may return; only the chat menu's host sheet writes that, a change
+  applies to the next turn, and **it does not reset the conversation's SSH
+  grant** -- it grants nothing, so there is nothing to revoke. An entry deleted
+  in Settings simply stops appearing.
+- **The connection is in the call.** `host`, `port`, `username`, plus
+  `identityFile` (a workspace path, read through `SessionWorkspace`) or
+  `password`; an inline `privateKey` is accepted for the same reason. A password
+  or key text sent this way becomes part of the conversation and is visible to
+  the model provider -- the tool description says so -- and a key file in the
+  workspace is readable by `read_file`, which is what "the workspace is the
+  boundary" means. Nothing resolves an alias from the address book into a
+  connection.
+`SshExecTool` (`tools/SshExecTool.kt`) takes the connection in the call --
+`host`, `port`, `username` and one of `identityFile`, `password` or `privateKey`
+-- plus `command`, `timeoutSeconds` and `maxOutputBytes`. There is no alias
+lookup and no `useSavedHost`. `SshArguments.parse` reads the workspace key
+through the same callback every file tool uses, and refuses a call without any
+authentication. A password or key supplied in the call is sent with the request
+and removed from the stored tool-call row (`SshArguments.redact`), but the text
+the user typed into a message is still stored verbatim -- that is the
+conversation, and the consent dialog says so. The tool is `mutates = true` (a
 replay would run the remote command again) and `needsApproval = false`; the
 separate per-conversation consent gate is `ChatViewModel.gateEngineCall`, behind
-the shared engine's approval hook, and the ordinary `ToolPolicy` applies after it.
+the shared engine's approval hook, and the ordinary `ToolPolicy` applies after
+it. Every remote tool uses the same shape: one argument set, one parser.
 
+`SshHostsTool` (`tools/SshHostsTool.kt`) is the only place the address book
+reaches the model: a no-argument, read-only tool that returns the aliases the
+user shared with this conversation. It is in the catalogue as
+`optIn = true, gatedBySsh = true` -- chosen explicitly like the other SSH tools,
+hidden while the switch is off, and **not** `remote`, so listing names never
+triggers the connection consent.
 `SshProbeTool` (`tools/SshProbeTool.kt`) is the read-only snapshot: one fixed
 script, no model-supplied command, no sudo. It reports OS, kernel, uptime, load,
 CPU count, memory, disk, inodes, failed systemd units, listening ports and Docker
@@ -1028,18 +1102,25 @@ resolves the destination through `SessionWorkspace` and imports it with
 ### Consent text follows the selection
 
 `SshConsent` carries `canExec`, `canUpload` and `canWriteFile`, read from the
-assistant/conversation selection at the moment the first SSH call is made. The
-dialog has four bodies: commands + files when `ssh_exec` is selected, files with
-upload when it is not, text-write when only `ssh_write_file` is present, and
-read/download otherwise. The warning is chosen the same way, so a read-only
-profile is never told that the agent can run commands or stop services.
+assistant/conversation selection at the moment the first SSH call is made, plus
+`hosts`: the labels of every machine the conversation may reach. The dialog has
+four bodies: commands + files when `ssh_exec` is selected, files with upload when
+it is not, text-write when only `ssh_write_file` is present, and read/download
+otherwise. The warning is chosen the same way, so a read-only profile is never
+told that the agent can run commands or stop services. The host list is shown
+because the grant is per conversation, not per call: allowing the first call
+allows every listed machine for every later turn, and naming only the first host
+would understate what was granted.
 
 `sshAllowed` is still one boolean for the conversation. To keep that from
 silently covering a later expansion, `ChatViewModel.setConversationTools` calls
 `widensDangerousSsh`: adding `ssh_exec`, `ssh_upload` or `ssh_write_file` to a
 grant that did not have it clears `sshAllowed`, so the next call asks again with
 the new text. Adding `ssh_probe`, `ssh_list` or `ssh_read_file` does not reset;
-removing tools never does.
+removing tools never does. `ChatViewModel.setSshHosts` applies the same rule to
+the host list: changing which machines are selected is a different grant, so it
+clears `sshAllowed` too. The two rules compose — a conversation can widen its
+tools and its hosts in one turn and still be asked once, for the combination.
 
 ### The Android BouncyCastle trap
 
@@ -1061,15 +1142,15 @@ therefore both device-tested, not just JVM-tested.
 
 Each SSH tool is registered only when **all** of these are true: the global
 Settings switch is on, the assistant/conversation tool selection explicitly names
-that tool, and the matching transport exists (`SshTransport` for exec,
-`SshFileTransport` for list/read/upload/download). No SSH tool depends on
-another: `ssh_list`, `ssh_read_file` and `ssh_download` work with `ssh_exec`
-absent. `ToolCatalog.permits` treats every entry with `remote = true` as
-explicit-only: `null` means "everything" for historical assistants, but it does
-**not** mean consent to SSH, and special-casing one name would silently grant the
-other four. The app has one saved host, no host list or allowlist; the user tells
-the model how to connect, or saves one connection in Settings. A saved
-connection is used only when the model sends `useSavedHost=true`.
+that tool, the matching transport exists (`SshTransport` for exec,
+`SshFileTransport` for list/read/upload/download), and **the conversation has at
+least one host selected**. No SSH tool depends on another: `ssh_list`,
+`ssh_read_file` and `ssh_download` work with `ssh_exec` absent.
+`ToolCatalog.permits` treats every entry with `remote = true` as explicit-only:
+`null` means "everything" for historical assistants, but it does **not** mean
+consent to SSH, and special-casing one name would silently grant the other four.
+The app saves any number of hosts; a conversation may use only the ones the user
+checked, and the model learns them by name from a block in the system message.
 
 ## The tool catalogue
 
@@ -1079,6 +1160,25 @@ is the **available** set. They are different on purpose: the registry depends on
 state that is not known when someone edits an assistant (is a search provider
 configured? did the workspace open?), and a picker built from it would show
 different options depending on unrelated state.
+
+### `unavailable_tools`: the gaps the user can close
+
+`ToolGaps.compute` (`tools/ToolGaps.kt`) subtracts the registry from
+`ToolCatalog.visible(...)` and labels each remaining name as either **not
+selected** for this conversation or **needs configuration** (the selection
+includes it but the host could not build it -- a missing key or backend). The
+`unavailable_tools` tool returns that list, so a model that cannot read a file
+can say "read_file is not enabled in this conversation" instead of "I cannot
+read files".
+
+The universe is `visible`, not `all`, and that is the load-bearing part: a
+capability the app has switched off (SSH while the global switch is off, the
+sandbox after a failed probe, the follow-up tool when off) is absent from the
+universe and therefore **never named**. Otherwise this tool would be the
+"greyed row" that `docs/08-port-philosophy.md` §1.2.1 refuses, in text form, and
+a prompt injection could learn the name of a capability the user turned off.
+`ToolGapsTest` pins both halves: a selection gap is reported, and no `ssh_*`
+name can appear when SSH is off.
 
 `permits(selected, toolName)` returns true when the selection allows the tool
 **and the catalogue contains it** (`ToolCatalog.kt:89-92`). The second half

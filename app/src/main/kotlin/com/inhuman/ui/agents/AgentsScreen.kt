@@ -338,6 +338,7 @@ private fun AgentEditor(
 		includeWorkspaceBound = AppCapabilities.workspaceOk,
 		includeSandbox = AppCapabilities.sandboxOk == true,
 		includeSuggestions = suggestionsEnabled,
+		includePdfVision = true,
 	)
 	val availableNames = availableTools.mapTo(mutableSetOf()) { it.name }
 	val selectedCount = draft.tools?.count { it in availableNames } ?: availableTools.size
@@ -1105,6 +1106,7 @@ private fun PromptPreview(
 		includeWorkspaceBound = AppCapabilities.workspaceOk,
 		includeSandbox = AppCapabilities.sandboxOk == true,
 		includeSuggestions = suggestionsEnabled,
+		includePdfVision = true,
 	)
 	val visibleNames = visibleTools.mapTo(mutableSetOf()) { it.name }
 	val on = visibleNames.filter { ToolCatalog.permits(selected, it) }
@@ -1273,6 +1275,7 @@ private fun AssistantRulesSection(
 			includeWorkspaceBound = AppCapabilities.workspaceOk,
 			includeSandbox = AppCapabilities.sandboxOk == true,
 			includeSuggestions = suggestionsEnabled,
+			includePdfVision = true,
 		)) {
 			val current = rules[entry.name] ?: ToolPolicy.Free
 			Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {

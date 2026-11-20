@@ -9,7 +9,10 @@ import com.inhuman.sandbox.JavaScriptTool
 import com.inhuman.sandbox.SandboxRuntime
 import com.inhuman.ui.common.formatBytes
 import com.inhuman.ui.documents.AndroidPdfBackend
-import com.inhuman.ui.ssh.SavedSshHostStore
+import com.inhuman.ui.ssh.SshHostStore
+import com.inhuman.ui.ssh.toSummary
+import com.inhuman.updates.ConversationUploader
+import com.inhuman.updates.normalizeServerUrl
 import com.inhuman.R
 import com.inhuman.TurnNotifications
 import com.inhuman.TurnStatus
@@ -70,15 +73,20 @@ import com.inhuman.core.ai.tools.SearchProvider
 import com.inhuman.core.ai.tools.SshExecTool
 import com.inhuman.core.ai.model.ModelCapability
 import com.inhuman.core.ai.model.ModelRejection
+import com.inhuman.AppCapabilities
 import com.inhuman.core.ai.tools.ToolCatalog
+import com.inhuman.core.ai.tools.ToolGaps
+import com.inhuman.core.ai.tools.UnavailableToolsTool
 import com.inhuman.core.ai.tools.TimeTool
 import com.inhuman.core.ai.tools.WebFetchTool
 import com.inhuman.core.ai.tools.WebSearchTool
 import com.inhuman.core.ai.ssh.SshFileTransport
+import com.inhuman.core.ai.ssh.SshHost
 import com.inhuman.core.ai.ssh.SshLimits
 import com.inhuman.core.ai.ssh.SshTransport
 import com.inhuman.core.ai.tools.SshArguments
 import com.inhuman.core.ai.tools.SshDownloadTool
+import com.inhuman.core.ai.tools.SshHostsTool
 import com.inhuman.core.ai.tools.SshListTool
 import com.inhuman.core.ai.tools.SshProbeTool
 import com.inhuman.core.ai.tools.SshReadFileTool
@@ -123,10 +131,11 @@ import java.util.UUID
  *
  * The loop itself is `:core:engine`'s `ChatEngine`: stream, assemble calls, ask
  * before each one, execute, repeat. It lives in a platform-free module because
- * the desktop host runs the same loop and a second copy would answer "what
- * happened when the user declined" differently. What stays here is the Android
- * half: a row per round, the consent and approval dialogues, the workspace
- * checkpoints and the delta channel. *Which* tools exist and *whether* a call is
+ * that keeps it JVM-testable, and because a second copy of the loop would
+ * answer "what happened when the user declined" differently. What stays here
+ * is the Android half: a row per round, the consent and approval dialogues,
+ * the workspace checkpoints and the delta channel. *Which* tools exist and
+ * *whether* a call is
  * allowed are still app policy, injected through the engine's approval hook
  * rather than baked into the loop.
  *
@@ -235,8 +244,8 @@ class ChatViewModel(
 	/** POI is loaded only for a legacy DOC/XLS turn, not at startup. */
 	private val legacyBackend by lazy { com.inhuman.ui.documents.PoiLegacyBackend(context) }
 
-	/** One saved host, encrypted; the model only receives it through a tool call. */
-	private val savedSshHost = SavedSshHostStore(secure)
+	/** The machines saved in Settings, encrypted; the model sees only names. */
+	private val sshHostsStore = SshHostStore(secure)
 
 	private val _state = MutableStateFlow(
 		ChatUiState(
@@ -356,6 +365,31 @@ class ChatViewModel(
 	@Volatile
 	private var userStopped = false
 	private var sshAllowed: Boolean = false
+
+	/**
+	 * The saved hosts this conversation shares with the agent, as ids.
+	 *
+	 * **Information only.** The list decides what `ssh_hosts` returns; it is not
+	 * a connection allowlist and no tool resolves these entries into a
+	 * connection. Changing it therefore neither grants nor revokes SSH and does
+	 * not reset the conversation's consent -- the earlier design, in which
+	 * naming an alias attached a stored credential, is why this is a tool
+	 * result and not a capability.
+	 */
+	private var sshHostIds: List<String> = emptyList()
+
+	/** The saved hosts this conversation shares, resolved for `ssh_hosts`. */
+	private fun sharedHosts(): List<SshHost> {
+		val ids = sshHostIds
+		if (ids.isEmpty()) return emptyList()
+		val saved = runCatching { sshHostsStore.load() }.getOrDefault(emptyList())
+		val byId = saved.associateBy { it.id }
+		return ids.mapNotNull { byId[it] }
+	}
+
+	/** Every saved host, for the sheet; never carries a secret to the UI. */
+	private fun savedHostSummaries() =
+		runCatching { sshHostsStore.load() }.getOrDefault(emptyList()).map { it.toSummary() }
 
 	/** The user message that anchors the in-flight turn's rollback snapshot. */
 	private var turnAnchorId: String? = null
@@ -1153,10 +1187,36 @@ class ChatViewModel(
 		}
 	}
 
+	// --- SSH hosts -----------------------------------------------------------
+
+	/**
+	 * Replace the machines this conversation shares with the agent.
+	 *
+	 * **Information, not capability.** It decides what `ssh_hosts` returns; no
+	 * tool resolves these entries, so the change neither grants nor revokes SSH
+	 * and does not reset the conversation's consent. Only the host sheet calls
+	 * this, exactly as with the tool selection.
+	 */
+	fun setSshHosts(ids: List<String>) {
+		if (_state.value.isStreaming || _state.value.isCompacting) return
+		val clean = ids.distinct()
+		val changed = clean.toSet() != _state.value.sshHostIds.toSet()
+		sshHostIds = clean
+		_state.update { it.copy(sshHostIds = clean) }
+		Diag.i("ssh", "shared hosts count=${clean.size} changed=$changed")
+		viewModelScope.launch {
+			runCatching { repository.setSshHosts(conversationId, clean) }
+				.onFailure { failure ->
+					Diag.w("ssh", "could not persist conversation hosts", failure)
+					reload()
+				}
+		}
+	}
+
 	// --- attachments ---------------------------------------------------------
 
 	/**
-	 * Stage an image for the next message.
+	 * Stage one image for the next message.
 	 *
 	 * Refused when the model cannot see, and the refusal is explicit rather than
 	 * deferred to the API -- because the API does not refuse. Verified against
@@ -1164,9 +1224,23 @@ class ChatViewModel(
 	 * the model receives a literal `[Unsupported Image]` placeholder, and it
 	 * answers confidently about that instead. There is nothing to catch, so a
 	 * user would get a wrong answer with no indication why.
+	 *
+	 * [onFinished] runs when staging ends, however it ends -- success, refusal
+	 * or cancellation. The camera path uses it to delete the cache original
+	 * after the prepared copy is in the workspace. It cannot be a `use` block
+	 * around [open]: the preprocessor opens the source three times (bounds,
+	 * EXIF and pixels), so the caller's stream factory must stay usable.
+	 *
+	 * Returns the staging job; [attachImages] waits on it so that a pick stages
+	 * in order rather than decoding every image at once.
 	 */
-	fun attachImage(displayName: String, mimeType: String, open: () -> java.io.InputStream) {
-		viewModelScope.launch {
+	fun attachImage(
+		displayName: String,
+		mimeType: String,
+		open: () -> java.io.InputStream,
+		onFinished: () -> Unit = {},
+	): Job {
+		val job = viewModelScope.launch {
 			// One source of truth, and the one the composer already read.
 			//
 			// This used to look the model up itself with `agents.models()` while
@@ -1303,6 +1377,30 @@ class ChatViewModel(
 				}
 			}
 		}
+		job.invokeOnCompletion { onFinished() }
+		return job
+	}
+
+	/**
+	 * Stage a whole picker selection.
+	 *
+	 * One image at a time: each is decoded and re-encoded, and a multi-select can
+	 * return a hundred of them, so a launch per URI would let Dispatchers.IO
+	 * start that many decodes at once. Waiting also keeps the staged chips in
+	 * the order the picker returned them.
+	 *
+	 * There is deliberately no count ceiling. The provider's own request limits
+	 * are the boundary (DeepSeek documents 600 images and a 48 MiB body per
+	 * request), so a smaller app-side number would refuse requests the API
+	 * accepts. An invented four-image rule with no API basis must not come back.
+	 */
+	fun attachImages(images: List<PickedImage>) {
+		if (images.isEmpty()) return
+		viewModelScope.launch {
+			for (image in images) {
+				attachImage(image.displayName, image.mimeType, image.open).join()
+			}
+		}
 	}
 
 	/**
@@ -1331,6 +1429,91 @@ class ChatViewModel(
 	// --- export -------------------------------------------------------------
 
 	/**
+	 * The Markdown behind the export, the share sheet and the upload preview.
+	 *
+	 * It is built before any destination is touched: a serialization failure
+	 * must not leave a truncated document, and the share path needs the same
+	 * bytes the export would have written. Callers run it on
+	 * [Dispatchers.IO]; reading a conversation and walking its tool rows is not
+	 * composition work.
+	 */
+	private suspend fun renderConversationMarkdown(includeToolResults: Boolean): String {
+		val loaded = repository.conversation(conversationId)
+			?: error(context.getString(R.string.export_error_missing_conversation))
+		return conversationMarkdown(
+			conversation = loaded,
+			labels = markdownLabels(),
+			fallbackTitle = context.getString(R.string.chat_title_fallback),
+			includeToolResults = includeToolResults,
+		)
+	}
+
+	/**
+	 * The same Markdown for the system share sheet.
+	 *
+	 * A `Result` rather than a throw: the share action runs from a menu click,
+	 * and a missing conversation is something the user can be told about, not a
+	 * reason to crash the screen.
+	 */
+	suspend fun buildConversationMarkdown(includeToolResults: Boolean): Result<String> =
+		withContext(Dispatchers.IO) {
+			runCatching { renderConversationMarkdown(includeToolResults) }
+		}
+
+	/** The normalized base URL for a conversation upload, or null when unset. */
+	fun conversationUploadTarget(): String? =
+		normalizeServerUrl(secure.get(SecureStore.KEY_LOCAL_SERVER_URL).orEmpty())
+
+	/**
+	 * Upload one transcript to `POST /conversation`.
+	 *
+	 * This is deliberately separate from the diagnostics upload: the body is
+	 * the conversation itself, including message text and reasoning, and the
+	 * user confirms a preview before this runs. The server URL is never written
+	 * to the diagnostic log, and a failure leaves the conversation untouched.
+	 * [onResult] receives the server's saved-file name, on the main dispatcher.
+	 */
+	fun uploadConversation(includeToolResults: Boolean, onResult: (Result<String>) -> Unit) {
+		if (_state.value.isStreaming) {
+			onResult(
+				Result.failure(
+					IllegalStateException(context.getString(R.string.chat_upload_streaming)),
+				),
+			)
+			return
+		}
+		val base = conversationUploadTarget()
+		if (base == null) {
+			onResult(
+				Result.failure(
+					IllegalStateException(context.getString(R.string.chat_upload_no_server)),
+				),
+			)
+			return
+		}
+		viewModelScope.launch {
+			val result = withContext(Dispatchers.IO) {
+				runCatching {
+					val markdown = renderConversationMarkdown(includeToolResults)
+					Diag.i(
+						"upload",
+						"conversation chars=${markdown.length} tools=$includeToolResults " +
+							"conv=${Diag.shortId(conversationId)}",
+					)
+					ConversationUploader.upload(base, markdown, appVersionLabel())
+				}
+			}
+			result.onFailure { Diag.w("upload", "conversation upload failed", it) }
+			onResult(result)
+		}
+	}
+
+	private fun appVersionLabel(): String = runCatching {
+		val info = context.packageManager.getPackageInfo(context.packageName, 0)
+		"${info.versionName} (${info.longVersionCode})"
+	}.getOrDefault("?")
+
+	/**
 	 * Write the active transcript to a user-chosen document as Markdown.
 	 *
 	 * The document is built in memory before the destination is touched. A
@@ -1345,14 +1528,7 @@ class ChatViewModel(
 		viewModelScope.launch {
 			val failure = withContext(Dispatchers.IO) {
 				runCatching {
-					val loaded = repository.conversation(conversationId)
-						?: error(context.getString(R.string.export_error_missing_conversation))
-					val markdown = conversationMarkdown(
-						conversation = loaded,
-						labels = markdownLabels(),
-						fallbackTitle = context.getString(R.string.chat_title_fallback),
-						includeToolResults = includeToolResults,
-					)
+					val markdown = renderConversationMarkdown(includeToolResults)
 					val out = context.contentResolver.openOutputStream(uri)
 						?: error(context.getString(R.string.export_error_destination))
 					out.use { it.write(markdown.toByteArray(Charsets.UTF_8)) }
@@ -1451,6 +1627,7 @@ class ChatViewModel(
 		// the branch point.
 		val branchInfo = repository.branchesIn(conversationId)
 		sshAllowed = loaded?.entity?.sshAllowed ?: false
+		sshHostIds = loaded?.entity?.sshHosts.orEmpty()
 		val workspace = loaded?.entity?.let { entity ->
 			runCatching { repository.workspaceRecord(entity.workspaceId) }
 				.onFailure { Diag.w("workspace", "workspace lookup failed", it) }
@@ -1553,6 +1730,8 @@ class ChatViewModel(
 				workspaceConversationCount = workspaceConversations,
 				messages = rebuilt,
 				sshAllowed = sshAllowed,
+				sshHosts = savedHostSummaries(),
+				sshHostIds = sshHostIds,
 				sshToolEnabled = sshToolEnabled(),
 				suggestionsEnabled = suggestionsEnabled(),
 				conversationTools = loaded?.entity?.tools,
@@ -1782,8 +1961,10 @@ class ChatViewModel(
 		}
 		val transcript = compactionTranscript(messages)
 		val output = StringBuilder()
+		var reasoningChars = 0
+		var finish: FinishReason? = null
 		var failure: String? = null
-		val completed = withTimeoutOrNull(90_000) {
+		val completed = withTimeoutOrNull(SUMMARY_TIMEOUT_MS) {
 			provider.stream(
 				ChatRequest(
 					model = summaryModel,
@@ -1794,13 +1975,30 @@ class ChatViewModel(
 							"Summarize this earlier part of the conversation:\n\n$transcript",
 						),
 					),
-					maxTokens = 900,
-					thinking = false,
+					maxTokens = SUMMARY_MAX_TOKENS,
+					// The summary runs under this conversation's own thinking
+					// settings, not a private "off". It used to be hard-coded to
+					// `thinking = false` with no effort, which is a lie wherever
+					// the provider's reasoning mode does not carry that field:
+					// the 2026-11-09 log shows main turns at
+					// `thinking=true effort=max` and the summarizer at
+					// `thinking=false effort=-`, so the gateway fell back to its
+					// default and the model thought anyway -- 14,388 characters
+					// of it -- with nothing on the wire asking it to stop. The
+					// user already has this knob; the summarizer now obeys it
+					// instead of inventing a second one.
+					thinking = thinking,
+					reasoningEffort = reasoningEffort,
 					userId = "$conversationId-compact",
 				),
 			).collect { chunk ->
 				when (chunk) {
 					is StreamChunk.TextDelta -> output.append(chunk.text)
+					// Counted, never kept: the reasoning is not a summary, but
+					// its length is what tells "the model thought and ran out of
+					// budget" apart from "the model said nothing".
+					is StreamChunk.ReasoningDelta -> reasoningChars += chunk.text.length
+					is StreamChunk.Finish -> finish = chunk.reason
 					is StreamChunk.Failure -> failure = chunk.message
 					else -> Unit
 				}
@@ -1827,10 +2025,26 @@ class ChatViewModel(
 		}
 		val summary = output.toString().trim()
 		if (summary.isBlank()) {
+			val starved = summaryStarvedByReasoning(finish, reasoningChars)
+			// The finish reason and the reasoning length are the whole diagnosis
+			// and neither is message text, so they belong in the recorder: the
+			// generic error alone has already cost one round of guessing.
+			Diag.w(
+				"compact",
+				"summary empty finish=${finish?.describe() ?: "none"} " +
+					"reasoning=$reasoningChars starved=$starved model=$summaryModel",
+			)
 			_state.update {
 				it.copy(
 					isCompacting = false,
-					error = context.getString(R.string.chat_error_summarizer_empty),
+					error = if (starved) {
+						context.getString(
+							R.string.chat_error_summarizer_truncated,
+							SUMMARY_MAX_TOKENS,
+						)
+					} else {
+						context.getString(R.string.chat_error_summarizer_empty)
+					},
 				)
 			}
 			return null
@@ -2977,8 +3191,7 @@ class ChatViewModel(
 	 * legacy loop that owned the consent plumbing is gone rather than kept
 	 * beside it: two loops meant two answers to "what happened when the user
 	 * declined" -- one marking the call failed, one marking it declined -- and
-	 * the desktop host would have had to reproduce whichever it happened to
-	 * reach.
+	 * which answer the UI showed would have depended on which loop ran.
 	 */
 	private suspend fun runTurn(
 		demo: Boolean,
@@ -3122,6 +3335,7 @@ class ChatViewModel(
 		var startedAt = System.currentTimeMillis()
 		var failure: String? = null
 		var lastFinish: FinishReason? = null
+		var retryNoticeShown = false
 
 		// A tool group is complete when the engine asks for another round: every
 		// call in the previous round ran, and the next request is about to be
@@ -3147,6 +3361,15 @@ class ChatViewModel(
 			publishedAt = now
 			if (firstTokenAt == null && currentText.isNotEmpty()) firstTokenAt = now
 			publishParts(id, currentReasoning, currentText, currentCalls, cursor, answerAfterCalls)
+		}
+
+		// The notice belongs to the wait before a retry, not to the attempt
+		// itself. Clearing it on the first delta is what makes the line vanish
+		// when the replacement answer actually starts arriving.
+		fun clearRetryNotice() {
+			if (!retryNoticeShown) return
+			retryNoticeShown = false
+			currentId?.let { id -> updateMessage(id) { it.copy(retryNotice = null) } }
 		}
 
 		val engine = ChatEngine(
@@ -3197,6 +3420,7 @@ class ChatViewModel(
 						publishedAt = 0L
 						startedAt = System.currentTimeMillis()
 						firstTokenAt = null
+						retryNoticeShown = false
 						_state.update {
 							it.copy(
 								// A new round retires the previous answer's
@@ -3241,12 +3465,68 @@ class ChatViewModel(
 						)
 					}
 
+					is EngineEvent.Retrying -> {
+						val id = currentId ?: return@collect
+						// The failed attempt's text is not this answer. Replace
+						// the delta channel as well as the parts: the
+						// incremental Markdown state is keyed on the channel's
+						// identity and cannot be told to rewind, so a new
+						// channel is what starts the renderer from empty
+						// instead of appending the second attempt to the first.
+						replyDeltas.remove(id)?.close()
+						val channel = Channel<String>(Channel.CONFLATED)
+						replyDeltas[id] = channel
+						currentText = StringBuilder()
+						currentReasoning = StringBuilder()
+						currentCalls = linkedMapOf()
+						currentAssistant = null
+						currentPersisted = false
+						currentUsage = null
+						cursor = DeltaCursor()
+						answerAfterCalls = false
+						publishedAt = 0L
+						firstTokenAt = null
+						startedAt = System.currentTimeMillis()
+						lastFinish = null
+						retryNoticeShown = true
+						// One state write, not `updateParts` then another copy:
+						// between two writes the row would render as an empty
+						// bubble with no notice for a frame.
+						updateMessage(id) {
+							it.copy(
+								parts = emptyList(),
+								plainText = "",
+								reasoningText = "",
+								toolCalls = emptyList(),
+								answerAfterCalls = false,
+								deltas = channel,
+								retryNotice = context.getString(
+									R.string.chat_retrying,
+									event.retry,
+									event.maxRetries,
+								),
+								isStreaming = true,
+							)
+						}
+						// Deliberately no failure text here. The provider has
+						// already logged the failure's class and status, and an
+						// error body can quote the prompt; the retry line only
+						// needs to say which attempt is starting.
+						Diag.w(
+							"http",
+							"round=${event.round} retry=${event.retry}/${event.maxRetries} " +
+								"in=${event.delayMillis}ms partial=${event.discardedPartial}",
+						)
+					}
+
 					is EngineEvent.ReasoningDelta -> {
+						clearRetryNotice()
 						currentReasoning.append(event.text)
 						publish()
 					}
 
 					is EngineEvent.TextDelta -> {
+						clearRetryNotice()
 						if (currentCalls.isNotEmpty()) answerAfterCalls = true
 						currentText.append(event.text)
 						publish()
@@ -3342,6 +3622,7 @@ class ChatViewModel(
 						// the raw marker is never in either the parts or the
 						// row.
 						updateParts(id, currentReasoning.toString(), content, calls, answerAfterCalls)
+						retryNoticeShown = false
 						updateMessage(id) {
 							it.copy(
 								isStreaming = false,
@@ -3352,6 +3633,7 @@ class ChatViewModel(
 								suggestions = emptyList(),
 								reasoningSignature = message?.reasoningSignature,
 								providerState = message?.providerState,
+								retryNotice = null,
 							)
 						}
 						refreshContext()
@@ -3408,6 +3690,7 @@ class ChatViewModel(
 
 					is EngineEvent.Finished -> {
 						lastFinish = event.reason
+						retryNoticeShown = false
 						_state.update { it.copy(isStreaming = false) }
 					}
 
@@ -3426,10 +3709,16 @@ class ChatViewModel(
 							EngineFailure.ToolCallsSuppressed ->
 								context.getString(R.string.chat_error_text_only_tool_call)
 
-							EngineFailure.Provider -> event.message + rejectionNote(event.message)
+							EngineFailure.Provider ->
+								event.message +
+									rejectionNote(event.message) +
+									retryNote(event.retries)
 						}
 						failure = text
-						currentId?.let { id -> updateMessage(id) { it.copy(error = text) } }
+						retryNoticeShown = false
+						currentId?.let { id ->
+							updateMessage(id) { it.copy(error = text, retryNotice = null) }
+						}
 						_state.update {
 							it.copy(
 								isStreaming = false,
@@ -3564,6 +3853,9 @@ class ChatViewModel(
 							suggestions = it.suggestions,
 							reasoningSignature = currentAssistant?.reasoningSignature,
 							providerState = currentAssistant?.providerState,
+							// A notice left over from a retry that the user
+							// stopped must not outlive the turn.
+							retryNotice = null,
 						)
 					}
 					if (wroteRow) refreshContext()
@@ -3572,7 +3864,7 @@ class ChatViewModel(
 					// The stream channel belongs to the turn, not to the write
 					// that failed: close it rather than leak it.
 					runCatching { replyDeltas.remove(id)?.close() }
-					updateMessage(id) { it.copy(isStreaming = false) }
+					updateMessage(id) { it.copy(isStreaming = false, retryNotice = null) }
 				}
 			}
 			_state.update { it.copy(isStreaming = false) }
@@ -3595,6 +3887,26 @@ class ChatViewModel(
 		} else {
 			""
 		}
+
+	/**
+	 * Say that a slow failure was retried automatically, not just slow.
+	 *
+	 * The engine retries with backoff, so the user may have watched the
+	 * spinner for about half a minute before this error appeared. Without the
+	 * count, the same error after five attempts reads as one request that took
+	 * too long.
+	 */
+	private fun retryNote(retries: Int): String =
+		if (retries <= 0) {
+			""
+		} else {
+			"\n\n" + context.resources.getQuantityString(
+				R.plurals.chat_error_retries_exhausted,
+				retries,
+				retries,
+			)
+		}
+
 	/**
 	 * The one gate every tool call passes before the engine runs it.
 	 *
@@ -3628,7 +3940,9 @@ class ChatViewModel(
 		if (remote) {
 			// Never show a consent dialogue for a call the tool would reject as
 			// malformed: the dialogue describes a call that can actually happen.
-			SshArguments.missingRequired(tool.name, parsed, savedSshHost::load)?.let { missing ->
+			// The call must name its own host and user -- there is no saved
+			// alias to fall back to -- so a missing field is refused here.
+			SshArguments.missingRequired(tool.name, parsed)?.let { missing ->
 				Diag.w("ssh", "malformed name=${tool.name} missing=$missing")
 				return EngineDecision.Deny(
 					"${tool.name}: $missing is required",
@@ -3676,20 +3990,10 @@ class ChatViewModel(
 		// A capability grant, not a per-call approval: the first SSH call needs
 		// an explicit acknowledgement that later calls inherit.
 		if (remote && !sshAllowed) {
-			val savedConnection = if (
-				SshArguments.boolean(parsed, "useSavedHost") ||
-				!stringArg(parsed, "profile").isNullOrBlank()
-			) {
-				savedSshHost.load()
-			} else {
-				null
-			}
-			val host = stringArg(parsed, "host").orEmpty().ifBlank {
-				savedConnection?.host.orEmpty()
-			}
-			val username = stringArg(parsed, "username").orEmpty().ifBlank {
-				savedConnection?.username.orEmpty()
-			}
+			// The call carries the connection, so the dialogue can name the
+			// machine it will actually reach.
+			val host = stringArg(parsed, "host").orEmpty()
+			val username = stringArg(parsed, "username").orEmpty()
 			val operation = remoteOperation(tool.name, parsed)
 			val selection = conversation?.tools ?: agent?.tools
 			val canExec = selection?.contains("ssh_exec") == true
@@ -3712,8 +4016,7 @@ class ChatViewModel(
 						canExec = canExec,
 						canUpload = canUpload,
 						canWriteFile = canWriteFile,
-						hostKeyFingerprint = (stringArg(parsed, "hostKeyFingerprint")
-							?: savedConnection?.hostKeyFingerprint)
+						hostKeyFingerprint = stringArg(parsed, "hostKeyFingerprint")
 							?.trim()
 							?.takeIf { it.isNotEmpty() },
 					),
@@ -4119,6 +4422,30 @@ class ChatViewModel(
 
 		return buildList {
 			addAll(fileTools)
+			// Scanned PDFs: render pages and ask the turn's own vision model.
+			// Absent unless the model can see, the host implemented it, and the
+			// user selected it -- the tool spends one extra provider request
+			// per page, and "everything" must not start paying for a new name.
+			val visionWorkspace = workspace
+			val visionProvider = turnProvider
+			val visionModel = model ?: agentModelForProvider
+			if (
+				visionWorkspace != null &&
+				visionProvider != null &&
+				visionModel != null &&
+				!demoEnabled() &&
+				_state.value.modelSupportsVision &&
+				selected?.contains(ToolCatalog.PDF_VISION_TOOL) == true
+			) {
+				add(
+					PdfVisionTool(
+						workspace = visionWorkspace,
+						provider = visionProvider,
+						model = visionModel,
+						userId = conversationId,
+					),
+				)
+			}
 			add(TimeTool())
 			// The platform sandbox is probed on the device. If it cannot prove
 			// no-fetch/no-require and a heap ceiling, the tool is absent rather
@@ -4154,6 +4481,13 @@ class ChatViewModel(
 			mediaBackend(MediaCapability.Transcription)?.let {
 				if (workspace != null) add(QwenTranscribeTool(it.client, workspace, it.model))
 			}
+			// The address book is information: it connects nothing, needs no
+			// workspace and asks for no consent. It is still hidden while the
+			// global switch is off, because the list is part of that
+			// capability's disclosure.
+			if (sshToolEnabled() && selected?.contains("ssh_hosts") == true) {
+				add(SshHostsTool { sharedHosts() })
+			}
 			// SSH is opt-in twice: the global setting and the assistant's
 			// explicit tool selection. `selected == null` means "all tools" for
 			// historical assistants, so it must NOT be read as consent to SSH.
@@ -4180,17 +4514,28 @@ class ChatViewModel(
 					}
 				}
 				if (sshTransport != null && selected?.contains("ssh_exec") == true) {
-					add(SshExecTool(sshTransport, limits, readIdentity, savedSshHost::load))
+					add(
+						SshExecTool(
+							transport = sshTransport,
+							limits = limits,
+							readWorkspaceFile = readIdentity,
+						),
+					)
 				}
 				if (sshTransport != null && selected?.contains("ssh_probe") == true) {
-					add(SshProbeTool(sshTransport, limits, readIdentity, savedSshHost::load))
+					add(
+						SshProbeTool(
+							transport = sshTransport,
+							limits = limits,
+							readWorkspaceFile = readIdentity,
+						),
+					)
 				}
 				if (sshFileTransport != null && selected?.contains("ssh_list") == true) {
 					add(
 						SshListTool(
 							transport = sshFileTransport,
 							readWorkspaceFile = readIdentity,
-							savedConnection = savedSshHost::load,
 							maxEntries = limits.listCeilingEntries,
 						),
 					)
@@ -4200,7 +4545,6 @@ class ChatViewModel(
 						SshReadFileTool(
 							transport = sshFileTransport,
 							readWorkspaceFile = readIdentity,
-							savedConnection = savedSshHost::load,
 							maxBytes = limits.readCeilingBytes,
 						),
 					)
@@ -4210,7 +4554,6 @@ class ChatViewModel(
 						SshUploadTool(
 							transport = sshFileTransport,
 							readWorkspaceFile = readUpload,
-							savedConnection = savedSshHost::load,
 							maxBytes = ws.limits.maxReadBytes,
 						),
 					)
@@ -4220,7 +4563,6 @@ class ChatViewModel(
 						SshWriteFileTool(
 							transport = sshFileTransport,
 							readWorkspaceFile = readIdentity,
-							savedConnection = savedSshHost::load,
 						),
 					)
 				}
@@ -4229,7 +4571,6 @@ class ChatViewModel(
 						SshDownloadTool(
 							transport = sshFileTransport,
 							readWorkspaceFile = readIdentity,
-							savedConnection = savedSshHost::load,
 							saveWorkspaceFile = { path, bytes, overwrite ->
 								saveDownload(ws, path, bytes, overwrite)
 							},
@@ -4247,6 +4588,25 @@ class ChatViewModel(
 				suggestionTool(scratch, turnProvider)?.let(::add)
 			}
 		}.filter { ToolCatalog.permits(selected, it.name) }
+			.let { built ->
+				// Built last, because it reports on the set it is part of. The
+				// universe is what the app offers *now*: a capability the user
+				// switched off is absent from `visible`, so this tool cannot
+				// become the greyed row that docs/08 §1.2.1 refuses.
+				built + UnavailableToolsTool {
+					ToolGaps.compute(
+						available = built.mapTo(mutableSetOf()) { it.name },
+						selected = selected,
+						offered = ToolCatalog.visible(
+							includeSsh = sshToolEnabled(),
+							includeWorkspaceBound = workspaceToolsEnabled(),
+							includeSandbox = AppCapabilities.sandboxOk == true,
+							includeSuggestions = suggestionsEnabled(),
+							includePdfVision = true,
+						),
+					)
+				}
+			}
 	}
 
 	/**
@@ -4924,6 +5284,41 @@ class ChatViewModel(
 		/** A key file larger than this is not a key; do not read it into memory. */
 		private const val MAX_SSH_IDENTITY_BYTES = 512 * 1024
 	private const val MAX_SSH_UPLOAD_READ_BYTES = 16L * 1024 * 1024
+
+		/**
+		 * Output ceiling for the derived summary.
+		 *
+		 * This is a **safety net, not the thinking control**. The thinking
+		 * control is the conversation's own setting, which the summary request
+		 * now sends (`thinking` / `reasoningEffort` above); a user who wants
+		 * cheap compaction lowers the effort there, and the summary follows.
+		 *
+		 * The number is headroom, because `max_tokens` covers the reasoning and
+		 * the answer together on a model that thinks first. 900 was far too
+		 * small. 4096 was still too small: the 2026-11-09 log records a
+		 * summarizer stream that spent 14,388 characters -- roughly 3,600
+		 * tokens -- inside `reasoning_content` on a 25 KB request, ended with
+		 * `length`, and never wrote a word of summary. The ceiling exists
+		 * because a summary is prepended to every later request and must not
+		 * grow without bound; it is a limit, not a spend -- a model that answers
+		 * in 300 tokens costs 300.
+		 *
+		 * [summaryStarvedByReasoning] reports the case where even this is not
+		 * enough, naming the budget, rather than blaming the model for saying
+		 * nothing.
+		 */
+		private const val SUMMARY_MAX_TOKENS = 16_384
+
+		/**
+		 * How long the summarizer may run before it is abandoned.
+		 *
+		 * The 14,388-character reasoning stream above took 46 seconds, and the
+		 * budget is now large enough for it to run longer than the old 90
+		 * seconds before it starts writing. A user-initiated compaction shows a
+		 * spinner and can afford the wait; a timeout that fires mid-reasoning
+		 * would throw away work already paid for.
+		 */
+		private const val SUMMARY_TIMEOUT_MS = 180_000L
 
 		/**
 		 * Instructions for the derived-summary call.

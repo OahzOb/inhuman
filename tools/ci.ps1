@@ -2,7 +2,6 @@
 The verification gate, in one command.
 
     .\tools\ci.ps1
-    .\tools\ci.ps1 -SkipDesktop
     .\tools\ci.ps1 -LogPath C:\temp\inhuman-ci.log
 
 This is what a CI host should call. It deliberately installs and downloads
@@ -49,7 +48,6 @@ non-zero.
 #>
 [CmdletBinding()]
 param(
-	[switch]$SkipDesktop,
 	[string]$LogPath
 )
 
@@ -84,7 +82,6 @@ try {
 		':core:documents:test'
 		':core:common:test'
 	)
-	if (-not $SkipDesktop) { $tasks += ':desktopApp:test' }
 
 	$gradle = Join-Path $repo 'gradlew.bat'
 	if (-not (Test-Path $gradle)) {

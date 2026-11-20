@@ -441,11 +441,22 @@ the top-right would sit on the first user bubble.
 
 - **Export** lives in the same overflow: one conversation as Markdown (a dialog
   chooses whether tool calls and results are included) and its workspace as zip.
-  Both use `ACTION_CREATE_DOCUMENT`, so the user chooses the destination. The
-  Markdown includes reasoning and attachment paths but not attachment bytes; the
-  zip is the plain files, not an encrypted backup (`WorkspaceZip`, docs/05). The
-  permanent-workspace detail menu offers the same zip, because a workspace can
-  exist with no conversation to reach it from.
+  Export uses `ACTION_CREATE_DOCUMENT`, so the user chooses the destination;
+  **Share** writes the same Markdown to a cache file and opens the system share
+  sheet, with no server involved. The Markdown includes reasoning and attachment
+  paths but not attachment bytes; the zip is the plain files, not an encrypted
+  backup (`WorkspaceZip`, docs/05). The permanent-workspace detail menu offers
+  the same zip, because a workspace can exist with no conversation to reach it
+  from.
+- **Upload conversation** is a separate item with its own preview, not an
+  export option: it names the configured server, says that the body is the
+  transcript in plain Markdown, and has a tool-result checkbox that is **off by
+  default** because a tool result can contain file or document text. The server
+  has no authentication, so the dialog says LAN/Tailscale only. The upload is
+  one explicit `POST /conversation`; the preview also says image bytes and
+  attachment bytes are absent. The conversation endpoint is separate from the
+  diagnostics `/log` because the bodies have different privacy contracts
+  (`docs/10-diagnostics.md`).
 
 - **In-conversation search** is a full-screen dialog, not an inline row. An
   inline bar plus the IME, the turn strip and the composer left no transcript
@@ -575,6 +586,23 @@ the growing last row moves below the viewport between automatic scrolls, so
 intent flag stays true across content growth; only user input releases it.
 
 ### Errors are actions
+
+Before the error banner exists, a transient provider failure is retried
+automatically: `ChatEngine` re-sends the **current round** up to five times
+(`RetryPolicy`), with 1 s → 15 s backoff and jitter. A round is the unit because
+it is the last point at which no tool from that attempt has run; a retry can
+never replay an earlier round's write. Only HTTP 408/425/429/5xx, an
+`IOException`, and known transient messages qualify — authentication, billing,
+context overflow and certificate failures go straight to the banner.
+
+The failed attempt's text is discarded rather than continued. The row clears its
+parts and swaps its `deltas` channel for a new one (the incremental Markdown
+state is keyed by channel identity and cannot be rewound), then shows
+**"Connection problem. Retrying n/5…"** beside the spinner. The message is transient
+and never persisted. If all five re-sends fail, the last error is shown with
+**"Still failed after n automatic retries"**, and the ordinary **Retry** button still
+offers one more deliberate attempt. Pressing **Stop** during the backoff cancels
+the turn exactly like any other stop.
 
 `chatErrorAction` maps the provider/turn error string to one recovery:
 `Retry`, `CompactAndRetry`, or `OpenProviderSettings`; the raw message remains
@@ -887,6 +915,24 @@ projection can replace older complete turns with a model-written summary:
   changed transcript leaves the previous projection intact and reports the cause.
   Demo mode uses `demoCompactionSummary`, a deterministic list of questions and
   touched files, so the path is testable offline.
+- **The summarizer obeys the conversation's thinking settings.** It used to send
+  a private `thinking = false` with no effort, which is a lie on any provider
+  whose reasoning mode does not carry that field: the 2026-11-09 log has main
+  turns at `thinking=true effort=max` and the summarizer at
+  `thinking=false effort=-`, so the gateway used its default and the model
+  thought anyway. `thinking` and `reasoningEffort` are now taken from the
+  conversation; the user lowers the effort there and compaction follows.
+- **The summary budget is a ceiling, not the thinking control.**
+  `SUMMARY_MAX_TOKENS` (16,384) is headroom, because `max_tokens` covers the
+  reasoning and the answer together: 900 and then 4096 both failed on a model
+  that thinks first, and the 2026-11-09 log records a stream that spent 14,388
+  characters inside `reasoning_content` on a 25 KB request, ended with `length`,
+  and wrote no summary at all. A summary is prepended to every later request, so
+  the ceiling stays. `SUMMARY_TIMEOUT_MS` is 180s because that reasoning stream
+  alone took 46s. A starved stream is reported as such
+  (`summaryStarvedByReasoning` → `chat_error_summarizer_truncated`, naming the
+  budget) instead of the generic "the summarizer returned nothing", and the
+  `compact` line records the finish reason and reasoning length.
 - **The summarizer never gets the whole history unbounded**:
   `compactionTranscript` bounds the input and truncates per message. It is not
   asked to answer the conversation, only to preserve goals, constraints,
@@ -909,12 +955,62 @@ for it: Material reserves the trailing slot for the whole height of a
 multi-line field, so on a 360dp phone with the microphone configured a wrapped
 message sat beside a blank 48dp-wide column, and the text itself had only a few
 characters per line. The composer is now one bounded surface with a full-width
-text area and a single 48dp action row underneath (attach and microphone on the
-left, ring and send/stop on the right). The empty composer is about the same
+text area and a single 48dp action row underneath (attach — which offers files
+or the camera — and microphone on the left, ring and send/stop on the right).
+The empty composer is about the same
 height as the outlined field it replaced -- the text area is one line rather
 than Material's 56dp box, which pays for the action row -- and a three-line
 message is shorter than it used to be, while every line gets the field's whole
 width.
+
+### The image source menu
+
+The attach glyph opens a two-item source menu rather than the document picker
+directly: **Choose from files** runs `ActivityResultContracts.OpenMultipleDocuments`
+(`ChatScreen.kt:320-351`), and **Take a photo** starts the system camera with
+`ActivityResultContracts.TakePicture`. The picker used to be the single-document
+`OpenDocument`, whose result parser returns only `intent.data` and ignores
+`clipData`; an OEM picker that still lets the user tick several images (HyperOS
+does) staged exactly one and dropped the rest silently. The composer has always
+held a list -- the contract was the one-image ceiling.
+
+There is no app-side image-count ceiling: every picked URI goes through the same
+staging pipeline, one image at a time so a large selection does not decode every
+bitmap at once (`ChatViewModel.attachImages`, `ChatViewModel.kt:1397-1404`), and
+the provider's documented request limits are the only boundary (DeepSeek: 600
+images and a 48 MiB body per request). Staged chips sit in one horizontally
+scrolling row (`ChatScreen.kt:4641-4688`), so a large pick stays reachable
+instead of growing the composer into the transcript.
+
+The camera is another way to produce an image, not another attachment kind, so
+it lives behind the same icon; a second camera glyph in the same 48dp row would
+compete with the microphone and the context ring over a distinction the menu
+states in words.
+
+The camera receives a write grant for one empty file in `cache/camera/` through
+the `.capture` FileProvider (`CameraCapture.kt`, `capture_paths.xml`), not a
+MediaStore item. A photo taken for a message is an attachment: putting it in
+the gallery would leave an image behind when the message is never sent. No
+`CAMERA` or storage permission is declared. On return the image goes through the
+same `ChatViewModel.attachImage` pipeline as the picker — vision check,
+decode/EXIF/resize, quota, `attachments/` naming — and `onFinished` deletes the
+cache original once the prepared copy is staged (`ChatViewModel.kt:1236-1381`).
+A cancelled camera, or one that reports success without writing, deletes the
+empty file and stages nothing.
+
+The capture file name is `rememberSaveable`: the camera activity routinely
+outlives the process, and the result is then delivered to a recreated launcher
+that no longer has the `remember` that created the file.
+
+The provider is `CaptureFileProvider`, a distinct subclass of FileProvider, not
+a second `androidx.core.content.FileProvider` declaration. PackageManager keys
+providers by component name, so the same class twice drops the second entry
+with "already defined"; the diagnostics instance then serves the `capture`
+authority and the camera's write fails with "The authority
+com.inhuman.capture does not match the one of the contentProvider:
+com.inhuman.diagnostics". That was observed on the tablet, with the camera app
+crashing and no attachment staged. `CameraCaptureTest` pins the write/read
+round trip.
 
 The old full-width strip above the field is gone. It carried a
 `25% · 262K / 1M` summary, but on a phone the row cost roughly the height of the
@@ -950,6 +1046,13 @@ conversation?" reads like it removes a list entry. One shared `closeDialog`
 serves all three dismissal paths (Cancel, outside tap, Back) because the first
 version handled them inconsistently. The dialog self-dismisses if its
 conversation disappears.
+
+Multi-select is list-level: the header shows the checked count and a **Select
+all / Deselect all** action. The set is derived from the conversation list at
+tap time rather than stored as an "all" flag, so a conversation created by a
+running turn is not selected without a tap, and the delete dialog names exactly
+the rows that were checked. **Deselect all** keeps selection mode open;
+**Cancel** leaves it.
 
 **This confirmation is not the tool-approval gate and is not affected by the
 approval rules.** It is the user deleting their own conversation, so there is no
@@ -1193,7 +1296,7 @@ message to get prose instead of a tool turn.
 ## No API key, and no demo mode
 
 - The composer is disabled with the placeholder "Add an API key to start"
-  (`ChatScreen.kt:371`, `:1001`), and attach and send are disabled with it.
+  (`ChatScreen.kt:4513-4515`), and attach and send are disabled with it.
 - `send()` refuses with "Add an API key for <provider> first, or switch on demo
   mode." (`ChatViewModel.kt`); `regenerate()` refuses likewise. The provider name
   comes from the conversation's copied `providerId`, not from a hardcoded vendor.
@@ -1218,6 +1321,11 @@ it; the sandbox's no-network rule applies to code the model writes), and
 | `TurnSummaryTest` | Rounds of one turn sum (prompt, completion, cache, generation); a missing field stays missing; a turn still holding a tool result, a running tool call, or a streaming answer is not complete; two turns get independent footers; the range covers exactly the turn's rows, a transcript that begins mid-turn still forms one turn, and slicing is clamped against a shorter list. The range cases exist because the summary used to carry copies of those rows and the wire inspector now slices the transcript with the indices instead. |
 | `ConversationToolsTest` | The assistant ceiling with `null` and explicit selections; a conversation keeps a tool the assistant no longer has; SSH off hides the row but preserves the stored name; applying stores catalogue order. This is the "new tool reaches an old conversation without inventing a capability" rule. |
 | `ImageSizingTest` / `ImagePreprocessorTest` | Fitting a 4032×3024 photo into 1568×1176, never upscaling a small image, and choosing a power-of-two sample size, on the JVM; then the same decode/scale/encode on a device, including the 1 MiB ceiling and transparent-PNG-to-WebP. This is the phone-side image pipeline that replaced accepting a 4 MiB file and silently dropping it at send. |
+| `CameraCaptureTest` (instrumentation) | The `.capture` FileProvider writes and reads the URI the camera receives, a saved capture name resolves to the same file, and an abandoned capture older than the ceiling is swept by the next one. This is the half of "take a photo" a screenshot cannot prove: a misconfigured provider only shows up as an empty file after the camera closes. |
+| `ConversationShareTest` (instrumentation) | The `.share` FileProvider reads back the Markdown the chooser is handed. A wrong authority or path resource only shows up as a `SecurityException` in the receiving app. |
+| `ConversationUploaderTest` | The upload posts the Markdown to `/conversation` with the version header, and a non-2xx response is a failure naming the status. A loopback `HttpServer` stands in for the LAN server. |
+| `PdfVisionPagesTest` | The PDF-vision page arithmetic: default first four pages, explicit range, per-call ceiling, page beyond the document, backwards/zero pages. |
+| `PdfVisionRenderTest` / `PdfVisionToolTest` (instrumentation) | PDFBox rasterizes a page to a bounded JPEG; an image-only PDF goes through the whole tool with a fake provider, one image part on the wire and the transcription text returned. |
 | `ConversationMarkdownTest` | The header names title, time, model and tool policy; omitting tools removes their sections and says so; including them keeps fenced JSON arguments and fenced text results; reasoning is a blockquote; attachments are listed without bytes; an error follows the answer; a tool result containing a triple backtick gets a longer fence; export names lose filesystem-reserved characters and keep unicode. |
 | `WorkspaceZipTest` | Relative paths and contents survive; an empty directory gets an entry; an empty workspace makes a valid empty zip; a symlinked file or directory outside the workspace is skipped and counted; a Windows junction is not followed. |
 | `SnapshotStoreTest` | `start` and a later tool checkpoint restore their own file versions; added/deleted/modified paths are diffed by content; a checkpoint whose blob has gone leaves the workspace byte-for-byte as it was; a restore leaves no staging directory behind; stats count turns and pruning keeps the newest; `turns` lists each retained turn with its checkpoint count, newest first. This is the file half of checkpointed rollback. |

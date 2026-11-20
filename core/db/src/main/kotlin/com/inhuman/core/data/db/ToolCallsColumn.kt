@@ -33,10 +33,9 @@ data class StoredToolCall(
 /**
  * The `messages.toolCallsJson` column: a small JSON array.
  *
- * The format is shared by both hosts now. The Android host wrote it first and
- * the desktop host must write the same shape, or a conversation carried between
- * the two would lose its tool calls. SSH credentials are removed here rather
- * than at the call site so no future host can forget.
+ * The format is the stored shape, so changing it loses the tool calls of an
+ * existing conversation. SSH credentials are removed here rather than at the
+ * call site so no writer can forget.
  */
 object ToolCallsColumn {
 

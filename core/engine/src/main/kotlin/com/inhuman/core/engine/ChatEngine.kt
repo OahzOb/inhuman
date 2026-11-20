@@ -13,11 +13,13 @@ import com.inhuman.core.ai.ToolResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import java.io.IOException
 
 /**
  * One turn, independent of Android and of any UI.
@@ -25,9 +27,8 @@ import kotlinx.serialization.json.jsonObject
  * The loop that used to live inside `ChatViewModel`: it streams a completion,
  * assembles tool calls, asks an approval hook before executing one, appends the
  * assistant/tool messages, and repeats until the model answers without a call or
- * a budget is hit. Both hosts -- the Android app and the desktop window -- run
- * this one, so "what happened when the user declined" has one answer rather than
- * one per platform.
+ * a budget is hit. The Android app runs this one loop, so "what happened when
+ * the user declined" has one answer rather than one per platform.
  *
  * What it deliberately does **not** own: persistence, snapshots, context
  * compaction, SSH consent policy, and the UI's per-token throttling. Those are
@@ -35,11 +36,17 @@ import kotlinx.serialization.json.jsonObject
  * plain JVM. In particular, the approval hook is a callback rather than a
  * `needsApproval` check here, because the policy layer is not part of the
  * protocol.
+ *
+ * It **does** own retrying a failed round. That is the one policy that has to
+ * sit beside the loop rather than inside the provider: only the loop knows
+ * whether the failed attempt already produced text, whether a tool from an
+ * earlier round ran, and whether the next attempt would repeat a write.
  */
 class ChatEngine(
 	private val provider: ChatProvider,
 	private val approval: EngineApproval = EngineApproval { _, _ -> EngineDecision.Allow },
 	private val toolDispatcher: CoroutineDispatcher = Dispatchers.IO,
+	private val retryPolicy: RetryPolicy = RetryPolicy(),
 ) {
 
 	fun run(turn: EngineTurn): Flow<EngineEvent> = flow {
@@ -47,16 +54,6 @@ class ChatEngine(
 		var callsUsed = 0
 
 		for (round in 1..turn.maxRounds) {
-			val text = StringBuilder()
-			val reasoning = StringBuilder()
-			val builders = mutableMapOf<Int, CallBuilder>()
-			var finish: FinishReason? = null
-			var failure: String? = null
-			var usage: EngineUsage? = null
-
-			var reasoningSignature: String? = null
-			val providerStates = mutableListOf<String>()
-
 			val request = ChatRequest(
 				model = turn.model,
 				messages = history,
@@ -65,83 +62,143 @@ class ChatEngine(
 				reasoningEffort = turn.reasoningEffort,
 				userId = turn.userId,
 			)
+			// Once per round, not once per attempt: the host creates the reply
+			// row when this arrives, and a retry has to fill that row rather
+			// than leave a trail of empty ones behind.
 			emit(EngineEvent.RoundStarted(round, request))
 
-			try {
-				provider.stream(request).collect { chunk ->
-					when (chunk) {
-						is StreamChunk.ReasoningDelta -> {
-							reasoning.append(chunk.text)
-							emit(EngineEvent.ReasoningDelta(chunk.text))
-						}
+			val text = StringBuilder()
+			val reasoning = StringBuilder()
+			val builders = mutableMapOf<Int, CallBuilder>()
+			val providerStates = mutableListOf<String>()
+			var reasoningSignature: String? = null
+			var finish: FinishReason? = null
+			var usage: EngineUsage? = null
+			var retries = 0
 
-						is StreamChunk.TextDelta -> {
-							text.append(chunk.text)
-							emit(EngineEvent.TextDelta(chunk.text))
-						}
+			while (true) {
+				// A retry is a fresh completion, not a continuation: these APIs
+				// have no resume token, so everything the failed attempt
+				// assembled belongs to that attempt and is discarded here. The
+				// host does the same to what it already rendered.
+				text.setLength(0)
+				reasoning.setLength(0)
+				builders.clear()
+				providerStates.clear()
+				reasoningSignature = null
+				finish = null
+				usage = null
+				var failure: AttemptFailure? = null
 
-						is StreamChunk.ToolCallStart -> {
-							builders.getOrPut(chunk.index) { CallBuilder(chunk.index) }.apply {
-								id = chunk.id ?: id
-								itemId = chunk.itemId ?: itemId
-								if (chunk.name != null) name.append(chunk.name)
+				try {
+					provider.stream(request).collect { chunk ->
+						when (chunk) {
+							is StreamChunk.ReasoningDelta -> {
+								reasoning.append(chunk.text)
+								emit(EngineEvent.ReasoningDelta(chunk.text))
 							}
-						}
 
-						is StreamChunk.ToolCallDelta -> {
-							builders.getOrPut(chunk.index) { CallBuilder(chunk.index) }.apply {
-								chunk.nameDelta?.let(name::append)
-								chunk.inputDelta?.let(arguments::append)
+							is StreamChunk.TextDelta -> {
+								text.append(chunk.text)
+								emit(EngineEvent.TextDelta(chunk.text))
 							}
+
+							is StreamChunk.ToolCallStart -> {
+								builders.getOrPut(chunk.index) { CallBuilder(chunk.index) }.apply {
+									id = chunk.id ?: id
+									itemId = chunk.itemId ?: itemId
+									if (chunk.name != null) name.append(chunk.name)
+								}
+							}
+
+							is StreamChunk.ToolCallDelta -> {
+								builders.getOrPut(chunk.index) { CallBuilder(chunk.index) }.apply {
+									chunk.nameDelta?.let(name::append)
+									chunk.inputDelta?.let(arguments::append)
+								}
+							}
+
+							is StreamChunk.ReasoningSignature -> reasoningSignature = chunk.signature
+
+							is StreamChunk.ToolCallSignature -> {
+								builders.getOrPut(chunk.index) { CallBuilder(chunk.index) }
+									.signature = chunk.signature
+							}
+
+							is StreamChunk.ProviderState -> providerStates += chunk.json
+
+							is StreamChunk.ToolCallEnd -> Unit
+
+							is StreamChunk.Usage -> {
+								usage = EngineUsage(
+									promptTokens = chunk.promptTokens,
+									completionTokens = chunk.completionTokens,
+									totalTokens = chunk.totalTokens,
+									cachedPromptTokens = chunk.cachedPromptTokens,
+									reasoningTokens = chunk.reasoningTokens,
+								)
+							}
+
+							is StreamChunk.Finish -> finish = chunk.reason
+
+							is StreamChunk.Failure -> {
+								failure = AttemptFailure(
+									message = chunk.message,
+									cause = chunk.cause,
+									statusCode = chunk.statusCode,
+								)
+							}
+
+							is StreamChunk.TextStart,
+							is StreamChunk.TextEnd,
+							is StreamChunk.ReasoningStart,
+							is StreamChunk.ReasoningEnd,
+							is StreamChunk.Raw,
+							-> Unit
 						}
-
-						is StreamChunk.ReasoningSignature -> reasoningSignature = chunk.signature
-
-						is StreamChunk.ToolCallSignature -> {
-							builders.getOrPut(chunk.index) { CallBuilder(chunk.index) }
-								.signature = chunk.signature
-						}
-
-						is StreamChunk.ProviderState -> providerStates += chunk.json
-
-						is StreamChunk.ToolCallEnd -> Unit
-
-						is StreamChunk.Usage -> {
-							usage = EngineUsage(
-								promptTokens = chunk.promptTokens,
-								completionTokens = chunk.completionTokens,
-								totalTokens = chunk.totalTokens,
-								cachedPromptTokens = chunk.cachedPromptTokens,
-								reasoningTokens = chunk.reasoningTokens,
-							)
-						}
-
-						is StreamChunk.Finish -> finish = chunk.reason
-
-						is StreamChunk.Failure -> {
-							failure = chunk.message
-						}
-
-						is StreamChunk.TextStart,
-						is StreamChunk.TextEnd,
-						is StreamChunk.ReasoningStart,
-						is StreamChunk.ReasoningEnd,
-						is StreamChunk.Raw,
-						-> Unit
 					}
+				} catch (e: CancellationException) {
+					throw e
+				} catch (e: Exception) {
+					// The contract says failures arrive as a chunk, but a transport
+					// can still throw before the first chunk. Do not turn that into a
+					// torn coroutine with no event for the caller.
+					failure = AttemptFailure(
+						message = e.message ?: e::class.simpleName ?: "provider stream failed",
+						cause = e,
+					)
 				}
-			} catch (e: CancellationException) {
-				throw e
-			} catch (e: Exception) {
-				// The contract says failures arrive as a chunk, but a transport
-				// can still throw before the first chunk. Do not turn that into a
-				// torn coroutine with no event for the caller.
-				failure = e.message ?: e::class.simpleName ?: "provider stream failed"
-			}
 
-			failure?.let {
-				emit(EngineEvent.Failed(it))
-				return@flow
+				// Finish is the provider saying the answer is complete. Some
+				// transports then report a reset while closing; that is a broken
+				// socket after a finished answer, not a reason to pay for the
+				// whole completion again. A decoder failure is not ignored this
+				// way -- it can mean a lost tool call, and only an IOException
+				// after Finish is the closing noise this treats it as.
+				if (finish != null && failure?.cause is IOException) failure = null
+
+				val failed = failure ?: break
+				if (retries >= retryPolicy.maxRetries ||
+					!retryPolicy.shouldRetry(failed.message, failed.statusCode, failed.cause)
+				) {
+					emit(EngineEvent.Failed(failed.message, EngineFailure.Provider, retries))
+					return@flow
+				}
+
+				retries++
+				val delayMillis = retryPolicy.delayForRetry(retries)
+				emit(
+					EngineEvent.Retrying(
+						round = round,
+						retry = retries,
+						maxRetries = retryPolicy.maxRetries,
+						delayMillis = delayMillis,
+						discardedPartial = text.isNotEmpty() ||
+							reasoning.isNotEmpty() ||
+							builders.isNotEmpty(),
+					),
+				)
+				delay(delayMillis)
 			}
 
 			val calls = builders.values
@@ -344,6 +401,25 @@ sealed interface EngineEvent {
 	data class ToolCallSkipped(val call: EngineToolCall, val reason: String) : EngineEvent
 	data class AssistantMessage(val message: ChatMessage) : EngineEvent
 	data class Usage(val usage: EngineUsage) : EngineEvent
+
+	/**
+	 * The current round failed transiently and will be attempted again.
+	 *
+	 * Emitted before the backoff wait, so a host can replace the partial reply
+	 * with "reconnecting" rather than leaving text from an attempt that is
+	 * about to be discarded on screen. [discardedPartial] says whether anything
+	 * from the failed attempt had already been rendered; the host must drop it
+	 * either way, but the flag is what lets a future UI distinguish "nothing had
+	 * arrived yet" from "the answer was replaced".
+	 */
+	data class Retrying(
+		val round: Int,
+		val retry: Int,
+		val maxRetries: Int,
+		val delayMillis: Long,
+		val discardedPartial: Boolean,
+	) : EngineEvent
+
 	data class RoundFinished(
 		val round: Int,
 		val reason: FinishReason,
@@ -362,6 +438,14 @@ sealed interface EngineEvent {
 	data class Failed(
 		val message: String,
 		val cause: EngineFailure = EngineFailure.Provider,
+		/**
+		 * How many automatic re-sends happened before giving up.
+		 *
+		 * Non-zero means the message above is the last failure after a wait;
+		 * the host says so, because a turn that took half a minute to fail
+		 * otherwise looks like one slow request.
+		 */
+		val retries: Int = 0,
 	) : EngineEvent
 
 	/**
@@ -416,6 +500,13 @@ private data class Execution(
 	val stopTurn: Boolean,
 	/** The user declined, as opposed to the call failing. */
 	val declined: Boolean = false,
+)
+
+/** One failed attempt, kept together so the retry policy sees all of it. */
+private data class AttemptFailure(
+	val message: String,
+	val cause: Throwable?,
+	val statusCode: Int? = null,
 )
 
 private class CallBuilder(val index: Int) {

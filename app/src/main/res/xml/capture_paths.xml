@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+	Only the composer's camera scratch directory. The camera app needs a
+	writeable URI for its one photo; nothing else in the app is exposed. The
+	capture is deleted after it has been prepared into the workspace.
+-->
+<paths>
+	<cache-path name="camera" path="camera/" />
+</paths>

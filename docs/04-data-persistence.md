@@ -11,19 +11,19 @@ migrations and the repositories (`ConversationRepository`, `AgentRepository`,
 a `DataPaths` and -- for the agent repository -- a `SecretStore`, rather than an
 Android `Context`. `:core:data` holds the Android side: `Database.open(context)`,
 the Keystore-backed `SecureStore`, the encrypted backup and the
-`DocumentsProvider`. This is what lets the desktop host create a conversation
-and append messages against the same schema and directory layout.
+`DocumentsProvider`. This is what keeps the repositories testable on a plain JVM:
+a test can create a conversation and append messages against the same schema and
+directory layout without a device.
 
-Both hosts install the same `InhumanDatabase.MIGRATIONS` and
+The app installs `InhumanDatabase.MIGRATIONS` and
 `InhumanDatabase.callback()`: Android's `Database.open(context)` adds the
-`Context` builder, while the desktop builds from a file path with
-`BundledSQLiteDriver`. The callback seeds the DeepSeek provider and the default
-assistant on create, so a desktop install is not a second, empty schema.
+`Context` builder. The callback seeds the DeepSeek provider and the default
+assistant on create, so an install does not start from an empty schema.
 
 ## The schema, version 21
 
 `InhumanDatabase` (`core/db/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 21`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 22`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/db/schemas/` by KSP — configured in `core/db/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
@@ -45,8 +45,7 @@ adapter treats a missing signature on a reasoning/tool turn as "thinking cannot
 be enabled for this history" and falls back to a thinking-off request, because
 replaying the block without it is rejected. Tool-call signatures (Gemini's
 `thoughtSignature`) live inside `toolCallsJson` per call rather than in a
-separate column, since they belong to the call records and the column is shared
-with the desktop host.
+separate column, since they belong to the call records.
 
 ### `messages.providerState` — added in 17→18
 
@@ -84,6 +83,17 @@ additive: an upgraded row is unpinned and pins on its next request; a new
 conversation pins on its first. It is configuration, not a message, so it does
 not appear in the conversation Markdown export; the encrypted backup carries it
 with the row, and the workspace zip carries the file itself.
+
+### `conversations.sshHostsJson` — added in 21→22
+
+The ids of the saved SSH hosts this conversation may use, encoded by
+`HostsColumn`. Empty string and `[]` both mean **no hosts**; there is no "all"
+state, unlike `toolsJson`, because adding a host in Settings must not silently
+widen a conversation. The column holds ids only: the hosts themselves (address,
+user, credentials) live in `SecureStore` as one JSON document
+(`ssh.hosts`), so a database backup carries which machines were selected but
+never how to reach them. Only the chat menu's host sheet writes this column, a
+change applies to the next turn, and it resets `sshAllowed`.
 
 ### `saved_prompts` — added in 15→16
 
@@ -205,7 +215,8 @@ The lifetime rule is in the row, not the directory:
 | `model`, `reasoningEffort`, `thinking` | **Copied from the assistant at creation**, so editing an assistant cannot rewrite what an existing conversation does. |
 | `toolsJson` | The tool selection. Copied from the assistant at creation, then editable **by the user only** from the conversation's tool sheet; an edited conversation stores an explicit list and the change applies on the next turn. It is also what makes a transcript's tool calls recoverable: they were legal under this set when they ran. |
 | `createdAt`, `updatedAt`, `pinned` | Ordering and list state. |
-| `sshAllowed` | The conversation-level SSH acknowledgement, default `0`. Added in 8→9. Per conversation, not per assistant: consenting in one thread must not grant another thread the same capability. Room stores no host list or credential; one optional saved host lives in `SecureStore`, and SSH tool-call arguments are redacted before storage, so this boolean is the only SSH state in Room. |
+| `sshAllowed` | The conversation-level SSH acknowledgement, default `0`. Added in 8→9. Per conversation, not per assistant: consenting in one thread must not grant another thread the same capability. Room stores no credential; the address book lives in `SecureStore`, and this column is the conversation's acknowledgement that the agent may open SSH connections at all. |
+| `sshHostsJson` | The ids of the saved hosts this conversation is told about by `ssh_hosts`, `[]`/empty meaning none. Added in 21→22. Only the chat's host sheet writes it; a change applies to the next turn and does **not** touch `sshAllowed` — the list is information, not a capability, and no tool resolves it into a connection. Unlike `toolsJson` there is no "all" state: an entry added in Settings must not silently appear in an existing conversation. |
 
 ### `messages` (`Entities.kt:207-319`)
 
@@ -382,6 +393,7 @@ order below.
 | 18→19 | `agents` gains the four `suggestion*` columns: provider, model and prompt nullable, format `TEXT NOT NULL DEFAULT 'tool'`. Complete by construction — every assistant has an inert default until `suggest_replies` is selected. |
 | 19→20 | Data only, no schema change: `provider_profiles` rows whose `baseUrl` is an OpenCode Zen/Go endpoint and whose `reasoningMode` is still the old default `none` become `opencode`. Without it the effort chips appear but `reasoning_effort` is dropped on the wire. A non-`none` mode on the same URL is a deliberate choice and is left alone. |
 | 20→21 | `conversations` gains nullable `workspaceInstructions TEXT`: the rendered `AGENTS.md` block pinned on the conversation's first request. Null means unpinned and the first turn pins the file (or `""` if there is none); an upgraded row is unpinned by construction. The column is configuration, not a message, so it is not in the Markdown export but is in the encrypted database backup. |
+| 21→22 | `conversations` gains `sshHostsJson TEXT NOT NULL DEFAULT ''`: the ids of the saved SSH hosts this conversation may use. Empty is the safe default — an upgraded conversation has no host selected, so its SSH tools stay unregistered until the user picks one. The earlier single saved host is *not* inferred as a grant to any conversation; it is converted into the host list in `SecureStore` on first read. |
 
 The 7→8 comment records a product change that is *not* in the migration:
 deletion no longer asks for approval, and that lives in `DeleteFileTool`, not
@@ -433,8 +445,8 @@ The app-level suite adds 3 tests for web-key isolation; see
 `core/db/src/main/kotlin/com/inhuman/core/data/ConversationRepository.kt`. It
 takes the database and a `DataPaths` rather than a `Context`: the directories are
 `DataPaths(filesDir)`, so Android opens the same `files/conversations/<id>` and
-`files/rollback/<conversationId>` layout it always did, and the desktop host can
-pass its own root. The old constructor retained `context.applicationContext` for
+`files/rollback/<conversationId>` layout it always did. The old constructor
+retained `context.applicationContext` for
 a stated reason — the caller passes an Activity from a composable while the
 repository is held by a view model, and retaining the Activity leaked a destroyed
 view hierarchy — which `DataPaths` removes rather than works around.
@@ -496,8 +508,8 @@ same constant so existing call sites did not move.
 `core/data/src/main/kotlin/com/inhuman/core/data/secret/SecureStore.kt`. It
 implements `SecretStore`
 (`core/db/src/main/kotlin/com/inhuman/core/data/secret/SecretStore.kt`), the
-platform-free interface the repository uses; a desktop host supplies DPAPI or a
-Secret Service binding with the same key names.
+platform-free interface the repository uses, so the repository does not depend on
+Android's Keystore.
 
 - Backing store is a **plain `SharedPreferences`** named `inhuman.secure`
   (`:44-48`) holding one value per key: `base64(iv):base64(ciphertext)`. Nothing
@@ -534,11 +546,13 @@ Secret Service binding with the same key names.
   token are alternatives: saving a key forgets the OAuth session, and signing in
   leaves the key unused while the token is present. Deleting the provider
   deletes both.
-- The one saved SSH connection lives under `ssh.saved_connection`, as a single
-  JSON value (host, port, username, optional password/private key/passphrase/
-  fingerprint). It is convenience only, is absent from backups and diagnostics,
-  and is used only when a tool call sends `useSavedHost=true`. There is no
-  multi-profile table or host list.
+- The SSH address book lives under `ssh.hosts`, as one JSON document: alias,
+  host, port, username and an optional pinned fingerprint per entry, and **no
+  password or private key**. It is absent from backups and diagnostics, and no
+  tool resolves it into a connection -- `ssh_hosts` only shows the entries a
+  conversation was given. The single host an earlier release wrote to
+  `ssh.saved_connection` is converted once, keeping its address and dropping its
+  secrets.
 
 ## The files outside Room
 

@@ -26,10 +26,9 @@ object Database {
 	private fun build(context: Context): InhumanDatabase {
 		Diag.i("db", "opening ${InhumanDatabase.NAME}")
 		return try {
-			// The list and the seeding callback live in `:core:db`, because the
-			// desktop host builds from a file path and must install the same
-			// set. A host-local copy of either is how an upgrade path goes
-			// missing.
+			// The list and the seeding callback live in `:core:db`, because
+			// every builder must install the same set. A host-local copy of
+			// either is how an upgrade path goes missing.
 			//
 			// Deliberately no fallbackToDestructiveMigration. It would make a
 			// missing migration look like a successful upgrade while deleting

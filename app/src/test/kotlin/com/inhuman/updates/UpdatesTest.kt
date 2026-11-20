@@ -88,6 +88,10 @@ class UpdatesTest {
 	fun `the endpoint paths are stable`() {
 		assertEquals("http://192.168.1.50:8787/update.json", updateManifestUrl("http://192.168.1.50:8787"))
 		assertEquals("http://192.168.1.50:8787/log", logUploadUrl("http://192.168.1.50:8787"))
+		assertEquals(
+			"http://192.168.1.50:8787/conversation",
+			conversationUploadUrl("http://192.168.1.50:8787"),
+		)
 	}
 
 	@Test

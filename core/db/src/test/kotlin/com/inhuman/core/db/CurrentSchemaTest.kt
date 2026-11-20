@@ -10,9 +10,9 @@ import org.junit.Test
 /**
  * Opens the current schema on the JVM.
  *
- * The schema, entities and DAOs live in this module now; both `:core:data` and
- * `:desktopApp` depend on it. The test is the JVM counterpart of the Android
- * migration instrumentation tests.
+ * The schema, entities and DAOs live in this module now; `:core:data` depends
+ * on it. The test is the JVM counterpart of the Android migration
+ * instrumentation tests.
  */
 class CurrentSchemaTest {
 

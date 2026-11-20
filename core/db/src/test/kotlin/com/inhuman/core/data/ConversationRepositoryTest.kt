@@ -20,7 +20,7 @@ import java.io.File
  * The repositories on a plain JVM.
  *
  * These used to be Android-only: they read `context.filesDir` and opened the
- * database from a `Context`, which is why the desktop host had nothing to call.
+ * database from a `Context`, so nothing could exercise them without a device.
  * The roots are injected now, and this is the evidence that the same code opens
  * a real Room database and the same directory layout without Android.
  */

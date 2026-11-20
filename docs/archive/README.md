@@ -8,7 +8,9 @@ code.
 - [port-assessment.md](port-assessment.md) — measured feasibility and device data
 - [port-design.md](port-design.md) — the original layering/event/phasing plan
 
-The current Windows implementation, its security invariants and its build and
-verification commands are in [../12-desktop.md](../12-desktop.md). The product
-decisions that the port must not violate are in
+The current implementation, its safety invariants and its build and verification
+commands are described from [../01-overview.md](../01-overview.md) onwards. (The
+Windows desktop host these documents were written alongside was removed on
+2026-11-20; its code survives only in git history.) The product decisions that
+the port must not violate are in
 [../08-port-philosophy.md](../08-port-philosophy.md).

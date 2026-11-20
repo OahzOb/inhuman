@@ -1,5 +1,7 @@
 package com.inhuman.ui.chat
 
+import com.inhuman.core.ai.FinishReason
+
 /**
  * A boundary at which the request can be shortened.
  *
@@ -125,5 +127,23 @@ internal fun demoCompactionSummary(messages: List<ChatMessageUi>): String {
 		}
 	}
 }
+
+/**
+ * Whether a blank summary was a model that spent the budget thinking.
+ *
+ * The summarizer is the only request in the app with an explicit output cap,
+ * and `max_tokens` covers reasoning and answer together. On a model that thinks
+ * first, the whole budget can go into `reasoning_content`, the stream ends with
+ * `length`, and not one word of the summary is written. That is a different
+ * failure from a model that answered with nothing -- it is the one the user can
+ * do something about, by choosing a model that does not think first -- so it
+ * gets its own message instead of the generic "the summary was empty".
+ *
+ * A pure rule rather than a branch in the view model: a stream's intermediate
+ * state cannot be observed on a device, so the decision is extracted where a
+ * test can hold it.
+ */
+internal fun summaryStarvedByReasoning(finish: FinishReason?, reasoningChars: Int): Boolean =
+	finish == FinishReason.Length && reasoningChars > 0
 
 internal const val COMPACTION_INPUT_LIMIT = 24_000
