@@ -112,6 +112,21 @@ object ToolCatalog {
 		 * reason the consent gate is keyed on [remote].
 		 */
 		val gatedBySsh: Boolean = false,
+		/**
+		 * Whether the tool belongs to the anonymous Bilibili read capability.
+		 *
+		 * Read-only, free and account-free, so it is not [paid] and not
+		 * [remote]: it reads public content through the app and cannot affect
+		 * anything outside it. It is still a capability the user must switch on,
+		 * because it is a new external data path, and while that switch is off
+		 * the row is absent from every picker rather than greyed -- the same
+		 * rule §1.2.1 applies to remote tools, for the same reason.
+		 *
+		 * It is also [optIn]: a null "all tools" selection predates this name,
+		 * and a new external read must not appear in every existing assistant
+		 * because a release added it.
+		 */
+		val gatedByBilibili: Boolean = false,
 	)
 
 	/**
@@ -176,6 +191,39 @@ object ToolCatalog {
 			"Fetch a page via the configured paid fetch API",
 			mutates = false,
 			paid = true,
+		),
+		// Anonymous, read-only Bilibili. Free and account-free, so no PAID or
+		// REMOTE badge: the app makes the request and the model still has no
+		// network. They are opt-in twice for the same reason as SSH and
+		// suggestions -- the global switch makes them available, and the
+		// assistant's explicit selection puts one in a request.
+		Entry(
+			"bili_search",
+			"Search Bilibili videos or column articles, anonymously",
+			mutates = false,
+			optIn = true,
+			gatedByBilibili = true,
+		),
+		Entry(
+			"bili_video",
+			"Read a Bilibili video's public details and description",
+			mutates = false,
+			optIn = true,
+			gatedByBilibili = true,
+		),
+		Entry(
+			"bili_comments",
+			"Read the top comments on a Bilibili video",
+			mutates = false,
+			optIn = true,
+			gatedByBilibili = true,
+		),
+		Entry(
+			"bili_article",
+			"Read a Bilibili column article as plain text",
+			mutates = false,
+			optIn = true,
+			gatedByBilibili = true,
 		),
 		Entry(
 			"decide",
@@ -349,6 +397,16 @@ object ToolCatalog {
 		includeSandbox: Boolean = true,
 		includeSuggestions: Boolean = false,
 		/**
+		 * Whether the global Bilibili read switch is on.
+		 *
+		 * Off means the four read tools are absent from the pickers, the
+		 * approval table and `unavailable_tools`, not a greyed row: a disabled
+		 * row still advertises the capability, and §1.2.1 refuses that for the
+		 * remote tools for the same reason. Off is the default so a caller that
+		 * has not wired the switch cannot offer a row that would do nothing.
+		 */
+		includeBilibili: Boolean = false,
+		/**
 		 * Whether the host implements [PDF_VISION_TOOL]. Unlike SSH or the
 		 * sandbox this is not a runtime capability switch: it is a statement
 		 * about the binary. The Android pickers pass true; the default keeps a
@@ -361,6 +419,7 @@ object ToolCatalog {
 				(includeWorkspaceBound || !entry.workspaceBound) &&
 				(includeSandbox || entry.name != "run_javascript") &&
 				(includeSuggestions || entry.name != "suggest_replies") &&
+				(includeBilibili || !entry.gatedByBilibili) &&
 				(includePdfVision || entry.name != PDF_VISION_TOOL)
 		}
 

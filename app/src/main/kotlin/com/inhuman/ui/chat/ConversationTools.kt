@@ -29,6 +29,12 @@ internal fun conversationToolPlan(
 	workspaceToolsEnabled: Boolean = true,
 	/** False hides `suggest_replies` from the sheet, not merely disables it. */
 	suggestionsEnabled: Boolean = false,
+	/**
+	 * False hides the four Bilibili read rows. The stored names stay in the
+	 * conversation, so switching the capability back on restores a selection
+	 * without asking the user to remember it.
+	 */
+	bilibiliEnabled: Boolean = false,
 ): ConversationToolPlan {
 	val allNonRemote = ToolCatalog.all
 		.filterNot { it.remote }
@@ -47,6 +53,7 @@ internal fun conversationToolPlan(
 		includeWorkspaceBound = workspaceToolsEnabled,
 		includeSandbox = AppCapabilities.sandboxOk == true,
 		includeSuggestions = suggestionsEnabled,
+		includeBilibili = bilibiliEnabled,
 		includePdfVision = true,
 	)
 		.filter { it.name in ceiling || it.name in current }

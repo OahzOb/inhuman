@@ -171,4 +171,22 @@ class ConversationToolsTest {
 			permittedRemoteTools(listOf("ssh_download", "ssh_list", "read_file")),
 		)
 	}
+
+	@Test
+	fun `bilibili reads are hidden while their switch is off and never inherited`() {
+		val off = conversationToolPlan(sshEnabled = false, agentTools = null, conversationTools = null)
+		assertFalse("bili_search" in names(off))
+
+		val on = conversationToolPlan(
+			sshEnabled = false,
+			agentTools = null,
+			conversationTools = null,
+			bilibiliEnabled = true,
+		)
+		val bilibili = ToolCatalog.all.filter { it.gatedByBilibili }.map { it.name }.toSet()
+		assertEquals("the four read rows appear only with the switch", bilibili, names(on).toSet() - names(off).toSet())
+		// A null "all" is not consent to a new external read: the rows are
+		// offered, but unchecked, and only a stored name can turn one on.
+		assertTrue(bilibili.none { it in on.selected })
+	}
 }

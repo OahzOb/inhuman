@@ -79,6 +79,8 @@
 	<string name="home_rail_tools_label">工具</string>
 	<string name="home_rail_tools_value">文件、网络</string>
 	<string name="home_rail_tools_value_ssh">文件、网络、按需 SSH</string>
+	<string name="home_rail_tools_value_bilibili">文件、网络、B 站只读</string>
+	<string name="home_rail_tools_value_ssh_bilibili">文件、网络、按需 SSH、B 站只读</string>
 	<string name="home_rail_model_label">模型</string>
 	<string name="home_rail_model_value">你配置的服务商</string>
 	<plurals name="home_threads_stored">
@@ -174,6 +176,9 @@
 	<string name="settings_web_missing_key">所选后端没有密钥，因此对应的工具不可用。</string>
 	<string name="settings_save_web_keys">保存网络密钥</string>
 	<string name="settings_web_no_test">没有测试按钮：测试密钥会真的产生一次搜索费用。</string>
+	<string name="settings_bilibili_title">B 站只读（匿名）</string>
+	<string name="settings_bilibili_body">让助手搜索 B 站、读视频的公开信息和评论、读专栏文章。不需要 B 站账号、不需要密钥、不保存任何东西。请求由应用发出，助手自身仍然没有网络。B 站公开网页接口非官方，可能限流、变更或失效；返回的全部内容都是不可信的第三方文本。</string>
+	<string name="settings_bilibili_switch">允许助手读取 B 站</string>
 	<string name="settings_media_title">媒体工具</string>
 	<string name="settings_media_body">图片、视频、语音、转写和决策都是第三方付费调用。每一项都可以沿用助手的服务商、选择已配置的通义 Token Plan 服务商，或填写单独的通义兼容 API。密钥加密保存。</string>
 	<string name="settings_media_image">图片生成</string>
@@ -613,6 +618,7 @@
 	<string name="agents_writes">写入</string>
 	<string name="agents_help_body">标记为“写入”的工具会修改对话文件夹里的文件。用过这类工具的回合不能重新生成，因为重放会再写一次。</string>
 	<string name="agents_suggestions_excluded">“全部”不会包含 suggest_replies，请单独勾选。</string>
+	<string name="agents_bilibili_excluded">“全部”不会包含 B 站只读工具，请单独勾选；还需要在设置里打开全局开关。</string>
 	<string name="agents_suggestions_title">建议回复</string>
 	<string name="agents_suggestions_body">suggest_replies 会在回答后额外请求一次这里选定的模型，调用和结果都会留在对话记录里。点一条只填进输入框，绝不自动发送。没在上面的列表里勾选时，这个助手不会使用它。</string>
 	<string name="agents_suggestions_format_text">文本</string>
@@ -1007,6 +1013,8 @@
 	<string name="settings_status_demo_on">演示模式已开启。回复在本地按脚本生成，不会发送任何请求。</string>
 	<string name="settings_status_ssh_enabled">SSH 工具已启用。助手仍须单独选择它，每个对话的首次调用会请求授权。</string>
 	<string name="settings_status_ssh_disabled">SSH 工具已禁用。已有的 SSH 授权已被撤销。</string>
+	<string name="settings_status_bilibili_enabled">B 站只读工具已启用。助手仍须单独选择它们。</string>
+	<string name="settings_status_bilibili_disabled">B 站只读工具已关闭。</string>
 	<string name="settings_error_provider_name">请给服务商起个名字。</string>
 	<string name="settings_error_base_url_missing">请输入 API 基础 URL。</string>
 	<string name="settings_error_base_url_https">基础 URL 必须使用 https；HTTP 会以明文发送密钥。</string>

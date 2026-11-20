@@ -109,6 +109,7 @@ fun ConversationsScreen(
 	onOpenWorkspaces: () -> Unit,
 	onNewWorkspace: () -> Unit,
 	sshToolEnabled: Boolean = false,
+	bilibiliEnabled: Boolean = false,
 	backupReminder: BackupReminderUi? = null,
 	onOpenBackup: () -> Unit = {},
 	onLaterBackup: () -> Unit = {},
@@ -191,6 +192,7 @@ fun ConversationsScreen(
 					HomeRail(
 						conversationCount = state.conversations.size,
 						sshToolEnabled = sshToolEnabled,
+						bilibiliEnabled = bilibiliEnabled,
 						modifier = Modifier
 							.width(320.dp)
 							.fillMaxSize(),
@@ -791,6 +793,7 @@ private fun HeaderTextAction(
 private fun HomeRail(
 	conversationCount: Int,
 	sshToolEnabled: Boolean,
+	bilibiliEnabled: Boolean,
 	modifier: Modifier = Modifier,
 ) {
 	Box(modifier.background(MaterialTheme.colorScheme.surface)) {
@@ -819,10 +822,16 @@ private fun HomeRail(
 			)
 			MetaLine(
 				stringResource(R.string.home_rail_tools_label),
-				if (sshToolEnabled) {
-					stringResource(R.string.home_rail_tools_value_ssh)
-				} else {
-					stringResource(R.string.home_rail_tools_value)
+				when {
+					// The summary is a capability claim: it must mention an
+					// external source only while that source is switched on,
+					// and it must not drop one that is.
+					bilibiliEnabled && sshToolEnabled ->
+						stringResource(R.string.home_rail_tools_value_ssh_bilibili)
+
+					bilibiliEnabled -> stringResource(R.string.home_rail_tools_value_bilibili)
+					sshToolEnabled -> stringResource(R.string.home_rail_tools_value_ssh)
+					else -> stringResource(R.string.home_rail_tools_value)
 				},
 			)
 			MetaLine(

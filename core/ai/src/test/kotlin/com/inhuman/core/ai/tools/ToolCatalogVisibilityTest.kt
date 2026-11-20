@@ -1,5 +1,6 @@
 package com.inhuman.core.ai.tools
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -100,5 +101,42 @@ class ToolCatalogVisibilityTest {
 
 		assertFalse("read_time is workspace-free", "read_time" in marked)
 		assertFalse("web_fetch is workspace-free", "web_fetch" in marked)
+	}
+
+	@Test
+	fun bilibiliReadToolsAreAbsentUntilTheirSwitchIsOn() {
+		// Same rule as SSH and follow-ups: a capability the user has not
+		// switched on is absent, not greyed, so a model cannot learn the name
+		// from a picker and an approval table has no row to configure.
+		val off = ToolCatalog.visible(includeSsh = false).map { it.name }
+		ToolCatalog.all.filter { it.gatedByBilibili }.forEach { entry ->
+			assertFalse("${entry.name} was visible while its switch was off", entry.name in off)
+		}
+
+		val on = ToolCatalog.visible(includeSsh = false, includeBilibili = true).map { it.name }
+		ToolCatalog.all.filter { it.gatedByBilibili }.forEach { entry ->
+			assertTrue("${entry.name} was not offered after enabling", entry.name in on)
+		}
+	}
+
+	@Test
+	fun bilibiliReadToolsAreOptInAndNeitherPaidNorRemote() {
+		// A new external read must not be inherited by an assistant whose
+		// selection is null ("all tools" from before this name existed), and it
+		// is not a remote operation: it reads public content, it does not reach
+		// another machine the way SSH does.
+		val bilibili = ToolCatalog.all.filter { it.gatedByBilibili }
+		assertEquals("four read tools", 4, bilibili.size)
+		bilibili.forEach { entry ->
+			assertTrue("${entry.name} must be opt-in", entry.optIn)
+			assertFalse("${entry.name} must not be paid", entry.paid)
+			assertFalse("${entry.name} must not be remote", entry.remote)
+			assertFalse("${entry.name} must not mutate", entry.mutates)
+			assertFalse("${entry.name} is a read, not a workspace write", entry.workspaceBound)
+		}
+
+		assertFalse(ToolCatalog.permits(null, "bili_search"))
+		assertFalse(ToolCatalog.permits(emptyList(), "bili_search"))
+		assertTrue(ToolCatalog.permits(listOf("bili_search"), "bili_search"))
 	}
 }

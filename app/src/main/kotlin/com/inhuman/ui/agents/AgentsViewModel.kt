@@ -30,6 +30,8 @@ data class AgentsUiState(
 	val sshToolEnabled: Boolean = false,
 	/** Whether the follow-up tool is available to pick at all. */
 	val suggestionsEnabled: Boolean = false,
+	/** Whether the anonymous Bilibili read tools are offered to pick at all. */
+	val bilibiliEnabled: Boolean = false,
 	val editing: AgentDraft? = null,
 	/** The user's saved system prompts, newest first. */
 	val savedPrompts: List<SavedPromptEntity> = emptyList(),
@@ -129,11 +131,20 @@ class AgentsViewModel(
 	private val _state = MutableStateFlow(AgentsUiState())
 	val state: StateFlow<AgentsUiState> = _state.asStateFlow()
 
-	fun refreshSshTool() {
+	/**
+	 * Re-read the global capability switches.
+	 *
+	 * Called when the screen is shown: Settings is a different screen, and the
+	 * editor can outlive a change made there. All three switches decide which
+	 * rows the editor offers, so they are read together rather than one at a
+	 * time by three different callers.
+	 */
+	fun refreshGlobalSwitches() {
 		_state.update {
 			it.copy(
 				sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
 				suggestionsEnabled = secure.get(SecureStore.KEY_SUGGESTIONS_ENABLED) == "1",
+				bilibiliEnabled = secure.get(SecureStore.KEY_BILIBILI_TOOL_ENABLED) == "1",
 			)
 		}
 	}
@@ -163,7 +174,7 @@ class AgentsViewModel(
 	}
 
 	init {
-		refreshSshTool()
+		refreshGlobalSwitches()
 		viewModelScope.launch {
 			repository.observeAll().collect { list ->
 				_state.update { it.copy(agents = list) }

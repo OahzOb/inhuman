@@ -171,6 +171,13 @@ data class ChatUiState(
 	/** Whether the follow-up tool is available to pick at all. */
 	val suggestionsEnabled: Boolean = false,
 	/**
+	 * Whether the anonymous Bilibili read tools are switched on globally.
+	 *
+	 * Off hides them from every picker and from the request; on still requires
+	 * the assistant's explicit selection. See [com.inhuman.core.ai.tools.ToolCatalog.Entry.gatedByBilibili].
+	 */
+	val bilibiliEnabled: Boolean = false,
+	/**
 	 * The conversation's stored tool selection.
 	 *
 	 * `null` is the historical "all", which excludes remote tools; the sheet

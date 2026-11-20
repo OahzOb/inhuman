@@ -543,6 +543,42 @@ fun SettingsScreen(
 						},
 					)
 				}
+
+				// Anonymous Bilibili reads. Unlike the paid backends above
+				// there is no key to configure and no bill to disclose; what
+				// needs saying is that the app itself now contacts a
+				// third-party site on the assistant's behalf, anonymously.
+				Hairline(Modifier.padding(vertical = 10.dp))
+				Eyebrow(stringResource(R.string.settings_bilibili_title))
+				Text(
+					text = stringResource(R.string.settings_bilibili_body),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Row(
+					modifier = Modifier
+						.fillMaxWidth()
+						.toggleable(
+							value = state.bilibiliEnabled,
+							role = Role.Switch,
+							onValueChange = viewModel::setBilibiliEnabled,
+						),
+					horizontalArrangement = Arrangement.SpaceBetween,
+					verticalAlignment = Alignment.Top,
+				) {
+					Column(modifier = Modifier.weight(1f)) {
+						Text(
+							text = stringResource(R.string.settings_bilibili_switch),
+							style = MaterialTheme.typography.titleMedium,
+							color = MaterialTheme.colorScheme.onBackground,
+						)
+					}
+					WorkbenchSwitch(
+						checked = state.bilibiliEnabled,
+						onCheckedChange = null,
+						modifier = Modifier.padding(start = 12.dp),
+					)
+				}
 			}
 			}
 
@@ -977,6 +1013,7 @@ fun SettingsScreen(
 					rules = state.approvalRules,
 					sshToolEnabled = state.sshToolEnabled,
 					suggestionsEnabled = state.suggestionsEnabled,
+					bilibiliEnabled = state.bilibiliEnabled,
 					onRuleChange = viewModel::setApprovalRule,
 				)
 			}
@@ -2662,6 +2699,7 @@ private fun ApprovalRulesSection(
 	rules: Map<String, ToolPolicy>,
 	sshToolEnabled: Boolean,
 	suggestionsEnabled: Boolean,
+	bilibiliEnabled: Boolean,
 	onRuleChange: (String, ToolPolicy) -> Unit,
 ) {
 	Column(
@@ -2689,6 +2727,7 @@ private fun ApprovalRulesSection(
 			includeWorkspaceBound = AppCapabilities.workspaceOk,
 			includeSandbox = AppCapabilities.sandboxOk == true,
 			includeSuggestions = suggestionsEnabled,
+			includeBilibili = bilibiliEnabled,
 			includePdfVision = true,
 		)) {
 			val current = rules[entry.name] ?: ToolPolicy.Free

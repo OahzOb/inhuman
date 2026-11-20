@@ -206,6 +206,19 @@ class SecureStore(
 		const val KEY_SUGGESTIONS_ENABLED = "chat.suggestions_enabled"
 
 		/**
+		 * Whether the anonymous Bilibili read tools exist at all.
+		 *
+		 * **Off unless stored as "1".** The same two gates as SSH and
+		 * suggestions: this switch makes the four tools visible to the pickers,
+		 * and each assistant still has to select one. Reading a third-party
+		 * site is an external data path the user chooses, so it is not on by
+		 * default and the app does not carry a key for it -- the absence of a
+		 * key is exactly why a switch is needed here where the paid web tools
+		 * have a configured backend instead.
+		 */
+		const val KEY_BILIBILI_TOOL_ENABLED = "bilibili.tool_enabled"
+
+		/**
 		 * When the last encrypted backup was written, in epoch milliseconds.
 		 *
 		 * Not a secret; stored here with the other small preferences. `"0"` or

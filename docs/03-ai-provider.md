@@ -958,6 +958,74 @@ $env:DEEPSEEK_LIVE_KEY = 'sk-...'
 It checks the request shape that fixtures cannot, and it is what caught the
 `&amp;` URL-encoding issue above.
 
+## Bilibili reads: anonymous, read-only, app-proxied
+
+The four `bili_*` tools are the second "app reads something external for the
+assistant" path, after the paid web tools, and the first one that is **free and
+has no key**. `BilibiliClient`
+(`core/ai/src/main/kotlin/com/inhuman/core/ai/bilibili/BilibiliClient.kt`)
+implements the interface in `BilibiliTypes.kt`; the tools are in
+`core/ai/src/main/kotlin/com/inhuman/core/ai/tools/Bilibili*Tool.kt`.
+
+**What it reads.** Public web endpoints only: `x/web-interface/wbi/search/type`
+for video and article search, `x/web-interface/view` for a video's metadata,
+`x/v2/reply/main` for one page of comments, and `x/article/view` for a column's
+text. The request is anonymous — `x/frontend/finger/spi` supplies the public
+`buvid3`/`buvid4` browsing ids, `x/web-interface/nav` supplies the WBI key
+images, and both live in memory for the process. **No Bilibili account, no
+cookie jar and no stored credential** are involved, which is what makes "no
+account required" true rather than a promise.
+
+**Signature.** The search endpoint needs the WBI signature. `WbiSigner`
+reorders the two key filenames into a 32-character mixin key, adds `wts` and
+`web_location`, sorts and percent-encodes the parameters and appends `w_rid`.
+The percent-encoding is hand-written because `URLEncoder` encodes `~`
+differently from the server; `WbiSignerTest` pins the mixin key and the digest
+against a fixed vector, because a wrong signature comes back as `-403`, which
+otherwise looks like a server outage.
+
+**Pacing and refusals.** Requests are 700 ms apart. `-509` (rate limited) gets
+two pauses, 1.5 s and 3 s; `-403` (stale key) refetches the mixin key once.
+`-352`/`-412` (risk control) are surfaced, not retried — retrying is what caused
+them. `BilibiliErrors` turns those codes, and `-101`, into one sentence the
+model can use, so "blocked" never looks like "there are no comments".
+
+**The tools and their caps.** `bili_search` returns at most 10 hits from at most
+page 5, `bili_video` caps the description at 2,000 characters and lists up to 10
+parts, `bili_comments` returns at most 30 comments (400 characters each, 2
+replies) and says it read one page, and `bili_article` caps the body at 20,000
+characters with the same truncation marker `web_fetch` uses. Every argument is
+a keyword, a BV id or a cv id — **no URL argument**, so a prompt injection
+cannot turn a read into a general fetch.
+
+**Registration is two gates.** The entries are `gatedByBilibili` and `optIn`.
+While the global Settings switch is off, `ToolCatalog.visible(...)` and
+`ChatViewModel.buildTools` do not build them at all: absent from the assistants
+picker, the conversation sheet, the approval table and `unavailable_tools`, not
+a greyed row. While on, `ToolCatalog.permits` still requires the assistant's
+explicit selection — `null` ("all tools") predates the names and never includes
+them. They are neither `paid` nor `remote`: the app makes the request, and the
+assistant cannot reach anything that leaves a workspace copy or another machine.
+
+**The content is untrusted.** Titles, descriptions, comments and article bodies
+are third-party text that becomes prompt context. Tool descriptions say so, and
+`BilibiliHtml` reduces both HTML shapes to plain text; a markdown renderer must
+never see it as markup.
+
+**Tests.** `BilibiliParsersTest` runs against fixtures captured from the live
+endpoints (2026-11-20) so the parsing is offline and the shapes are real;
+`BilibiliToolsTest` covers caps, argument rejection and error text against a
+fake service. `BilibiliLiveTest` is skipped unless `INHUMAN_BILI_LIVE=1`; run:
+
+```powershell
+$env:INHUMAN_BILI_LIVE = '1'
+.\gradlew.bat :core:ai:test --tests '*BilibiliLiveTest'
+```
+
+It is deliberately one test with a pause between the video and article pairs:
+an anonymous caller that fires seven requests in two seconds is the shape of a
+scraper, which is what the endpoint set's risk control blocks.
+
 ## The SSH tools: read-only, transfer and exec, an address book and an information tool
 
 `SshClient` (`core/ai/src/main/kotlin/com/inhuman/core/ai/ssh/SshClient.kt`) wraps

@@ -70,6 +70,11 @@ import kotlinx.coroutines.withTimeoutOrNull
 import com.inhuman.core.ai.tools.FetchProvider
 import com.inhuman.core.ai.tools.QwenDecisionTool
 import com.inhuman.core.ai.tools.SearchProvider
+import com.inhuman.core.ai.bilibili.BilibiliReadService
+import com.inhuman.core.ai.tools.BilibiliArticleTool
+import com.inhuman.core.ai.tools.BilibiliCommentsTool
+import com.inhuman.core.ai.tools.BilibiliSearchTool
+import com.inhuman.core.ai.tools.BilibiliVideoTool
 import com.inhuman.core.ai.tools.SshExecTool
 import com.inhuman.core.ai.model.ModelCapability
 import com.inhuman.core.ai.model.ModelRejection
@@ -220,6 +225,26 @@ class ChatViewModel(
 	 */
 	private val suggestionsEnabled: () -> Boolean = { false },
 	/**
+	 * Where anonymous Bilibili reads come from, or null when the host has not
+	 * wired the source.
+	 *
+	 * A separate seam from [searchProvider] even though both are "read something
+	 * external": this one has no key, no bill and no backend to select, and its
+	 * capability is switched on by [bilibiliEnabled] rather than by configured
+	 * credentials. Null is still "not wired" and means the tools are absent.
+	 */
+	private val bilibiliReadService: () -> BilibiliReadService? = { null },
+	/**
+	 * Whether the global Bilibili read switch is on.
+	 *
+	 * Read per turn, like the SSH switch: the user can flip it in Settings while
+	 * a view model lives, and a tool still registered after being switched off
+	 * is a gate that opens the wrong way. Even when on, each of the four tools
+	 * is opt-in on the assistant -- the switch makes them available, the
+	 * selection puts one in the request.
+	 */
+	private val bilibiliEnabled: () -> Boolean = { false },
+	/**
 	 * Called whenever a stream starts or stops.
 	 *
 	 * The app layer owns the foreground service; the view model deliberately
@@ -251,6 +276,7 @@ class ChatViewModel(
 		ChatUiState(
 			sshToolEnabled = sshToolEnabled(),
 			suggestionsEnabled = suggestionsEnabled(),
+			bilibiliEnabled = bilibiliEnabled(),
 		),
 	)
 	val state: StateFlow<ChatUiState> = _state.asStateFlow()
@@ -4457,6 +4483,17 @@ class ChatViewModel(
 			// that it cannot use it, and it says so.
 			searchProvider()?.let { add(WebSearchTool(it)) }
 			fetchProvider()?.let { add(WebFetchTool(it)) }
+			// Anonymous Bilibili reads. Free and account-free, but still an
+			// external data path the user chose, so the global switch is the
+			// first gate; `ToolCatalog.permits` is the second, because all four
+			// entries are opt-in and a null "all tools" selection predates them.
+			val bilibili = bilibiliReadService()
+			if (bilibiliEnabled() && bilibili != null) {
+				add(BilibiliSearchTool(bilibili))
+				add(BilibiliVideoTool(bilibili))
+				add(BilibiliCommentsTool(bilibili))
+				add(BilibiliArticleTool(bilibili))
+			}
 			// A decision model is capability-specific: a chat-only provider must
 			// not get a tool that always fails, and a missing key means the call
 			// cannot be answered either.
@@ -4602,6 +4639,7 @@ class ChatViewModel(
 							includeWorkspaceBound = workspaceToolsEnabled(),
 							includeSandbox = AppCapabilities.sandboxOk == true,
 							includeSuggestions = suggestionsEnabled(),
+							includeBilibili = bilibiliEnabled(),
 							includePdfVision = true,
 						),
 					)

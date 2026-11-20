@@ -172,6 +172,13 @@ data class SettingsUiState(
 	/** Whether the follow-up tool is available to assistants at all. */
 	val suggestionsEnabled: Boolean = false,
 	/**
+	 * Whether the anonymous Bilibili read tools are available at all.
+	 *
+	 * Off by default. Turning it on makes the four `bili_*` tools selectable on
+	 * an assistant; it grants nothing by itself.
+	 */
+	val bilibiliEnabled: Boolean = false,
+	/**
 	 * Global ceiling on assistant/tool rounds in one turn.
 	 *
 	 * A round may contain several tool calls, so this is not a call count.
@@ -363,6 +370,7 @@ class SettingsViewModel(
 		_state.value = SettingsUiState(
 			demoMode = secure.get(SecureStore.KEY_DEMO_MODE) == "1",
 			suggestionsEnabled = secure.get(SecureStore.KEY_SUGGESTIONS_ENABLED) == "1",
+			bilibiliEnabled = secure.get(SecureStore.KEY_BILIBILI_TOOL_ENABLED) == "1",
 			toolRoundLimit = readToolRoundLimit(),
 			toolCallLimit = readToolCallLimit(),
 			layoutPreference = com.inhuman.core.design.LayoutPreference.fromStored(
@@ -1001,6 +1009,29 @@ class SettingsViewModel(
 	fun setSuggestionsEnabled(enabled: Boolean) {
 		secure.put(SecureStore.KEY_SUGGESTIONS_ENABLED, if (enabled) "1" else "0")
 		_state.value = _state.value.copy(suggestionsEnabled = enabled)
+	}
+
+	/**
+	 * Turn the anonymous Bilibili read tools on or off globally.
+	 *
+	 * Off removes the four rows from every picker and from every request. The
+	 * assistants' stored selections are kept, so switching back on restores
+	 * what the user had chosen rather than asking them to remember it. There is
+	 * nothing to revoke on the way out: unlike SSH there is no consent attached
+	 * to a read, and unlike the paid web tools there is no key or bill.
+	 */
+	fun setBilibiliEnabled(enabled: Boolean) {
+		secure.put(SecureStore.KEY_BILIBILI_TOOL_ENABLED, if (enabled) "1" else "0")
+		_state.value = _state.value.copy(
+			bilibiliEnabled = enabled,
+			status = if (enabled) {
+				context.getString(R.string.settings_status_bilibili_enabled)
+			} else {
+				context.getString(R.string.settings_status_bilibili_disabled)
+			},
+			statusIsError = false,
+		)
+		Diag.i("bilibili", "global read tools enabled=$enabled")
 	}
 
 	fun setDemoMode(enabled: Boolean) {

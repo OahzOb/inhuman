@@ -86,6 +86,8 @@
 	<string name="home_rail_tools_label">Tools</string>
 	<string name="home_rail_tools_value">Files, web</string>
 	<string name="home_rail_tools_value_ssh">Files, web, SSH on demand</string>
+	<string name="home_rail_tools_value_bilibili">Files, web, Bilibili reads</string>
+	<string name="home_rail_tools_value_ssh_bilibili">Files, web, SSH on demand, Bilibili reads</string>
 	<string name="home_rail_model_label">Model</string>
 	<string name="home_rail_model_value">Your configured provider</string>
 	<plurals name="home_threads_stored">
@@ -188,6 +190,9 @@
 	<string name="settings_web_missing_key">A selected backend has no key, so its tool stays unavailable.</string>
 	<string name="settings_save_web_keys">Save web keys</string>
 	<string name="settings_web_no_test">There is no test button: validating these keys would spend a real search.</string>
+	<string name="settings_bilibili_title">Bilibili reads (anonymous)</string>
+	<string name="settings_bilibili_body">Lets assistants search Bilibili, read a video\'s public details and comments, and read column articles. No Bilibili account, no key, nothing saved. The app sends the requests; the assistant itself still has no network. Bilibili\'s public web interface is unofficial: it can rate-limit, change or stop working, and everything it returns is untrusted third-party text.</string>
+	<string name="settings_bilibili_switch">Allow assistants to read Bilibili</string>
 	<string name="settings_media_title">Media tools</string>
 	<string name="settings_media_body">Image, video, speech, transcription and decision calls are paid third-party services. Each can keep using the assistant\'s provider, use a configured Qwen Token Plan provider, or use a separate Qwen-compatible API. Keys are stored encrypted.</string>
 	<string name="settings_media_image">Image generation</string>
@@ -632,6 +637,7 @@
 	<string name="agents_writes">writes</string>
 	<string name="agents_help_body">Tools marked “writes” change files in the conversation\'s folder. A reply that used one cannot be regenerated, because replaying the turn would write a second time.</string>
 	<string name="agents_suggestions_excluded">suggest_replies is never included by “all”; select it explicitly.</string>
+	<string name="agents_bilibili_excluded">Bilibili read tools are never included by “all”; select them explicitly. They also require the global switch in Settings.</string>
 	<string name="agents_suggestions_title">Follow-up suggestions</string>
 	<string name="agents_suggestions_body">suggest_replies sends one extra request after the answer, to the model chosen here, and keeps the call and its result in the transcript. The chips only fill the composer; they never send. Off for this assistant until you tick it in the list above.</string>
 	<string name="agents_suggestions_format_text">Text</string>
@@ -1032,6 +1038,8 @@
 	<string name="settings_status_demo_on">Demo mode on. Replies are scripted locally and no request is sent.</string>
 	<string name="settings_status_ssh_enabled">SSH tool enabled. An assistant must still select it, and the first call in each conversation asks for consent.</string>
 	<string name="settings_status_ssh_disabled">SSH tool disabled. Existing SSH consents were revoked.</string>
+	<string name="settings_status_bilibili_enabled">Bilibili read tools enabled. An assistant must still select them.</string>
+	<string name="settings_status_bilibili_disabled">Bilibili read tools disabled.</string>
 	<string name="settings_error_provider_name">Give the provider a name.</string>
 	<string name="settings_error_base_url_missing">Enter the API base URL.</string>
 	<string name="settings_error_base_url_https">The base URL must be an https URL; HTTP would send the key in clear text.</string>

@@ -67,6 +67,7 @@ import com.inhuman.ui.workspaces.WorkspaceDetailScreen
 import com.inhuman.ui.workspaces.WorkspaceDetailViewModel
 import com.inhuman.ui.workspaces.WorkspacesScreen
 import com.inhuman.ui.workspaces.WorkspacesViewModel
+import com.inhuman.web.BilibiliReadProvider
 import com.inhuman.web.WebToolProviders
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -556,6 +557,13 @@ private fun InhumanRoot(
 						suggestionsEnabled = {
 							secure.get(SecureStore.KEY_SUGGESTIONS_ENABLED) == "1"
 						},
+						// The anonymous Bilibili source has no credential to be
+						// missing; the switch alone decides whether the tools
+						// exist. Read per turn like the SSH switch.
+						bilibiliReadService = { BilibiliReadProvider.service() },
+						bilibiliEnabled = {
+							secure.get(SecureStore.KEY_BILIBILI_TOOL_ENABLED) == "1"
+						},
 						onTurnStatus = { status ->
 							TurnNotifications.update(context.applicationContext, status)
 						},
@@ -660,6 +668,7 @@ private fun InhumanRoot(
 					showWorkspaces = true
 				},
 				sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
+				bilibiliEnabled = secure.get(SecureStore.KEY_BILIBILI_TOOL_ENABLED) == "1",
 				backupReminder = backupReminder,
 				onOpenBackup = {
 					backupReminder = null

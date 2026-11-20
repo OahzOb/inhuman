@@ -80,6 +80,12 @@ Confirmed by `README.md:17-29` and by the code:
   selected independently for search and fetch. Each is a paid API with its own
   key, separate from the chat provider
   ([03-ai-provider.md](03-ai-provider.md)).
+- The assistant can search Bilibili, read one video's public details and its top
+  comments, and read column articles, anonymously: no Bilibili account, no key,
+  and the app makes the requests. Off by default and `optIn`; while the switch
+  is off the four rows are absent from every picker, request and gap report.
+  Bilibili's web interface is unofficial, so failures are surfaced, not hidden
+  ([03-ai-provider.md](03-ai-provider.md)).
 - The paid media tools — image, video, speech, transcription and decision — are
   configured one by one under **02 / Web & media**: keep the assistant's
   provider, choose a configured Qwen Token Plan provider and model, or enter a
@@ -313,9 +319,16 @@ other — see [06-agent-loop-ui.md](06-agent-loop-ui.md) and the long argument i
 
 `web_search` and `web_fetch` are **paid third-party APIs**, not free helpers.
 Search and fetch each choose DeepSeek or Exa in Settings, with a key that is
-separate from the chat provider's key. The app never opens a page itself: the
-selected backend performs the request, so the sandbox still has no network path
-of its own. Prices and rate limits belong to the provider and can change; the
+separate from the chat provider's key. For those two the app never opens a page
+itself: the selected backend performs the request, so the sandbox still has no
+network path of its own.
+
+The anonymous Bilibili read tools (`bili_search`, `bili_video`,
+`bili_comments`, `bili_article`) are the same rule in its other shape: the app
+does open a fixed Bilibili endpoint on the assistant's behalf, with no account
+and no key, while the assistant still gets no network and no URL argument. They
+are off by default, **absent** while off, and `optIn` on the assistant; a page
+they return is untrusted third-party text, not instructions. Prices and rate limits belong to the provider and can change; the
 mechanism is in [03-ai-provider.md](03-ai-provider.md).
 
 The second non-obvious thing: **the SSH tools are not local file tools.** They run

@@ -116,7 +116,7 @@ fun AgentsScreen(
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	var pendingDelete by remember { mutableStateOf<AgentEntity?>(null) }
-	LaunchedEffect(Unit) { viewModel.refreshSshTool() }
+	LaunchedEffect(Unit) { viewModel.refreshGlobalSwitches() }
 
 	Scaffold(
 		topBar = {
@@ -202,6 +202,7 @@ fun AgentsScreen(
 			modelsError = state.modelsError,
 			sshToolEnabled = state.sshToolEnabled,
 			suggestionsEnabled = state.suggestionsEnabled,
+			bilibiliEnabled = state.bilibiliEnabled,
 			savedPrompts = state.savedPrompts,
 			effortLevels = { viewModel.effortLevelsFor(it) },
 			onChange = viewModel::updateDraft,
@@ -321,6 +322,7 @@ private fun AgentEditor(
 	modelsError: String?,
 	sshToolEnabled: Boolean,
 	suggestionsEnabled: Boolean,
+	bilibiliEnabled: Boolean,
 	savedPrompts: List<SavedPromptEntity>,
 	effortLevels: (String?) -> List<String>,
 	onChange: ((AgentDraft) -> AgentDraft) -> Unit,
@@ -338,6 +340,7 @@ private fun AgentEditor(
 		includeWorkspaceBound = AppCapabilities.workspaceOk,
 		includeSandbox = AppCapabilities.sandboxOk == true,
 		includeSuggestions = suggestionsEnabled,
+		includeBilibili = bilibiliEnabled,
 		includePdfVision = true,
 	)
 	val availableNames = availableTools.mapTo(mutableSetOf()) { it.name }
@@ -761,6 +764,7 @@ private fun AgentEditor(
 			rules = draft.rules,
 			sshToolEnabled = sshToolEnabled,
 			suggestionsEnabled = suggestionsEnabled,
+			bilibiliEnabled = bilibiliEnabled,
 			onSelect = onRuleChange,
 		)
 
@@ -817,6 +821,13 @@ private fun AgentEditor(
 			if (suggestionsEnabled) {
 				Text(
 					text = stringResource(R.string.agents_suggestions_excluded),
+					style = MaterialTheme.typography.labelLarge,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+			if (bilibiliEnabled) {
+				Text(
+					text = stringResource(R.string.agents_bilibili_excluded),
 					style = MaterialTheme.typography.labelLarge,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
@@ -1011,6 +1022,7 @@ private fun AgentEditor(
 			draft = draft,
 			sshToolEnabled = sshToolEnabled,
 			suggestionsEnabled = suggestionsEnabled,
+			bilibiliEnabled = bilibiliEnabled,
 			modelLabel = draft.model?.let { id ->
 				models.firstOrNull { it.id == id }?.displayName?.takeIf { it.isNotBlank() } ?: id
 			} ?: stringResource(R.string.agents_provider_default),
@@ -1097,6 +1109,7 @@ private fun PromptPreview(
 	draft: AgentDraft,
 	sshToolEnabled: Boolean,
 	suggestionsEnabled: Boolean,
+	bilibiliEnabled: Boolean,
 	modelLabel: String,
 	onDismiss: () -> Unit,
 ) {
@@ -1106,6 +1119,7 @@ private fun PromptPreview(
 		includeWorkspaceBound = AppCapabilities.workspaceOk,
 		includeSandbox = AppCapabilities.sandboxOk == true,
 		includeSuggestions = suggestionsEnabled,
+		includeBilibili = bilibiliEnabled,
 		includePdfVision = true,
 	)
 	val visibleNames = visibleTools.mapTo(mutableSetOf()) { it.name }
@@ -1260,6 +1274,7 @@ private fun AssistantRulesSection(
 	rules: Map<String, ToolPolicy>,
 	sshToolEnabled: Boolean,
 	suggestionsEnabled: Boolean,
+	bilibiliEnabled: Boolean,
 	onSelect: (String, ToolPolicy) -> Unit,
 ) {
 	Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
@@ -1275,6 +1290,7 @@ private fun AssistantRulesSection(
 			includeWorkspaceBound = AppCapabilities.workspaceOk,
 			includeSandbox = AppCapabilities.sandboxOk == true,
 			includeSuggestions = suggestionsEnabled,
+			includeBilibili = bilibiliEnabled,
 			includePdfVision = true,
 		)) {
 			val current = rules[entry.name] ?: ToolPolicy.Free

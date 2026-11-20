@@ -200,6 +200,34 @@ load-bearing:
 `ChatEngineTest` pins the tool execution count across a later-round retry, the
 five-retry exhaustion, the permanent-failure path, and the post-`Finish` case.
 
+### A22. Bilibili reads are absent when off, and they take ids — never URLs
+
+The four `bili_*` tools are an app-proxied external read, not a new remote
+capability, and three rules keep them from becoming a general fetch:
+
+- **The global switch hides them completely.** While it is off,
+  `ToolCatalog.visible(includeBilibili = false)` and `ChatViewModel.buildTools`
+  do not build them: no picker row, no approval row, no request schema, and no
+  name in `unavailable_tools`. A greyed row (or a named gap) still advertises
+  the capability.
+- **`optIn` means `null` ("all tools") never includes them.** The null selection
+  predates the names; an external read must not appear in every existing
+  assistant because a release added it. `ToolCatalog.permits` answers false for
+  a null selection and only a stored name turns one on.
+- **Arguments are an id or a keyword, never a URL.** `bili_search` takes a
+  keyword, `bili_video`/`bili_comments` a BV id, `bili_article` a cv id. A prompt
+  injection cannot turn a read into "fetch this address", and the client only
+  ever contacts its own fixed endpoints.
+
+Two smaller rules follow from the content being third-party text:
+`BilibiliHtml` flattens both HTML shapes to plain text (a renderer must never
+see it as markup), and a refusal (`-352`/`-412`/`-509`/`-101`) is returned as
+the mapped sentence from `BilibiliErrors` rather than as an empty page — "no
+comments" and "the request was blocked" must stay distinguishable
+(`BilibiliToolsTest`). `BilibiliLiveTest` is the one networked test and is
+skipped unless `INHUMAN_BILI_LIVE=1`; it is paced, because anonymous request
+bursts are exactly what Bilibili's risk control blocks.
+
 ---
 
 ## B. Defects that were found here — and where each one now stands

@@ -23,8 +23,8 @@ android {
 		// in a personal project.
 		minSdk = 34
 		targetSdk = 36
-		versionCode = 55
-		versionName = '0.9.9'
+		versionCode = 56
+		versionName = '0.10.0'
 
 		// Instrumented tests exist for questions a JVM test cannot answer --
 		// today, the cost of decompressing a session log on a real device.

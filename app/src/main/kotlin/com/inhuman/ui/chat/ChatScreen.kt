@@ -556,6 +556,7 @@ fun ChatScreen(
 	val sshHosts by fieldOf(viewModel.state, emptyList()) { it.sshHosts }
 	val sshHostIds by fieldOf(viewModel.state, emptyList()) { it.sshHostIds }
 	val suggestionsEnabled by fieldOf(viewModel.state, false) { it.suggestionsEnabled }
+	val bilibiliEnabled by fieldOf(viewModel.state, false) { it.bilibiliEnabled }
 	val agentTools by fieldOf(viewModel.state, null) { it.agentTools }
 	val conversationTools by fieldOf(viewModel.state, null) { it.conversationTools }
 	val toolsKnown by fieldOf(viewModel.state, false) { it.toolsKnown }
@@ -565,13 +566,20 @@ fun ChatScreen(
 	val workspaceInstructionsChars by fieldOf(viewModel.state, 0) {
 		it.workspaceInstructionsChars
 	}
-	val toolPlan = remember(agentTools, conversationTools, sshToolEnabled, suggestionsEnabled) {
+	val toolPlan = remember(
+		agentTools,
+		conversationTools,
+		sshToolEnabled,
+		suggestionsEnabled,
+		bilibiliEnabled,
+	) {
 		conversationToolPlan(
 			sshEnabled = sshToolEnabled,
 			agentTools = agentTools,
 			conversationTools = conversationTools,
 			workspaceToolsEnabled = AppCapabilities.workspaceOk,
 			suggestionsEnabled = suggestionsEnabled,
+			bilibiliEnabled = bilibiliEnabled,
 		)
 	}
 	val rollbackAvailable by fieldOf(viewModel.state, false) { it.rollbackAvailable }
