@@ -2,6 +2,7 @@ package com.inhuman.core.ai.speech
 
 import com.inhuman.core.ai.provider.deepseek.DeepSeekSpeechApi
 import com.inhuman.core.ai.provider.qwen.QwenTokenPlanClient
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -34,5 +35,20 @@ class SpeechBackendTest {
 		assertTrue(backend.acceptsFormat("wav"))
 		assertTrue(backend.acceptsFormat("opus"))
 		assertFalse(backend.acceptsFormat("flac"))
+	}
+
+	@Test
+	fun deepSeekOffersItsDocumentedVoices() {
+		val backend = DeepSeekSpeechBackend(DeepSeekSpeechApi(apiKey = { "test-key" }))
+		assertEquals(listOf("stella", "tide"), backend.voices())
+	}
+
+	@Test
+	fun qwenOffersTheDefaultVoiceOnly() {
+		val backend = QwenSpeechBackend(
+			QwenTokenPlanClient("test-key", "https://example.test"),
+			"test-model",
+		)
+		assertEquals(listOf("longanhuan_v3.6"), backend.voices())
 	}
 }

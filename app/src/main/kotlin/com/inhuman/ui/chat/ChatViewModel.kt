@@ -948,6 +948,15 @@ class ChatViewModel(
 	suspend fun canTranscribe(): Boolean =
 		runCatching { speechBackend(MediaCapability.Transcription) != null }.getOrDefault(false)
 
+	/**
+	 * Voice ids the configured speech backend offers, in its default-first
+	 * order. Empty means no backend is configured (the dialog will report the
+	 * missing backend when the user tries to synthesize).
+	 */
+	suspend fun speechVoiceIds(): List<String> =
+		runCatching { speechBackend(MediaCapability.Speech)?.voices().orEmpty() }
+			.getOrDefault(emptyList())
+
 	/** Transcribe a composer recording. The audio is never written to the workspace. */
 	suspend fun transcribeVoice(wav: ByteArray): Result<String> = runCatching {
 		if (wav.size <= 44) error(context.getString(R.string.chat_voice_empty))
@@ -961,13 +970,16 @@ class ChatViewModel(
 	}
 
 	/** Synthesize text and save the audio in the conversation workspace. */
-	suspend fun synthesize(text: String): Result<GeneratedAudio> = runCatching {
+	suspend fun synthesize(
+		text: String,
+		voice: String? = null,
+	): Result<GeneratedAudio> = runCatching {
 		val entity = conversation ?: error("conversation is not ready")
 		val backend = speechBackend(MediaCapability.Speech)
 			?: mediaUnavailable()
 		val workspace = repository.workspace(entity)
 		val result = withContext(Dispatchers.IO) {
-			backend.synthesize(text)
+			backend.synthesize(text, voice)
 		}
 		val path = "generated/audio-${System.currentTimeMillis()}.${result.extension}"
 		val resolution = workspace.resolve(path)
@@ -1758,6 +1770,11 @@ class ChatViewModel(
 			val rebuilt = entities.map { it.toUi(it.parentId?.let(branchInfo::get), declined) }
 			current.copy(
 				title = loaded?.entity?.title ?: current.title,
+				// The transcript's media dialogs build DocumentsProvider URIs
+				// and in-app playback needs the same id. It was never published
+				// here, so those Play actions silently did nothing (open was
+				// guarded by `workspaceId?.let`).
+				workspaceId = workspace?.id,
 				workspaceName = workspace?.name.orEmpty(),
 				workspaceIsPermanent = workspace?.isPermanent == true,
 				workspaceConversationCount = workspaceConversations,

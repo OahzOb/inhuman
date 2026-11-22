@@ -85,7 +85,7 @@ class DeepSeekSpeechApiTest {
 				client = OkHttpClient(),
 			)
 
-			val result = api.synthesize("你好")
+			val result = api.synthesize("你好", voiceId = "tide")
 
 			assertTrue(DeepSeekSpeechApi.looksLikeWav(result.bytes))
 			assertEquals("audio/wav", result.mimeType)
@@ -97,6 +97,27 @@ class DeepSeekSpeechApiTest {
 			val body = request.bodyUtf8
 			assertTrue("format wav was not requested: $body", body.contains("\"format\":\"wav\""))
 			assertTrue("the text was not sent: $body", body.contains("你好"))
+			assertTrue("the chosen voice was not sent: $body", body.contains("\"voice_id\":\"tide\""))
+		}
+	}
+
+	@Test
+	fun `tts omits voice_id when no voice is chosen`() = runBlocking {
+		val audio = wav(dataSeconds = 0.2)
+		SpeechServer { TestResponse(200, "audio/wav", audio) }.use { server ->
+			val api = DeepSeekSpeechApi(
+				apiKey = { "test-key" },
+				baseUrl = server.baseUrl,
+				client = OkHttpClient(),
+			)
+
+			api.synthesize("hello")
+
+			val body = server.requests.single().bodyUtf8
+			assertTrue(
+				"a default request must not name a voice: $body",
+				!body.contains("voice_id"),
+			)
 		}
 	}
 
@@ -181,6 +202,23 @@ class DeepSeekSpeechApiTest {
 			assertEquals(0, server.requests.size)
 		}
 	}
+
+	@Test
+	fun `a streamed wav is normalized before it is handed on`() {
+		val streamed = wav(dataSeconds = 0.5, dataChunkSize = -1)
+		val normalized = DeepSeekSpeechApi.normalizeWav(streamed)
+
+		// data chunk size at offset 40 and the RIFF size at offset 4.
+		assertEquals(normalized.size - 44, leInt(normalized, 40))
+		assertEquals(normalized.size - 8, leInt(normalized, 4))
+		assertEquals(500L, DeepSeekSpeechApi.wavDurationMillis(normalized))
+	}
+
+	private fun leInt(bytes: ByteArray, offset: Int): Int =
+		(bytes[offset].toInt() and 0xff) or
+			((bytes[offset + 1].toInt() and 0xff) shl 8) or
+			((bytes[offset + 2].toInt() and 0xff) shl 16) or
+			((bytes[offset + 3].toInt() and 0xff) shl 24)
 
 	private data class TestResponse(
 		val status: Int,

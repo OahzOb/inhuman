@@ -127,7 +127,7 @@ class DeepSeekSpeechApi(
 		}
 
 	/** Synthesize one text into a WAV file. */
-	suspend fun synthesize(text: String): DeepSeekAudio = withContext(Dispatchers.IO) {
+	suspend fun synthesize(text: String, voiceId: String? = null): DeepSeekAudio = withContext(Dispatchers.IO) {
 		val key = apiKey()?.takeIf { it.isNotBlank() }
 			?: throw IOException("no DeepSeek API key is configured")
 
@@ -144,6 +144,7 @@ class DeepSeekSpeechApi(
 			// WAV rather than PCM: a bare PCM stream has no container for the
 			// workspace or the system player to read.
 			put("format", "wav")
+			voiceId?.takeIf { it.isNotBlank() }?.let { put("voice_id", it) }
 		}.toString()
 		if (payload.toByteArray(Charsets.UTF_8).size > MAX_REQUEST_BYTES) {
 			throw IOException(
@@ -186,7 +187,12 @@ class DeepSeekSpeechApi(
 					"speech synthesis failed: the audio response ended before the WAV was complete",
 				)
 			}
-			DeepSeekAudio(bytes = bytes, mimeType = "audio/wav", extension = "wav")
+			// The live endpoint streams its WAV and marks the `data` chunk
+			// `0xFFFFFFFF`. Android's extractor (and some desktop players) treat
+			// that as a broken file even though the payload is complete, so the
+			// unknown length is resolved before the bytes are handed on.
+			val normalized = normalizeWav(bytes)
+			DeepSeekAudio(bytes = normalized, mimeType = "audio/wav", extension = "wav")
 		}
 	}
 
@@ -211,7 +217,35 @@ class DeepSeekSpeechApi(
 		/** The API's request-body ceiling for TTS. */
 		const val MAX_REQUEST_BYTES = 64 * 1024
 
+		/**
+		 * The voices the TTS endpoint documents: `stella` (female, default) and
+		 * `tide` (male).
+		 */
+		val VOICE_IDS = listOf("stella", "tide")
+
 		val ACCEPTED_FORMATS = setOf("wav", "opus")
+
+		/**
+		 * Give a streamed WAV its real sizes.
+		 *
+		 * The TTS endpoint returns the audio as it is synthesized and writes
+		 * `0xFFFFFFFF` into `data` (and often `RIFF`). The bytes are complete --
+		 * [wavDataComplete] accepts the unknown length -- but a player that
+		 * trusts the header can reject the file. Patching the two size fields is
+		 * a copy of the header, not a re-encode.
+		 */
+		internal fun normalizeWav(bytes: ByteArray): ByteArray {
+			val data = dataChunk(bytes) ?: return bytes
+			val declared = data.second
+			if (declared >= 0) return bytes
+			val body = data.first
+			val dataBytes = bytes.size - body
+			if (dataBytes <= 0) return bytes
+			val normalized = bytes.copyOf()
+			writeLeInt(normalized, body - 4, dataBytes)
+			writeLeInt(normalized, 4, normalized.size - 8)
+			return normalized
+		}
 
 		private val JSON = "application/json; charset=utf-8".toMediaType()
 		private val WAV = "audio/wav".toMediaType()
@@ -348,6 +382,13 @@ class DeepSeekSpeechApi(
 				((bytes[offset + 1].toInt() and 0xff) shl 8) or
 				((bytes[offset + 2].toInt() and 0xff) shl 16) or
 				((bytes[offset + 3].toInt() and 0xff) shl 24)
+		}
+
+		private fun writeLeInt(bytes: ByteArray, offset: Int, value: Int) {
+			if (offset < 0 || offset + 4 > bytes.size) return
+			for (index in 0..3) {
+				bytes[offset + index] = ((value ushr (8 * index)) and 0xff).toByte()
+			}
 		}
 
 		/**

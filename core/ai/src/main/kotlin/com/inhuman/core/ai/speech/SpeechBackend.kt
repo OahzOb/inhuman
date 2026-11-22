@@ -30,8 +30,17 @@ interface SpeechBackend {
 	/** Transcribe audio; [format] is a lowercase extension (`wav`, `opus`, ...). */
 	suspend fun transcribe(audio: ByteArray, format: String): String
 
-	/** Synthesize text into workspace audio bytes. */
-	suspend fun synthesize(text: String): SpeechAudio
+	/**
+	 * The voice ids this backend offers for synthesis.
+	 *
+	 * An empty list means the backend does not expose a choice; a one-element
+	 * list means it has one voice and the UI can omit the picker. The first id
+	 * is the backend's default.
+	 */
+	fun voices(): List<String>
+
+	/** Synthesize text into workspace audio bytes; a null [voice] uses the default. */
+	suspend fun synthesize(text: String, voice: String? = null): SpeechAudio
 }
 
 /** One synthesized audio result, with the extension the workspace file needs. */
@@ -78,8 +87,12 @@ class QwenSpeechBackend(
 		).text
 	}
 
-	override suspend fun synthesize(text: String): SpeechAudio {
-		val result = client.synthesize(text, model = model)
+	override suspend fun synthesize(text: String, voice: String?): SpeechAudio {
+		val result = client.synthesize(
+			text = text,
+			model = model,
+			voice = voice?.takeIf { it.isNotBlank() } ?: DEFAULT_VOICE,
+		)
 		return SpeechAudio(
 			bytes = result.bytes,
 			mimeType = result.mimeType,
@@ -87,8 +100,13 @@ class QwenSpeechBackend(
 		)
 	}
 
+	override fun voices(): List<String> = listOf(DEFAULT_VOICE)
+
 	private companion object {
 		val FORMATS = setOf("mp3", "wav", "opus")
+
+		/** The voice the backend used before the picker existed. */
+		const val DEFAULT_VOICE = "longanhuan_v3.6"
 
 		fun extensionFor(mimeType: String): String = when {
 			mimeType.contains("wav", ignoreCase = true) -> "wav"
@@ -118,12 +136,14 @@ class DeepSeekSpeechBackend(
 	override suspend fun transcribe(audio: ByteArray, format: String): String =
 		api.transcribe(audio, format.lowercase()).text
 
-	override suspend fun synthesize(text: String): SpeechAudio {
-		val audio = api.synthesize(text)
+	override suspend fun synthesize(text: String, voice: String?): SpeechAudio {
+		val audio = api.synthesize(text, voiceId = voice)
 		return SpeechAudio(
 			bytes = audio.bytes,
 			mimeType = audio.mimeType,
 			extension = audio.extension,
 		)
 	}
+
+	override fun voices(): List<String> = DeepSeekSpeechApi.VOICE_IDS
 }

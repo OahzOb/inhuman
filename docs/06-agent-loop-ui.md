@@ -304,7 +304,11 @@ The action row also carries **Speak** (a speaker icon) on every completed
 assistant reply with text. It is a per-reply action, not a turn action: it opens
 the speech dialog with that reply already in the text field. The dialog is where
 the paid notice and the backend choice are stated; generating saves the audio in
-the workspace and the dialog then offers Play and Transcribe. The text stays
+the workspace and **starts playback in the app** — there is no chooser and no
+leave-the-app step. Play/Stop re-listens or stops it, and Transcribe reads the
+generated file back through the transcription backend. When the configured
+speech backend offers more than one voice (DeepSeek has `stella` and `tide`), the
+dialog shows a voice picker; a single-voice backend shows none. The text stays
 editable, because a reply can contain Markdown that the speech backend should
 not read literally.
 

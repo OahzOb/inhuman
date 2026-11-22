@@ -654,7 +654,13 @@ The transcript reuses this backend for the per-reply **Speak** action: the
 speaker icon on a finished assistant reply opens the same speech dialog with the
 reply prefilled, so the paid notice and the backend configuration stay in one
 place. Generating from there writes the audio through the same workspace and
-quota path as the `speak` tool.
+quota path as the `speak` tool and **plays it in-process** through the
+DocumentsProvider (no external viewer), with Play/Stop and Transcribe beside it.
+When the backend offers more than one voice, the dialog shows a picker:
+DeepSeek's TTS documents `stella` (female, default) and `tide` (male); Qwen's
+backend exposes its previous default voice only, so it has no picker to show.
+The chosen id is passed through `SpeechBackend.synthesize`; omitting it keeps
+the backend default.
 
 `MediaToolConfig` (`app/…/ui/chat/MediaTools.kt`) is the stored shape; a blank
 model means the capability's built-in default. `ChatViewModel.mediaBackend`
@@ -739,6 +745,11 @@ images, described above.
 speech dialog with the assistant's reply instead of requiring the text to be
 typed or copied, and otherwise uses the same backend, paid notice and workspace
 write path.
+
+0.15.0 adds the voice picker and in-app playback to that dialog. The picker is
+driven by `SpeechBackend.voices()` (DeepSeek: `stella`, `tide`; Qwen: its
+existing default), and playback uses a `MediaPlayer` over the workspace file's
+DocumentsProvider descriptor, released when the dialog closes.
 
 **OAuth subscription login is a generic PKCE flow, not bundled provider clients.**
 The provider row's OAuth button opens a dialog for a user-registered public

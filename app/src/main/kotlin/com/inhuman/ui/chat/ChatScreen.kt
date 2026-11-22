@@ -163,6 +163,7 @@ import com.inhuman.ui.common.RemoteBadge
 import com.inhuman.ui.common.RewindBadge
 import com.inhuman.ui.common.toolBlurb
 import com.inhuman.ui.common.openWorkspaceFile
+import com.inhuman.ui.common.WorkspaceAudioPlayer
 import com.inhuman.ui.common.exportFileName
 import com.inhuman.ui.ssh.SshHostSummary
 import kotlinx.coroutines.delay
@@ -1984,7 +1985,8 @@ fun ChatScreen(
 		SpeechDialog(
 			initialText = initialText,
 			workspaceId = workspaceId,
-			onSpeak = { text -> viewModel.synthesize(text) },
+			onSpeak = { text, voice -> viewModel.synthesize(text, voice) },
+			onVoices = { viewModel.speechVoiceIds() },
 			onTranscribe = { path -> viewModel.transcribe(path) },
 			onDismiss = { speechDraft = null },
 		)
@@ -5432,13 +5434,15 @@ private fun DecisionDialog(
 private fun SpeechDialog(
 	initialText: String = "",
 	workspaceId: String?,
-	onSpeak: suspend (String) -> Result<ChatViewModel.GeneratedAudio>,
+	onSpeak: suspend (String, String?) -> Result<ChatViewModel.GeneratedAudio>,
+	onVoices: suspend () -> List<String>,
 	onTranscribe: suspend (String) -> Result<String>,
 	onDismiss: () -> Unit,
 ) {
 	// As in DecisionDialog: these fallbacks are used inside `launch` blocks.
 	val speechFailed = stringResource(R.string.chat_speech_failed)
 	val transcriptionFailed = stringResource(R.string.chat_transcription_failed)
+	val playbackFailed = stringResource(R.string.chat_audio_play_failed)
 	val scope = rememberCoroutineScope()
 	val context = LocalContext.current
 	var text by remember(initialText) { mutableStateOf(initialText) }
@@ -5446,6 +5450,43 @@ private fun SpeechDialog(
 	var saved by remember { mutableStateOf<ChatViewModel.GeneratedAudio?>(null) }
 	var transcript by remember { mutableStateOf<String?>(null) }
 	var error by remember { mutableStateOf<String?>(null) }
+	var voices by remember { mutableStateOf<List<String>>(emptyList()) }
+	var voice by remember { mutableStateOf<String?>(null) }
+	var playing by remember { mutableStateOf(false) }
+
+	// One player per dialog. It is released when the dialog leaves, so closing
+	// the dialog stops the audio rather than leaving a player behind.
+	val player = remember { WorkspaceAudioPlayer(context) }
+	DisposableEffect(player) {
+		player.onStarted = { playing = true }
+		player.onFinished = { playing = false }
+		player.onFailed = {
+			playing = false
+			error = playbackFailed
+		}
+		onDispose { player.release() }
+	}
+
+	LaunchedEffect(Unit) {
+		val available = runCatching { onVoices() }.getOrDefault(emptyList())
+		voices = available
+		voice = available.firstOrNull()
+	}
+
+	fun playAudio(audio: ChatViewModel.GeneratedAudio) {
+		val id = workspaceId
+		if (id == null) {
+			Diag.w("speech", "playback skipped: the workspace id is not loaded")
+			error = playbackFailed
+			return
+		}
+		player.stop()
+		playing = false
+		if (!player.play(id, audio.relativePath)) {
+			Diag.w("speech", "playback did not start for ${audio.relativePath}")
+			error = playbackFailed
+		}
+	}
 
 	AlertDialog(
 		onDismissRequest = { if (!running) onDismiss() },
@@ -5464,6 +5505,25 @@ private fun SpeechDialog(
 					maxLines = 8,
 					enabled = !running,
 				)
+				// A single-voice backend gets no picker; a backend with a real
+				// choice (DeepSeek has stella and tide) shows the ids it offers.
+				if (voices.size > 1) {
+					Text(
+						text = stringResource(R.string.chat_voice),
+						style = MaterialTheme.typography.labelLarge,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					FlowRowCompat {
+						voices.forEach { id ->
+							FilterChip(
+								selected = voice == id,
+								onClick = { voice = id },
+								label = { Text(speechVoiceLabel(id)) },
+								enabled = !running,
+							)
+						}
+					}
+				}
 				if (running) {
 					Row(
 						verticalAlignment = Alignment.CenterVertically,
@@ -5475,15 +5535,23 @@ private fun SpeechDialog(
 				}
 				saved?.let { audio ->
 					Text(stringResource(R.string.chat_saved_to, audio.relativePath))
-					workspaceId?.let { id ->
-						TextButton(
-							onClick = {
-								// The container follows the backend (MP3 for Qwen,
-								// WAV for DeepSeek), so the MIME must come from the
-								// result rather than being assumed.
-								openWorkspaceFile(context, id, audio.relativePath, audio.mimeType)
-							},
-						) { Text(stringResource(R.string.chat_play)) }
+					// Playback is in-process: the point of the action is to hear
+					// the answer, not to open a chooser and leave the app.
+					TextButton(
+						onClick = {
+							if (playing) {
+								player.stop()
+								playing = false
+							} else {
+								playAudio(audio)
+							}
+						},
+					) {
+						Text(
+							stringResource(
+								if (playing) R.string.chat_stop else R.string.chat_play,
+							),
+						)
 					}
 					TextButton(
 						enabled = !running,
@@ -5517,11 +5585,16 @@ private fun SpeechDialog(
 					running = true
 					error = null
 					saved = null
+					player.stop()
+					playing = false
 					scope.launch {
-						onSpeak(text.trim()).fold(
+						onSpeak(text.trim(), voice).fold(
 							onSuccess = {
 								saved = it
 								running = false
+								// The generated file is what the user asked to
+								// hear; start it without a second tap.
+								playAudio(it)
 							},
 							onFailure = {
 								error = it.message ?: speechFailed
@@ -5540,6 +5613,13 @@ private fun SpeechDialog(
 			}
 		},
 	)
+}
+
+@Composable
+private fun speechVoiceLabel(id: String): String = when (id) {
+	"stella" -> stringResource(R.string.chat_voice_stella)
+	"tide" -> stringResource(R.string.chat_voice_tide)
+	else -> id
 }
 
 @Composable

@@ -1244,6 +1244,10 @@
 	<string name="chat_speech_failed">Speech failed</string>
 	<string name="chat_transcribe">Transcribe</string>
 	<string name="chat_speak">Speak</string>
+	<string name="chat_voice">Voice</string>
+	<string name="chat_voice_stella">Stella (female)</string>
+	<string name="chat_voice_tide">Tide (male)</string>
+	<string name="chat_audio_play_failed">Could not play the generated audio.</string>
 	<string name="chat_saved_to">Saved to %1$s</string>
 	<string name="chat_play">Play</string>
 	<string name="chat_open">Open</string>
