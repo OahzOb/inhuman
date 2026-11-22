@@ -661,13 +661,18 @@ speech text first (syntax removed, code blocks and tables announced once), so
 billed characters are words rather than markup.
 
 Playback is in-process through a `WorkspaceAudioPlayer` over the
-DocumentsProvider descriptor; the mini bar above the composer shows the voice
-and Stop, and the player is released when the chat screen leaves. DeepSeek's TTS
-documents `stella` (female, default) and `tide` (male); Qwen's backend exposes
-its previous default voice only, so it has no picker to show. The chosen id is
-passed through `SpeechBackend.synthesize`; omitting it keeps the backend default.
-The chat-menu "text to speech" dialog remains for arbitrary text and uses the
-same stored voice.
+DocumentsProvider descriptor. The chat screen owns one player and one
+`MediaSession`, plus a `MediaStyle` notification, so Pause/Resume/Stop work from
+the app's mini bar, the notification and the lock screen; both are released when
+the screen leaves. The mini bar above the composer shows the voice and the
+transport controls. DeepSeek's TTS documents `stella` (female, default) and
+`tide` (male); Qwen's backend exposes its previous default voice only, so it has
+no picker to show. The chosen id is passed through `SpeechBackend.synthesize`;
+omitting it keeps the backend default. The voice and the auto-read switch live in
+Settings -> Network & media -> Reply read-aloud (`SecureStore.KEY_SPEECH_VOICE`
+and `KEY_SPEECH_AUTO_READ`); auto-read fires after a turn finishes and skips
+failed or stopped turns. The chat-menu "text to speech" dialog remains for
+arbitrary text and uses the same stored voice.
 
 `MediaToolConfig` (`app/…/ui/chat/MediaTools.kt`) is the stored shape; a blank
 model means the capability's built-in default. `ChatViewModel.mediaBackend`
@@ -763,6 +768,11 @@ followed by one-tap playback, a mini player with in-place voice switching, a
 per-message/per-voice speech cache, the `SpeechText` Markdown projection, and
 stopping playback when a new turn starts. The chat-menu dialog stays for
 arbitrary text.
+
+0.17.0 adds Pause/Resume plus a `MediaSession`/media notification so the same
+playback is controllable from the lock screen, and moves the voice and the new
+auto-read switch into Settings. Auto-read is itself the paid opt-in and records
+the one-time consent.
 
 **OAuth subscription login is a generic PKCE flow, not bundled provider clients.**
 The provider row's OAuth button opens a dialog for a user-registered public

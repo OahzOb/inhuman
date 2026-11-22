@@ -97,6 +97,14 @@
 			android:foregroundServiceType="dataSync" />
 
 		<!--
+			Notification actions for reply read-aloud. The PendingIntents name
+			this class explicitly, so it is not exported and has no filter.
+		-->
+		<receiver
+			android:name=".ui.chat.SpeechMediaReceiver"
+			android:exported="false" />
+
+		<!--
 			Receives PackageInstaller's commit result and, for the normal
 			pending-user-action status, starts the system's confirmation screen.
 			It is not exported: only the PendingIntent created by this app targets

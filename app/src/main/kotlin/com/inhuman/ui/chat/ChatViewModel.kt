@@ -1003,6 +1003,10 @@ class ChatViewModel(
 	fun speechConsentShown(): Boolean =
 		secure.get(SecureStore.KEY_SPEECH_REPLY_CONSENT) == "1"
 
+	/** Whether finished replies are read aloud automatically. */
+	fun autoReadReplies(): Boolean =
+		secure.get(SecureStore.KEY_SPEECH_AUTO_READ) == "1"
+
 	fun markSpeechConsent() {
 		secure.put(SecureStore.KEY_SPEECH_REPLY_CONSENT, "1")
 	}

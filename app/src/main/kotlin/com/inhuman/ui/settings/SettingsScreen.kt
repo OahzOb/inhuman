@@ -169,6 +169,7 @@ fun SettingsScreen(
 	var showBackupPassphrase by remember { mutableStateOf(false) }
 	var showUndoConfirm by remember { mutableStateOf(false) }
 	var showNotices by remember { mutableStateOf(false) }
+	var showSpeechVoiceDialog by remember { mutableStateOf(false) }
 	var backupPassphrase by remember { mutableStateOf("") }
 	var backupPassphraseConfirm by remember { mutableStateOf("") }
 	var showProviderPicker by remember { mutableStateOf(false) }
@@ -558,6 +559,57 @@ fun SettingsScreen(
 						},
 					)
 				}
+
+				// Reply read-aloud is part of the speech backend, but its
+				// settings are used from the transcript rather than from a tool
+				// call, so the voice and auto-read choice live here rather than
+				// in the per-capability key dialog.
+				Hairline(Modifier.padding(vertical = 10.dp))
+				Eyebrow(stringResource(R.string.settings_speech_title))
+				Text(
+					text = stringResource(R.string.settings_speech_body),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Row(
+					modifier = Modifier
+						.fillMaxWidth()
+						.padding(vertical = 8.dp),
+					horizontalArrangement = Arrangement.SpaceBetween,
+					verticalAlignment = Alignment.Top,
+				) {
+					Column(modifier = Modifier.weight(1f)) {
+						Text(
+							text = stringResource(R.string.settings_speech_auto_read),
+							style = MaterialTheme.typography.titleMedium,
+							color = MaterialTheme.colorScheme.onBackground,
+						)
+						Text(
+							text = stringResource(R.string.settings_speech_auto_read_body),
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+					WorkbenchSwitch(
+						checked = state.autoReadReplies,
+						onCheckedChange = viewModel::setAutoReadReplies,
+						modifier = Modifier.padding(start = 12.dp),
+					)
+				}
+				MediaBackendRow(
+					title = stringResource(R.string.settings_speech_voice),
+					summary = if (state.speechVoice.isBlank()) {
+						stringResource(R.string.settings_speech_voice_default)
+					} else {
+						state.speechVoice
+					},
+					onClick = { showSpeechVoiceDialog = true },
+				)
+				Text(
+					text = stringResource(R.string.settings_speech_voice_hint),
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
 
 				// Anonymous Bilibili reads. Unlike the paid backends above
 				// there is no key to configure and no bill to disclose; what
@@ -1676,6 +1728,54 @@ fun SettingsScreen(
 			onClose = viewModel::closeMedia,
 		)
 	}
+
+	if (showSpeechVoiceDialog) {
+		SpeechVoiceDialog(
+			initial = state.speechVoice,
+			onSave = { voice ->
+				viewModel.saveSpeechVoice(voice)
+				showSpeechVoiceDialog = false
+			},
+			onDismiss = { showSpeechVoiceDialog = false },
+		)
+	}
+}
+
+@Composable
+private fun SpeechVoiceDialog(
+	initial: String,
+	onSave: (String) -> Unit,
+	onDismiss: () -> Unit,
+) {
+	var text by remember(initial) { mutableStateOf(initial) }
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text(stringResource(R.string.settings_speech_voice)) },
+		text = {
+			Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+				OutlinedTextField(
+					value = text,
+					onValueChange = { text = it },
+					modifier = Modifier.fillMaxWidth(),
+					label = { Text(stringResource(R.string.settings_speech_voice)) },
+					supportingText = {
+						Text(stringResource(R.string.settings_speech_voice_hint))
+					},
+					singleLine = true,
+				)
+			}
+		},
+		confirmButton = {
+			TextButton(onClick = { onSave(text) }) {
+				Text(stringResource(R.string.common_save))
+			}
+		},
+		dismissButton = {
+			TextButton(onClick = onDismiss) {
+				Text(stringResource(R.string.common_cancel))
+			}
+		},
+	)
 }
 
 private enum class BackupMode { Export, Import }

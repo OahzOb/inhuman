@@ -954,10 +954,24 @@
 	<string name="chat_show_rendered">Show rendered reply</string>
 	<string name="chat_show_markdown">Show Markdown source</string>
 	<string name="chat_copy_reply">Copy reply</string>
+	<string name="settings_speech_title">Reply read-aloud</string>
+	<string name="settings_speech_body">The speaker on a finished reply reads it with the speech backend configured above. That backend is paid per request; a reply is synthesized once per voice and cached, so replaying it is free. These controls apply to the transcript, not to the speak tool.</string>
+	<string name="settings_speech_auto_read">Read new replies aloud</string>
+	<string name="settings_speech_auto_read_body">After each turn finishes, play the final answer automatically. Enabling this accepts the per-request billing described above.</string>
+	<string name="settings_speech_voice">Read-aloud voice</string>
+	<string name="settings_speech_voice_default">Default (chosen by the backend)</string>
+	<string name="settings_speech_voice_hint">Leave blank for the backend default. DeepSeek supports stella and tide; another backend expects its own voice id.</string>
+
 	<string name="chat_speak_reply">Convert reply to speech</string>
 	<string name="chat_speak_reply_title">Read reply aloud</string>
 	<string name="chat_speak_reply_first_use">Generates and plays this reply with the paid speech backend configured in Settings. Each reply is synthesized once per voice; replaying it does not bill again.</string>
 	<string name="chat_speaking">Reading aloud</string>
+	<string name="chat_speech_paused">Paused</string>
+	<string name="chat_pause">Pause</string>
+	<string name="chat_resume">Resume</string>
+	<string name="chat_speech_continue">Resume reading</string>
+	<string name="chat_speech_channel">Reply read-aloud</string>
+	<string name="chat_speech_channel_body">Playback controls for reading replies aloud.</string>
 	<string name="chat_speech_empty">There is no text to read.</string>
 	<string name="chat_rewind_turn">Rewind this turn</string>
 	<string name="chat_changed_files">Changed files</string>

@@ -304,10 +304,16 @@ The action row also carries **Speak** (a speaker icon) on every completed
 assistant reply with text. It is a per-reply action, not a turn action. The
 first tap shows a one-time paid notice and the voice picker; after that is
 confirmed a tap **synthesizes and starts playback immediately** -- there is no
-per-reply dialog. The speaker becomes Stop while that reply plays, and a mini
-bar above the composer shows what is playing, the voice in use (tappable to
-switch) and Stop. Only one player exists for the screen; starting another reply
-stops the first and leaving the screen releases it.
+per-reply dialog. The speaker becomes Stop while that reply plays (Play again
+while paused), and a mini bar above the composer shows the state, the voice in
+use (tappable to switch) and Pause/Resume/Stop.
+
+Playback also appears in the media notification and on the lock screen: the
+screen owns one `MediaSession` and a `MediaStyle` notification while a reply is
+being read, so the system's transport controls pause/resume/stop the same
+player. The session and the notification are released when the chat screen
+leaves, so audio never outlives the screen that started it. Starting another
+reply stops the first; starting a new turn stops whatever was playing.
 
 Audio is cached by message id and voice under `generated/speech/`, so replaying
 the same reply in the same voice makes no request and is instant; changing the
@@ -316,6 +322,13 @@ to speech text by `SpeechText` before it is sent: heading/bullet/emphasis/link
 syntax is removed, and code blocks and tables are announced once rather than
 read token by token. That projection is also what the billed character count
 is based on, so Markdown syntax is not paid for.
+
+**Auto-read** is a Settings switch (Settings -> Network & media -> Reply
+read-aloud), on the same section as the voice. Enabling it accepts the paid
+per-request billing and records the one-time consent. It fires only on the
+streaming -> finished edge of a turn, skips a failed/stopped turn, and does not
+replay the last answer when a conversation is merely opened. Voice and auto-read
+are read from `SecureStore`, so the chat picks up a Settings change on resume.
 
 The manual "text to speech" chat-menu dialog still exists for arbitrary text:
 it keeps Play/Stop and Transcribe, and starts from the stored voice. It is a

@@ -131,6 +131,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.AppCapabilities
 import com.inhuman.R
@@ -169,6 +170,7 @@ import com.inhuman.ui.ssh.SshHostSummary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -621,15 +623,38 @@ fun ChatScreen(
 	var speakingReply by remember { mutableStateOf<ChatMessageUi?>(null) }
 	var preparingReply by remember { mutableStateOf<ChatMessageUi?>(null) }
 	var speechVoiceMenu by remember { mutableStateOf(false) }
+	var speechPaused by remember { mutableStateOf(false) }
+	var autoReadReplies by remember { mutableStateOf(false) }
 	val speechPlayer = remember { WorkspaceAudioPlayer(speechContext) }
+	// The lock-screen/notification side of the same playback. It lives and dies
+	// with this composition, so its controls cannot outlive the audio.
+	val speechSession = remember { SpeechMediaSession(speechContext) }
 
 	fun speechToast(text: String) {
 		Toast.makeText(speechContext, text, Toast.LENGTH_LONG).show()
 	}
 
 	fun stopTalking() {
+		speechPaused = false
 		speechPlayer.stop()
+		speechSession.stop()
 		speakingReply = null
+	}
+
+	fun pauseTalking() {
+		if (speakingReply == null || speechPaused) return
+		if (speechPlayer.pause()) {
+			speechPaused = true
+			speechSession.setPaused(true, speechPlayer.positionMs())
+		}
+	}
+
+	fun resumeTalking() {
+		if (!speechPaused) return
+		if (speechPlayer.resume()) {
+			speechPaused = false
+			speechSession.setPaused(false, speechPlayer.positionMs())
+		}
 	}
 
 	fun startTalking(message: ChatMessageUi) {
@@ -649,8 +674,11 @@ fun ChatScreen(
 						return@fold
 					}
 					speechPlayer.stop()
+					speechPaused = false
 					speakingReply = message
-					if (!speechPlayer.play(id, audio.relativePath)) {
+					if (speechPlayer.play(id, audio.relativePath)) {
+						speechSession.start(speechVoice.orEmpty())
+					} else {
 						speakingReply = null
 						speechToast(playbackFailedText)
 					}
@@ -674,7 +702,9 @@ fun ChatScreen(
 
 	fun requestTalking(message: ChatMessageUi) {
 		if (speakingReply?.id == message.id) {
-			stopTalking()
+			// The same control is pause/resume once the reply is the thing
+			// playing; the mini bar has an explicit Stop.
+			if (speechPaused) resumeTalking() else pauseTalking()
 			return
 		}
 		// The first composition races the conversation load, so the voice list
@@ -690,8 +720,7 @@ fun ChatScreen(
 		// Starting a second reply must silence the first immediately, not
 		// leave it talking through the next synthesis.
 		if (speakingReply != null && speakingReply?.id != message.id) {
-			speechPlayer.stop()
-			speakingReply = null
+			stopTalking()
 		}
 		startTalking(message)
 	}
@@ -701,27 +730,85 @@ fun ChatScreen(
 		speechVoice = viewModel.speechVoice()?.takeIf { it in speechVoices }
 			?: speechVoices.firstOrNull()
 		speechConsentConfirmed = viewModel.speechConsentShown()
+		autoReadReplies = viewModel.autoReadReplies()
 	}
 
-	// One player, one owner. Releasing it when this screen leaves is what stops
-	// audio on back navigation; the mini bar and the message icon are views of
-	// the same state, not separate players.
-	DisposableEffect(speechPlayer) {
-		speechPlayer.onFinished = { speakingReply = null }
-		speechPlayer.onFailed = {
+	// Settings is a different screen; returning to the chat must pick up a
+	// changed auto-read/voice choice without relying on the process restart.
+	LifecycleResumeEffect(Unit) {
+		autoReadReplies = viewModel.autoReadReplies()
+		refreshSpeechSetup()
+		onPauseOrDispose { }
+	}
+
+	// Auto-read follows one turn: it fires only on the streaming -> finished
+	// edge, so opening a conversation does not replay its last answer, and a
+	// stopped or failed turn does not read a partial reply.
+	LaunchedEffect(autoReadReplies) {
+		if (!autoReadReplies) return@LaunchedEffect
+		var wasStreaming = false
+		var lastReadId: String? = null
+		viewModel.state
+			.map { state ->
+				Triple(
+					state.isStreaming,
+					state.error,
+					state.messages.lastOrNull { message ->
+						!message.fromUser && !message.isToolResult &&
+							message.plainText.isNotBlank()
+					},
+				)
+			}
+			.distinctUntilChanged { a, b ->
+				a.first == b.first && a.second == b.second && a.third?.id == b.third?.id
+			}
+			.collect { frame ->
+				val message = frame.third
+				if (wasStreaming && !frame.first && frame.second == null &&
+					message != null && message.error == null &&
+					message.id != lastReadId &&
+					speakingReply == null && preparingReply == null
+				) {
+					lastReadId = message.id
+					// The Settings switch is the paid opt-in and the paid
+					// disclosure; this path does not interrupt with the
+					// one-time notice.
+					speechConsentConfirmed = true
+					viewModel.markSpeechConsent()
+					startTalking(message)
+				}
+				wasStreaming = frame.first
+			}
+	}
+
+	// One player and one media session, one owner. Releasing both when this
+	// screen leaves is what stops audio on back navigation; the mini bar, the
+	// message icon and the lock-screen controls are views of the same state.
+	DisposableEffect(speechPlayer, speechSession) {
+		speechPlayer.onFinished = {
+			speechPaused = false
 			speakingReply = null
+			speechSession.stop()
+		}
+		speechPlayer.onFailed = {
+			speechPaused = false
+			speakingReply = null
+			speechSession.stop()
 			Toast.makeText(speechContext, playbackFailedText, Toast.LENGTH_LONG).show()
 		}
-		onDispose { speechPlayer.release() }
+		speechSession.onPause = { pauseTalking() }
+		speechSession.onPlay = { resumeTalking() }
+		speechSession.onStop = { stopTalking() }
+		onDispose {
+			speechPlayer.release()
+			speechSession.release()
+		}
 	}
 
 	// A new turn is a new thing to listen to; the old reply stops rather than
 	// talking over the stream.
 	LaunchedEffect(isStreaming) {
-		if (isStreaming) {
-			speechPlayer.stop()
-			speakingReply = null
-		}
+		if (isStreaming) stopTalking()
 	}
 	var showVideo by remember { mutableStateOf(false) }
 	// In-conversation search is a full-screen dialog, not an inline bar. An
@@ -1875,8 +1962,12 @@ fun ChatScreen(
 							onRetry = viewModel::retryLastTurn,
 							onUseSuggestion = viewModel::useSuggestion,
 							speakState = when {
-								speakingReply?.id == message.id -> ReplySpeechState.Playing
-								preparingReply?.id == message.id -> ReplySpeechState.Preparing
+								speakingReply?.id == message.id && speechPaused ->
+									ReplySpeechState.Paused
+								speakingReply?.id == message.id ->
+									ReplySpeechState.Playing
+								preparingReply?.id == message.id ->
+									ReplySpeechState.Preparing
 								else -> ReplySpeechState.Idle
 							},
 							onSpeakReply = { requestTalking(message) },
@@ -2015,6 +2106,7 @@ fun ChatScreen(
 				SpeechPlayerBar(
 					voice = speechVoice,
 					voices = speechVoices,
+					paused = speechPaused,
 					voiceMenuOpen = speechVoiceMenu,
 					onVoiceMenu = { speechVoiceMenu = it },
 					onVoice = { chosen ->
@@ -2032,6 +2124,7 @@ fun ChatScreen(
 							}
 						}
 					},
+					onPauseResume = { if (speechPaused) resumeTalking() else pauseTalking() },
 					onStop = { stopTalking() },
 				)
 			}
@@ -3903,7 +3996,7 @@ private fun toolResultSummary(
 }
 
 /** What the speaker control on one reply is doing. */
-private enum class ReplySpeechState { Idle, Preparing, Playing }
+private enum class ReplySpeechState { Idle, Preparing, Playing, Paused }
 
 @Composable
 private fun MessageBubble(
@@ -4378,19 +4471,21 @@ private fun MessageBubble(
 					} else {
 						IconButton(onClick = onSpeakReply) {
 							Icon(
-								imageVector = if (speakState == ReplySpeechState.Playing) {
-									Icons.Filled.Stop
-								} else {
-									Icons.AutoMirrored.Outlined.VolumeUp
+								imageVector = when (speakState) {
+									ReplySpeechState.Playing -> Icons.Filled.Stop
+									ReplySpeechState.Paused -> Icons.Outlined.PlayArrow
+									else -> Icons.AutoMirrored.Outlined.VolumeUp
 								},
 								contentDescription = stringResource(
-									if (speakState == ReplySpeechState.Playing) {
-										R.string.chat_stop
-									} else {
-										R.string.chat_speak_reply
+									when (speakState) {
+										ReplySpeechState.Playing -> R.string.chat_stop
+										ReplySpeechState.Paused -> R.string.chat_speech_continue
+										else -> R.string.chat_speak_reply
 									},
 								),
-								tint = if (speakState == ReplySpeechState.Playing) {
+								tint = if (speakState == ReplySpeechState.Playing ||
+									speakState == ReplySpeechState.Paused
+								) {
 									MaterialTheme.colorScheme.primary
 								} else {
 									MaterialTheme.colorScheme.onSurfaceVariant
@@ -5643,9 +5738,11 @@ private fun DecisionDialog(
 private fun SpeechPlayerBar(
 	voice: String?,
 	voices: List<String>,
+	paused: Boolean,
 	voiceMenuOpen: Boolean,
 	onVoiceMenu: (Boolean) -> Unit,
 	onVoice: (String) -> Unit,
+	onPauseResume: () -> Unit,
 	onStop: () -> Unit,
 ) {
 	Surface(
@@ -5671,7 +5768,9 @@ private fun SpeechPlayerBar(
 					modifier = Modifier.size(16.dp),
 				)
 				Text(
-					text = stringResource(R.string.chat_speaking),
+					text = stringResource(
+						if (paused) R.string.chat_speech_paused else R.string.chat_speaking,
+					),
 					style = MaterialTheme.typography.labelLarge,
 					color = MaterialTheme.colorScheme.onSurface,
 				)
@@ -5701,6 +5800,15 @@ private fun SpeechPlayerBar(
 					}
 				}
 				Spacer(Modifier.weight(1f))
+				TextButton(onClick = onPauseResume) {
+					Text(
+						text = stringResource(
+							if (paused) R.string.chat_resume else R.string.chat_pause,
+						),
+						style = MaterialTheme.typography.labelMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
 				TextButton(onClick = onStop) {
 					Text(
 						text = stringResource(R.string.chat_stop),

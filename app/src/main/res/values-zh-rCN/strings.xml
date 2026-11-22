@@ -931,10 +931,24 @@
 	<string name="chat_show_rendered">显示渲染后的回复</string>
 	<string name="chat_show_markdown">显示 Markdown 源码</string>
 	<string name="chat_copy_reply">复制回复</string>
+	<string name="settings_speech_title">回复朗读</string>
+	<string name="settings_speech_body">完成回复下方的扬声器会用上面配置的语音合成后端朗读这条回复。该后端按请求计费；每条回复的每个音色只合成一次并缓存，重播不再计费。这里的设置只影响对话里的朗读，不影响 speak 工具。</string>
+	<string name="settings_speech_auto_read">自动朗读新回复</string>
+	<string name="settings_speech_auto_read_body">每轮回复结束后自动朗读最终回答。开启即表示接受上面的按请求计费。</string>
+	<string name="settings_speech_voice">朗读音色</string>
+	<string name="settings_speech_voice_default">默认（由后端决定）</string>
+	<string name="settings_speech_voice_hint">留空使用后端默认音色。DeepSeek 支持 stella 和 tide；其他后端填自己的音色 ID。</string>
+
 	<string name="chat_speak_reply">转语音</string>
 	<string name="chat_speak_reply_title">朗读回复</string>
 	<string name="chat_speak_reply_first_use">使用设置中的付费语音后端生成并播放这条回复。每条回复、每个音色只合成一次，重复播放不再计费。</string>
 	<string name="chat_speaking">正在朗读</string>
+	<string name="chat_speech_paused">已暂停</string>
+	<string name="chat_pause">暂停</string>
+	<string name="chat_resume">继续</string>
+	<string name="chat_speech_continue">继续朗读</string>
+	<string name="chat_speech_channel">回复朗读</string>
+	<string name="chat_speech_channel_body">朗读回复的播放控制。</string>
 	<string name="chat_speech_empty">没有可朗读的文字。</string>
 	<string name="chat_rewind_turn">回退这一回合</string>
 	<string name="chat_changed_files">更改的文件</string>

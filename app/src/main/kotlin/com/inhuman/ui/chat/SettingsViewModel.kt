@@ -161,6 +161,9 @@ data class SettingsUiState(
 	val mediaDraft: MediaToolDraft? = null,
 	val mediaStatus: String? = null,
 	val mediaStatusIsError: Boolean = false,
+	/** Reply read-aloud settings; the same SecureStore keys the chat reads. */
+	val autoReadReplies: Boolean = false,
+	val speechVoice: String = "",
 	/** Backup export/import progress and result. */
 	val backupBusy: Boolean = false,
 	val backupStatus: String? = null,
@@ -433,6 +436,8 @@ class SettingsViewModel(
 			hasWebDeepSeekKey = secure.hasUsable(SecureStore.KEY_WEB_DEEPSEEK_API_KEY),
 			hasWebExaKey = secure.hasUsable(SecureStore.KEY_WEB_EXA_API_KEY),
 			mediaConfigs = loadMediaConfigs(),
+			autoReadReplies = secure.get(SecureStore.KEY_SPEECH_AUTO_READ) == "1",
+			speechVoice = secure.get(SecureStore.KEY_SPEECH_VOICE).orEmpty(),
 			backupCanUndo = backup.hasUndo(),
 			backupLastExportAt = secure.get(SecureStore.KEY_BACKUP_LAST_EXPORT_AT)
 				?.toLongOrNull() ?: 0L,
@@ -1969,6 +1974,32 @@ class SettingsViewModel(
 
 	private fun loadMediaConfigs(): Map<MediaCapability, MediaToolConfig> =
 		MediaCapability.entries.associateWith { MediaToolStore.load(secure, it) }
+
+	/**
+	 * Auto-read is an opt-in made in Settings; that is also where the paid
+	 * backend is disclosed. Enabling it records the same consent the one-time
+	 * notice would, so a later manual tap does not ask again.
+	 */
+	fun setAutoReadReplies(enabled: Boolean) {
+		if (enabled) {
+			secure.put(SecureStore.KEY_SPEECH_AUTO_READ, "1")
+			secure.put(SecureStore.KEY_SPEECH_REPLY_CONSENT, "1")
+		} else {
+			secure.remove(SecureStore.KEY_SPEECH_AUTO_READ)
+		}
+		_state.value = _state.value.copy(autoReadReplies = enabled)
+	}
+
+	/** Empty means the backend's default voice. */
+	fun saveSpeechVoice(value: String) {
+		val trimmed = value.trim()
+		if (trimmed.isEmpty()) {
+			secure.remove(SecureStore.KEY_SPEECH_VOICE)
+		} else {
+			secure.put(SecureStore.KEY_SPEECH_VOICE, trimmed)
+		}
+		_state.value = _state.value.copy(speechVoice = trimmed)
+	}
 
 	fun setBackupReminderDays(days: Int) {
 		val normalized = BackupReminderPolicy.normalizePeriod(days)

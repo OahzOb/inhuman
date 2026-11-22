@@ -99,6 +99,29 @@ class WorkspaceAudioPlayer(context: Context) {
 		releasePlayer()
 	}
 
+	/** Pause at the current position; true when there was audio to pause. */
+	fun pause(): Boolean {
+		val media = player ?: return false
+		if (!runCatching { media.isPlaying }.getOrDefault(false)) return false
+		return runCatching {
+			media.pause()
+			true
+		}.getOrDefault(false)
+	}
+
+	/** Resume a paused player; true when there was audio to resume. */
+	fun resume(): Boolean {
+		val media = player ?: return false
+		return runCatching {
+			media.start()
+			true
+		}.getOrDefault(false)
+	}
+
+	/** Current position, for the media session's playback state. */
+	fun positionMs(): Int =
+		player?.let { runCatching { it.currentPosition }.getOrDefault(0) } ?: 0
+
 	/** Stop and release; call from `onDispose`. */
 	fun release() {
 		releasePlayer()

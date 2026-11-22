@@ -188,6 +188,9 @@ class SecureStore(
 		/** Whether the one-time paid read-aloud notice has been confirmed. */
 		const val KEY_SPEECH_REPLY_CONSENT = "speech.reply.consent"
 
+		/** Whether a finished reply is read aloud automatically. */
+		const val KEY_SPEECH_AUTO_READ = "speech.auto_read"
+
 		/**
 		 * Preference key for demo mode.
 		 *
