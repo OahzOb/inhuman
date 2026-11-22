@@ -27,4 +27,16 @@ class ProviderCapabilitiesTest {
 			ProviderCapabilities.supports(ProviderFactory.ANTHROPIC_MESSAGES, ProviderCapability.Video),
 		)
 	}
+
+	@Test
+	fun deepSeekAdvertisesChatAndSpeechOnly() {
+		// The kind string is `ProviderKinds.DEEPSEEK` in :core:db; this module
+		// cannot depend on it, which is why the same literal lives here.
+		val capabilities = ProviderCapabilities.of("deepseek")
+		assertTrue(ProviderCapability.Chat in capabilities)
+		assertTrue(ProviderCapability.Speech in capabilities)
+		assertFalse(ProviderCapability.Image in capabilities)
+		assertFalse(ProviderCapability.Video in capabilities)
+		assertFalse(ProviderCapability.Decision in capabilities)
+	}
 }

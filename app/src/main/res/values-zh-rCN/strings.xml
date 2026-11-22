@@ -194,7 +194,7 @@
 	<string name="settings_bilibili_login_linked_status">B 站账号已连接。</string>
 	<string name="settings_bilibili_login_unlinked_status">B 站账号已断开。</string>
 	<string name="settings_media_title">媒体工具</string>
-	<string name="settings_media_body">图片、视频、语音、转写和决策都是第三方付费调用。每一项都可以沿用助手的服务商、选择已配置的通义 Token Plan 服务商，或填写单独的通义兼容 API。密钥加密保存。</string>
+	<string name="settings_media_body">图片、视频、语音、转写和决策都是第三方付费调用。每一项都可以沿用助手的服务商、选择已配置的服务商，或填写单独的通义兼容 API。语音合成和音频转写也可以用已配置的 DeepSeek 服务商，它的 ASR/TTS 接口不需要模型。密钥加密保存。</string>
 	<string name="settings_media_image">图片生成</string>
 	<string name="settings_media_video">视频生成</string>
 	<string name="settings_media_speech">语音合成</string>
@@ -210,7 +210,7 @@
 	<string name="settings_media_mode_provider">已配置服务商</string>
 	<string name="settings_media_mode_direct">单独 API</string>
 	<string name="settings_media_provider">服务商</string>
-	<string name="settings_media_no_provider">没有已配置的服务商支持这个工具。可以在 01 / 模型 里添加通义 Token Plan 服务商，或使用单独 API。</string>
+	<string name="settings_media_no_provider">没有已配置的服务商支持这个工具。可以在 01 / 模型 里添加通义 Token Plan 或 DeepSeek 服务商，或使用单独 API。</string>
 	<string name="settings_media_model">模型</string>
 	<string name="settings_media_model_default">默认：%1$s</string>
 	<string name="settings_media_choose_model">选择模型</string>
@@ -225,6 +225,8 @@
 	<string name="settings_media_key_missing">尚未保存密钥。</string>
 	<string name="settings_media_assistant_note">使用这个助手选择的服务商。服务商不支持该工具时，工具不会出现。</string>
 	<string name="settings_media_direct_note">兼容通义 Token Plan 的端点；密钥使用 Android Keystore 加密保存。</string>
+	<string name="settings_media_deepseek_speech_note">DeepSeek 的语音转写和语音合成接口不需要模型 ID；使用该服务商的密钥，语言由服务自动识别，语音合成使用服务端默认音色。</string>
+	<string name="settings_media_deepseek_backend">DeepSeek ASR/TTS</string>
 	<string name="settings_media_error_provider">请选择服务商。</string>
 	<string name="settings_media_error_provider_support">这个服务商不支持该工具。</string>
 	<string name="settings_media_error_provider_key">请先为 %1$s 配置 API 密钥。</string>

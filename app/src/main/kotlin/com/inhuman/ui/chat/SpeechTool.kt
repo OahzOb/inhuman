@@ -2,17 +2,22 @@ package com.inhuman.ui.chat
 
 import com.inhuman.core.ai.Tool
 import com.inhuman.core.ai.ToolResult
-import com.inhuman.core.ai.provider.qwen.QwenTokenPlanClient
+import com.inhuman.core.ai.speech.SpeechBackend
 import com.inhuman.core.files.SessionWorkspace
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
-/** Text to speech as an agent tool; the audio file is the result. */
-class QwenSpeechTool(
-	private val client: QwenTokenPlanClient,
+/**
+ * Text to speech as an agent tool; the audio file is the result.
+ *
+ * The backend is whatever the user configured for the speech capability (Qwen
+ * Token Plan or DeepSeek), so the file extension follows the service's output
+ * container rather than a hardcoded MP3.
+ */
+class SpeechTool(
+	private val backend: SpeechBackend,
 	private val workspace: SessionWorkspace,
-	private val model: String = QwenTokenPlanClient.DEFAULT_TTS_MODEL,
 ) : Tool {
 
 	override val name = "speak"
@@ -23,7 +28,7 @@ class QwenSpeechTool(
 		Convert text to an audio file in the workspace.
 
 		Use this when the user asks for something to be read aloud or wants an
-		audio version. The result is an MP3 path; it does not play automatically.
+		audio version. The result is an audio path; it does not play automatically.
 	""".trimIndent()
 
 	override val parameters: Map<String, Any?> = mapOf(
@@ -39,8 +44,8 @@ class QwenSpeechTool(
 			?.takeIf { it.isNotBlank() }
 			?: return ToolResult("text is required", isError = true)
 		return runCatching {
-			val result = client.synthesize(text, model = model)
-			val path = "generated/audio-${System.currentTimeMillis()}.mp3"
+			val result = backend.synthesize(text)
+			val path = "generated/audio-${System.currentTimeMillis()}.${result.extension}"
 			val resolution = workspace.resolve(path)
 			if (resolution !is SessionWorkspace.Resolution.Ok) {
 				error("workspace refused the generated audio path")

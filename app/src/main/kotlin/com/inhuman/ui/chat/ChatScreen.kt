@@ -5422,7 +5422,7 @@ private fun SpeechDialog(
 	val context = LocalContext.current
 	var text by remember { mutableStateOf("") }
 	var running by remember { mutableStateOf(false) }
-	var saved by remember { mutableStateOf<String?>(null) }
+	var saved by remember { mutableStateOf<ChatViewModel.GeneratedAudio?>(null) }
 	var transcript by remember { mutableStateOf<String?>(null) }
 	var error by remember { mutableStateOf<String?>(null) }
 
@@ -5449,12 +5449,15 @@ private fun SpeechDialog(
 						Text(stringResource(R.string.chat_synthesizing))
 					}
 				}
-				saved?.let { path ->
-					Text(stringResource(R.string.chat_saved_to, path))
+				saved?.let { audio ->
+					Text(stringResource(R.string.chat_saved_to, audio.relativePath))
 					workspaceId?.let { id ->
 						TextButton(
 							onClick = {
-								openWorkspaceFile(context, id, path, "audio/mpeg")
+								// The container follows the backend (MP3 for Qwen,
+								// WAV for DeepSeek), so the MIME must come from the
+								// result rather than being assumed.
+								openWorkspaceFile(context, id, audio.relativePath, audio.mimeType)
 							},
 						) { Text(stringResource(R.string.chat_play)) }
 					}
@@ -5465,7 +5468,7 @@ private fun SpeechDialog(
 							error = null
 							transcript = null
 							scope.launch {
-								onTranscribe(path).fold(
+								onTranscribe(audio.relativePath).fold(
 									onSuccess = {
 										transcript = it
 										running = false
@@ -5493,7 +5496,7 @@ private fun SpeechDialog(
 					scope.launch {
 						onSpeak(text.trim()).fold(
 							onSuccess = {
-								saved = it.relativePath
+								saved = it
 								running = false
 							},
 							onFailure = {

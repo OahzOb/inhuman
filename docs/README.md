@@ -71,6 +71,7 @@ be built and why; they are not a description of current behaviour.
 | File | What it proposes |
 | --- | --- |
 | [proposals/continuous-session.md](proposals/continuous-session.md) | A continuous-session mode: the record is never deleted, and the request projection becomes a rolling session brief plus recent turns instead of a user-triggered compaction |
+| [proposals/deepseek-app-apis.md](proposals/deepseek-app-apis.md) | A triage of DeepSeek's 2026-11-13 application-API suite: the standalone ASR and TTS were adopted in 0.12.0 as paid app-proxied backends (see `03-ai-provider.md`); OCR remains a product decision; the server-side web tools, the Files API and the safety check are refused because they change the capability boundary |
 
 ## Conventions used here
 

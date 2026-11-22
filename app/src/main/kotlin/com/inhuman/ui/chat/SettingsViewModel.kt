@@ -1753,16 +1753,40 @@ class SettingsViewModel(
 		}
 		val providerId = config.providerId.takeIf { id -> eligible.any { it.id == id } }
 			?: eligible.firstOrNull()?.id.orEmpty()
+		val providerKind = _state.value.providers.firstOrNull { it.id == providerId }
+			?.kind.orEmpty()
 		val draft = MediaToolDraft(
 			capability = capability,
 			mode = config.mode,
 			providerId = providerId,
+			providerKind = providerKind,
 			model = config.model,
 			baseUrl = config.baseUrl,
 			hasKey = config.apiKey.isNotBlank(),
 		)
 		_state.value = _state.value.copy(mediaDraft = draft, mediaStatus = null)
-		if (draft.mode == MediaMode.Provider) loadMediaModels()
+		if (draft.mode == MediaMode.Provider &&
+			!providerTakesNoSpeechModel(capability, providerId)
+		) {
+			loadMediaModels()
+		}
+	}
+
+	/**
+	 * Whether this capability/provider pair needs no model catalogue.
+	 *
+	 * DeepSeek's ASR/TTS endpoints take no model id, so fetching `/models` and
+	 * filtering it by the audio tag would only produce a spinner and a "no
+	 * models" line that does not apply.
+	 */
+	private fun providerTakesNoSpeechModel(capability: MediaCapability, providerId: String): Boolean {
+		if (capability != MediaCapability.Speech &&
+			capability != MediaCapability.Transcription
+		) {
+			return false
+		}
+		val provider = _state.value.providers.firstOrNull { it.id == providerId } ?: return false
+		return provider.kind == ProviderKinds.DEEPSEEK
 	}
 
 	fun closeMedia() {
@@ -1781,7 +1805,9 @@ class SettingsViewModel(
 				}
 				if (first != null) setMediaProvider(first.id)
 			} else {
-				loadMediaModels()
+				if (!providerTakesNoSpeechModel(draft.capability, draft.providerId)) {
+					loadMediaModels()
+				}
 			}
 		}
 	}
@@ -1791,13 +1817,17 @@ class SettingsViewModel(
 		_state.value = _state.value.copy(
 			mediaDraft = draft.copy(
 				providerId = providerId,
+				providerKind = _state.value.providers.firstOrNull { it.id == providerId }
+					?.kind.orEmpty(),
 				model = "",
 				models = emptyList(),
 				modelError = null,
 				error = null,
 			),
 		)
-		loadMediaModels()
+		if (!providerTakesNoSpeechModel(draft.capability, providerId)) {
+			loadMediaModels()
+		}
 	}
 
 	fun setMediaModel(model: String) {

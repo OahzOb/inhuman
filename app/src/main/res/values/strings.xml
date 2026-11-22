@@ -208,7 +208,7 @@
 	<string name="settings_bilibili_login_linked_status">Bilibili account linked.</string>
 	<string name="settings_bilibili_login_unlinked_status">Bilibili account unlinked.</string>
 	<string name="settings_media_title">Media tools</string>
-	<string name="settings_media_body">Image, video, speech, transcription and decision calls are paid third-party services. Each can keep using the assistant\'s provider, use a configured Qwen Token Plan provider, or use a separate Qwen-compatible API. Keys are stored encrypted.</string>
+	<string name="settings_media_body">Image, video, speech, transcription and decision calls are paid third-party services. Each can keep using the assistant\'s provider, use a configured provider, or use a separate Qwen-compatible API. Speech and transcription also work through a configured DeepSeek profile, whose ASR/TTS endpoints take no model. Keys are stored encrypted.</string>
 	<string name="settings_media_image">Image generation</string>
 	<string name="settings_media_video">Video generation</string>
 	<string name="settings_media_speech">Speech</string>
@@ -224,7 +224,7 @@
 	<string name="settings_media_mode_provider">Configured provider</string>
 	<string name="settings_media_mode_direct">Separate API</string>
 	<string name="settings_media_provider">Provider</string>
-	<string name="settings_media_no_provider">No configured provider supports this tool. Add a Qwen Token Plan provider under 01 / Models, or use Separate API.</string>
+	<string name="settings_media_no_provider">No configured provider supports this tool. Add a Qwen Token Plan or DeepSeek provider under 01 / Models, or use Separate API.</string>
 	<string name="settings_media_model">Model</string>
 	<string name="settings_media_model_default">Default: %1$s</string>
 	<string name="settings_media_choose_model">Choose model</string>
@@ -239,6 +239,8 @@
 	<string name="settings_media_key_missing">No key saved.</string>
 	<string name="settings_media_assistant_note">Uses this assistant\'s provider. If that provider does not support this tool, the tool stays absent.</string>
 	<string name="settings_media_direct_note">Qwen Token Plan-compatible endpoint; the key is stored with the Android Keystore.</string>
+	<string name="settings_media_deepseek_speech_note">DeepSeek\'s speech-to-text and text-to-speech endpoints take no model id. The profile\'s key is used; the service detects the language, and text-to-speech uses its default voice.</string>
+	<string name="settings_media_deepseek_backend">DeepSeek ASR/TTS</string>
 	<string name="settings_media_error_provider">Choose a provider.</string>
 	<string name="settings_media_error_provider_support">That provider does not support this tool.</string>
 	<string name="settings_media_error_provider_key">Add an API key for %1$s first.</string>

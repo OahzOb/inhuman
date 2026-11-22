@@ -22,6 +22,12 @@ object ProviderCapabilities {
 	fun of(kind: String): Set<ProviderCapability> = when (kind) {
 		"qwen-token-plan",
 		"qwen-token-plan-cn" -> ProviderCapability.entries.toSet()
+		// DeepSeek's own profile kind serves chat and its standalone speech
+		// tools (`/v1/tools/asr`, `/v1/tools/tts`) from the same account and
+		// key. Image, video and decision have no DeepSeek endpoint, so they are
+		// deliberately absent: a capability the provider cannot serve must not
+		// appear in the media pickers.
+		"deepseek" -> setOf(ProviderCapability.Chat, ProviderCapability.Speech)
 		else -> setOf(ProviderCapability.Chat)
 	}
 

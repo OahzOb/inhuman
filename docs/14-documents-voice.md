@@ -167,7 +167,11 @@ Voice is an **Android-only composer feature**, not a tool:
 - transcription uses the **existing** per-tool transcription backend and key.
   That backend is paid and already carries the `PAID` disclosure; the composer
   shows the same notice before the first recording. No new network path and no
-  new credential are introduced;
+  new credential are introduced. The backend may be Qwen Token Plan or DeepSeek
+  ASR; DeepSeek accepts only 16-bit PCM WAV or Ogg Opus, at most 8 MiB and 120
+  seconds per file, which the recorder's 16 kHz mono WAV meets exactly. An MP3
+  workspace file under that backend is a readable refusal, never a silent
+  fallback to the other service;
 - the transcript is inserted at the cursor in the composer, editable, and the
   user still presses Send. `send()` is never called from the recording path;
 - an empty transcript, a failure or a cancellation leaves the composer

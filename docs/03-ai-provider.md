@@ -614,11 +614,41 @@ configured independently under **Settings → 02 / Web & media**:
 - **Assistant** (default): the conversation's provider, if its kind advertises
   the capability. This preserves the pre-setting behaviour.
 - **Configured provider**: any profile under 01 / Models whose kind supports the
-  capability (today the two Qwen Token Plan kinds), plus a model chosen from
-  that profile's `/models`; the profile's own key and base URL are used.
+  capability (the two Qwen Token Plan kinds, and DeepSeek for speech and
+  transcription), plus a model chosen from that profile's `/models`; the
+  profile's own key and base URL are used.
 - **Separate API**: a key, an HTTPS base URL and a model entered in the media
   section itself. The value is one `SecureStore` entry per capability, so the
-  key is Keystore-wrapped and never enters the transcript.
+  key is Keystore-wrapped and never enters the transcript. This mode is
+  Qwen Token Plan-compatible; DeepSeek is selected through its profile kind, not
+  through a URL.
+
+**Speech and transcription have two service families.** The DeepSeek profile
+kind advertises `Speech` as well as `Chat`, so `Assistant` mode on a DeepSeek
+profile and `Provider` mode on a DeepSeek profile resolve those two tools to
+DeepSeek's standalone endpoints (`POST /v1/tools/asr`, `POST /v1/tools/tts`).
+`ChatViewModel.speechBackend` is that resolver; `mediaBackend` remains for image,
+video and decision, which are Qwen-only. DeepSeek's endpoints take no model id:
+the dialog hides the model fields for that branch and the stored model is unused.
+
+DeepSeek ASR accepts only 16-bit PCM WAV or Ogg Opus, at most 8 MiB and 120
+seconds per file. TTS returns WAV — **there is no MP3** — caps one request at
+10,000 billed characters (a Chinese character counts as 2) and offers two voices
+(`stella`, `tide`). The client refuses a wrong format, an over-size or over-length
+file, and an over-limit text **locally, before the paid call**; a workspace MP3
+under a DeepSeek transcription backend is a readable refusal, not a silent
+fallback to Qwen. It uses its own OkHttp client: the chat client's 90-second
+`HeaderTimeoutInterceptor` measures time-to-headers and would cancel a long
+upload (see `DeepSeekSpeechApi`). The output extension follows the backend
+(`mp3` for Qwen, `wav` for DeepSeek), so a generated file is named for what it is.
+
+The tools and disclosure do not change: `speak` and `transcribe` are still
+`paid`, `speak` still `mutates`, and the PAID badge, the billing notice and the
+result-row badge all stay. The notice names the selected service rather than a
+price. For an assistant whose provider is DeepSeek this is the first backend
+these two tools have had, and an assistant that selected "everything" gets them
+once the DeepSeek key exists — the same rule the Qwen backend already follows,
+with the PAID badge as the disclosure; it is not a second, weaker rule.
 
 `MediaToolConfig` (`app/…/ui/chat/MediaTools.kt`) is the stored shape; a blank
 model means the capability's built-in default. `ChatViewModel.mediaBackend`
@@ -687,6 +717,14 @@ validated locally before the same `systemone` call.
 0.4.1 adds **Transcribe audio file** to the chat menu. It imports the chosen
 mp3/wav/opus through `WorkspaceTransfer`, then runs the same ASR call and shows
 the transcript; the file is left in `attachments/` and can be deleted normally.
+
+0.12.0 adds the DeepSeek speech backend: `DeepSeekSpeechApi` and the
+`SpeechBackend` interface in `:core:ai`, with `QwenSpeechBackend` and
+`DeepSeekSpeechBackend` behind the existing `speak`/`transcribe` tools and the
+composer's transcription backend. DeepSeek's profile kind advertises `Speech`;
+the ASR/TTS limits, refusals, WAV output and no-model rule are above. The live
+test (`DeepSeekSpeechLiveTest`) synthesizes one short sentence, checks the WAV
+container and transcribes it back.
 
 **OAuth subscription login is a generic PKCE flow, not bundled provider clients.**
 The provider row's OAuth button opens a dialog for a user-registered public
@@ -1391,9 +1429,12 @@ The 18 tools and their `mutates` flags are tabulated in
 
 ## Tests in this module
 
-All JVM, no device. Two live tests are skipped by default: `DeepSeekWebLiveTest`
-(one search and one fetch, both paid) and `SshLiveProbeTest` (read-only SFTP
-against a host whose credentials are in the environment).
+All JVM, no device. The live tests in this module are skipped by default:
+`DeepSeekWebLiveTest` (one search and one fetch, both paid),
+`DeepSeekSpeechLiveTest` (one TTS synthesis plus one ASR pass, both paid),
+`QwenTokenPlanLiveTest` (the Qwen image and decision endpoints), and
+`SshLiveProbeTest` (read-only SFTP against a host whose credentials are in the
+environment).
 
 | Test | Locks in |
 | --- | --- |
@@ -1404,6 +1445,7 @@ against a host whose credentials are in the environment).
 | `DeepSeekImageRequestTest` | The `image_url`-as-object shape |
 | `DeepSeekSearchApiTest` | Result parsing, summary-over-snippet, date handling, URL de-duplication, tracking-parameter removal including `&amp;` |
 | `DeepSeekFetchApiTest` | URL validation (scheme, host, credentials, length) and page parsing |
+| `DeepSeekSpeechApiTest` | Billed-character counting, WAV duration/completeness, the multipart ASR and JSON TTS request shapes, and the local refusals before a paid call |
 | `WebSearchToolTest` | The tool against a fake provider: count, empty result, failure text |
 | `WebFetchToolTest` | Title/URL/body format, truncation marker, missing URL, provider failure |
 | `TimeToolTest` | Zone handling and date arithmetic |

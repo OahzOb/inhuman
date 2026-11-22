@@ -23,6 +23,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.inhuman.R
 import com.inhuman.core.ai.capability.ProviderCapabilities
+import com.inhuman.core.data.db.ProviderKinds
 import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.ui.chat.MediaCapability
 import com.inhuman.ui.chat.MediaMode
@@ -53,6 +54,14 @@ internal fun MediaToolDialog(
 	val eligibleProviders = providers.filter {
 		ProviderCapabilities.supports(it.kind, draft.capability.providerCapability)
 	}
+	// DeepSeek's ASR/TTS endpoints take no model id. Showing the Qwen model
+	// fields anyway would invite a value that is silently ignored, and the
+	// summary line would print a model that never goes on the wire.
+	val deepSeekSpeech =
+		draft.mode == MediaMode.Provider &&
+			draft.providerKind == ProviderKinds.DEEPSEEK &&
+			(draft.capability == MediaCapability.Speech ||
+				draft.capability == MediaCapability.Transcription)
 	AlertDialog(
 		onDismissRequest = onClose,
 		title = {
@@ -106,31 +115,35 @@ internal fun MediaToolDialog(
 									)
 								}
 							}
-							if (draft.loadingModels) {
-								Text(
-									text = stringResource(R.string.settings_media_models_loading),
-									style = MaterialTheme.typography.bodySmall,
-									color = MaterialTheme.colorScheme.onSurfaceVariant,
-								)
-							}
-							draft.modelError?.let { message ->
-								Text(
-									text = stringResource(
-										R.string.settings_media_models_failed,
-										message,
-									),
-									style = MaterialTheme.typography.bodySmall,
-									color = MaterialTheme.colorScheme.error,
-								)
-							}
-							if (!draft.loadingModels && draft.modelError == null &&
-								draft.models.isEmpty()
-							) {
-								Text(
-									text = stringResource(R.string.settings_media_models_none),
-									style = MaterialTheme.typography.bodySmall,
-									color = MaterialTheme.colorScheme.onSurfaceVariant,
-								)
+							// DeepSeek's speech endpoints need no model, so the
+							// model catalogue is neither shown nor fetched.
+							if (!deepSeekSpeech) {
+								if (draft.loadingModels) {
+									Text(
+										text = stringResource(R.string.settings_media_models_loading),
+										style = MaterialTheme.typography.bodySmall,
+										color = MaterialTheme.colorScheme.onSurfaceVariant,
+									)
+								}
+								draft.modelError?.let { message ->
+									Text(
+										text = stringResource(
+											R.string.settings_media_models_failed,
+											message,
+										),
+										style = MaterialTheme.typography.bodySmall,
+										color = MaterialTheme.colorScheme.error,
+									)
+								}
+								if (!draft.loadingModels && draft.modelError == null &&
+									draft.models.isEmpty()
+								) {
+									Text(
+										text = stringResource(R.string.settings_media_models_none),
+										style = MaterialTheme.typography.bodySmall,
+										color = MaterialTheme.colorScheme.onSurfaceVariant,
+									)
+								}
 							}
 						}
 					}
@@ -172,46 +185,54 @@ internal fun MediaToolDialog(
 					}
 				}
 
-				OutlinedTextField(
-					value = draft.model,
-					onValueChange = onModel,
-					modifier = Modifier.fillMaxWidth(),
-					singleLine = true,
-					label = { Text(stringResource(R.string.settings_media_model_id)) },
-					placeholder = {
-						Text(
-							stringResource(
-								R.string.settings_media_model_default,
-								draft.capability.defaultModel,
-							),
-						)
-					},
-				)
-				Text(
-					text = stringResource(
-						R.string.settings_media_model_default,
-						draft.capability.defaultModel,
-					),
-					style = MaterialTheme.typography.labelSmall,
-					color = MaterialTheme.colorScheme.onSurfaceVariant,
-				)
-				if (draft.mode == MediaMode.Provider && draft.models.isNotEmpty()) {
-					Box {
-						OutlinedButton(onClick = { onModelPicker(true) }) {
-							Text(stringResource(R.string.settings_media_choose_model))
-						}
-						DropdownMenu(
-							expanded = draft.showModelPicker,
-							onDismissRequest = { onModelPicker(false) },
-						) {
-							draft.models.forEach { model ->
-								DropdownMenuItem(
-									text = { Text(model.id) },
-									onClick = {
-										onModel(model.id)
-										onModelPicker(false)
-									},
-								)
+				if (deepSeekSpeech) {
+					Text(
+						text = stringResource(R.string.settings_media_deepseek_speech_note),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				} else {
+					OutlinedTextField(
+						value = draft.model,
+						onValueChange = onModel,
+						modifier = Modifier.fillMaxWidth(),
+						singleLine = true,
+						label = { Text(stringResource(R.string.settings_media_model_id)) },
+						placeholder = {
+							Text(
+								stringResource(
+									R.string.settings_media_model_default,
+									draft.capability.defaultModel,
+								),
+							)
+						},
+					)
+					Text(
+						text = stringResource(
+							R.string.settings_media_model_default,
+							draft.capability.defaultModel,
+						),
+						style = MaterialTheme.typography.labelSmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					if (draft.mode == MediaMode.Provider && draft.models.isNotEmpty()) {
+						Box {
+							OutlinedButton(onClick = { onModelPicker(true) }) {
+								Text(stringResource(R.string.settings_media_choose_model))
+							}
+							DropdownMenu(
+								expanded = draft.showModelPicker,
+								onDismissRequest = { onModelPicker(false) },
+							) {
+								draft.models.forEach { model ->
+									DropdownMenuItem(
+										text = { Text(model.id) },
+										onClick = {
+											onModel(model.id)
+											onModelPicker(false)
+										},
+									)
+								}
 							}
 						}
 					}

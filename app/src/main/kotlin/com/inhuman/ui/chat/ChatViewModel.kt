@@ -31,7 +31,11 @@ import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.capability.ProviderCapabilities
 import com.inhuman.core.ai.capability.ProviderCapability
 import com.inhuman.core.ai.provider.demo.DemoProvider
+import com.inhuman.core.ai.provider.deepseek.DeepSeekSpeechApi
 import com.inhuman.core.ai.provider.qwen.QwenTokenPlanClient
+import com.inhuman.core.ai.speech.DeepSeekSpeechBackend
+import com.inhuman.core.ai.speech.QwenSpeechBackend
+import com.inhuman.core.ai.speech.SpeechBackend
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.engine.ChatEngine
 import com.inhuman.core.engine.EngineDecision
@@ -54,6 +58,7 @@ import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.MessageEntity
 import com.inhuman.core.data.db.MessageTurnRow
+import com.inhuman.core.data.db.ProviderKinds
 import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.data.db.ToolsColumn
 import com.inhuman.core.data.secret.SecureStore
@@ -921,7 +926,7 @@ class ChatViewModel(
 	/** Transcribe an audio file already inside this conversation's workspace. */
 	suspend fun transcribe(relativePath: String): Result<String> = runCatching {
 		val entity = conversation ?: error("conversation is not ready")
-		val backend = mediaBackend(MediaCapability.Transcription)
+		val backend = speechBackend(MediaCapability.Transcription)
 			?: mediaUnavailable()
 		val workspace = repository.workspace(entity)
 		val resolution = workspace.resolve(relativePath)
@@ -930,39 +935,25 @@ class ChatViewModel(
 		if (!file.isFile) error("not a file: $relativePath")
 		val format = file.extension.lowercase().takeIf { it in setOf("mp3", "wav", "opus") }
 			?: error("unsupported audio format: .${file.extension}")
-		val mime = when (format) {
-			"mp3" -> "audio/mpeg"
-			"wav" -> "audio/wav"
-			else -> "audio/opus"
+		if (!backend.acceptsFormat(format)) {
+			error("the selected transcription backend does not accept .$format")
 		}
 		withContext(Dispatchers.IO) {
-			backend.client
-				.transcribe(
-					file.readBytes(),
-					format = format,
-					mimeType = mime,
-					model = backend.model,
-				)
-				.text
+			backend.transcribe(file.readBytes(), format)
 		}
 	}
 
 	/** Whether the composer should offer the microphone at all. */
 	suspend fun canTranscribe(): Boolean =
-		runCatching { mediaBackend(MediaCapability.Transcription) != null }.getOrDefault(false)
+		runCatching { speechBackend(MediaCapability.Transcription) != null }.getOrDefault(false)
 
 	/** Transcribe a composer recording. The audio is never written to the workspace. */
 	suspend fun transcribeVoice(wav: ByteArray): Result<String> = runCatching {
 		if (wav.size <= 44) error(context.getString(R.string.chat_voice_empty))
-		val backend = mediaBackend(MediaCapability.Transcription)
+		val backend = speechBackend(MediaCapability.Transcription)
 			?: mediaUnavailable()
 		val text = withContext(Dispatchers.IO) {
-			backend.client.transcribe(
-				wav,
-				format = "wav",
-				mimeType = "audio/wav",
-				model = backend.model,
-			).text
+			backend.transcribe(wav, "wav")
 		}.trim()
 		if (text.isBlank()) error(context.getString(R.string.chat_voice_empty))
 		text
@@ -971,13 +962,13 @@ class ChatViewModel(
 	/** Synthesize text and save the audio in the conversation workspace. */
 	suspend fun synthesize(text: String): Result<GeneratedAudio> = runCatching {
 		val entity = conversation ?: error("conversation is not ready")
-		val backend = mediaBackend(MediaCapability.Speech)
+		val backend = speechBackend(MediaCapability.Speech)
 			?: mediaUnavailable()
 		val workspace = repository.workspace(entity)
 		val result = withContext(Dispatchers.IO) {
-			backend.client.synthesize(text, model = backend.model)
+			backend.synthesize(text)
 		}
-		val path = "generated/audio-${System.currentTimeMillis()}.mp3"
+		val path = "generated/audio-${System.currentTimeMillis()}.${result.extension}"
 		val resolution = workspace.resolve(path)
 		if (resolution !is SessionWorkspace.Resolution.Ok) {
 			error("workspace refused the generated audio path")
@@ -991,7 +982,7 @@ class ChatViewModel(
 		)?.let { error(it) }
 		resolution.file.parentFile?.mkdirs()
 		resolution.file.writeBytes(result.bytes)
-		Diag.i("qwen", "speech path=$path bytes=${result.bytes.size}")
+		Diag.i("speech", "path=$path bytes=${result.bytes.size} backend=${backend.id}")
 		GeneratedAudio(path, result.bytes.size, result.mimeType)
 	}
 
@@ -4397,6 +4388,61 @@ class ChatViewModel(
 		}
 	}
 
+	/**
+	 * Resolve the speech/transcription backend for one capability.
+	 *
+	 * Kept apart from [mediaBackend] because DeepSeek serves these two tools from
+	 * its own `/v1/tools/asr` and `/v1/tools/tts` endpoints, while image, video
+	 * and decision remain Qwen Token Plan families. `Assistant` and `Provider`
+	 * modes resolve to whichever service the selected profile is; `Direct` stays
+	 * Qwen-compatible, which is what its stored base URL means.
+	 */
+	private suspend fun speechBackend(capability: MediaCapability): SpeechBackend? {
+		val config = MediaToolStore.load(secure, capability)
+		val model = config.modelOrDefault(capability)
+		return when (config.mode) {
+			MediaMode.Assistant -> {
+				val kind = providerKind.orEmpty()
+				if (!ProviderCapabilities.supports(kind, capability.providerCapability)) {
+					return null
+				}
+				val key = secure.get(agents.apiKeySlot(providerId))
+					?.takeIf { it.isNotBlank() } ?: return null
+				val base = providerBaseUrl ?: return null
+				speechBackendFor(kind, key, base, model)
+			}
+			MediaMode.Provider -> {
+				val profile = agents.provider(config.providerId) ?: return null
+				if (!ProviderCapabilities.supports(profile.kind, capability.providerCapability)) {
+					return null
+				}
+				val key = secure.get(agents.apiKeySlot(profile.id))
+					?.takeIf { it.isNotBlank() } ?: return null
+				speechBackendFor(profile.kind, key, profile.baseUrl, model)
+			}
+			MediaMode.Direct -> {
+				if (config.apiKey.isBlank() || !config.baseUrl.startsWith("https://")) return null
+				QwenSpeechBackend(QwenTokenPlanClient(config.apiKey, config.baseUrl), model)
+			}
+		}
+	}
+
+	private fun speechBackendFor(
+		kind: String,
+		key: String,
+		baseUrl: String,
+		model: String,
+	): SpeechBackend =
+		if (kind == ProviderKinds.DEEPSEEK) {
+			// DeepSeek's speech endpoints take no model id, so the stored model
+			// (which belongs to the Qwen branch) is deliberately not passed.
+			DeepSeekSpeechBackend(
+				DeepSeekSpeechApi(apiKey = { key }, baseUrl = baseUrl),
+			)
+		} else {
+			QwenSpeechBackend(QwenTokenPlanClient(key, baseUrl), model)
+		}
+
 	private fun mediaUnavailable(): Nothing =
 		error(context.getString(R.string.chat_error_media_not_configured))
 
@@ -4538,11 +4584,11 @@ class ChatViewModel(
 					add(QwenVideoStatusTool(it.client, workspace))
 				}
 			}
-			mediaBackend(MediaCapability.Speech)?.let {
-				if (workspace != null) add(QwenSpeechTool(it.client, workspace, it.model))
+			speechBackend(MediaCapability.Speech)?.let {
+				if (workspace != null) add(SpeechTool(it, workspace))
 			}
-			mediaBackend(MediaCapability.Transcription)?.let {
-				if (workspace != null) add(QwenTranscribeTool(it.client, workspace, it.model))
+			speechBackend(MediaCapability.Transcription)?.let {
+				if (workspace != null) add(TranscribeTool(it, workspace))
 			}
 			// The address book is information: it connects nothing, needs no
 			// workspace and asks for no consent. It is still hidden while the

@@ -14,7 +14,12 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /**
- * The paid media tools, which all speak the Qwen Token Plan API families.
+ * The paid media tools.
+ *
+ * Image, video and decision speak the Qwen Token Plan API families. Speech and
+ * transcription can also be served by DeepSeek's standalone ASR/TTS endpoints,
+ * which is why their backend resolves to a `SpeechBackend` (in `:core:ai`)
+ * rather than to [MediaBackend].
  *
  * These are separate from [com.inhuman.core.ai.tools.ToolCatalog] on purpose:
  * the catalogue is the tool the model calls, this is where the user points it.
@@ -143,7 +148,12 @@ object MediaToolStore {
 	}
 }
 
-/** A resolved media backend: one endpoint, one key, one model. */
+/**
+ * A resolved Qwen media backend: one endpoint, one key, one model.
+ *
+ * Only image, video and decision resolve to this. Speech and transcription use
+ * a `SpeechBackend` because DeepSeek serves them from a different wire API.
+ */
 data class MediaBackend(
 	val client: QwenTokenPlanClient,
 	val model: String,
@@ -160,6 +170,12 @@ data class MediaToolDraft(
 	val capability: MediaCapability,
 	val mode: MediaMode,
 	val providerId: String = "",
+	/**
+	 * The selected provider's profile kind, so the dialog can say that DeepSeek's
+	 * speech tools take no model. Cosmetic only; the resolver reads the kind from
+	 * the profile again.
+	 */
+	val providerKind: String = "",
 	val model: String = "",
 	val baseUrl: String = "",
 	val apiKeyInput: String = "",

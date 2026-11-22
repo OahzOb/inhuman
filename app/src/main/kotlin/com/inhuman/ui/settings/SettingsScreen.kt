@@ -1725,6 +1725,18 @@ private fun mediaSummary(
 			val provider = providers.firstOrNull { it.id == config.providerId }
 			if (provider == null) {
 				stringResource(R.string.settings_media_summary_missing)
+			} else if (provider.kind == ProviderKinds.DEEPSEEK &&
+				(capability == MediaCapability.Speech ||
+					capability == MediaCapability.Transcription)
+			) {
+				// DeepSeek's speech endpoints take no model id; printing the
+				// Qwen default here would name a model that never goes on the
+				// wire.
+				stringResource(
+					R.string.settings_media_summary_provider,
+					provider.name,
+					stringResource(R.string.settings_media_deepseek_backend),
+				)
 			} else {
 				stringResource(
 					R.string.settings_media_summary_provider,

@@ -2,17 +2,22 @@ package com.inhuman.ui.chat
 
 import com.inhuman.core.ai.Tool
 import com.inhuman.core.ai.ToolResult
-import com.inhuman.core.ai.provider.qwen.QwenTokenPlanClient
+import com.inhuman.core.ai.speech.SpeechBackend
 import com.inhuman.core.files.SessionWorkspace
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
-/** Transcribe an audio file already in the workspace. */
-class QwenTranscribeTool(
-	private val client: QwenTokenPlanClient,
+/**
+ * Transcribe an audio file already in the workspace.
+ *
+ * The backend decides which extensions it accepts: DeepSeek's ASR takes WAV and
+ * Ogg Opus but not MP3, so an MP3 must be refused with a readable reason rather
+ * than sent to an endpoint that would reject it.
+ */
+class TranscribeTool(
+	private val backend: SpeechBackend,
 	private val workspace: SessionWorkspace,
-	private val model: String = QwenTokenPlanClient.DEFAULT_ASR_MODEL,
 ) : Tool {
 
 	override val name = "transcribe"
@@ -44,21 +49,18 @@ class QwenTranscribeTool(
 		}
 		val file = resolution.file
 		if (!file.isFile) return ToolResult("not a file: $path", isError = true)
-		val extension = file.extension.lowercase()
-		val format = when (extension) {
-			"mp3" -> "mp3"
-			"wav" -> "wav"
-			"opus" -> "opus"
-			else -> return ToolResult("unsupported audio format: .$extension", isError = true)
+		val format = file.extension.lowercase()
+		if (format !in setOf("mp3", "wav", "opus")) {
+			return ToolResult("unsupported audio format: .$format", isError = true)
 		}
-		val mime = when (format) {
-			"mp3" -> "audio/mpeg"
-			"wav" -> "audio/wav"
-			else -> "audio/opus"
+		if (!backend.acceptsFormat(format)) {
+			return ToolResult(
+				"the selected transcription backend does not accept .$format",
+				isError = true,
+			)
 		}
 		return runCatching {
-			val result = client.transcribe(file.readBytes(), format = format, mimeType = mime, model = model)
-			ToolResult.ok(result.text)
+			ToolResult.ok(backend.transcribe(file.readBytes(), format))
 		}.getOrElse { ToolResult("transcription failed: ${it.message}", isError = true) }
 	}
 }
