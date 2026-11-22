@@ -182,6 +182,12 @@ class SecureStore(
 		const val KEY_WEB_SEARCH_BACKEND = "web.search_backend"
 		const val KEY_WEB_FETCH_BACKEND = "web.fetch_backend"
 
+		/** The last voice chosen for reply read-aloud; absent means the default. */
+		const val KEY_SPEECH_VOICE = "speech.reply.voice"
+
+		/** Whether the one-time paid read-aloud notice has been confirmed. */
+		const val KEY_SPEECH_REPLY_CONSENT = "speech.reply.consent"
+
 		/**
 		 * Preference key for demo mode.
 		 *

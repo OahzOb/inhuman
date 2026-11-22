@@ -253,6 +253,8 @@ fun ChatScreen(
 	// Read here rather than at the call site: the audio launcher's failure path
 	// runs inside a `launch`, where `stringResource` is not available.
 	val transcriptionFailedText = stringResource(R.string.chat_transcription_failed)
+	val speechFailedText = stringResource(R.string.chat_speech_failed)
+	val playbackFailedText = stringResource(R.string.chat_audio_play_failed)
 	val defaultModel = stringResource(R.string.chat_model_fallback)
 	val defaultProvider = stringResource(R.string.chat_provider_fallback)
 	val title by fieldOf(viewModel.state, defaultTitle) { it.title }
@@ -607,6 +609,120 @@ fun ChatScreen(
 	// The reply that the speech dialog was opened for. Null means closed; an
 	// empty string is the chat-menu entry with no text to start from.
 	var speechDraft by remember { mutableStateOf<String?>(null) }
+	// Reply read-aloud. A speaker tap starts playback; once the one-time paid
+	// notice has been confirmed there is no dialog in the way. The player lives
+	// here rather than in the message row so the message icon and the mini bar
+	// above the composer share one playback and one stop control.
+	val speechContext = LocalContext.current
+	var speechConsentFor by remember { mutableStateOf<ChatMessageUi?>(null) }
+	var speechVoices by remember { mutableStateOf<List<String>>(emptyList()) }
+	var speechVoice by remember { mutableStateOf<String?>(null) }
+	var speechConsentConfirmed by remember { mutableStateOf(true) }
+	var speakingReply by remember { mutableStateOf<ChatMessageUi?>(null) }
+	var preparingReply by remember { mutableStateOf<ChatMessageUi?>(null) }
+	var speechVoiceMenu by remember { mutableStateOf(false) }
+	val speechPlayer = remember { WorkspaceAudioPlayer(speechContext) }
+
+	fun speechToast(text: String) {
+		Toast.makeText(speechContext, text, Toast.LENGTH_LONG).show()
+	}
+
+	fun stopTalking() {
+		speechPlayer.stop()
+		speakingReply = null
+	}
+
+	fun startTalking(message: ChatMessageUi) {
+		if (preparingReply != null) return
+		preparingReply = message
+		scope.launch {
+			viewModel.readAloud(message.id, message.plainText).fold(
+				onSuccess = { audio ->
+					preparingReply = null
+					// readAloud remembers the resolved default voice; mirror it
+					// here so the mini bar can offer the picker on the very first
+					// read rather than only after the next screen visit.
+					if (speechVoice == null) speechVoice = viewModel.speechVoice()
+					val id = workspaceId
+					if (id == null) {
+						speechToast(playbackFailedText)
+						return@fold
+					}
+					speechPlayer.stop()
+					speakingReply = message
+					if (!speechPlayer.play(id, audio.relativePath)) {
+						speakingReply = null
+						speechToast(playbackFailedText)
+					}
+				},
+				onFailure = { failure ->
+					preparingReply = null
+					speechToast(failure.message ?: speechFailedText)
+				},
+			)
+		}
+	}
+
+	fun refreshSpeechSetup() {
+		scope.launch {
+			val available = runCatching { viewModel.speechVoiceIds() }.getOrDefault(emptyList())
+			if (available.isNotEmpty() || speechVoices.isEmpty()) speechVoices = available
+			val stored = viewModel.speechVoice()
+			speechVoice = stored?.takeIf { it in speechVoices } ?: speechVoices.firstOrNull()
+		}
+	}
+
+	fun requestTalking(message: ChatMessageUi) {
+		if (speakingReply?.id == message.id) {
+			stopTalking()
+			return
+		}
+		// The first composition races the conversation load, so the voice list
+		// can still be empty here. Ask again at the point of use rather than
+		// showing a chooser with nothing in it.
+		refreshSpeechSetup()
+		// The one-time notice is the paid disclosure. After it, reading a
+		// reply is one tap, the way mature chat clients treat Read aloud.
+		if (!speechConsentConfirmed) {
+			speechConsentFor = message
+			return
+		}
+		// Starting a second reply must silence the first immediately, not
+		// leave it talking through the next synthesis.
+		if (speakingReply != null && speakingReply?.id != message.id) {
+			speechPlayer.stop()
+			speakingReply = null
+		}
+		startTalking(message)
+	}
+
+	LaunchedEffect(viewModel) {
+		speechVoices = viewModel.speechVoiceIds()
+		speechVoice = viewModel.speechVoice()?.takeIf { it in speechVoices }
+			?: speechVoices.firstOrNull()
+		speechConsentConfirmed = viewModel.speechConsentShown()
+	}
+
+	// One player, one owner. Releasing it when this screen leaves is what stops
+	// audio on back navigation; the mini bar and the message icon are views of
+	// the same state, not separate players.
+	DisposableEffect(speechPlayer) {
+		speechPlayer.onFinished = { speakingReply = null }
+		speechPlayer.onFailed = {
+			speakingReply = null
+			Toast.makeText(speechContext, playbackFailedText, Toast.LENGTH_LONG).show()
+		}
+		onDispose { speechPlayer.release() }
+	}
+
+	// A new turn is a new thing to listen to; the old reply stops rather than
+	// talking over the stream.
+	LaunchedEffect(isStreaming) {
+		if (isStreaming) {
+			speechPlayer.stop()
+			speakingReply = null
+		}
+	}
 	var showVideo by remember { mutableStateOf(false) }
 	// In-conversation search is a full-screen dialog, not an inline bar. An
 	// inline bar plus the IME left no transcript on a 640x360 landscape phone;
@@ -1758,9 +1874,12 @@ fun ChatScreen(
 							},
 							onRetry = viewModel::retryLastTurn,
 							onUseSuggestion = viewModel::useSuggestion,
-							// The dialog is the paid choice; this only carries
-							// the reply text into it, prefilled.
-							onSpeakReply = { text -> speechDraft = text },
+							speakState = when {
+								speakingReply?.id == message.id -> ReplySpeechState.Playing
+								preparingReply?.id == message.id -> ReplySpeechState.Preparing
+								else -> ReplySpeechState.Idle
+							},
+							onSpeakReply = { requestTalking(message) },
 							// Both ids go up: the alternative being switched to is
 							// not on the active path, so the view model cannot find
 							// its parent by searching the transcript.
@@ -1892,6 +2011,31 @@ fun ChatScreen(
 				)
 			}
 
+			if (speakingReply != null) {
+				SpeechPlayerBar(
+					voice = speechVoice,
+					voices = speechVoices,
+					voiceMenuOpen = speechVoiceMenu,
+					onVoiceMenu = { speechVoiceMenu = it },
+					onVoice = { chosen ->
+						speechVoiceMenu = false
+						val current = speakingReply
+						if (chosen != speechVoice) {
+							speechVoice = chosen
+							viewModel.setSpeechVoice(chosen)
+							// Re-read in the new voice: the user asked to hear
+							// the difference, and the cache is per voice, so
+							// this is a real second synthesis.
+							if (current != null) {
+								stopTalking()
+								startTalking(current)
+							}
+						}
+					},
+					onStop = { stopTalking() },
+				)
+			}
+
 			ChatBottomBar(
 				configured = configured,
 				messageCount = messageCount,
@@ -1984,11 +2128,39 @@ fun ChatScreen(
 	speechDraft?.let { initialText ->
 		SpeechDialog(
 			initialText = initialText,
+			initialVoice = speechVoice,
 			workspaceId = workspaceId,
-			onSpeak = { text, voice -> viewModel.synthesize(text, voice) },
+			onSpeak = { text, voice ->
+				val result = viewModel.synthesize(text, voice)
+				if (result.isSuccess) {
+					voice?.let {
+						viewModel.setSpeechVoice(it)
+						speechVoice = it
+					}
+				}
+				result
+			},
 			onVoices = { viewModel.speechVoiceIds() },
 			onTranscribe = { path -> viewModel.transcribe(path) },
 			onDismiss = { speechDraft = null },
+		)
+	}
+
+	speechConsentFor?.let { message ->
+		SpeechReadConsentDialog(
+			voices = speechVoices,
+			initialVoice = speechVoice,
+			onConfirm = { chosen ->
+				viewModel.markSpeechConsent()
+				speechConsentConfirmed = true
+				if (chosen != null) {
+					speechVoice = chosen
+					viewModel.setSpeechVoice(chosen)
+				}
+				speechConsentFor = null
+				startTalking(message)
+			},
+			onDismiss = { speechConsentFor = null },
 		)
 	}
 
@@ -3730,6 +3902,9 @@ private fun toolResultSummary(
 	return text to count
 }
 
+/** What the speaker control on one reply is doing. */
+private enum class ReplySpeechState { Idle, Preparing, Playing }
+
 @Composable
 private fun MessageBubble(
 	message: ChatMessageUi,
@@ -3744,7 +3919,8 @@ private fun MessageBubble(
 	onShowTurnWire: () -> Unit,
 	onShowRewind: () -> Unit,
 	onRetry: () -> Unit,
-	onSpeakReply: (String) -> Unit,
+	speakState: ReplySpeechState,
+	onSpeakReply: () -> Unit,
 	onUseSuggestion: (String) -> Unit,
 	onSelectBranch: (String?, String) -> Unit,
 ) {
@@ -4185,17 +4361,43 @@ private fun MessageBubble(
 							modifier = Modifier.size(16.dp),
 						)
 					}
-					// The reply itself is the text to speak. The action only
-					// opens the dialog; the paid call and its notice stay there.
-					IconButton(
-						onClick = { onSpeakReply(message.plainText) },
-					) {
-						Icon(
-							imageVector = Icons.AutoMirrored.Outlined.VolumeUp,
-							contentDescription = stringResource(R.string.chat_speak_reply),
-							tint = MaterialTheme.colorScheme.onSurfaceVariant,
-							modifier = Modifier.size(17.dp),
-						)
+					// Read aloud: one tap starts and the same control becomes
+					// Stop while this reply is playing. The paid disclosure is
+					// the one-time confirmation; after that this row is the
+					// one-tap path mature chat clients use.
+					if (speakState == ReplySpeechState.Preparing) {
+						Box(
+							modifier = Modifier.size(40.dp),
+							contentAlignment = Alignment.Center,
+						) {
+							CircularProgressIndicator(
+								strokeWidth = 2.dp,
+								modifier = Modifier.size(16.dp),
+							)
+						}
+					} else {
+						IconButton(onClick = onSpeakReply) {
+							Icon(
+								imageVector = if (speakState == ReplySpeechState.Playing) {
+									Icons.Filled.Stop
+								} else {
+									Icons.AutoMirrored.Outlined.VolumeUp
+								},
+								contentDescription = stringResource(
+									if (speakState == ReplySpeechState.Playing) {
+										R.string.chat_stop
+									} else {
+										R.string.chat_speak_reply
+									},
+								),
+								tint = if (speakState == ReplySpeechState.Playing) {
+									MaterialTheme.colorScheme.primary
+								} else {
+									MaterialTheme.colorScheme.onSurfaceVariant
+								},
+								modifier = Modifier.size(17.dp),
+							)
+						}
 					}
 				}
 
@@ -5430,9 +5632,154 @@ private fun DecisionDialog(
 	)
 }
 
+/**
+ * The compact bar above the composer while a reply is being read.
+ *
+ * Mature chat clients keep playback visible and stoppable without leaving the
+ * transcript. This is the same shape: one row, the voice in use, and Stop. It
+ * is a view of the screen's single player, not a second player.
+ */
+@Composable
+private fun SpeechPlayerBar(
+	voice: String?,
+	voices: List<String>,
+	voiceMenuOpen: Boolean,
+	onVoiceMenu: (Boolean) -> Unit,
+	onVoice: (String) -> Unit,
+	onStop: () -> Unit,
+) {
+	Surface(
+		color = MaterialTheme.colorScheme.surfaceVariant,
+		tonalElevation = 0.dp,
+	) {
+		Box(
+			modifier = Modifier.fillMaxWidth(),
+			contentAlignment = Alignment.Center,
+		) {
+			Row(
+				modifier = Modifier
+					.widthIn(max = Layout.ChatMeasure)
+					.fillMaxWidth()
+					.padding(horizontal = comfortableGutter(), vertical = 2.dp),
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.spacedBy(6.dp),
+			) {
+				Icon(
+					imageVector = Icons.AutoMirrored.Outlined.VolumeUp,
+					contentDescription = null,
+					tint = MaterialTheme.colorScheme.primary,
+					modifier = Modifier.size(16.dp),
+				)
+				Text(
+					text = stringResource(R.string.chat_speaking),
+					style = MaterialTheme.typography.labelLarge,
+					color = MaterialTheme.colorScheme.onSurface,
+				)
+				if (voices.size > 1 && voice != null) {
+					Box {
+						TextButton(
+							onClick = { onVoiceMenu(true) },
+							contentPadding = PaddingValues(horizontal = 8.dp),
+						) {
+							Text(
+								text = speechVoiceLabel(voice),
+								style = MaterialTheme.typography.labelMedium,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+							)
+						}
+						DropdownMenu(
+							expanded = voiceMenuOpen,
+							onDismissRequest = { onVoiceMenu(false) },
+						) {
+							voices.forEach { id ->
+								DropdownMenuItem(
+									text = { Text(speechVoiceLabel(id)) },
+									onClick = { onVoice(id) },
+								)
+							}
+						}
+					}
+				}
+				Spacer(Modifier.weight(1f))
+				TextButton(onClick = onStop) {
+					Text(
+						text = stringResource(R.string.chat_stop),
+						style = MaterialTheme.typography.labelMedium,
+						color = MaterialTheme.colorScheme.primary,
+					)
+				}
+			}
+		}
+	}
+}
+
+/**
+ * The one-time paid disclosure for reading replies aloud.
+ *
+ * The price rule is disclosure where the capability is chosen and where it is
+ * used. Settings is where the backend is chosen; this is where the reply is
+ * used, so it appears once per install and then the speaker is one tap. It also
+ * carries the voice picker so the first read already sounds the way the user
+ * wants.
+ */
+@Composable
+private fun SpeechReadConsentDialog(
+	voices: List<String>,
+	initialVoice: String?,
+	onConfirm: (String?) -> Unit,
+	onDismiss: () -> Unit,
+) {
+	// The choice stays local until confirmation: dismissing the paid notice
+	// must not silently change the stored voice.
+	var chosen by remember(initialVoice, voices) {
+		mutableStateOf(initialVoice?.takeIf { it in voices } ?: voices.firstOrNull())
+	}
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text(stringResource(R.string.chat_speak_reply_title)) },
+		text = {
+			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
+				PaidActionNotice()
+				Text(
+					text = stringResource(R.string.chat_speak_reply_first_use),
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				if (voices.size > 1) {
+					Text(
+						text = stringResource(R.string.chat_voice),
+						style = MaterialTheme.typography.labelLarge,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					FlowRowCompat {
+						voices.forEach { id ->
+							FilterChip(
+								selected = chosen == id,
+								onClick = { chosen = id },
+								label = { Text(speechVoiceLabel(id)) },
+							)
+						}
+					}
+				}
+			}
+		},
+		confirmButton = {
+			TextButton(onClick = { onConfirm(chosen) }) {
+				Text(stringResource(R.string.chat_speak))
+			}
+		},
+		dismissButton = {
+			TextButton(onClick = onDismiss) {
+				Text(stringResource(R.string.common_cancel))
+			}
+		},
+	)
+}
+
 @Composable
 private fun SpeechDialog(
 	initialText: String = "",
+	initialVoice: String? = null,
 	workspaceId: String?,
 	onSpeak: suspend (String, String?) -> Result<ChatViewModel.GeneratedAudio>,
 	onVoices: suspend () -> List<String>,
@@ -5470,7 +5817,7 @@ private fun SpeechDialog(
 	LaunchedEffect(Unit) {
 		val available = runCatching { onVoices() }.getOrDefault(emptyList())
 		voices = available
-		voice = available.firstOrNull()
+		voice = available.firstOrNull { it == initialVoice } ?: available.firstOrNull()
 	}
 
 	fun playAudio(audio: ChatViewModel.GeneratedAudio) {

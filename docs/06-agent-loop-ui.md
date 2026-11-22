@@ -301,16 +301,25 @@ regeneration trims manifests the rewritten transcript no longer references, so
 that turn's checkpoints are replaced.
 
 The action row also carries **Speak** (a speaker icon) on every completed
-assistant reply with text. It is a per-reply action, not a turn action: it opens
-the speech dialog with that reply already in the text field. The dialog is where
-the paid notice and the backend choice are stated; generating saves the audio in
-the workspace and **starts playback in the app** — there is no chooser and no
-leave-the-app step. Play/Stop re-listens or stops it, and Transcribe reads the
-generated file back through the transcription backend. When the configured
-speech backend offers more than one voice (DeepSeek has `stella` and `tide`), the
-dialog shows a voice picker; a single-voice backend shows none. The text stays
-editable, because a reply can contain Markdown that the speech backend should
-not read literally.
+assistant reply with text. It is a per-reply action, not a turn action. The
+first tap shows a one-time paid notice and the voice picker; after that is
+confirmed a tap **synthesizes and starts playback immediately** -- there is no
+per-reply dialog. The speaker becomes Stop while that reply plays, and a mini
+bar above the composer shows what is playing, the voice in use (tappable to
+switch) and Stop. Only one player exists for the screen; starting another reply
+stops the first and leaving the screen releases it.
+
+Audio is cached by message id and voice under `generated/speech/`, so replaying
+the same reply in the same voice makes no request and is instant; changing the
+voice synthesizes a second file and re-reads the reply. The reply is projected
+to speech text by `SpeechText` before it is sent: heading/bullet/emphasis/link
+syntax is removed, and code blocks and tables are announced once rather than
+read token by token. That projection is also what the billed character count
+is based on, so Markdown syntax is not paid for.
+
+The manual "text to speech" chat-menu dialog still exists for arbitrary text:
+it keeps Play/Stop and Transcribe, and starts from the stored voice. It is a
+separate path from the reply action, not a second implementation of it.
 
 The two regeneration paths have different cache behaviour, and the turn's usage
 line says so. The final-answer refresh keeps the tool definitions and appends a

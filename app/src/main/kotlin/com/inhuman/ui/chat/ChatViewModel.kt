@@ -36,6 +36,7 @@ import com.inhuman.core.ai.provider.deepseek.DeepSeekSpeechApi
 import com.inhuman.core.ai.provider.qwen.QwenTokenPlanClient
 import com.inhuman.core.ai.speech.DeepSeekSpeechBackend
 import com.inhuman.core.ai.speech.QwenSpeechBackend
+import com.inhuman.core.ai.speech.SpeechAudio
 import com.inhuman.core.ai.speech.SpeechBackend
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.engine.ChatEngine
@@ -981,7 +982,109 @@ class ChatViewModel(
 		val result = withContext(Dispatchers.IO) {
 			backend.synthesize(text, voice)
 		}
+		voice?.takeIf { it.isNotBlank() }?.let(::setSpeechVoice)
 		val path = "generated/audio-${System.currentTimeMillis()}.${result.extension}"
+		saveGeneratedAudio(workspace, path, result)
+	}
+
+	/** The last voice chosen for reply read-aloud, or null for the backend default. */
+	fun speechVoice(): String? = secure.get(SecureStore.KEY_SPEECH_VOICE)
+		?.takeIf { it.isNotBlank() }
+
+	fun setSpeechVoice(voice: String?) {
+		if (voice.isNullOrBlank()) {
+			secure.remove(SecureStore.KEY_SPEECH_VOICE)
+		} else {
+			secure.put(SecureStore.KEY_SPEECH_VOICE, voice)
+		}
+	}
+
+	/** Whether the one-time paid read-aloud notice has been confirmed. */
+	fun speechConsentShown(): Boolean =
+		secure.get(SecureStore.KEY_SPEECH_REPLY_CONSENT) == "1"
+
+	fun markSpeechConsent() {
+		secure.put(SecureStore.KEY_SPEECH_REPLY_CONSENT, "1")
+	}
+
+	/** Whether a speech backend is configured. */
+	suspend fun speechAvailable(): Boolean =
+		runCatching { speechBackend(MediaCapability.Speech) != null }.getOrDefault(false)
+
+	/**
+	 * Read one assistant reply aloud.
+	 *
+	 * ## Why the cache is part of the call, not a UI detail
+	 *
+	 * Generating speech is a paid request. Re-tapping the speaker on a reply
+	 * the user has already heard must not bill again, so the file name is
+	 * deterministic from the message id and voice and an existing workspace
+	 * file is returned as-is. A voice change produces a different name and
+	 * therefore a new request, which is what "read it in another voice" means.
+	 */
+	suspend fun readAloud(messageId: String, markdown: String): Result<GeneratedAudio> = runCatching {
+		val entity = conversation ?: error("conversation is not ready")
+		val workspace = repository.workspace(entity)
+		val text = SpeechText.fromMarkdown(markdown).trim()
+		if (text.isBlank()) error(context.getString(R.string.chat_speech_empty))
+
+		val preferred = speechVoice()
+		cachedSpeech(workspace, messageId, preferred)?.let { return@runCatching it }
+
+		val backend = speechBackend(MediaCapability.Speech) ?: mediaUnavailable()
+		val voice = preferred?.takeIf { it in backend.voices() } ?: backend.voices().firstOrNull()
+		val result = withContext(Dispatchers.IO) { backend.synthesize(text, voice) }
+		// Remember the resolved default: the cache name is built from the
+		// voice, so a first read without a stored preference must not
+		// re-synthesize on the next tap.
+		if (voice != null && voice != preferred) setSpeechVoice(voice)
+		val path = "generated/speech/" +
+			"${safeFilePart(messageId) ?: "reply"}-${safeFilePart(voice) ?: "default"}" +
+			".${result.extension}"
+		val saved = saveGeneratedAudio(workspace, path, result)
+		Diag.i(
+			"speech",
+			"read-aloud message=${Diag.shortId(messageId)} chars=${text.length} " +
+				"bytes=${saved.bytes} cached=false",
+		)
+		saved
+	}
+
+	private fun cachedSpeech(
+		workspace: SessionWorkspace,
+		messageId: String,
+		voice: String?,
+	): GeneratedAudio? {
+		val dir = when (val resolution = workspace.resolve("generated/speech")) {
+			is SessionWorkspace.Resolution.Ok -> resolution.file
+			is SessionWorkspace.Resolution.Rejected -> return null
+		}
+		if (!dir.isDirectory) return null
+		val prefix = "${safeFilePart(messageId) ?: "reply"}-${safeFilePart(voice) ?: "default"}."
+		val file = dir.listFiles()?.firstOrNull { candidate ->
+			candidate.isFile && candidate.length() > 44 && candidate.name.startsWith(prefix)
+		} ?: return null
+		Diag.i("speech", "read-aloud cached message=${Diag.shortId(messageId)}")
+		val mime = when (file.extension.lowercase()) {
+			"wav" -> "audio/wav"
+			"mp3" -> "audio/mpeg"
+			else -> "application/octet-stream"
+		}
+		return GeneratedAudio("generated/speech/${file.name}", file.length().toInt(), mime)
+	}
+
+	/** A filesystem-safe token for the deterministic speech cache name. */
+	private fun safeFilePart(value: String?): String? =
+		value?.trim()
+			?.takeIf { it.isNotEmpty() }
+			?.replace(Regex("[^A-Za-z0-9_-]"), "_")
+			?.take(64)
+
+	private fun saveGeneratedAudio(
+		workspace: SessionWorkspace,
+		path: String,
+		result: SpeechAudio,
+	): GeneratedAudio {
 		val resolution = workspace.resolve(path)
 		if (resolution !is SessionWorkspace.Resolution.Ok) {
 			error("workspace refused the generated audio path")
@@ -995,8 +1098,8 @@ class ChatViewModel(
 		)?.let { error(it) }
 		resolution.file.parentFile?.mkdirs()
 		resolution.file.writeBytes(result.bytes)
-		Diag.i("speech", "path=$path bytes=${result.bytes.size} backend=${backend.id}")
-		GeneratedAudio(path, result.bytes.size, result.mimeType)
+		Diag.i("speech", "path=$path bytes=${result.bytes.size}")
+		return GeneratedAudio(path, result.bytes.size, result.mimeType)
 	}
 
 	data class GeneratedImage(

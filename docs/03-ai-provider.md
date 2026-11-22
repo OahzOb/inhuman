@@ -650,17 +650,24 @@ these two tools have had, and an assistant that selected "everything" gets them
 once the DeepSeek key exists — the same rule the Qwen backend already follows,
 with the PAID badge as the disclosure; it is not a second, weaker rule.
 
-The transcript reuses this backend for the per-reply **Speak** action: the
-speaker icon on a finished assistant reply opens the same speech dialog with the
-reply prefilled, so the paid notice and the backend configuration stay in one
-place. Generating from there writes the audio through the same workspace and
-quota path as the `speak` tool and **plays it in-process** through the
-DocumentsProvider (no external viewer), with Play/Stop and Transcribe beside it.
-When the backend offers more than one voice, the dialog shows a picker:
-DeepSeek's TTS documents `stella` (female, default) and `tide` (male); Qwen's
-backend exposes its previous default voice only, so it has no picker to show.
-The chosen id is passed through `SpeechBackend.synthesize`; omitting it keeps
-the backend default.
+The transcript reuses this backend for the per-reply **Speak** action. The
+first tap per install shows the paid notice and the voice picker; afterwards a
+tap starts playback with no dialog. Audio is written through the same workspace
+and quota path as the `speak` tool and cached at
+`generated/speech/<message-id>-<voice>.<ext>`: replaying the same reply in the
+same voice returns that file without a request, and changing the voice writes a
+second file and re-reads the reply. `SpeechText` projects the Markdown reply to
+speech text first (syntax removed, code blocks and tables announced once), so
+billed characters are words rather than markup.
+
+Playback is in-process through a `WorkspaceAudioPlayer` over the
+DocumentsProvider descriptor; the mini bar above the composer shows the voice
+and Stop, and the player is released when the chat screen leaves. DeepSeek's TTS
+documents `stella` (female, default) and `tide` (male); Qwen's backend exposes
+its previous default voice only, so it has no picker to show. The chosen id is
+passed through `SpeechBackend.synthesize`; omitting it keeps the backend default.
+The chat-menu "text to speech" dialog remains for arbitrary text and uses the
+same stored voice.
 
 `MediaToolConfig` (`app/…/ui/chat/MediaTools.kt`) is the stored shape; a blank
 model means the capability's built-in default. `ChatViewModel.mediaBackend`
@@ -750,6 +757,12 @@ write path.
 driven by `SpeechBackend.voices()` (DeepSeek: `stella`, `tide`; Qwen: its
 existing default), and playback uses a `MediaPlayer` over the workspace file's
 DocumentsProvider descriptor, released when the dialog closes.
+
+0.16.0 is the convenience pass on the reply action: a one-time paid notice
+followed by one-tap playback, a mini player with in-place voice switching, a
+per-message/per-voice speech cache, the `SpeechText` Markdown projection, and
+stopping playback when a new turn starts. The chat-menu dialog stays for
+arbitrary text.
 
 **OAuth subscription login is a generic PKCE flow, not bundled provider clients.**
 The provider row's OAuth button opens a dialog for a user-registered public
