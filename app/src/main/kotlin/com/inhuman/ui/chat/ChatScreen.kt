@@ -38,6 +38,7 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.outlined.DataObject
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.automirrored.outlined.Undo
@@ -602,7 +603,9 @@ fun ChatScreen(
 	var showChatMenu by remember { mutableStateOf(false) }
 	var showGenerateImage by remember { mutableStateOf(false) }
 	var showDecision by remember { mutableStateOf(false) }
-	var showSpeech by remember { mutableStateOf(false) }
+	// The reply that the speech dialog was opened for. Null means closed; an
+	// empty string is the chat-menu entry with no text to start from.
+	var speechDraft by remember { mutableStateOf<String?>(null) }
 	var showVideo by remember { mutableStateOf(false) }
 	// In-conversation search is a full-screen dialog, not an inline bar. An
 	// inline bar plus the IME left no transcript on a 640x360 landscape phone;
@@ -1048,7 +1051,7 @@ fun ChatScreen(
 									},
 									onClick = {
 										showChatMenu = false
-										showSpeech = true
+										speechDraft = ""
 									},
 								)
 								DropdownMenuItem(
@@ -1754,6 +1757,9 @@ fun ChatScreen(
 							},
 							onRetry = viewModel::retryLastTurn,
 							onUseSuggestion = viewModel::useSuggestion,
+							// The dialog is the paid choice; this only carries
+							// the reply text into it, prefilled.
+							onSpeakReply = { text -> speechDraft = text },
 							// Both ids go up: the alternative being switched to is
 							// not on the active path, so the view model cannot find
 							// its parent by searching the transcript.
@@ -1974,12 +1980,13 @@ fun ChatScreen(
 		)
 	}
 
-	if (showSpeech) {
+	speechDraft?.let { initialText ->
 		SpeechDialog(
+			initialText = initialText,
 			workspaceId = workspaceId,
 			onSpeak = { text -> viewModel.synthesize(text) },
 			onTranscribe = { path -> viewModel.transcribe(path) },
-			onDismiss = { showSpeech = false },
+			onDismiss = { speechDraft = null },
 		)
 	}
 
@@ -3735,6 +3742,7 @@ private fun MessageBubble(
 	onShowTurnWire: () -> Unit,
 	onShowRewind: () -> Unit,
 	onRetry: () -> Unit,
+	onSpeakReply: (String) -> Unit,
 	onUseSuggestion: (String) -> Unit,
 	onSelectBranch: (String?, String) -> Unit,
 ) {
@@ -4173,6 +4181,18 @@ private fun MessageBubble(
 							contentDescription = stringResource(R.string.chat_copy_reply),
 							tint = MaterialTheme.colorScheme.onSurfaceVariant,
 							modifier = Modifier.size(16.dp),
+						)
+					}
+					// The reply itself is the text to speak. The action only
+					// opens the dialog; the paid call and its notice stay there.
+					IconButton(
+						onClick = { onSpeakReply(message.plainText) },
+					) {
+						Icon(
+							imageVector = Icons.AutoMirrored.Outlined.VolumeUp,
+							contentDescription = stringResource(R.string.chat_speak_reply),
+							tint = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.size(17.dp),
 						)
 					}
 				}
@@ -5410,6 +5430,7 @@ private fun DecisionDialog(
 
 @Composable
 private fun SpeechDialog(
+	initialText: String = "",
 	workspaceId: String?,
 	onSpeak: suspend (String) -> Result<ChatViewModel.GeneratedAudio>,
 	onTranscribe: suspend (String) -> Result<String>,
@@ -5420,7 +5441,7 @@ private fun SpeechDialog(
 	val transcriptionFailed = stringResource(R.string.chat_transcription_failed)
 	val scope = rememberCoroutineScope()
 	val context = LocalContext.current
-	var text by remember { mutableStateOf("") }
+	var text by remember(initialText) { mutableStateOf(initialText) }
 	var running by remember { mutableStateOf(false) }
 	var saved by remember { mutableStateOf<ChatViewModel.GeneratedAudio?>(null) }
 	var transcript by remember { mutableStateOf<String?>(null) }
@@ -5438,6 +5459,9 @@ private fun SpeechDialog(
 					modifier = Modifier.fillMaxWidth(),
 					label = { Text(stringResource(R.string.chat_tts_text)) },
 					minLines = 4,
+					// A reply can be long; the field scrolls internally instead
+					// of turning the dialog into a full-height page.
+					maxLines = 8,
 					enabled = !running,
 				)
 				if (running) {

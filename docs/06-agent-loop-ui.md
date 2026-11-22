@@ -264,10 +264,10 @@ capture fails, the mutation is refused rather than run without an undo record.
 Read-only turns need no checkpoint.
 
 The last turn has one **Rewind** action (an undo icon) on the newest answer's
-action row, beside Source and Copy. For a turn whose answer has not arrived yet,
-the same icon falls back to the last user message. Tapping it opens a picker of
-restart points; each point is a prefix that the next request can reuse from the
-provider's cache, and everything after that point is removed:
+action row, beside Source, Copy and Speak. For a turn whose answer has not
+arrived yet, the same icon falls back to the last user message. Tapping it opens
+a picker of restart points; each point is a prefix that the next request can
+reuse from the provider's cache, and everything after that point is removed:
 
 - **Answer again** keeps every tool result and asks only for a new final answer.
   The tools stay in the request for prefix-cache matching, but calls are
@@ -299,6 +299,14 @@ timestamp, plus the total, and lets the user keep 1/3/5/10 turns. Rewinding one
 turn replaces only that turn; older turns are not truncated. A mid-turn
 regeneration trims manifests the rewritten transcript no longer references, so
 that turn's checkpoints are replaced.
+
+The action row also carries **Speak** (a speaker icon) on every completed
+assistant reply with text. It is a per-reply action, not a turn action: it opens
+the speech dialog with that reply already in the text field. The dialog is where
+the paid notice and the backend choice are stated; generating saves the audio in
+the workspace and the dialog then offers Play and Transcribe. The text stays
+editable, because a reply can contain Markdown that the speech backend should
+not read literally.
 
 The two regeneration paths have different cache behaviour, and the turn's usage
 line says so. The final-answer refresh keeps the tool definitions and appends a

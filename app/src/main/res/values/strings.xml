@@ -954,6 +954,7 @@
 	<string name="chat_show_rendered">Show rendered reply</string>
 	<string name="chat_show_markdown">Show Markdown source</string>
 	<string name="chat_copy_reply">Copy reply</string>
+	<string name="chat_speak_reply">Convert reply to speech</string>
 	<string name="chat_rewind_turn">Rewind this turn</string>
 	<string name="chat_changed_files">Changed files</string>
 	<string name="chat_attach_image">Attach an image</string>

@@ -650,6 +650,12 @@ these two tools have had, and an assistant that selected "everything" gets them
 once the DeepSeek key exists — the same rule the Qwen backend already follows,
 with the PAID badge as the disclosure; it is not a second, weaker rule.
 
+The transcript reuses this backend for the per-reply **Speak** action: the
+speaker icon on a finished assistant reply opens the same speech dialog with the
+reply prefilled, so the paid notice and the backend configuration stay in one
+place. Generating from there writes the audio through the same workspace and
+quota path as the `speak` tool.
+
 `MediaToolConfig` (`app/…/ui/chat/MediaTools.kt`) is the stored shape; a blank
 model means the capability's built-in default. `ChatViewModel.mediaBackend`
 resolves the choice per turn and passes the model into the tool, so changing the
@@ -728,6 +734,11 @@ container and transcribes it back.
 
 0.13.0 also adds `read_scanned`, the DeepSeek OCR path for scanned pages and
 images, described above.
+
+0.14.0 adds the per-reply **Speak** action described above: it prefills the
+speech dialog with the assistant's reply instead of requiring the text to be
+typed or copied, and otherwise uses the same backend, paid notice and workspace
+write path.
 
 **OAuth subscription login is a generic PKCE flow, not bundled provider clients.**
 The provider row's OAuth button opens a dialog for a user-registered public

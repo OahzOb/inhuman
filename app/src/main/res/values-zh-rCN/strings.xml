@@ -931,6 +931,7 @@
 	<string name="chat_show_rendered">显示渲染后的回复</string>
 	<string name="chat_show_markdown">显示 Markdown 源码</string>
 	<string name="chat_copy_reply">复制回复</string>
+	<string name="chat_speak_reply">转语音</string>
 	<string name="chat_rewind_turn">回退这一回合</string>
 	<string name="chat_changed_files">更改的文件</string>
 	<string name="chat_attach_image">添加图片</string>
