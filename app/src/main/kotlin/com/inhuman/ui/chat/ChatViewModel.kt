@@ -31,6 +31,7 @@ import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.capability.ProviderCapabilities
 import com.inhuman.core.ai.capability.ProviderCapability
 import com.inhuman.core.ai.provider.demo.DemoProvider
+import com.inhuman.core.ai.provider.deepseek.DeepSeekOcrApi
 import com.inhuman.core.ai.provider.deepseek.DeepSeekSpeechApi
 import com.inhuman.core.ai.provider.qwen.QwenTokenPlanClient
 import com.inhuman.core.ai.speech.DeepSeekSpeechBackend
@@ -4544,6 +4545,22 @@ class ChatViewModel(
 			// that it cannot use it, and it says so.
 			searchProvider()?.let { add(WebSearchTool(it)) }
 			fetchProvider()?.let { add(WebFetchTool(it)) }
+			// OCR reads a workspace file through DeepSeek's paid OCR service.
+			// The key is the DeepSeek tools key, not the chat key, for the same
+			// reason search/fetch have their own: uploading a document is a
+			// separate paid action. The catalogue marks it `optIn`, so this
+			// check keeps the tool out of a "everything" selection and avoids
+			// building a client for a tool the assistant did not choose.
+			val ocrWorkspace = workspace
+			val ocrKey = secure.get(SecureStore.KEY_WEB_DEEPSEEK_API_KEY)
+				?.takeIf { it.isNotBlank() }
+			if (
+				ocrWorkspace != null &&
+				ocrKey != null &&
+				ToolCatalog.permits(selected, "read_scanned")
+			) {
+				add(ReadScannedTool(DeepSeekOcrApi(apiKey = { ocrKey }), ocrWorkspace))
+			}
 			// Anonymous Bilibili reads. Free and account-free, but still an
 			// external data path the user chose, so the global switch is the
 			// first gate; `ToolCatalog.permits` is the second, because all of

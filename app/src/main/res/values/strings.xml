@@ -178,12 +178,13 @@
 	<string name="settings_section_web">02 / Web &amp; media</string>
 	<string name="settings_web_title">Web &amp; media tools</string>
 	<string name="settings_web_summary">Search, fetch and paid media backends, each with its own key</string>
-	<string name="settings_web_body">web_search and web_fetch use their own keys, not the chat provider\'s. Pick a backend for each; calls are billed by the service you choose.</string>
+	<string name="settings_web_body">web_search and web_fetch use their own keys, not the chat provider\'s. read_scanned (OCR) also uses the DeepSeek tools key and uploads the file to DeepSeek. Pick a backend for each; calls are billed by the service you choose, and OCR per page.</string>
 	<string name="settings_search_backend">Search backend</string>
 	<string name="settings_fetch_backend">Fetch backend</string>
-	<string name="settings_deepseek_web_key">DeepSeek web key (sk-…)</string>
-	<string name="settings_deepseek_web_key_saved">DeepSeek web key saved</string>
-	<string name="settings_deepseek_web_key_missing">DeepSeek web key not set</string>
+	<string name="settings_deepseek_web_key">DeepSeek tools key (sk-…)</string>
+	<string name="settings_deepseek_web_key_saved">DeepSeek tools key saved</string>
+	<string name="settings_deepseek_web_key_missing">DeepSeek tools key not set</string>
+	<string name="settings_web_ocr_hint">read_scanned uses this key: it sends a workspace PDF or image to DeepSeek\'s OCR service and is billed per page.</string>
 	<string name="settings_exa_key">Exa API key</string>
 	<string name="settings_exa_key_saved">Exa key saved</string>
 	<string name="settings_exa_key_missing">Exa key not set</string>
@@ -521,7 +522,7 @@
 	<string name="badge_remote">REMOTE</string>
 	<string name="badge_rewind">REWIND</string>
 	<string name="badge_no_rewind">NO REWIND</string>
-	<string name="notice_paid_tools">web_search and web_fetch call the search/fetch service configured in Settings; the image, video, speech, transcription and decision tools call their configured backends. Each is billed per call by its provider. Tools without the PAID badge do not call a paid service.</string>
+	<string name="notice_paid_tools">web_search and web_fetch call the search/fetch service configured in Settings; read_scanned sends a workspace file to DeepSeek OCR and is billed per page; the image, video, speech, transcription and decision tools call their configured backends. Each is billed per call by its provider. Tools without the PAID badge do not call a paid service.</string>
 	<string name="notice_remote_tools">The SSH tools can read and move files on another machine; commands run only if ssh_exec is selected. ssh_hosts only lists the machines you shared -- it does not connect and carries no credential; to connect, the agent must be given the address and a credential itself (a workspace key or a password). Damage at the remote end can be irreversible. They also require the SSH tool switch in Settings and consent once per conversation.</string>
 
 
@@ -734,6 +735,7 @@
 	<string name="tool_blurb_file_info">Size and modified date of a file</string>
 	<string name="tool_blurb_read_document">Read a CSV, TXT, DOCX, XLSX, PDF, DOC or XLS document</string>
 	<string name="tool_blurb_read_pdf_vision">Read scanned PDF pages with the current vision model (paid per page)</string>
+	<string name="tool_blurb_read_scanned">Read scanned PDF pages or images with DeepSeek OCR (uploads the file; paid per page)</string>
 	<string name="tool_blurb_unavailable_tools">See which app tools this conversation cannot use</string>
 	<string name="tool_blurb_read_time">The current date and time, and date arithmetic</string>
 	<string name="tool_blurb_web_search">Search the web via the configured paid search API</string>
@@ -1080,7 +1082,7 @@
 	<string name="settings_status_connected_no_models">Connected, but no models were listed.</string>
 	<string name="settings_status_connected">Connected. %1$d model(s): %2$s</string>
 	<string name="settings_error_connection_failed">Connection failed.</string>
-	<string name="settings_status_web_saved">Web tool keys saved. The tools use the backend selected above.</string>
+	<string name="settings_status_web_saved">Web tool keys saved. Search and fetch use the backend above; read_scanned uses the DeepSeek tools key.</string>
 	<string name="settings_status_backup_written">Backup written. Keep the passphrase: it cannot be recovered.</string>
 	<string name="settings_error_backup_failed">Backup failed: %1$s</string>
 	<string name="settings_error_unknown">unknown error</string>

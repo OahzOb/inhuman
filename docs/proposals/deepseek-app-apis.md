@@ -1,9 +1,10 @@
 # DeepSeek 2026-11-13 应用 API 套件 — 可采用性评估
 
-> **状态：提案，部分实现。** 本文回答"2026-11-13 DeepSeek 新开放的这批 API 里，哪些能接进 inhuman、以什么边界接、哪些不接"，不是当前行为。
-> **2026-11-21 更新：ASR 与 TTS 已实现**（`DeepSeekSpeechApi` + `SpeechBackend`，见 `docs/03-ai-provider.md` 的媒体后端一节和 `docs/14-documents-voice.md` §6）；OCR 仍待产品决策，服务端 web tools、Files API、safety_check 仍不接。实现后的结论以 `docs/03`/`docs/14` 为准。
-> 采纳后：ASR/TTS 结论并入 `docs/03-ai-provider.md` 的媒体后端一节和 `docs/14-documents-voice.md` §6；若做 OCR，还要先补
-> `docs/14-documents-voice.md` §2/§8 和 `docs/13-product.md` 里"扫描件算不算第一批"的结论；`docs/08-port-philosophy.md` §1.2/§1.4 是判断依据。
+> **状态：提案，已实现（ASR / TTS / OCR）。** 本文回答"2026-11-13 DeepSeek 新开放的这批 API 里，哪些能接进 inhuman、以什么边界接、哪些不接"，不是当前行为。
+> **2026-11-21 更新：ASR 与 TTS 已实现**（`DeepSeekSpeechApi` + `SpeechBackend`，见 `docs/03-ai-provider.md` 的媒体后端一节和 `docs/14-documents-voice.md` §6）。
+> **2026-11-22 更新：OCR 也已实现**（`DeepSeekOcrApi` + `read_scanned`，见 `docs/03-ai-provider.md` 的 OCR 一节和 `docs/14-documents-voice.md` §2/§8）；服务端 web tools、Files API、safety_check 仍不接。实现后的结论以 `docs/03`/`docs/14` 为准。
+> 采纳后：ASR/TTS 结论并入 `docs/03-ai-provider.md` 的媒体后端一节和 `docs/14-documents-voice.md` §6；OCR 的结论并入
+> `docs/03-ai-provider.md`、`docs/14-documents-voice.md` §2/§8 和 `docs/13-product.md`；`docs/08-port-philosophy.md` §1.2/§1.4 是判断依据。
 
 ---
 
@@ -13,7 +14,7 @@
 | --- | --- | --- |
 | **ASR** `POST /v1/tools/asr` | **能，建议第一批** | 作为 Speech/Transcription 的一个新付费后端；录音路径（16 kHz 单声道 PCM WAV、≤120 s）与它的输入限制几乎逐项对齐 |
 | **TTS** `POST /v1/tools/tts` | **能，建议第一批（先试听）** | 同上；输出 WAV 而非 MP3，两个音色，音质需要和现在的 Qwen TTS 对比后再定默认 |
-| **OCR** `POST /v1/tools/ocr` | **有条件，建议第二批** | 扫描件/图片/PPT 的 opt-in 付费读取；它把**整份原始文件**发给 DeepSeek，属于"app 代发的付费外部读取"，要单独披露，且先要回答产品问题 |
+| **OCR** `POST /v1/tools/ocr` | **能，已实现（0.13.0）** | 扫描件/图片的 opt-in 付费读取（`read_scanned`）；它把选中的页面（或图片）发给 DeepSeek，属于"app 代发的付费外部读取"，披露与页数上限已按提案落地 |
 | 服务端 **web tools**（`deepseek_web_search` / `deepseek_read_url`） | **不接** | DeepSeek 自己写的是"给 chatbot 用，agent 用 Search & Fetch API"；我们已经是后者。接进来会把"什么时候上网"从用户的工具清单挪进模型，和 §1.2/§1.4 的治理模型冲突 |
 | **Files API / 文件解析**（上传 → `file_id`） | **不接** | 文件留在远端、每轮用 `file_id` 引用，和"文档是工作区里的本地文件、转换不联网"直接冲突；本地读不了的格式用 OCR 是更小的口子 |
 | **`safety_check`**（模型内容安全） | **不接** | 面向公开服务的合规开关；会审输入、输出和工具结果，加延迟和 token 账单，还会在流中途拒绝。本产品是个人工具，不是公开服务 |
@@ -71,7 +72,9 @@
 
 **披露**：和 ASR 同类。`speak` 已是 `paid`、`mutates`、`workspaceBound`；音频是工作区副本，可回退，没有新增权限。
 
-### 2.3 OCR — 有条件，建议第二批
+### 2.3 OCR — 有条件，建议第二批（已实现）
+
+> **2026-11-22：已实现。** `core/ai/…/provider/deepseek/DeepSeekOcrApi.kt` 与 `app/…/ui/chat/ReadScannedTool.kt`（工具名 `read_scanned`）。落在提案的"单独一行 opt-in 付费工具"上：key 复用 DeepSeek 工具密钥，PDF 先在本地裁成选中页（<＝10 页）再上传，图片单页；披露、页数/字节上限和标记清洗见 `docs/03-ai-provider.md`。
 
 **它能干什么**：`POST /v1/tools/ocr`，`multipart` 的 `file` + `purpose`（`text_recognition` 或 `rich_layout_recognition`）；支持 PDF、DOC/DOCX、PPT/PPTX 和常见图片；≤100 MiB、≤1000 页、总时长 180 秒、单账号 15 个在途；按**成功页数**计费 $0.225/千页；返回 `pages[].text`，按页带 `<｜ref｜>`/`<｜box｜>` 这类定位标记和 0–1000 归一化坐标，`finish_reason: length` 表示该页被截断。官方说明：**文件不进入 Files API、也不会交给聊天模型**（[OCR guide](https://api-docs.deepseek.com/guides/ocr.md) 开头）。
 
@@ -137,16 +140,16 @@
 
 ## 4. 建议顺序
 
-1. **ASR 后端**：价值最高（只配一个 DeepSeek key 就能用语音输入、格式天然匹配、比现有链路便宜），工作量最小。**已实现（0.12.0）。**
-2. **TTS 后端**：同一套抽象，试听后决定是否设为默认。**已实现（0.12.0）。**
-3. **OCR**：等"扫描件/拍照件算不算第一批"的产品答案；如果做，单独一行 opt-in 付费工具 + 完整披露，不做隐藏 fallback。
+1. **ASR 后端**：价值最高（只配一个 DeepSeek key 就能用语音输入、格式天然匹配、比现有链路便宜），工作量最小。**已实现（0.13.0）。**
+2. **TTS 后端**：同一套抽象，试听后决定是否设为默认。**已实现（0.13.0）。**
+3. **OCR**：**已实现（0.13.0）**——单独一行 opt-in 付费工具（`read_scanned`）+ 完整披露，不做隐藏 fallback；本地 OCR 引擎仍不在范围内。
 4. **不做**：server web tools、Files API、safety_check。
 
 ## 5. 待定问题
 
 - DeepSeek 的 ASR/TTS 要不要复用 `web.deepseek.api_key`（一个 "DeepSeek tools" key），还是像现在这样按能力各存一份？前者少一次输入，后者保住"付费媒体后端按能力独立配置"的整齐（也避免把 web tools 的 key 语义扩散到语音）。
 - DeepSeek TTS 的中文音质是否达到 Qwen 的水平；如果不如，是否仍提供（便宜、英文/Cantonese 覆盖更好）？
-- 扫描件需求的真实频率：没有它时 `read_pdf_vision` 够不够用？如果够，OCR 可以一直不做。
+- 扫描件需求：已用"单独 opt-in 付费工具"回答，`read_pdf_vision` 仍是默认的小页数路径；本地 OCR 引擎仍是单独决策。
 - 图像搜索/深度思考搜索是否值得一个 provider 级例外？我的判断是不值得，但这是产品决定，不是技术限制。
 
 ## 6. 参考

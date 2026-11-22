@@ -718,13 +718,16 @@ validated locally before the same `systemone` call.
 mp3/wav/opus through `WorkspaceTransfer`, then runs the same ASR call and shows
 the transcript; the file is left in `attachments/` and can be deleted normally.
 
-0.12.0 adds the DeepSeek speech backend: `DeepSeekSpeechApi` and the
+0.13.0 adds the DeepSeek speech backend: `DeepSeekSpeechApi` and the
 `SpeechBackend` interface in `:core:ai`, with `QwenSpeechBackend` and
 `DeepSeekSpeechBackend` behind the existing `speak`/`transcribe` tools and the
 composer's transcription backend. DeepSeek's profile kind advertises `Speech`;
 the ASR/TTS limits, refusals, WAV output and no-model rule are above. The live
 test (`DeepSeekSpeechLiveTest`) synthesizes one short sentence, checks the WAV
 container and transcribes it back.
+
+0.13.0 also adds `read_scanned`, the DeepSeek OCR path for scanned pages and
+images, described above.
 
 **OAuth subscription login is a generic PKCE flow, not bundled provider clients.**
 The provider row's OAuth button opens a dialog for a user-registered public
@@ -886,7 +889,9 @@ The tools are unchanged in shape: `web_search` returns titles, links and excerpt
   an OpenAI-compatible profile and still use DeepSeek web tools, or chat on
   DeepSeek and use Exa. The four slots live in `SecureStore`:
   `web.deepseek.api_key`, `web.exa.api_key`, `web.search_backend`,
-  `web.fetch_backend`.
+  `web.fetch_backend`. The same DeepSeek key is also the OCR key used by
+  `read_scanned`; the Settings row is labelled "DeepSeek tools key" for that
+  reason.
 - The old single-key behaviour is deliberately not copied on upgrade: it would
   make "independent" true in name only. Settings reports which backend has no key,
   and the tool is not registered until that backend's key exists.
@@ -1005,6 +1010,53 @@ $env:DEEPSEEK_LIVE_KEY = 'sk-...'
 
 It checks the request shape that fixtures cannot, and it is what caught the
 `&amp;` URL-encoding issue above.
+
+## `read_scanned`: DeepSeek OCR for pages a local reader cannot read
+
+The local document tools read a PDF's text layer. A scanned page has none, and
+`read_pdf_vision` is the four-page fallback through the turn's vision model.
+`read_scanned` is the other fallback: one paid call to DeepSeek's OCR API
+(`POST /v1/tools/ocr`) that returns page text and needs no vision-capable model.
+
+**The file leaves the device.** The bytes are the request payload; the OCR
+service does not store them in the Files API and the result is not downloadable.
+The tool is therefore `paid = true`, `optIn = true` and `workspaceBound = true`,
+the catalogue blurb says it uploads the file, the assistant editor's billing
+notice names it, and the Web & media section explains it next to the key. It is
+not a fallback inside `read_document`: a failed local read keeps its own error,
+and the model must choose this tool by name.
+
+**The key is the DeepSeek tools key** (`web.deepseek.api_key`), not the chat
+key — the same separation search and fetch have. There is no separate backend
+selector: OCR is a DeepSeek-only endpoint. The tool is registered only when that
+key exists and the assistant selected it; a null "all tools" selection does not
+include it, because the catalogue entry is `optIn`.
+
+**Page ranges are enforced locally because the API has none.** The OCR endpoint
+processes the whole file and bills every page, so the tool copies the selected
+pages (at most 10 per call, default the first 10) into a small in-memory PDF with
+PDFBox and uploads that. `scannedPages`
+(`app/…/ui/chat/ReadScannedTool.kt`) is the pure range check and
+`ScannedPagesTest` covers it. Images (png/jpg/jpeg/webp) are one page and are
+uploaded as they are; any other extension is refused.
+
+Limits: 20 MiB per upload (workspace writes are capped at 4 MiB, but an older
+workspace or a user download can hold more), at most 10 pages, 40,000 characters
+of returned text, and a page whose OCR `finish_reason` is `length` is marked
+truncated. The result says the file was sent to DeepSeek and that the call bills
+per page. A scan can take up to 180 seconds, so the client has its own OkHttp
+instance: the chat client's 90-second header timeout would cancel a valid scan.
+
+**Locator tokens are not content.** `text_recognition` wraps located text in
+`<｜ref｜>…</｜ref｜>` and `<｜box｜>[[x1, y1, x2, y2]]</｜box｜>`.
+`DeepSeekOcrApi.cleanPageText` removes both the tags and the coordinate arrays;
+the app has no layout model, so they are noise in the model's context.
+
+Tests: `DeepSeekOcrApiTest` pins the multipart order (`purpose` before `file`),
+the page parser, the locator cleaner and the refusal bodies; `DeepSeekOcrLiveTest`
+renders a PNG with Java2D and checks the recognized text, skipped unless
+`DEEPSEEK_LIVE_KEY` is set. `ScannedPagesTest` and `CropPdfPagesTest` are the
+app-side JVM tests for the page-range arithmetic and the in-memory PDF copy.
 
 ## Bilibili reads: anonymous, read-only, app-proxied
 
@@ -1432,6 +1484,7 @@ The 18 tools and their `mutates` flags are tabulated in
 All JVM, no device. The live tests in this module are skipped by default:
 `DeepSeekWebLiveTest` (one search and one fetch, both paid),
 `DeepSeekSpeechLiveTest` (one TTS synthesis plus one ASR pass, both paid),
+`DeepSeekOcrLiveTest` (one rendered image, paid per page),
 `QwenTokenPlanLiveTest` (the Qwen image and decision endpoints), and
 `SshLiveProbeTest` (read-only SFTP against a host whose credentials are in the
 environment).
@@ -1446,6 +1499,7 @@ environment).
 | `DeepSeekSearchApiTest` | Result parsing, summary-over-snippet, date handling, URL de-duplication, tracking-parameter removal including `&amp;` |
 | `DeepSeekFetchApiTest` | URL validation (scheme, host, credentials, length) and page parsing |
 | `DeepSeekSpeechApiTest` | Billed-character counting, WAV duration/completeness, the multipart ASR and JSON TTS request shapes, and the local refusals before a paid call |
+| `DeepSeekOcrApiTest` | Multipart order (`purpose` before `file`), page parsing, locator-token cleaning, and the error/refusal bodies |
 | `WebSearchToolTest` | The tool against a fake provider: count, empty result, failure text |
 | `WebFetchToolTest` | Title/URL/body format, truncation marker, missing URL, provider failure |
 | `TimeToolTest` | Zone handling and date arithmetic |

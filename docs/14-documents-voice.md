@@ -74,6 +74,13 @@ Why the split:
   is not local OCR and adds one paid request per page; the images are request
   payload and are not saved in the workspace. A text-only model does not get the
   tool.
+- **Many scanned pages or an image use the paid `read_scanned` tool.** DeepSeek's
+  OCR API is the alternative to rendering page by page: `read_scanned` copies the
+  selected PDF pages (at most ten) into a small in-memory PDF, or takes one
+  PNG/JPEG/WebP image, and returns page text. It is `paid` and `optIn`, the file
+  bytes leave the device, and the intended order is `read_document` →
+  `read_pdf_vision` → `read_scanned`; it is never a hidden fallback. Limits, key
+  and tests are in `03-ai-provider.md`.
 - **CSV is not Excel.** It has no types, no formulas and no sheets. Reading a
   sheet to CSV reports the sheet that was chosen and that formulas became their
   cached values; writing CSV from a multi-sheet workbook is refused unless the
@@ -82,6 +89,12 @@ Why the split:
 No cloud converter, no LibreOffice, no PRoot, no second runtime. A paid API
 conversion service is not used: it would send the document off the device and
 would need the product's paid disclosure for a feature that is otherwise local.
+
+Reading is local by default, with one opt-in exception: `read_scanned` sends the
+selected pages (or one image) to DeepSeek's OCR service, because a scanned page
+has no text layer for the local readers to read. It is a read, not a conversion:
+no file is written, the OCR result is not stored remotely, the tool is marked
+`paid` and `optIn`, and the settings copy says the bytes leave the device.
 
 ## 3. A neutral model, and what "loss" means
 
@@ -122,6 +135,9 @@ with explicit ceilings:
   is bounded;
 - `read_pdf_vision`: at most four pages per call, 4 MB input, 1568 px long edge,
   one vision request per page; it is opt-in and paid;
+- `read_scanned` (DeepSeek OCR): at most ten pages per call (default the first
+  ten), 20 MB upload, one image or one cropped PDF, 40,000 characters of result;
+  it is opt-in, paid per page, and the file bytes leave the device;
 - DOC/XLS: 4 MB and the same row/paragraph limits;
 - every result reports `truncated = true` and what was omitted.
 
@@ -205,10 +221,12 @@ Voice is Android-only because the phone app is the product.
 - **Apache POI for DOCX/XLSX**: pulls StAX and AWT assumptions into Android for
   a format that is already a zip of XML; the subset writer preserves unknown
   parts and is testable on the JVM.
-- **OCR in the first batch**: a scanned PDF is reported as having no text layer.
-  The opt-in `read_pdf_vision` tool asks the current vision model to transcribe
-  bounded page images; it is not local OCR, and there is no hidden fallback.
-  Adding a local OCR engine is still a separate decision.
+- **Local OCR in the first batch**: a scanned PDF is reported as having no text
+  layer. The opt-in `read_pdf_vision` tool asks the current vision model to
+  transcribe bounded page images, and the opt-in paid `read_scanned` tool uses
+  DeepSeek's OCR service for a larger page range or an image. Neither is local
+  OCR, and there is no hidden fallback. Adding a local OCR engine is still a
+  separate decision.
 - **Voice through the assistant**: recording triggered by or exposed to the
   model would turn a microphone into an agent capability. The button is user
   input only, like the keyboard.

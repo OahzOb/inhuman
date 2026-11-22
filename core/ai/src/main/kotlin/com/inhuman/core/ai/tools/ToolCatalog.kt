@@ -177,6 +177,14 @@ object ToolCatalog {
 			workspaceBound = true,
 			optIn = true,
 		),
+		Entry(
+			"read_scanned",
+			"Read scanned PDF pages or images with DeepSeek OCR (uploads the file; paid per page)",
+			mutates = false,
+			paid = true,
+			workspaceBound = true,
+			optIn = true,
+		),
 		Entry("read_time", "The current date and time, and date arithmetic", mutates = false),
 		Entry(
 			"run_javascript",
@@ -546,5 +554,13 @@ object ToolCatalog {
 	 * switched on as a side effect of "select all".
 	 */
 	fun everythingExplicit(includeSuggestions: Boolean = false): List<String> =
-		visible(includeSsh = false, includeSuggestions = includeSuggestions).map { it.name }
+		visible(includeSsh = false, includeSuggestions = includeSuggestions)
+			// Opt-in tools are chosen one by one, never inherited by "select
+			// all": the point of the flag is that a new paid or external tool
+			// does not enter an existing assistant because someone ticked an
+			// unrelated box. `visible()` still lists them (the picker shows
+			// the row), so they are removed here rather than by a gate per
+			// tool.
+			.filterNot { it.optIn }
+			.map { it.name }
 }

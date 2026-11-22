@@ -164,12 +164,13 @@
 	<string name="settings_section_web">02 / 网络与媒体</string>
 	<string name="settings_web_title">网络与媒体工具</string>
 	<string name="settings_web_summary">搜索、抓取和付费媒体后端，各自使用独立密钥</string>
-	<string name="settings_web_body">web_search 和 web_fetch 使用独立密钥，而不是对话服务商的密钥。请分别选择后端；调用费用由所选服务收取。</string>
+	<string name="settings_web_body">web_search 和 web_fetch 使用独立密钥，而不是对话服务商的密钥。read_scanned（OCR）也使用 DeepSeek 工具密钥，会把文件上传到 DeepSeek。请分别选择后端；调用费用由所选服务收取，OCR 按页计费。</string>
 	<string name="settings_search_backend">搜索后端</string>
 	<string name="settings_fetch_backend">抓取后端</string>
-	<string name="settings_deepseek_web_key">DeepSeek 网络密钥（sk-…）</string>
-	<string name="settings_deepseek_web_key_saved">已保存 DeepSeek 网络密钥</string>
-	<string name="settings_deepseek_web_key_missing">未设置 DeepSeek 网络密钥</string>
+	<string name="settings_deepseek_web_key">DeepSeek 工具密钥（sk-…）</string>
+	<string name="settings_deepseek_web_key_saved">已保存 DeepSeek 工具密钥</string>
+	<string name="settings_deepseek_web_key_missing">未设置 DeepSeek 工具密钥</string>
+	<string name="settings_web_ocr_hint">read_scanned 使用这把密钥：它把工作区里的 PDF 或图片发给 DeepSeek 的 OCR 服务，按页计费。</string>
 	<string name="settings_exa_key">Exa API 密钥</string>
 	<string name="settings_exa_key_saved">已保存 Exa 密钥</string>
 	<string name="settings_exa_key_missing">未设置 Exa 密钥</string>
@@ -502,7 +503,7 @@
 	<string name="badge_remote">远程</string>
 	<string name="badge_rewind">可回退</string>
 	<string name="badge_no_rewind">不可回退</string>
-	<string name="notice_paid_tools">web_search 和 web_fetch 会调用设置中选定的搜索/抓取服务；图片、视频、语音、转写和决策工具会调用各自配置的后端。它们都按调用计费；没有 PAID 标记的工具不会调用付费服务。</string>
+	<string name="notice_paid_tools">web_search 和 web_fetch 会调用设置中选定的搜索/抓取服务；read_scanned 会把工作区文件发给 DeepSeek OCR 并按页计费；图片、视频、语音、转写和决策工具会调用各自配置的后端。它们都按调用计费；没有 PAID 标记的工具不会调用付费服务。</string>
 	<string name="notice_remote_tools">SSH 工具可以读取、传输远端文件；只有显式选中 ssh_exec 才会执行命令。ssh_hosts 只列出你分享的主机信息，不连接、不含凭据；连接时助手必须自己给出地址和凭据（工作区密钥或密码）。远端的损坏可能无法撤销。使用前需要在设置中打开 SSH 开关，每个对话还要授权一次。</string>
 
 
@@ -714,6 +715,7 @@
 	<string name="tool_blurb_file_info">查看文件大小和修改时间</string>
 	<string name="tool_blurb_read_document">读取 CSV、TXT、DOCX、XLSX、PDF、DOC 或 XLS 文档</string>
 	<string name="tool_blurb_read_pdf_vision">用当前视觉模型读取扫描版 PDF 页面（按页计费）</string>
+	<string name="tool_blurb_read_scanned">用 DeepSeek OCR 读取扫描版 PDF 或图片（会上传文件，按页计费）</string>
 	<string name="tool_blurb_unavailable_tools">查看 app 提供、但这个对话不能用的工具</string>
 	<string name="tool_blurb_read_time">当前日期时间，以及日期计算</string>
 	<string name="tool_blurb_web_search">通过配置的付费搜索 API 搜索网页</string>
@@ -1055,7 +1057,7 @@
 	<string name="settings_status_connected_no_models">已连接，但没有列出模型。</string>
 	<string name="settings_status_connected">已连接。共 %1$d 个模型：%2$s</string>
 	<string name="settings_error_connection_failed">连接失败。</string>
-	<string name="settings_status_web_saved">网络工具密钥已保存。工具会使用上方选择的后端。</string>
+	<string name="settings_status_web_saved">网络工具密钥已保存。搜索和抓取使用上方选择的后端；read_scanned 使用 DeepSeek 工具密钥。</string>
 	<string name="settings_status_backup_written">备份已写入。请记住口令：它无法找回。</string>
 	<string name="settings_error_backup_failed">备份失败：%1$s</string>
 	<string name="settings_error_unknown">未知错误</string>

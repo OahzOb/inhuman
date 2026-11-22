@@ -272,11 +272,14 @@ notes below explain what is still absent.
   tables and formatting are flattened and reported. DOCX/XLSX keep package parts
   this app does not understand and report what the neutral model cannot carry.
   The decision is [14-documents-voice.md](14-documents-voice.md).
-- **Scanned PDFs can be read through the current vision model, as an opt-in
-  paid tool.** `read_pdf_vision` renders at most four pages and sends one image
-  per page to the model that is already handling the conversation; it is not
-  local OCR, and it does not save the images. Use it when `read_document`
-  reports that a page has no text layer.
+- **Scanned pages can be read through two opt-in paid tools.** `read_pdf_vision`
+  renders at most four pages and sends one image per page to the model that is
+  already handling the conversation; `read_scanned` sends the selected pages (at
+  most ten, cropped locally from the PDF) or one image to DeepSeek's OCR service
+  and returns text. Neither is local OCR, neither saves the uploaded bytes, and
+  neither is a hidden fallback: `read_document` still reports "no text layer",
+  and the user must select the tool. See [03-ai-provider.md](03-ai-provider.md)
+  for the OCR key, limits and tests.
 - **Voice input is implemented.** A composer microphone records into
   memory, sends the WAV to the already-configured transcription backend, and
   inserts the text into the composer; it never writes a recording to the

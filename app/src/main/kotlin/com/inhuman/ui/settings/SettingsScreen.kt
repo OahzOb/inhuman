@@ -475,6 +475,11 @@ fun SettingsScreen(
 					style = MaterialTheme.typography.labelSmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
+				Text(
+					text = stringResource(R.string.settings_web_ocr_hint),
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
 				OutlinedTextField(
 					value = state.webExaKeyInput,
 					onValueChange = viewModel::onWebExaKeyChange,

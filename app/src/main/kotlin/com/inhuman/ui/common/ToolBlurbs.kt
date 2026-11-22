@@ -21,6 +21,7 @@ fun toolBlurb(entry: ToolCatalog.Entry): String = when (entry.name) {
 	"file_info" -> stringResource(R.string.tool_blurb_file_info)
 	"read_document" -> stringResource(R.string.tool_blurb_read_document)
 	"read_pdf_vision" -> stringResource(R.string.tool_blurb_read_pdf_vision)
+	"read_scanned" -> stringResource(R.string.tool_blurb_read_scanned)
 	"write_document" -> stringResource(R.string.tool_blurb_write_document)
 	"convert_document" -> stringResource(R.string.tool_blurb_convert_document)
 	"read_time" -> stringResource(R.string.tool_blurb_read_time)

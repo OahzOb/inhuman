@@ -232,6 +232,7 @@ class ToolCatalogTest {
 			setOf(
 				"web_search", "web_fetch", "decide", "suggest_replies", "transcribe",
 				"generate_image", "generate_video", "speak", "read_pdf_vision",
+				"read_scanned",
 			),
 			paid,
 		)

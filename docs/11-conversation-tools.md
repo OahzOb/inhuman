@@ -47,8 +47,10 @@ conversation.
 
 - `agent.tools == null`: the ceiling is every non-remote catalogue entry that is
   not opt-in. A remote tool, `suggest_replies` (opt-in because it spends an
-  extra request) and `read_pdf_vision` (opt-in because it spends one request per
-  page) are available only if the conversation or assistant already names them.
+  extra request), `read_pdf_vision` (opt-in because it spends one request per
+  page) and `read_scanned` (opt-in because it uploads a file to a paid OCR
+  service) are available only if the conversation or assistant already names
+  them.
 - `agent.tools` is a list: the ceiling is that list. The conversation's existing
   names are added to the available set as well, so a tool the assistant no longer
   has can be restored but not invented.
