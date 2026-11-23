@@ -82,12 +82,21 @@ fun WorkspacesScreen(
 	) { uri ->
 		if (uri != null) {
 			val resolver = importContext.contentResolver
-			val displayName = runCatching {
+			val rawName = runCatching {
 				resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
 					?.use { cursor ->
 						if (cursor.moveToFirst()) cursor.getString(0) else null
 					}
 			}.getOrNull()?.takeIf { it.isNotBlank() }
+			// The document picker's display name carries the archive extension.
+			// A workspace called "notes.zip" would be a file name pretending to
+			// be a name the user chose, so strip only the one extension the
+			// import actually consumes.
+			val displayName = rawName
+				?.let { name ->
+					if (name.endsWith(".zip", ignoreCase = true)) name.dropLast(4).trim() else name
+				}
+				?.takeIf { it.isNotBlank() }
 				?: importContext.getString(R.string.workspaces_import_zip_default_name)
 			viewModel.importWorkspaceZip(
 				open = {

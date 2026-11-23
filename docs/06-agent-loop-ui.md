@@ -1315,14 +1315,15 @@ property:
   conversation**. New conversations created here use that workspace and ask for
   an assistant first, exactly like the home flow.
 - **Import workspace (.zip)** is on the Workspaces list and always creates a new
-  permanent workspace named from the document's display name; it never merges
-  into an existing one. The archive is untrusted input: entry names are
-  normalised, directories and duplicate names are skipped, at most 2,000 files
-  are accepted, and each file goes through `WorkspaceTransfer` so the workspace
-  quota, per-file ceiling and free-space reserve apply exactly as they do to a
-  user-picked file. A failure stops the import and keeps what already arrived
-  (with the error shown); an import that wrote nothing removes the empty
-  workspace it had just created. Rules are in docs/05.
+  permanent workspace named from the document's display name with its `.zip`
+  extension removed; it never merges into an existing one. The archive is
+  untrusted input: entry names are normalised, directories and duplicate names
+  are skipped, at most 2,000 files are accepted, and each file goes through
+  `WorkspaceTransfer` so the workspace quota, per-file ceiling and free-space
+  reserve apply exactly as they do to a user-picked file. A failure stops the
+  import and keeps what already arrived (with the error shown); an import that
+  wrote nothing removes the empty workspace it had just created. Rules are in
+  docs/05.
 - **Save workspace as permanent** is in the temporary conversation's overflow
   menu. It asks for a name and changes only the workspace row; the directory does
   not move, so the action is immediate and idempotent. After promotion the menu
