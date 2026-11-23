@@ -314,11 +314,17 @@ screen owns one `MediaSession` and a `MediaStyle` notification while a reply is
 being read, so the system's transport controls pause/resume/stop the same
 player. One ticker publishes the position about once a second to both surfaces;
 the media metadata carries the duration, the playback state carries the
-position, and the notification's second line reads `正在朗读 · 1:23 / 4:56`.
-The lock-screen scrubber is a seek, not a new read. The session and the
-notification are released when the chat screen leaves, so audio never outlives
-the screen that started it. Starting another reply stops the first; starting a
-new turn stops whatever was playing.
+position, and the notification shows the **caption currently being read** as
+its second line, with the voice and `1:23 / 4:56` in the subtext. The caption
+comes from `SpeechCaptions`: the projected reply is split into sentence-sized
+pieces and the known duration is distributed over them by visible character
+count, because the TTS API returns audio and a duration but no word timestamps.
+It is an estimate for reading along, not forced alignment; the lock-screen
+metadata title carries the same caption. The lock-screen scrubber is a seek, and
+the caption is recomputed from the new position; pausing keeps the current
+caption. The session and the notification are released when the chat screen
+leaves, so audio never outlives the screen that started it. Starting another
+reply stops the first; starting a new turn stops whatever was playing.
 
 Audio is cached by message id and voice under `generated/speech/`, so replaying
 the same reply in the same voice makes no request and is instant; changing the

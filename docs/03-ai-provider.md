@@ -668,14 +668,20 @@ the screen leaves. The mini bar above the composer shows the voice, the
 transport controls, and a seekable progress row with `current / total`. One
 ticker publishes the position to the row, the session and the notification:
 the metadata carries the duration, the playback state carries the position, and
-the notification's second line advances with the audio. DeepSeek's TTS documents
-`stella` (female, default) and `tide` (male); Qwen's backend exposes its previous
-default voice only, so it has no picker to show. The chosen id is passed through
-`SpeechBackend.synthesize`; omitting it keeps the backend default. The voice and
-the auto-read switch live in Settings -> Network & media -> Reply read-aloud
-(`SecureStore.KEY_SPEECH_VOICE` and `KEY_SPEECH_AUTO_READ`); auto-read fires after
-a turn finishes and skips failed or stopped turns. The chat-menu "text to speech"
-dialog remains for arbitrary text and uses the same stored voice.
+the notification's second line is the **caption currently being read**. The
+caption timeline is `SpeechCaptions`, which splits the projected reply into
+sentence-sized pieces and gives each a share of the known duration proportional
+to visible characters; the TTS endpoints provide no word timestamps, so this is
+an estimate for reading along, not forced alignment. `GeneratedAudio.speechText`
+carries the projection back to the UI for that purpose (empty for the manual
+dialog). DeepSeek's TTS documents `stella` (female, default) and `tide` (male);
+Qwen's backend exposes its previous default voice only, so it has no picker to
+show. The chosen id is passed through `SpeechBackend.synthesize`; omitting it
+keeps the backend default. The voice and the auto-read switch live in Settings
+-> Network & media -> Reply read-aloud (`SecureStore.KEY_SPEECH_VOICE` and
+`KEY_SPEECH_AUTO_READ`); auto-read fires after a turn finishes and skips failed or
+stopped turns. The chat-menu "text to speech" dialog remains for arbitrary text
+and uses the same stored voice.
 
 `MediaToolConfig` (`app/…/ui/chat/MediaTools.kt`) is the stored shape; a blank
 model means the capability's built-in default. `ChatViewModel.mediaBackend`
@@ -781,6 +787,11 @@ the one-time consent.
 mini bar, duration in the media metadata, and a notification whose second line
 (`正在朗读 · 1:23 / 4:56`) follows the audio. A single one-second ticker updates
 all of them, and the lock-screen scrubber seeks the same player.
+
+0.19.0 replaces that time line on the notification with the **caption being
+read** (`SpeechCaptions`), keeping voice and time in the subtext. The caption is
+estimated from character-proportional sentence boundaries, not from TTS
+timestamps, which the API does not provide.
 
 **OAuth subscription login is a generic PKCE flow, not bundled provider clients.**
 The provider row's OAuth button opens a dialog for a user-registered public

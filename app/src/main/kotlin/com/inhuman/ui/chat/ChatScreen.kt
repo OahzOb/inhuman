@@ -627,6 +627,9 @@ fun ChatScreen(
 	var speechPaused by remember { mutableStateOf(false) }
 	var speechPositionMs by remember { mutableStateOf(0) }
 	var speechDurationMs by remember { mutableStateOf(0) }
+	var speechCaptionText by remember { mutableStateOf("") }
+	var speechCaptions by remember { mutableStateOf<List<SpeechCaptions.Segment>>(emptyList()) }
+	var speechCaption by remember { mutableStateOf<String?>(null) }
 	// Non-null while the user is dragging the progress slider, in 0f..1f.
 	var speechScrubFraction by remember { mutableStateOf<Float?>(null) }
 	var autoReadReplies by remember { mutableStateOf(false) }
@@ -643,18 +646,25 @@ fun ChatScreen(
 		speechPaused = false
 		speechPositionMs = 0
 		speechDurationMs = 0
+		speechCaptionText = ""
+		speechCaptions = emptyList()
+		speechCaption = null
 		speechScrubFraction = null
 		speechPlayer.stop()
 		speechSession.stop()
 		speakingReply = null
 	}
 
+	fun captionAt(positionMs: Int): String? =
+		SpeechCaptions.segmentAt(speechCaptions, positionMs)?.text
+
 	fun pauseTalking() {
 		if (speakingReply == null || speechPaused) return
 		if (speechPlayer.pause()) {
 			speechPaused = true
 			speechPositionMs = speechPlayer.positionMs()
-			speechSession.setPaused(true, speechPositionMs)
+			speechCaption = captionAt(speechPositionMs)
+			speechSession.setPaused(true, speechPositionMs, speechCaption)
 		}
 	}
 
@@ -663,7 +673,8 @@ fun ChatScreen(
 		if (speechPlayer.resume()) {
 			speechPaused = false
 			speechPositionMs = speechPlayer.positionMs()
-			speechSession.setPaused(false, speechPositionMs)
+			speechCaption = captionAt(speechPositionMs)
+			speechSession.setPaused(false, speechPositionMs, speechCaption)
 		}
 	}
 
@@ -674,7 +685,8 @@ fun ChatScreen(
 		if (!speechPlayer.seekTo(bounded)) return
 		speechPositionMs = bounded
 		speechScrubFraction = null
-		speechSession.progress(bounded, duration)
+		speechCaption = captionAt(bounded)
+		speechSession.progress(bounded, duration, speechCaption)
 	}
 
 	fun startTalking(message: ChatMessageUi) {
@@ -697,6 +709,9 @@ fun ChatScreen(
 					speechPaused = false
 					speechPositionMs = 0
 					speechDurationMs = 0
+					speechCaptionText = audio.speechText
+					speechCaptions = emptyList()
+					speechCaption = null
 					speechScrubFraction = null
 					speakingReply = message
 					if (speechPlayer.play(id, audio.relativePath)) {
@@ -811,13 +826,24 @@ fun ChatScreen(
 		speechPlayer.onDurationKnown = { duration ->
 			if (duration > 0) {
 				speechDurationMs = duration
-				speechSession.progress(speechPlayer.positionMs(), duration)
+				// Build the caption timeline once the true duration is known;
+				// the estimated boundaries are all relative to it.
+				speechCaptions = SpeechCaptions.segments(speechCaptionText, duration)
+				speechCaption = captionAt(speechPlayer.positionMs())
+				speechSession.progress(
+					speechPlayer.positionMs(),
+					duration,
+					speechCaption,
+				)
 			}
 		}
 		speechPlayer.onFinished = {
 			speechPaused = false
 			speechPositionMs = 0
 			speechDurationMs = 0
+			speechCaptionText = ""
+			speechCaptions = emptyList()
+			speechCaption = null
 			speechScrubFraction = null
 			speakingReply = null
 			speechSession.stop()
@@ -826,6 +852,9 @@ fun ChatScreen(
 			speechPaused = false
 			speechPositionMs = 0
 			speechDurationMs = 0
+			speechCaptionText = ""
+			speechCaptions = emptyList()
+			speechCaption = null
 			speechScrubFraction = null
 			speakingReply = null
 			speechSession.stop()
@@ -845,14 +874,16 @@ fun ChatScreen(
 	// One ticker feeds both the in-app progress row and the media session; the
 	// lock screen and notification therefore move with the audio instead of
 	// showing the position from the moment playback started.
-	LaunchedEffect(speakingReply, speechPaused) {
+		LaunchedEffect(speakingReply, speechPaused) {
 		if (speakingReply == null || speechPaused) return@LaunchedEffect
 		while (true) {
 			val position = speechPlayer.positionMs()
 			val duration = speechPlayer.durationMs()
 			if (speechScrubFraction == null) speechPositionMs = position
 			if (duration > 0) speechDurationMs = duration
-			speechSession.progress(position, duration)
+			val caption = captionAt(position)
+			if (caption != speechCaption) speechCaption = caption
+			speechSession.progress(position, duration, caption)
 			delay(1000)
 		}
 	}

@@ -46,6 +46,7 @@ class SpeechMediaSession(private val context: Context) {
 	private var voice: String = ""
 	private var durationMs: Int = 0
 	private var positionMs: Int = 0
+	private var caption: String? = null
 
 	/** Wired to the screen's player; all callbacks run on the caller's main thread. */
 	var onPlay: (() -> Unit)? = null
@@ -54,11 +55,17 @@ class SpeechMediaSession(private val context: Context) {
 	var onSeek: ((Long) -> Unit)? = null
 
 	/** Start (or retarget) the session and post the playing notification. */
-	fun start(voice: String, durationMs: Int = 0, positionMs: Int = 0) {
+	fun start(
+		voice: String,
+		durationMs: Int = 0,
+		positionMs: Int = 0,
+		caption: String? = null,
+	) {
 		val mediaSession = ensureSession()
 		this.voice = voice
 		this.durationMs = durationMs.coerceAtLeast(0)
 		this.positionMs = positionMs.coerceAtLeast(0)
+		this.caption = caption
 		SpeechPlaybackBridge.active = this
 		mediaSession.isActive = true
 		requestFocus()
@@ -67,20 +74,22 @@ class SpeechMediaSession(private val context: Context) {
 	}
 
 	/** Update the paused/playing state and its notification. */
-	fun setPaused(paused: Boolean, positionMs: Int = this.positionMs) {
+	fun setPaused(paused: Boolean, positionMs: Int = this.positionMs, caption: String? = this.caption) {
 		this.positionMs = positionMs.coerceAtLeast(0)
+		this.caption = caption
 		update(playing = !paused, positionMs = this.positionMs)
 		post(playing = !paused)
 	}
 
 	/**
 	 * Follow playback. Called about once a second while audio is running; the
-	 * position feeds the lock-screen seek bar and the notification's
-	 * "1:23 / 4:56" line, so the notification is not a stale snapshot.
+	 * position feeds the lock-screen seek bar and the caption feeds the
+	 * notification's real-time subtitle line.
 	 */
-	fun progress(positionMs: Int, durationMs: Int) {
+	fun progress(positionMs: Int, durationMs: Int, caption: String? = this.caption) {
 		this.positionMs = positionMs.coerceAtLeast(0)
 		if (durationMs > 0) this.durationMs = durationMs
+		this.caption = caption
 		update(playing = playing, positionMs = this.positionMs)
 		post(playing = playing)
 	}
@@ -91,6 +100,7 @@ class SpeechMediaSession(private val context: Context) {
 		abandonFocus()
 		SpeechPlaybackBridge.active = null
 		playing = false
+		caption = null
 	}
 
 	fun release() {
@@ -145,7 +155,11 @@ class SpeechMediaSession(private val context: Context) {
 		this.positionMs = positionMs.coerceAtLeast(0)
 		val mediaSession = session ?: return
 		val metadata = MediaMetadata.Builder()
-			.putString(MediaMetadata.METADATA_KEY_TITLE, context.getString(R.string.chat_speech_channel))
+			.putString(
+				MediaMetadata.METADATA_KEY_TITLE,
+				caption?.takeIf { it.isNotBlank() }
+					?: context.getString(R.string.chat_speech_channel),
+			)
 			.putString(MediaMetadata.METADATA_KEY_ARTIST, voice)
 		// The lock screen needs the duration to draw a seek bar; without it the
 		// position has no scale to move along.
@@ -170,15 +184,24 @@ class SpeechMediaSession(private val context: Context) {
 		)
 	}
 
-	/** "正在朗读" plus the position line once a duration is known. */
+	/** The notification's second line: the caption being read, or the fallback. */
 	private fun notificationText(playing: Boolean): String {
+		caption?.takeIf { it.isNotBlank() }?.let { return it }
 		val state = context.getString(
 			if (playing) R.string.chat_speaking else R.string.chat_speech_paused,
 		)
 		if (durationMs <= 0) return state
-		val position = SpeechTime.format(positionMs)
-		val duration = SpeechTime.format(durationMs)
-		return "$state · $position / $duration"
+		return "$state · ${SpeechTime.format(positionMs)} / ${SpeechTime.format(durationMs)}"
+	}
+
+	/** Voice and position, kept out of the caption line. */
+	private fun notificationSubText(): String {
+		val parts = mutableListOf<String>()
+		if (voice.isNotBlank()) parts += voice
+		if (durationMs > 0) {
+			parts += "${SpeechTime.format(positionMs)} / ${SpeechTime.format(durationMs)}"
+		}
+		return parts.joinToString(" · ")
 	}
 
 	private fun post(playing: Boolean) {
@@ -194,7 +217,7 @@ class SpeechMediaSession(private val context: Context) {
 				),
 			)
 			.setContentText(notificationText(playing))
-			.setSubText(voice.ifBlank { null })
+			.setSubText(notificationSubText().ifBlank { null })
 			.setContentIntent(contentIntent())
 			.setOngoing(true)
 			.setOnlyAlertOnce(true)

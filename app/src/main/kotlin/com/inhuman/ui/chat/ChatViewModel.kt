@@ -792,6 +792,11 @@ class ChatViewModel(
 		val relativePath: String,
 		val bytes: Int,
 		val mimeType: String,
+		/**
+		 * The projected speech text, for sentence captions. Empty for the
+		 * chat-menu dialog, where the text was user input rather than a reply.
+		 */
+		val speechText: String = "",
 	)
 
 	/**
@@ -1033,7 +1038,9 @@ class ChatViewModel(
 		if (text.isBlank()) error(context.getString(R.string.chat_speech_empty))
 
 		val preferred = speechVoice()
-		cachedSpeech(workspace, messageId, preferred)?.let { return@runCatching it }
+		cachedSpeech(workspace, messageId, preferred)?.let {
+			return@runCatching it.copy(speechText = text)
+		}
 
 		val backend = speechBackend(MediaCapability.Speech) ?: mediaUnavailable()
 		val voice = preferred?.takeIf { it in backend.voices() } ?: backend.voices().firstOrNull()
@@ -1045,7 +1052,7 @@ class ChatViewModel(
 		val path = "generated/speech/" +
 			"${safeFilePart(messageId) ?: "reply"}-${safeFilePart(voice) ?: "default"}" +
 			".${result.extension}"
-		val saved = saveGeneratedAudio(workspace, path, result)
+		val saved = saveGeneratedAudio(workspace, path, result).copy(speechText = text)
 		Diag.i(
 			"speech",
 			"read-aloud message=${Diag.shortId(messageId)} chars=${text.length} " +
