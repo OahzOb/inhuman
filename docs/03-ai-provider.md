@@ -664,15 +664,18 @@ Playback is in-process through a `WorkspaceAudioPlayer` over the
 DocumentsProvider descriptor. The chat screen owns one player and one
 `MediaSession`, plus a `MediaStyle` notification, so Pause/Resume/Stop work from
 the app's mini bar, the notification and the lock screen; both are released when
-the screen leaves. The mini bar above the composer shows the voice and the
-transport controls. DeepSeek's TTS documents `stella` (female, default) and
-`tide` (male); Qwen's backend exposes its previous default voice only, so it has
-no picker to show. The chosen id is passed through `SpeechBackend.synthesize`;
-omitting it keeps the backend default. The voice and the auto-read switch live in
-Settings -> Network & media -> Reply read-aloud (`SecureStore.KEY_SPEECH_VOICE`
-and `KEY_SPEECH_AUTO_READ`); auto-read fires after a turn finishes and skips
-failed or stopped turns. The chat-menu "text to speech" dialog remains for
-arbitrary text and uses the same stored voice.
+the screen leaves. The mini bar above the composer shows the voice, the
+transport controls, and a seekable progress row with `current / total`. One
+ticker publishes the position to the row, the session and the notification:
+the metadata carries the duration, the playback state carries the position, and
+the notification's second line advances with the audio. DeepSeek's TTS documents
+`stella` (female, default) and `tide` (male); Qwen's backend exposes its previous
+default voice only, so it has no picker to show. The chosen id is passed through
+`SpeechBackend.synthesize`; omitting it keeps the backend default. The voice and
+the auto-read switch live in Settings -> Network & media -> Reply read-aloud
+(`SecureStore.KEY_SPEECH_VOICE` and `KEY_SPEECH_AUTO_READ`); auto-read fires after
+a turn finishes and skips failed or stopped turns. The chat-menu "text to speech"
+dialog remains for arbitrary text and uses the same stored voice.
 
 `MediaToolConfig` (`app/…/ui/chat/MediaTools.kt`) is the stored shape; a blank
 model means the capability's built-in default. `ChatViewModel.mediaBackend`
@@ -773,6 +776,11 @@ arbitrary text.
 playback is controllable from the lock screen, and moves the voice and the new
 auto-read switch into Settings. Auto-read is itself the paid opt-in and records
 the one-time consent.
+
+0.18.0 adds position reporting: a seekable `current / total` progress row in the
+mini bar, duration in the media metadata, and a notification whose second line
+(`正在朗读 · 1:23 / 4:56`) follows the audio. A single one-second ticker updates
+all of them, and the lock-screen scrubber seeks the same player.
 
 **OAuth subscription login is a generic PKCE flow, not bundled provider clients.**
 The provider row's OAuth button opens a dialog for a user-registered public

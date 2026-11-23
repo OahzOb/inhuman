@@ -306,14 +306,19 @@ first tap shows a one-time paid notice and the voice picker; after that is
 confirmed a tap **synthesizes and starts playback immediately** -- there is no
 per-reply dialog. The speaker becomes Stop while that reply plays (Play again
 while paused), and a mini bar above the composer shows the state, the voice in
-use (tappable to switch) and Pause/Resume/Stop.
+use (tappable to switch), Pause/Resume/Stop and a **seekable progress row** with
+`current / total` time.
 
 Playback also appears in the media notification and on the lock screen: the
 screen owns one `MediaSession` and a `MediaStyle` notification while a reply is
 being read, so the system's transport controls pause/resume/stop the same
-player. The session and the notification are released when the chat screen
-leaves, so audio never outlives the screen that started it. Starting another
-reply stops the first; starting a new turn stops whatever was playing.
+player. One ticker publishes the position about once a second to both surfaces;
+the media metadata carries the duration, the playback state carries the
+position, and the notification's second line reads `正在朗读 · 1:23 / 4:56`.
+The lock-screen scrubber is a seek, not a new read. The session and the
+notification are released when the chat screen leaves, so audio never outlives
+the screen that started it. Starting another reply stops the first; starting a
+new turn stops whatever was playing.
 
 Audio is cached by message id and voice under `generated/speech/`, so replaying
 the same reply in the same voice makes no request and is instant; changing the

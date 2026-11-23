@@ -44,27 +44,45 @@ class SpeechMediaSession(private val context: Context) {
 	private var focus: AudioFocusRequest? = null
 	private var playing = false
 	private var voice: String = ""
+	private var durationMs: Int = 0
+	private var positionMs: Int = 0
 
 	/** Wired to the screen's player; all callbacks run on the caller's main thread. */
 	var onPlay: (() -> Unit)? = null
 	var onPause: (() -> Unit)? = null
 	var onStop: (() -> Unit)? = null
+	var onSeek: ((Long) -> Unit)? = null
 
 	/** Start (or retarget) the session and post the playing notification. */
-	fun start(voice: String, positionMs: Int = 0) {
+	fun start(voice: String, durationMs: Int = 0, positionMs: Int = 0) {
 		val mediaSession = ensureSession()
 		this.voice = voice
+		this.durationMs = durationMs.coerceAtLeast(0)
+		this.positionMs = positionMs.coerceAtLeast(0)
 		SpeechPlaybackBridge.active = this
 		mediaSession.isActive = true
 		requestFocus()
-		update(playing = true, positionMs = positionMs)
+		update(playing = true, positionMs = this.positionMs)
 		post(playing = true)
 	}
 
 	/** Update the paused/playing state and its notification. */
-	fun setPaused(paused: Boolean, positionMs: Int = 0) {
-		update(playing = !paused, positionMs = positionMs)
+	fun setPaused(paused: Boolean, positionMs: Int = this.positionMs) {
+		this.positionMs = positionMs.coerceAtLeast(0)
+		update(playing = !paused, positionMs = this.positionMs)
 		post(playing = !paused)
+	}
+
+	/**
+	 * Follow playback. Called about once a second while audio is running; the
+	 * position feeds the lock-screen seek bar and the notification's
+	 * "1:23 / 4:56" line, so the notification is not a stale snapshot.
+	 */
+	fun progress(positionMs: Int, durationMs: Int) {
+		this.positionMs = positionMs.coerceAtLeast(0)
+		if (durationMs > 0) this.durationMs = durationMs
+		update(playing = playing, positionMs = this.positionMs)
+		post(playing = playing)
 	}
 
 	fun stop() {
@@ -111,6 +129,10 @@ class SpeechMediaSession(private val context: Context) {
 			override fun onStop() {
 				onStop?.invoke()
 			}
+
+			override fun onSeekTo(pos: Long) {
+				onSeek?.invoke(pos)
+			}
 		})
 		created.setSessionActivity(contentIntent())
 		session = created
@@ -120,13 +142,17 @@ class SpeechMediaSession(private val context: Context) {
 
 	private fun update(playing: Boolean, positionMs: Int) {
 		this.playing = playing
+		this.positionMs = positionMs.coerceAtLeast(0)
 		val mediaSession = session ?: return
-		mediaSession.setMetadata(
-			MediaMetadata.Builder()
-				.putString(MediaMetadata.METADATA_KEY_TITLE, context.getString(R.string.chat_speech_channel))
-				.putString(MediaMetadata.METADATA_KEY_ARTIST, voice)
-				.build(),
-		)
+		val metadata = MediaMetadata.Builder()
+			.putString(MediaMetadata.METADATA_KEY_TITLE, context.getString(R.string.chat_speech_channel))
+			.putString(MediaMetadata.METADATA_KEY_ARTIST, voice)
+		// The lock screen needs the duration to draw a seek bar; without it the
+		// position has no scale to move along.
+		if (durationMs > 0) {
+			metadata.putLong(MediaMetadata.METADATA_KEY_DURATION, durationMs.toLong())
+		}
+		mediaSession.setMetadata(metadata.build())
 		mediaSession.setPlaybackState(
 			PlaybackState.Builder()
 				.setActions(
@@ -137,11 +163,22 @@ class SpeechMediaSession(private val context: Context) {
 				)
 				.setState(
 					if (playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
-					positionMs.toLong(),
+					this.positionMs.toLong(),
 					if (playing) 1f else 0f,
 				)
 				.build(),
 		)
+	}
+
+	/** "正在朗读" plus the position line once a duration is known. */
+	private fun notificationText(playing: Boolean): String {
+		val state = context.getString(
+			if (playing) R.string.chat_speaking else R.string.chat_speech_paused,
+		)
+		if (durationMs <= 0) return state
+		val position = SpeechTime.format(positionMs)
+		val duration = SpeechTime.format(durationMs)
+		return "$state · $position / $duration"
 	}
 
 	private fun post(playing: Boolean) {
@@ -156,7 +193,8 @@ class SpeechMediaSession(private val context: Context) {
 					if (playing) R.string.chat_speaking else R.string.chat_speech_paused,
 				),
 			)
-			.setContentText(voice.ifBlank { context.getString(R.string.chat_speech_channel) })
+			.setContentText(notificationText(playing))
+			.setSubText(voice.ifBlank { null })
 			.setContentIntent(contentIntent())
 			.setOngoing(true)
 			.setOnlyAlertOnce(true)
@@ -166,6 +204,9 @@ class SpeechMediaSession(private val context: Context) {
 					.setMediaSession(mediaSession.sessionToken)
 					.setShowActionsInCompactView(0, 1),
 			)
+		if (durationMs > 0) {
+			builder.setProgress(durationMs, positionMs, false)
+		}
 		builder.addAction(
 			action(
 				icon = if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,

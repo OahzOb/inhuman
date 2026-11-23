@@ -102,6 +102,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -624,6 +625,10 @@ fun ChatScreen(
 	var preparingReply by remember { mutableStateOf<ChatMessageUi?>(null) }
 	var speechVoiceMenu by remember { mutableStateOf(false) }
 	var speechPaused by remember { mutableStateOf(false) }
+	var speechPositionMs by remember { mutableStateOf(0) }
+	var speechDurationMs by remember { mutableStateOf(0) }
+	// Non-null while the user is dragging the progress slider, in 0f..1f.
+	var speechScrubFraction by remember { mutableStateOf<Float?>(null) }
 	var autoReadReplies by remember { mutableStateOf(false) }
 	val speechPlayer = remember { WorkspaceAudioPlayer(speechContext) }
 	// The lock-screen/notification side of the same playback. It lives and dies
@@ -636,6 +641,9 @@ fun ChatScreen(
 
 	fun stopTalking() {
 		speechPaused = false
+		speechPositionMs = 0
+		speechDurationMs = 0
+		speechScrubFraction = null
 		speechPlayer.stop()
 		speechSession.stop()
 		speakingReply = null
@@ -645,7 +653,8 @@ fun ChatScreen(
 		if (speakingReply == null || speechPaused) return
 		if (speechPlayer.pause()) {
 			speechPaused = true
-			speechSession.setPaused(true, speechPlayer.positionMs())
+			speechPositionMs = speechPlayer.positionMs()
+			speechSession.setPaused(true, speechPositionMs)
 		}
 	}
 
@@ -653,8 +662,19 @@ fun ChatScreen(
 		if (!speechPaused) return
 		if (speechPlayer.resume()) {
 			speechPaused = false
-			speechSession.setPaused(false, speechPlayer.positionMs())
+			speechPositionMs = speechPlayer.positionMs()
+			speechSession.setPaused(false, speechPositionMs)
 		}
+	}
+
+	/** Seek from either the in-app progress row or the lock-screen scrubber. */
+	fun seekTalking(targetMs: Int) {
+		val duration = speechDurationMs
+		val bounded = if (duration > 0) targetMs.coerceIn(0, duration) else targetMs.coerceAtLeast(0)
+		if (!speechPlayer.seekTo(bounded)) return
+		speechPositionMs = bounded
+		speechScrubFraction = null
+		speechSession.progress(bounded, duration)
 	}
 
 	fun startTalking(message: ChatMessageUi) {
@@ -675,6 +695,9 @@ fun ChatScreen(
 					}
 					speechPlayer.stop()
 					speechPaused = false
+					speechPositionMs = 0
+					speechDurationMs = 0
+					speechScrubFraction = null
 					speakingReply = message
 					if (speechPlayer.play(id, audio.relativePath)) {
 						speechSession.start(speechVoice.orEmpty())
@@ -785,13 +808,25 @@ fun ChatScreen(
 	// screen leaves is what stops audio on back navigation; the mini bar, the
 	// message icon and the lock-screen controls are views of the same state.
 	DisposableEffect(speechPlayer, speechSession) {
+		speechPlayer.onDurationKnown = { duration ->
+			if (duration > 0) {
+				speechDurationMs = duration
+				speechSession.progress(speechPlayer.positionMs(), duration)
+			}
+		}
 		speechPlayer.onFinished = {
 			speechPaused = false
+			speechPositionMs = 0
+			speechDurationMs = 0
+			speechScrubFraction = null
 			speakingReply = null
 			speechSession.stop()
 		}
 		speechPlayer.onFailed = {
 			speechPaused = false
+			speechPositionMs = 0
+			speechDurationMs = 0
+			speechScrubFraction = null
 			speakingReply = null
 			speechSession.stop()
 			Toast.makeText(speechContext, playbackFailedText, Toast.LENGTH_LONG).show()
@@ -799,9 +834,26 @@ fun ChatScreen(
 		speechSession.onPause = { pauseTalking() }
 		speechSession.onPlay = { resumeTalking() }
 		speechSession.onStop = { stopTalking() }
+		// The lock-screen scrubber is a seek, not a new read.
+		speechSession.onSeek = { position -> seekTalking(position.toInt()) }
 		onDispose {
 			speechPlayer.release()
 			speechSession.release()
+		}
+	}
+
+	// One ticker feeds both the in-app progress row and the media session; the
+	// lock screen and notification therefore move with the audio instead of
+	// showing the position from the moment playback started.
+	LaunchedEffect(speakingReply, speechPaused) {
+		if (speakingReply == null || speechPaused) return@LaunchedEffect
+		while (true) {
+			val position = speechPlayer.positionMs()
+			val duration = speechPlayer.durationMs()
+			if (speechScrubFraction == null) speechPositionMs = position
+			if (duration > 0) speechDurationMs = duration
+			speechSession.progress(position, duration)
+			delay(1000)
 		}
 	}
 
@@ -2126,6 +2178,21 @@ fun ChatScreen(
 					},
 					onPauseResume = { if (speechPaused) resumeTalking() else pauseTalking() },
 					onStop = { stopTalking() },
+					positionMs = if (speechScrubFraction != null && speechDurationMs > 0) {
+						((speechScrubFraction ?: 0f) * speechDurationMs).toInt()
+					} else {
+						speechPositionMs
+					},
+					durationMs = speechDurationMs,
+					onScrub = { fraction -> speechScrubFraction = fraction },
+					onScrubFinished = {
+						val fraction = speechScrubFraction
+						if (fraction != null && speechDurationMs > 0) {
+							seekTalking((fraction * speechDurationMs).toInt())
+						} else {
+							speechScrubFraction = null
+						}
+					},
 				)
 			}
 
@@ -5744,6 +5811,10 @@ private fun SpeechPlayerBar(
 	onVoice: (String) -> Unit,
 	onPauseResume: () -> Unit,
 	onStop: () -> Unit,
+	positionMs: Int,
+	durationMs: Int,
+	onScrub: (Float) -> Unit,
+	onScrubFinished: () -> Unit,
 ) {
 	Surface(
 		color = MaterialTheme.colorScheme.surfaceVariant,
@@ -5753,68 +5824,96 @@ private fun SpeechPlayerBar(
 			modifier = Modifier.fillMaxWidth(),
 			contentAlignment = Alignment.Center,
 		) {
-			Row(
+			Column(
 				modifier = Modifier
 					.widthIn(max = Layout.ChatMeasure)
 					.fillMaxWidth()
 					.padding(horizontal = comfortableGutter(), vertical = 2.dp),
-				verticalAlignment = Alignment.CenterVertically,
-				horizontalArrangement = Arrangement.spacedBy(6.dp),
 			) {
-				Icon(
-					imageVector = Icons.AutoMirrored.Outlined.VolumeUp,
-					contentDescription = null,
-					tint = MaterialTheme.colorScheme.primary,
-					modifier = Modifier.size(16.dp),
-				)
-				Text(
-					text = stringResource(
-						if (paused) R.string.chat_speech_paused else R.string.chat_speaking,
-					),
-					style = MaterialTheme.typography.labelLarge,
-					color = MaterialTheme.colorScheme.onSurface,
-				)
-				if (voices.size > 1 && voice != null) {
-					Box {
-						TextButton(
-							onClick = { onVoiceMenu(true) },
-							contentPadding = PaddingValues(horizontal = 8.dp),
-						) {
-							Text(
-								text = speechVoiceLabel(voice),
-								style = MaterialTheme.typography.labelMedium,
-								color = MaterialTheme.colorScheme.onSurfaceVariant,
-							)
-						}
-						DropdownMenu(
-							expanded = voiceMenuOpen,
-							onDismissRequest = { onVoiceMenu(false) },
-						) {
-							voices.forEach { id ->
-								DropdownMenuItem(
-									text = { Text(speechVoiceLabel(id)) },
-									onClick = { onVoice(id) },
+				Row(
+					modifier = Modifier.fillMaxWidth(),
+					verticalAlignment = Alignment.CenterVertically,
+					horizontalArrangement = Arrangement.spacedBy(6.dp),
+				) {
+					Icon(
+						imageVector = Icons.AutoMirrored.Outlined.VolumeUp,
+						contentDescription = null,
+						tint = MaterialTheme.colorScheme.primary,
+						modifier = Modifier.size(16.dp),
+					)
+					Text(
+						text = stringResource(
+							if (paused) R.string.chat_speech_paused else R.string.chat_speaking,
+						),
+						style = MaterialTheme.typography.labelLarge,
+						color = MaterialTheme.colorScheme.onSurface,
+					)
+					if (voices.size > 1 && voice != null) {
+						Box {
+							TextButton(
+								onClick = { onVoiceMenu(true) },
+								contentPadding = PaddingValues(horizontal = 8.dp),
+							) {
+								Text(
+									text = speechVoiceLabel(voice),
+									style = MaterialTheme.typography.labelMedium,
+									color = MaterialTheme.colorScheme.onSurfaceVariant,
 								)
+							}
+							DropdownMenu(
+								expanded = voiceMenuOpen,
+								onDismissRequest = { onVoiceMenu(false) },
+							) {
+								voices.forEach { id ->
+									DropdownMenuItem(
+										text = { Text(speechVoiceLabel(id)) },
+										onClick = { onVoice(id) },
+									)
+								}
 							}
 						}
 					}
+					Spacer(Modifier.weight(1f))
+					TextButton(onClick = onPauseResume) {
+						Text(
+							text = stringResource(
+								if (paused) R.string.chat_resume else R.string.chat_pause,
+							),
+							style = MaterialTheme.typography.labelMedium,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+					TextButton(onClick = onStop) {
+						Text(
+							text = stringResource(R.string.chat_stop),
+							style = MaterialTheme.typography.labelMedium,
+							color = MaterialTheme.colorScheme.primary,
+						)
+					}
 				}
-				Spacer(Modifier.weight(1f))
-				TextButton(onClick = onPauseResume) {
-					Text(
-						text = stringResource(
-							if (paused) R.string.chat_resume else R.string.chat_pause,
-						),
-						style = MaterialTheme.typography.labelMedium,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-					)
-				}
-				TextButton(onClick = onStop) {
-					Text(
-						text = stringResource(R.string.chat_stop),
-						style = MaterialTheme.typography.labelMedium,
-						color = MaterialTheme.colorScheme.primary,
-					)
+				// The progress row is the same position the media session
+				// publishes, and dragging it seeks. When the backend returns a
+				// file with no duration yet, the row stays out rather than
+				// drawing a fake 0%.
+				if (durationMs > 0) {
+					Row(
+						modifier = Modifier.fillMaxWidth(),
+						verticalAlignment = Alignment.CenterVertically,
+					) {
+						Slider(
+							value = (positionMs.toFloat() / durationMs).coerceIn(0f, 1f),
+							onValueChange = onScrub,
+							onValueChangeFinished = onScrubFinished,
+							modifier = Modifier.weight(1f),
+						)
+						Text(
+							text = "${SpeechTime.format(positionMs)} / ${SpeechTime.format(durationMs)}",
+							style = MaterialTheme.typography.labelSmall,
+							fontFamily = FontFamily.Monospace,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+							modifier = Modifier.padding(start = 8.dp),
+						)
+					}
 				}
 			}
 		}

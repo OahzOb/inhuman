@@ -28,6 +28,9 @@ class WorkspaceAudioPlayer(context: Context) {
 	/** Fired when `prepareAsync` finished and playback actually started. */
 	var onStarted: (() -> Unit)? = null
 
+	/** Fired once the duration is known; -1 or 0 means the player could not report it. */
+	var onDurationKnown: ((Int) -> Unit)? = null
+
 	/** Fired when playback reached the end. */
 	var onFinished: (() -> Unit)? = null
 
@@ -75,6 +78,7 @@ class WorkspaceAudioPlayer(context: Context) {
 			media.setOnPreparedListener {
 				it.start()
 				onStarted?.invoke()
+				onDurationKnown?.invoke(runCatching { it.duration }.getOrDefault(0))
 			}
 			media.setOnCompletionListener { finish(failed = false) }
 			media.setOnErrorListener { _, what, extra ->
@@ -121,6 +125,21 @@ class WorkspaceAudioPlayer(context: Context) {
 	/** Current position, for the media session's playback state. */
 	fun positionMs(): Int =
 		player?.let { runCatching { it.currentPosition }.getOrDefault(0) } ?: 0
+
+	/** Total duration, or 0 while it is not known yet. */
+	fun durationMs(): Int {
+		val duration = player?.let { runCatching { it.duration }.getOrDefault(-1) } ?: -1
+		return duration.coerceAtLeast(0)
+	}
+
+	/** Seek inside the prepared file; true when there was audio to seek. */
+	fun seekTo(positionMs: Int): Boolean {
+		val media = player ?: return false
+		return runCatching {
+			media.seekTo(positionMs.coerceAtLeast(0))
+			true
+		}.getOrDefault(false)
+	}
 
 	/** Stop and release; call from `onDispose`. */
 	fun release() {
