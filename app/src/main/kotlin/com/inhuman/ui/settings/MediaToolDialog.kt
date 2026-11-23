@@ -48,6 +48,7 @@ internal fun MediaToolDialog(
 	onModelPicker: (Boolean) -> Unit,
 	onBaseUrl: (String) -> Unit,
 	onApiKey: (String) -> Unit,
+	onClearKey: () -> Unit,
 	onSave: () -> Unit,
 	onClose: () -> Unit,
 ) {
@@ -181,6 +182,18 @@ internal fun MediaToolDialog(
 							),
 							style = MaterialTheme.typography.labelSmall,
 							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+				}
+
+				// The stored key belongs to the tool, not to the mode currently
+				// selected: switching to the assistant's provider does not delete
+				// it, so the control is offered whenever one is saved.
+				if (draft.hasKey) {
+					TextButton(onClick = onClearKey) {
+						Text(
+							text = stringResource(R.string.settings_media_clear_key),
+							color = MaterialTheme.colorScheme.error,
 						)
 					}
 				}

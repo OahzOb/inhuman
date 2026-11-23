@@ -10,6 +10,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.TextButton
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -62,6 +64,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.res.pluralStringResource
@@ -119,6 +122,26 @@ fun ConversationsScreen(
 	var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
 	var showCreateSheet by remember { mutableStateOf(false) }
 	var showBulkDelete by remember { mutableStateOf(false) }
+	// A bundle import creates a conversation the user did not configure; when
+	// that fails, the reason is the only thing they can act on, so it is shown
+	// rather than dropped. Success is a navigation, not a message.
+	val importContext = LocalContext.current
+	var importBundleError by remember { mutableStateOf<String?>(null) }
+	val bundleImporter = rememberLauncherForActivityResult(
+		ActivityResultContracts.OpenDocument(),
+	) { uri ->
+		if (uri != null) {
+			viewModel.importConversationBundle(uri) { id, error ->
+				if (id != null) {
+					showCreateSheet = false
+					onOpenConversation(id)
+				} else {
+					importBundleError = error
+						?: importContext.getString(R.string.home_import_bundle_unknown)
+				}
+			}
+		}
+	}
 
 	BackHandler(enabled = state.selecting) { viewModel.cancelSelection() }
 
@@ -280,6 +303,13 @@ fun ConversationsScreen(
 			workspaces = state.permanentWorkspaces,
 			continuous = state.newConversationContinuous,
 			onContinuousChange = viewModel::setNewConversationContinuous,
+			onImportBundle = {
+				// Close the sheet before the system picker opens: the picker is a
+				// separate window, and a sheet behind it would still be
+				// "dismissible" while the result is in flight.
+				showCreateSheet = false
+				bundleImporter.launch(arrayOf("application/zip", "application/x-zip-compressed"))
+			},
 			onDismiss = { showCreateSheet = false },
 			onConversation = { workspaceId ->
 				showCreateSheet = false
@@ -289,6 +319,22 @@ fun ConversationsScreen(
 				showCreateSheet = false
 				onNewWorkspace()
 			},
+		)
+	}
+
+	importBundleError?.let { message ->
+		AlertDialog(
+			onDismissRequest = { importBundleError = null },
+			title = { Text(stringResource(R.string.home_import_bundle)) },
+			text = { Text(stringResource(R.string.home_import_bundle_failed, message)) },
+			confirmButton = {
+				TextButton(onClick = { importBundleError = null }) {
+					Text(stringResource(R.string.common_ok))
+				}
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 	}
 
@@ -490,6 +536,7 @@ private fun CreateSheet(
 	workspaces: List<com.inhuman.core.data.db.WorkspaceEntity>,
 	continuous: Boolean,
 	onContinuousChange: (Boolean) -> Unit,
+	onImportBundle: () -> Unit,
 	onDismiss: () -> Unit,
 	onConversation: (String?) -> Unit,
 	onNewWorkspace: () -> Unit,
@@ -511,7 +558,12 @@ private fun CreateSheet(
 				.widthIn(max = 640.dp)
 				.fillMaxWidth()
 				.padding(horizontal = 24.dp)
-				.padding(bottom = 24.dp),
+				.padding(bottom = 24.dp)
+				// The sheet now has four choices plus the continuous-session
+				// disclosure. On a 360x640 phone at 1.5x font that can exceed the
+				// sheet's height, so the content scrolls rather than clipping the
+				// last choice.
+				.verticalScroll(rememberScrollState()),
 			verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
 		) {
 			if (choosingWorkspace) {
@@ -576,6 +628,11 @@ private fun CreateSheet(
 					detail = stringResource(R.string.home_create_new_conversation_detail),
 					onClick = { onConversation(null) },
 					leadingIcon = Icons.Filled.Add,
+				)
+				CreateChoice(
+					title = stringResource(R.string.home_import_bundle),
+					detail = stringResource(R.string.home_import_bundle_detail),
+					onClick = onImportBundle,
 				)
 				CreateChoice(
 					title = stringResource(R.string.workspaces_new),

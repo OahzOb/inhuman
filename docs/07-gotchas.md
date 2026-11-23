@@ -328,6 +328,38 @@ Five rules keep the automatic projection from becoming a second transcript:
   read only when a conversation is created; the chat-menu switch writes the
   conversation column and never the preference.
 
+### A25. Imported bundles and zips are untrusted
+
+- **A conversation bundle imports the active branch only, under new ids.** The
+  JSON has no message ids or branch pointers by design: it is a linear snapshot
+  of what the user sees. `appendMessage` builds a fresh parent chain, so a
+  bundle cannot splice into an existing conversation, and the target assistant
+  is the local default because an assistant id from the source install would be
+  meaningless here. Attachment files are copied into the new workspace with
+  `WorkspaceTransfer`; only paths that the bundle's own `attachmentsJson`
+  mentions are read, so an archive cannot smuggle unrelated files into the
+  workspace.
+- **The zip readers are fences, not convenience.** Both
+  `ConversationBundleZip.read` and `WorkspaceZip.importInto` normalise entry
+  names and reject absolute paths, `..`, drive prefixes, backslashes, control
+  characters and unknown top-level entries; the workspace's `resolve()` is the
+  last check. The conversation zip caps the JSON, each file and the total; the
+  workspace zip caps the entry count and streams each entry through the ordinary
+  quota/per-file path. A cap or unsafe entry must fail or be reported, never be
+  silently truncated into a "complete" import.
+- **Workspace zip import never merges.** It creates a permanent workspace named
+  from the document display name. On a quota/IO/corrupt-archive failure the files
+  that arrived are kept and the UI reports the failure; only a zero-file failure
+  removes the empty workspace again. A merge would let one archive overwrite
+  files in a workspace that may be shared with other conversations.
+- **Deleting a key is not deleting its provider.** `clearProviderKey` removes
+  the `SecureStore` slot only; the profile row, endpoint and model tags stay, and
+  an OAuth session is a different credential ended by Sign out. The media dialog
+  needs its own clear action because `saveMedia` treats a blank field as "keep
+  the existing key"; without it, clearing the field and pressing Save silently
+  keeps the credential. Web-tool keys are cleared together because one section
+  with one Save would otherwise keep half of a deleted credential.
+
 ---
 
 ## B. Defects that were found here — and where each one now stands

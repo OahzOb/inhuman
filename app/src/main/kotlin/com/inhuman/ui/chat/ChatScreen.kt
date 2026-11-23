@@ -514,6 +514,26 @@ fun ChatScreen(
 		}
 	}
 
+	// A conversation bundle is a zip the app writes itself and can import back
+	// on another device. It is a separate menu item rather than an option in the
+	// Markdown dialog: the two exports have different formats and destinations,
+	// and the bundle is the only one that round-trips.
+	var showBundleExportResult by remember { mutableStateOf(false) }
+	var bundleExportError by remember { mutableStateOf<String?>(null) }
+	val bundleExporter = rememberLauncherForActivityResult(
+		ActivityResultContracts.CreateDocument("application/zip"),
+	) { uri ->
+		if (uri != null) {
+			exporting = true
+			Toast.makeText(ctx, R.string.export_working, Toast.LENGTH_SHORT).show()
+			viewModel.exportConversationBundle(uri) { error ->
+				exporting = false
+				bundleExportError = error
+				showBundleExportResult = true
+			}
+		}
+	}
+
 	// A share is a read grant on a cache copy. The Markdown is written before
 	// the chooser opens, so a failed write cannot hand the user a chooser for a
 	// file that does not exist, and the file is not the diagnostics provider's
@@ -1018,7 +1038,8 @@ fun ChatScreen(
 		showEnableContinuousConfirm ||
 		showApprovalHistory || showCapabilityDetails ||
 		turnWireMessages != null || showToolsDialog || showTurnPicker ||
-			showSaveWorkspaceDialog || showExportDialog || showSshHostsDialog
+			showSaveWorkspaceDialog || showExportDialog || showSshHostsDialog ||
+			showBundleExportResult
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
 	// Re-read the key and demo setting whenever this screen appears. The view
@@ -1466,6 +1487,25 @@ fun ChatScreen(
 										showChatMenu = false
 										exportIncludeTools = true
 										showExportDialog = true
+									},
+								)
+								DropdownMenuItem(
+									text = {
+										Column {
+											Text(stringResource(R.string.chat_export_bundle))
+											Text(
+												text = stringResource(R.string.chat_export_bundle_detail),
+												style = MaterialTheme.typography.bodySmall,
+												color = MaterialTheme.colorScheme.onSurfaceVariant,
+											)
+										}
+									},
+									enabled = !isStreaming && !exporting,
+									onClick = {
+										showChatMenu = false
+										bundleExporter.launch(
+											exportFileName(displayTitle, "inhuman.zip"),
+										)
 									},
 								)
 								DropdownMenuItem(
@@ -3207,6 +3247,28 @@ fun ChatScreen(
 			dismissButton = {
 				TextButton(onClick = { showExportDialog = false }) {
 					Text(stringResource(R.string.common_cancel))
+				}
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+
+	if (showBundleExportResult) {
+		AlertDialog(
+			onDismissRequest = { showBundleExportResult = false },
+			title = { Text(stringResource(R.string.chat_export_bundle)) },
+			text = {
+				Text(
+					text = bundleExportError?.let {
+						stringResource(R.string.chat_export_bundle_failed, it)
+					} ?: stringResource(R.string.chat_export_bundle_done),
+				)
+			},
+			confirmButton = {
+				TextButton(onClick = { showBundleExportResult = false }) {
+					Text(stringResource(R.string.common_ok))
 				}
 			},
 			containerColor = MaterialTheme.colorScheme.surface,

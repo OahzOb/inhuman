@@ -82,6 +82,8 @@ supported path.
 | Models | `/models` request base, response status/bytes/duration, failure; picker cache hit, background refresh, 20s call timeout and 25s dialog timeout |
 | Updates | check (current and remote version code, newer flag), download requested/verified (version, bytes), install requested; log upload (bytes, saved file name). No server URL or credential is written. |
 | Tools | run (name, normalised path, argument bytes), done (ok, result bytes, duration), error text (first 240 chars), unknown tool, unparsable arguments, skipped call |
+| Transfer | conversation bundle export (message and attachment counts, bytes), conversation bundle import (message and copied-attachment counts, failure category), workspace zip import (files/bytes and failure category); never message text, attachment names or file content |
+| Keys | a key or OAuth session was cleared or signed out, by provider id or capability name only; never the value |
 | Compaction | summary written (omitted messages and chars), a summary that came back empty (finish reason, reasoning length, model), and a save failure with its stack trace; never the summary text |
 | Session maintenance | fold requested (kind, omitted messages/turns), brief written (chars, estimated tokens, truncated, provider input/output tokens), budget refusal, and a failure category with its stack trace; never the brief text |
 | Recall | the `recall` call is recorded like any other tool by name; the query and the returned snippets are not written (the transcript already has the stub, and the request viewer has the rest) |

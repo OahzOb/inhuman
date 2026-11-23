@@ -1,6 +1,7 @@
 package com.inhuman.ui
 
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.R
@@ -10,8 +11,13 @@ import com.inhuman.core.data.ConversationSearchHit
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
+import com.inhuman.core.data.db.MessageEntity
 import com.inhuman.core.data.db.SessionMode
 import com.inhuman.core.data.secret.SecureStore
+import com.inhuman.core.files.WorkspaceTransfer
+import com.inhuman.ui.chat.ConversationBundleCodec
+import com.inhuman.ui.chat.ConversationBundleZip
+import java.util.UUID
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -231,6 +237,103 @@ class ConversationsViewModel(
 					"workspace=${Diag.shortId(conversation.workspaceId)}",
 			)
 			onCreated?.invoke(conversation.id)
+		}
+	}
+
+	/**
+	 * Import a portable conversation bundle into a new conversation.
+	 *
+	 * The bundle is untrusted input. The codec validates the format; only
+	 * attachment paths that the bundle's own messages reference are copied; and
+	 * every file goes through [WorkspaceTransfer], so the quota, per-file cap,
+	 * free-space reserve and path fence are the same ones a user-picked file
+	 * obeys.
+	 *
+	 * The target assistant is the local default: the bundle does not carry an
+	 * assistant, and an id from the source install would be meaningless here.
+	 * The messages' model labels are kept as history, not as a setting.
+	 */
+	fun importConversationBundle(uri: Uri, onResult: (String?, String?) -> Unit) {
+		viewModelScope.launch {
+			val outcome = withContext(Dispatchers.IO) {
+				runCatching {
+					val input = context.contentResolver.openInputStream(uri)
+						?: error("could not open the bundle")
+					val archive = input.use { ConversationBundleZip.read(it) }
+						?: error("not a valid conversation bundle")
+					val bundle = ConversationBundleCodec.decode(archive.json)
+						?: error("not a valid conversation bundle")
+					if (bundle.messages.isEmpty()) error("the bundle has no messages")
+					val agent = agents.defaultAgent() ?: agents.all().firstOrNull()
+					val conversation = repository.create(
+						title = bundle.title.trim().ifBlank { "Imported conversation" }.take(200),
+						agent = agent,
+						sessionMode = SessionMode.parse(bundle.sessionMode),
+					)
+					val workspace = repository.workspace(conversation)
+					val transfer = WorkspaceTransfer(workspace)
+					val referenced = bundle.messages
+						.flatMap { ConversationBundleCodec.attachmentPaths(it.attachmentsJson) }
+						.toSet()
+					var copiedFiles = 0
+					for ((path, bytes) in archive.files) {
+						if (path !in referenced) continue
+						val result = transfer.import(destinationPath = path, maxBytes = null) {
+							bytes.inputStream()
+						}
+						if (result is WorkspaceTransfer.Outcome.Ok) copiedFiles++
+					}
+					var parent: String? = null
+					var index = 0
+					for (message in bundle.messages) {
+						val id = UUID.randomUUID().toString()
+						val createdAt = message.createdAt.takeIf { it > 0 }
+							?: (System.currentTimeMillis() + index)
+						repository.appendMessage(
+							MessageEntity(
+								id = id,
+								conversationId = conversation.id,
+								parentId = parent,
+								role = message.role,
+								content = message.content,
+								reasoning = message.reasoning,
+								reasoningSignature = message.reasoningSignature,
+								providerState = message.providerState,
+								model = message.model,
+								finishReason = message.finishReason,
+								createdAt = createdAt,
+								promptTokens = message.promptTokens,
+								completionTokens = message.completionTokens,
+								cachedPromptTokens = message.cachedPromptTokens,
+								reasoningTokens = message.reasoningTokens,
+								timeToFirstTokenMs = message.timeToFirstTokenMs,
+								generationMs = message.generationMs,
+								error = message.error,
+								toolCallsJson = message.toolCallsJson,
+								toolCallId = message.toolCallId,
+								toolName = message.toolName,
+								changedFilesJson = message.changedFilesJson,
+								attachmentsJson = message.attachmentsJson,
+								mutated = message.mutated,
+							),
+							parent,
+						)
+						parent = id
+						index++
+					}
+					Diag.i(
+						"import",
+						"conversation messages=${bundle.messages.size} " +
+							"attachments=$copiedFiles sessionMode=${conversation.sessionMode}",
+					)
+					conversation.id
+				}
+			}
+			outcome.onSuccess { onResult(it, null) }
+				.onFailure { failure ->
+					Diag.w("import", "conversation bundle failed", failure)
+					onResult(null, failure.message ?: "Could not import the conversation.")
+				}
 		}
 	}
 

@@ -434,6 +434,36 @@ Directories are kept as entries, so an empty folder survives. File contents are
 streamed at 64 KiB and the result's `bytes` is the uncompressed content total
 for diagnostics; it is not the archive size and is not shown as one.
 
+### Workspace import: `WorkspaceZip.importInto`
+
+The Workspaces screen's **Import workspace (.zip)** calls
+`WorkspaceZip.importInto` and always creates a **new permanent workspace**; it
+never merges into or overwrites an existing one. A permanent workspace may be
+shared with conversations the user did not intend to change, so "import" must
+not be a destructive act hiding behind a restore label.
+
+The archive is untrusted input, but only the file names and bytes are taken from
+it:
+
+- Entries are read with `ZipInputStream`, never loaded whole. Each file goes
+  through the ordinary `WorkspaceTransfer.import`, so the per-file ceiling,
+  workspace quota, free-space reserve, atomic staging-and-rename and overwrite
+  rules are the same as any other user import. `importInto` does not add a
+  second quota.
+- Before a name reaches the workspace it is normalised: `\` becomes `/`, and
+  empty names, absolute paths, drive prefixes, `.`/`..`/empty segments and
+  control characters are refused. Directory entries are skipped, and a repeated
+  file name is skipped rather than silently replacing the first one. The
+  workspace's own `resolve()` remains the last fence.
+- At most 2,000 file entries are accepted; a quota/IO/corrupt-archive failure
+  stops the import. Files already written are kept and counted, and the UI
+  reports the failure. An import that wrote nothing deletes the just-created
+  empty workspace again; a partial one is left visible so the user can inspect
+  or delete it.
+- The zip is plaintext and is not a backup. The encrypted `BackupRepository`
+  remains the path for moving everything, including the database, to another
+  install.
+
 ### Download from a URL
 
 A second user-facing path, next to import/export: **Files → Download from a

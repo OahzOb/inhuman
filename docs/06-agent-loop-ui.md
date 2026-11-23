@@ -525,14 +525,25 @@ index is a strip above the transcript rather than an overlay: a chip pinned to
 the top-right would sit on the first user bubble.
 
 - **Export** lives in the same overflow: one conversation as Markdown (a dialog
-  chooses whether tool calls and results are included) and its workspace as zip.
-  Export uses `ACTION_CREATE_DOCUMENT`, so the user chooses the destination;
-  **Share** writes the same Markdown to a cache file and opens the system share
-  sheet, with no server involved. The Markdown includes reasoning and attachment
-  paths but not attachment bytes; the zip is the plain files, not an encrypted
-  backup (`WorkspaceZip`, docs/05). The permanent-workspace detail menu offers
-  the same zip, because a workspace can exist with no conversation to reach it
-  from.
+  chooses whether tool calls and results are included), a **conversation bundle**
+  (`.zip`), and its workspace as zip. Export uses `ACTION_CREATE_DOCUMENT`, so the
+  user chooses the destination; **Share** writes the same Markdown to a cache
+  file and opens the system share sheet, with no server involved. The Markdown
+  includes reasoning and attachment paths but not attachment bytes; the zip is
+  the plain files, not an encrypted backup (`WorkspaceZip`, docs/05). The
+  permanent-workspace detail menu offers the same zip, because a workspace can
+  exist with no conversation to reach it from.
+- **Conversation bundle** is the move, not the read: `conversation.json` keeps the
+  active branch's messages with reasoning, signatures, provider state, tool calls
+  and results, and `files/` carries the attachment bytes. Branches are
+  deliberately absent — a conversation has one visible transcript. **Import
+  conversation bundle** lives under Create: it creates a new conversation under
+  the local default assistant, copies only the attachment paths the bundle's own
+  messages reference through `WorkspaceTransfer`, and replays the messages in
+  order. A bundle that cannot be decoded, or that has no messages, is refused. The
+  codec and zip reader are in `ConversationBundle.kt` /
+  `ConversationBundleZip.kt`; the zip reader caps the JSON, each file and the
+  total, and drops unsafe entry names rather than resolving them.
 - **Upload conversation** is a separate item with its own preview, not an
   export option: it names the configured server, says that the body is the
   transcript in plain Markdown, and has a tool-result checkbox that is **off by
@@ -1303,6 +1314,15 @@ property:
 - **Workspace detail** shows usage, the session list, **Files**, and **New
   conversation**. New conversations created here use that workspace and ask for
   an assistant first, exactly like the home flow.
+- **Import workspace (.zip)** is on the Workspaces list and always creates a new
+  permanent workspace named from the document's display name; it never merges
+  into an existing one. The archive is untrusted input: entry names are
+  normalised, directories and duplicate names are skipped, at most 2,000 files
+  are accepted, and each file goes through `WorkspaceTransfer` so the workspace
+  quota, per-file ceiling and free-space reserve apply exactly as they do to a
+  user-picked file. A failure stops the import and keeps what already arrived
+  (with the error shown); an import that wrote nothing removes the empty
+  workspace it had just created. Rules are in docs/05.
 - **Save workspace as permanent** is in the temporary conversation's overflow
   menu. It asks for a name and changes only the workspace row; the directory does
   not move, so the action is immediate and idempotent. After promotion the menu
@@ -1388,7 +1408,13 @@ key, reasoning-field mode, stream-usage switch and fallback model ids. Save
 writes
 the row and key through `AgentRepository.saveProvider`; a blank key removes it.
 "Test connection" calls `GET /models` with the unsaved values and reports what it
-sees. The built-in DeepSeek profile cannot be deleted. **Web & media tools**
+sees. The built-in DeepSeek profile cannot be deleted. **A stored key can be
+deleted without deleting its provider**: the editor has a **Delete saved key**
+action when a key is stored and the field is empty, and the web-tools section has
+one for the DeepSeek-tools and Exa keys together. Media backends have the same
+action in their dialog; `saveMedia` keeps an existing key when the field is
+blank, so clearing it needs its own control. OAuth sessions are a separate
+credential and are ended by the existing **Sign out**. **Web & media tools**
 selects the search and fetch backend independently (DeepSeek/Exa) and stores
 their keys separately; a backend without a key shows a warning and its tool stays
 unregistered. Below them, the five paid media tools each have a row with an

@@ -1357,4 +1357,25 @@
 	<string name="session_memory_search">Search record</string>
 	<string name="session_memory_loading">Loading session memory…</string>
 	<string name="session_memory_unavailable">Session memory is unavailable right now.</string>
+
+	<!-- Conversation and workspace bundles, and deleting saved keys -->
+	<string name="chat_export_bundle">Export conversation bundle…</string>
+	<string name="chat_export_bundle_detail">Messages, tool calls, reasoning and attachments; for import on another device</string>
+	<string name="chat_export_bundle_done">Conversation bundle exported.</string>
+	<string name="chat_export_bundle_failed">Could not export the conversation bundle: %1$s</string>
+	<string name="home_import_bundle">Import conversation bundle…</string>
+	<string name="home_import_bundle_detail">From a bundle exported on another device</string>
+	<string name="home_import_bundle_failed">Could not import the conversation bundle: %1$s</string>
+	<string name="home_import_bundle_unknown">Unknown error</string>
+	<string name="workspaces_import_zip">Import workspace zip…</string>
+	<string name="workspaces_import_zip_failed">Could not import the workspace: %1$s</string>
+	<string name="workspaces_import_zip_unknown">Unknown error</string>
+	<string name="workspaces_import_zip_default_name">Imported workspace</string>
+	<string name="workspaces_import_zip_unreadable">Could not read the selected file</string>
+	<string name="settings_provider_clear_key">Delete saved key</string>
+	<string name="settings_provider_clear_key_note">Removes the API key saved on this device. An OAuth sign-in is separate.</string>
+	<string name="settings_web_clear_keys">Delete saved web keys</string>
+	<string name="settings_web_clear_keys_confirm">Delete the saved DeepSeek and Exa keys for the web tools? Requests will fail until a key is saved again.</string>
+	<string name="settings_media_clear_key">Delete saved key</string>
+	<string name="settings_key_cleared">Saved key deleted.</string>
 </resources>

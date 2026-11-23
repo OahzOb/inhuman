@@ -86,6 +86,14 @@ data class ProviderDraft(
 	val manualModels: String,
 	val keyInput: String,
 	val hasKey: Boolean,
+	/**
+	 * Whether the key currently in `SecureStore` belongs to this provider.
+	 *
+	 * `hasKey` also turns true while the user types a replacement, so it cannot
+	 * answer "is there a saved credential to delete?". OAuth is deliberately not
+	 * included: signing out is its own action.
+	 */
+	val hasStoredKey: Boolean = false,
 	/** Known provider: endpoint/kind come from the catalog, so only the key is asked. */
 	val isPreset: Boolean = false,
 	val testing: Boolean = false,
@@ -1410,6 +1418,7 @@ class SettingsViewModel(
 				manualModels = profile.manualModels,
 				keyInput = key,
 				hasKey = key.isNotBlank() || oauth.status(profile.id).signedIn,
+				hasStoredKey = key.isNotBlank(),
 				isPreset = isPreset,
 			),
 		)
@@ -1627,6 +1636,31 @@ class SettingsViewModel(
 		}
 	}
 
+	/**
+	 * Remove the locally stored API key from a provider without deleting the row.
+	 *
+	 * The provider row is configuration (name, endpoint, model tags) and the key
+	 * is a credential; deleting one should not silently delete the other. This
+	 * is also the only way to clear the built-in DeepSeek key, whose row is
+	 * deliberately undeletable. An OAuth session is a separate credential and
+	 * has its own Sign out; this method does not touch it.
+	 */
+	fun clearProviderKey() {
+		val draft = _state.value.editingProvider ?: return
+		if (draft.isNew) return
+		secure.remove(agents.apiKeySlot(draft.id))
+		Diag.i("settings", "provider key cleared id=${Diag.shortId(draft.id)}")
+		updateProviderDraft {
+			it.copy(
+				keyInput = "",
+				hasKey = false,
+				hasStoredKey = false,
+				status = context.getString(R.string.settings_key_cleared),
+				statusIsError = false,
+			)
+		}
+	}
+
 	fun testProvider() {
 		val draft = _state.value.editingProvider ?: return
 		val typedKey = draft.keyInput.trim().ifBlank {
@@ -1747,6 +1781,28 @@ class SettingsViewModel(
 			hasWebDeepSeekKey = deepseek.isNotBlank(),
 			hasWebExaKey = exa.isNotBlank(),
 			webStatus = context.getString(R.string.settings_status_web_saved),
+			webStatusIsError = false,
+		)
+	}
+
+	/**
+	 * Delete both saved web-tool keys.
+	 *
+	 * They are one section with one Save, and leaving one behind would make the
+	 * section still "configured" after the user asked to remove the credentials.
+	 * The selected backends are configuration and stay; without a key their
+	 * tools remain absent, which the section already explains.
+	 */
+	fun clearWebKeys() {
+		secure.remove(SecureStore.KEY_WEB_DEEPSEEK_API_KEY)
+		secure.remove(SecureStore.KEY_WEB_EXA_API_KEY)
+		Diag.i("settings", "web keys cleared")
+		_state.value = _state.value.copy(
+			webDeepSeekKeyInput = "",
+			webExaKeyInput = "",
+			hasWebDeepSeekKey = false,
+			hasWebExaKey = false,
+			webStatus = context.getString(R.string.settings_key_cleared),
 			webStatusIsError = false,
 		)
 	}
@@ -1924,6 +1980,36 @@ class SettingsViewModel(
 			mediaConfigs = loadMediaConfigs(),
 			mediaDraft = null,
 			mediaStatus = context.getString(R.string.settings_media_saved),
+			mediaStatusIsError = false,
+		)
+	}
+
+	/**
+	 * Remove the saved key from the media backend being edited.
+	 *
+	 * `saveMedia` deliberately treats a blank key field as "keep the existing
+	 * key" so reopening a dialog cannot silently erase a credential. Clearing it
+	 * therefore needs its own action. The rest of the backend config (mode,
+	 * provider, model, endpoint) stays; with no key a Direct backend is
+	 * incomplete and the tools stay absent until it is filled in again.
+	 */
+	fun clearMediaKey() {
+		val draft = _state.value.mediaDraft ?: return
+		val existing = MediaToolStore.load(secure, draft.capability)
+		if (existing.apiKey.isBlank()) {
+			_state.value = _state.value.copy(
+				mediaDraft = draft.copy(apiKeyInput = "", hasKey = false),
+				mediaStatus = context.getString(R.string.settings_key_cleared),
+				mediaStatusIsError = false,
+			)
+			return
+		}
+		MediaToolStore.save(secure, draft.capability, existing.copy(apiKey = ""))
+		Diag.i("settings", "media key cleared capability=${draft.capability.key}")
+		_state.value = _state.value.copy(
+			mediaConfigs = loadMediaConfigs(),
+			mediaDraft = draft.copy(apiKeyInput = "", hasKey = false),
+			mediaStatus = context.getString(R.string.settings_key_cleared),
 			mediaStatusIsError = false,
 		)
 	}

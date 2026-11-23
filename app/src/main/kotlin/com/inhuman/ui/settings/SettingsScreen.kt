@@ -173,6 +173,9 @@ fun SettingsScreen(
 	var backupPassphrase by remember { mutableStateOf("") }
 	var backupPassphraseConfirm by remember { mutableStateOf("") }
 	var showProviderPicker by remember { mutableStateOf(false) }
+	// Clearing both web keys at once is the one key action here that is not tied
+	// to the editor that owns a single key, so it is confirmed before it runs.
+	var showClearWebKeysConfirm by remember { mutableStateOf(false) }
 	var query by rememberSaveable { mutableStateOf("") }
 
 	// The text a section is searched by. Built once per composition because
@@ -513,6 +516,14 @@ fun SettingsScreen(
 					onClick = viewModel::saveWebTools,
 					shape = MaterialTheme.shapes.small,
 				) { Text(stringResource(R.string.settings_save_web_keys)) }
+				if (state.hasWebDeepSeekKey || state.hasWebExaKey) {
+					TextButton(onClick = { showClearWebKeysConfirm = true }) {
+						Text(
+							text = stringResource(R.string.settings_web_clear_keys),
+							color = MaterialTheme.colorScheme.error,
+						)
+					}
+				}
 				Text(
 					text = stringResource(R.string.settings_web_no_test),
 					style = MaterialTheme.typography.labelSmall,
@@ -1699,6 +1710,7 @@ fun SettingsScreen(
 			onSave = viewModel::saveProvider,
 			onTest = viewModel::testProvider,
 			onDelete = viewModel::deleteProvider,
+			onClearKey = viewModel::clearProviderKey,
 			onDismiss = viewModel::closeProviderEditor,
 		)
 	}
@@ -1725,7 +1737,37 @@ fun SettingsScreen(
 			onBaseUrl = viewModel::setMediaBaseUrl,
 			onApiKey = viewModel::setMediaKeyInput,
 			onSave = viewModel::saveMedia,
+			onClearKey = viewModel::clearMediaKey,
 			onClose = viewModel::closeMedia,
+		)
+	}
+
+	if (showClearWebKeysConfirm) {
+		AlertDialog(
+			onDismissRequest = { showClearWebKeysConfirm = false },
+			title = { Text(stringResource(R.string.settings_web_clear_keys)) },
+			text = { Text(stringResource(R.string.settings_web_clear_keys_confirm)) },
+			confirmButton = {
+				TextButton(
+					onClick = {
+						showClearWebKeysConfirm = false
+						viewModel.clearWebKeys()
+					},
+				) {
+					Text(
+						text = stringResource(R.string.common_delete),
+						color = MaterialTheme.colorScheme.error,
+					)
+				}
+			},
+			dismissButton = {
+				TextButton(onClick = { showClearWebKeysConfirm = false }) {
+					Text(stringResource(R.string.common_cancel))
+				}
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 	}
 
@@ -2255,6 +2297,7 @@ private fun ProviderEditorDialog(
 	onSave: () -> Unit,
 	onTest: () -> Unit,
 	onDelete: () -> Unit,
+	onClearKey: () -> Unit,
 	onDismiss: () -> Unit,
 ) {
 	AlertDialog(
@@ -2403,6 +2446,22 @@ private fun ProviderEditorDialog(
 					style = MaterialTheme.typography.labelSmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
+				// Hidden once a replacement has been typed: hasKey becomes true
+				// from the input too, and clearing the stored key while a new one
+				// is merely typed would throw the old key away on Cancel.
+				if (draft.hasStoredKey) {
+					TextButton(onClick = onClearKey) {
+						Text(
+							text = stringResource(R.string.settings_provider_clear_key),
+							color = MaterialTheme.colorScheme.error,
+						)
+					}
+					Text(
+						text = stringResource(R.string.settings_provider_clear_key_note),
+						style = MaterialTheme.typography.labelSmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
 				if (!draft.isPreset &&
 					(draft.kind == ProviderKinds.OPENAI_COMPATIBLE ||
 						draft.kind == ProviderKinds.DEEPSEEK ||

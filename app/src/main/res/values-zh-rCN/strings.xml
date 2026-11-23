@@ -1329,4 +1329,25 @@
 	<string name="session_memory_search">搜索记录</string>
 	<string name="session_memory_loading">正在读取会话记忆…</string>
 	<string name="session_memory_unavailable">暂时读不到会话记忆。</string>
+
+	<!-- 对话包 / 工作区包，以及删除已保存密钥 -->
+	<string name="chat_export_bundle">导出对话包…</string>
+	<string name="chat_export_bundle_detail">消息、工具调用、推理和附件；用于在另一台设备导入</string>
+	<string name="chat_export_bundle_done">对话包已导出。</string>
+	<string name="chat_export_bundle_failed">无法导出对话包：%1$s</string>
+	<string name="home_import_bundle">导入对话包…</string>
+	<string name="home_import_bundle_detail">从另一台设备导出的对话包</string>
+	<string name="home_import_bundle_failed">无法导入对话包：%1$s</string>
+	<string name="home_import_bundle_unknown">未知错误</string>
+	<string name="workspaces_import_zip">导入工作区 zip…</string>
+	<string name="workspaces_import_zip_failed">无法导入工作区：%1$s</string>
+	<string name="workspaces_import_zip_unknown">未知错误</string>
+	<string name="workspaces_import_zip_default_name">导入的工作区</string>
+	<string name="workspaces_import_zip_unreadable">无法读取所选文件</string>
+	<string name="settings_provider_clear_key">删除已保存的密钥</string>
+	<string name="settings_provider_clear_key_note">只删除本机保存的 API key；OAuth 登录请用现有的登出。</string>
+	<string name="settings_web_clear_keys">删除已保存的网页密钥</string>
+	<string name="settings_web_clear_keys_confirm">删除网页工具已保存的 DeepSeek 和 Exa 密钥？重新保存密钥之前，请求会失败。</string>
+	<string name="settings_media_clear_key">删除已保存的密钥</string>
+	<string name="settings_key_cleared">已删除保存的密钥。</string>
 </resources>

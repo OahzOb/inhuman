@@ -1746,6 +1746,70 @@ class ChatViewModel(
 	}
 
 	/**
+	 * Write this conversation as a portable bundle: one JSON document plus every
+	 * attachment's bytes.
+	 *
+	 * The Markdown export is for reading; this is for moving. It keeps the
+	 * active branch's messages with the fields the model needs on replay
+	 * (reasoning, signatures, provider state, tool calls and results) and the
+	 * attachment files, so an import on another install can produce the same
+	 * transcript without a copy of this database.
+	 *
+	 * Branches are not included: a conversation has one visible transcript, and
+	 * importing the alternatives would either need the branch model on the
+	 * target or produce a merged one that never existed.
+	 */
+	fun exportConversationBundle(uri: Uri, onResult: (String?) -> Unit) {
+		viewModelScope.launch {
+			val failure = withContext(Dispatchers.IO) {
+				runCatching {
+					val loaded = repository.conversation(conversationId)
+						?: error(context.getString(R.string.export_error_missing_conversation))
+					val entity = loaded.entity
+					val json = ConversationBundleCodec.encode(
+						title = entity.title.ifBlank { context.getString(R.string.chat_title_fallback) },
+						sessionMode = entity.sessionMode,
+						exportedAt = System.currentTimeMillis(),
+						messages = loaded.messages,
+					)
+					val workspace = runCatching { repository.workspace(entity) }.getOrNull()
+					val sources = if (workspace == null) {
+						emptyList()
+					} else {
+						loaded.messages
+							.flatMap { ConversationBundleCodec.attachmentPaths(it.attachmentsJson) }
+							.distinct()
+							.mapNotNull { path ->
+								when (val resolved = workspace.resolve(path)) {
+									is SessionWorkspace.Resolution.Ok -> {
+										val file = resolved.file
+										if (!file.isFile) {
+											null
+										} else {
+											ConversationBundleZip.Source(path) { file.inputStream() }
+										}
+									}
+									is SessionWorkspace.Resolution.Rejected -> null
+								}
+							}
+					}
+					val out = context.contentResolver.openOutputStream(uri)
+						?: error(context.getString(R.string.export_error_destination))
+					val written = out.use { ConversationBundleZip.write(it, json, sources) }
+					Diag.i(
+						"export",
+						"bundle conv=${Diag.shortId(conversationId)} messages=${loaded.messages.size} " +
+							"attachments=${written.files} missing=${written.missing.size} " +
+							"bytes=${written.bytes} chars=${json.length}",
+					)
+				}.exceptionOrNull()
+			}
+			failure?.let { Diag.w("export", "bundle export failed", it) }
+			onResult(failure?.messageOrUnknown())
+		}
+	}
+
+	/**
 	 * Write the conversation's workspace to a user-chosen document as a zip.
 	 *
 	 * This is the same directory the Files screen shows, not a filtered version

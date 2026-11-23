@@ -1,6 +1,9 @@
 package com.inhuman.ui.workspaces
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.provider.OpenableColumns
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
@@ -40,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -68,6 +72,39 @@ fun WorkspacesScreen(
 	var showCreate by remember { mutableStateOf(false) }
 	var newName by remember { mutableStateOf("") }
 	var showBulkDelete by remember { mutableStateOf(false) }
+	// A workspace zip carries its own name, but the document display name is the
+	// only name the picker gives us; the fallback is a plain noun rather than an
+	// error, because the import can still be named afterwards.
+	val importContext = LocalContext.current
+	var importError by remember { mutableStateOf<String?>(null) }
+	val workspaceImporter = rememberLauncherForActivityResult(
+		ActivityResultContracts.OpenDocument(),
+	) { uri ->
+		if (uri != null) {
+			val resolver = importContext.contentResolver
+			val displayName = runCatching {
+				resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+					?.use { cursor ->
+						if (cursor.moveToFirst()) cursor.getString(0) else null
+					}
+			}.getOrNull()?.takeIf { it.isNotBlank() }
+				?: importContext.getString(R.string.workspaces_import_zip_default_name)
+			viewModel.importWorkspaceZip(
+				open = {
+					resolver.openInputStream(uri)
+						?: error(importContext.getString(R.string.workspaces_import_zip_unreadable))
+				},
+				displayName = displayName,
+			) { id, error ->
+				if (id != null) {
+					onOpenWorkspace(id)
+				} else {
+					importError = error
+						?: importContext.getString(R.string.workspaces_import_zip_unknown)
+				}
+			}
+		}
+	}
 
 	BackHandler(enabled = state.selecting) { viewModel.cancelSelection() }
 
@@ -169,6 +206,25 @@ fun WorkspacesScreen(
 						modifier = Modifier.weight(1f),
 					)
 					TextButton(onClick = viewModel::clearError) { Text(stringResource(R.string.common_dismiss)) }
+				}
+			}
+			if (!state.selecting) {
+				Row(
+					modifier = Modifier
+						.widthIn(max = Layout.ReadableMeasure)
+						.fillMaxWidth()
+						.padding(horizontal = comfortableGutter()),
+					horizontalArrangement = Arrangement.End,
+				) {
+					TextButton(
+						onClick = {
+							workspaceImporter.launch(
+								arrayOf("application/zip", "application/x-zip-compressed"),
+							)
+						},
+					) {
+						Text(stringResource(R.string.workspaces_import_zip))
+					}
 				}
 			}
 			if (!state.loading && state.workspaces.isEmpty()) {
@@ -298,6 +354,22 @@ fun WorkspacesScreen(
 			dismissButton = {
 				TextButton(onClick = { showCreate = false }) { Text(stringResource(R.string.common_cancel)) }
 			},
+		)
+	}
+
+	importError?.let { message ->
+		AlertDialog(
+			onDismissRequest = { importError = null },
+			title = { Text(stringResource(R.string.workspaces_import_zip)) },
+			text = { Text(stringResource(R.string.workspaces_import_zip_failed, message)) },
+			confirmButton = {
+				TextButton(onClick = { importError = null }) {
+					Text(stringResource(R.string.common_ok))
+				}
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 	}
 }

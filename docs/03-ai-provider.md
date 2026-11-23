@@ -284,7 +284,14 @@ OpenAI-compatible endpoint. A profile stores the name, kind, base URL, reasoning
 field mode, whether to request stream usage, and optional fallback model ids. The
 API key is not in Room: it lives in `SecureStore` under a slot derived from the
 profile id. The built-in DeepSeek profile reuses `deepseek.api_key`, so an
-existing install keeps chatting without re-entering it.
+existing install keeps chatting without re-entering it. **Deleting the key and
+deleting the profile are separate actions**: the provider editor's **Delete
+saved key** removes only the `SecureStore` value (the built-in profile cannot be
+deleted at all, which is why this is the only way to clear its key), and an
+OAuth session is a different credential with its own Sign out. The web-tool keys
+and the paid media backends follow the same split: clearing a key leaves the
+backend selection in place, and a selected backend without a key keeps its tool
+unregistered.
 
 `agents.providerId` selects the provider; `conversations.providerId` copies it at
 creation, beside the model and effort copy. Changing an assistant therefore does

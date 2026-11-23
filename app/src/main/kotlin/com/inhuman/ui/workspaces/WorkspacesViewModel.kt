@@ -4,12 +4,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.db.WorkspaceEntity
+import com.inhuman.core.files.WorkspaceZip
+import java.io.InputStream
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class WorkspaceRowUi(
 	val workspace: WorkspaceEntity,
@@ -69,6 +73,53 @@ class WorkspacesViewModel(
 				.onSuccess { onCreated(it.id) }
 				.onFailure { failure ->
 					_state.update { it.copy(error = failure.message ?: "Could not create workspace.") }
+				}
+		}
+	}
+
+	/**
+	 * Import a plain workspace zip into a new permanent workspace.
+	 *
+	 * A new row rather than a merge: a permanent workspace may already be open
+	 * and shared, and a zip import that renames or overwrites its files would be
+	 * a destructive act hiding behind a "restore" label. The workspace row is
+	 * created first so the sweep cannot treat the directory as an orphan; if the
+	 * archive yields nothing, the row is removed again rather than leaving an
+	 * empty workspace the user did not ask for.
+	 */
+	fun importWorkspaceZip(
+		open: () -> InputStream,
+		displayName: String,
+		onResult: (String?, String?) -> Unit,
+	) {
+		viewModelScope.launch {
+			val outcome = withContext(Dispatchers.IO) {
+				runCatching {
+					val created = repository.createWorkspace(
+						displayName.trim().ifBlank { "Imported workspace" },
+					)
+					val workspace = repository.workspace(created.id)
+					val imported = open().use { WorkspaceZip.importInto(workspace, it) }
+					if (imported.failed) {
+						// A partially imported workspace is kept and disclosed by the
+						// error: deleting it would throw away the files that did
+						// arrive, while reporting success would make a truncated
+						// import look complete. An import that wrote nothing has no
+						// reason to leave an empty row behind.
+						if (imported.files == 0) {
+							runCatching { repository.deleteWorkspaces(listOf(created)) }
+						}
+						error(imported.failure ?: "Could not import the workspace.")
+					}
+					created.id
+				}
+			}
+			outcome.onSuccess { onResult(it, null) }
+				.onFailure { failure ->
+					_state.update {
+						it.copy(error = failure.message ?: "Could not import the workspace.")
+					}
+					onResult(null, failure.message ?: "Could not import the workspace.")
 				}
 		}
 	}
