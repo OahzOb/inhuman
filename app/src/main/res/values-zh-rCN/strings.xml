@@ -292,6 +292,12 @@
 	<string name="settings_usage_cached">缓存</string>
 	<string name="settings_usage_reasoning">推理</string>
 	<string name="settings_usage_paid">付费调用</string>
+	<string name="settings_usage_maintenance">会话整理</string>
+	<string name="settings_usage_maintenance_value">%1$s · 输入 %2$s · 输出 %3$s</string>
+	<plurals name="settings_usage_maintenance_runs">
+		<item quantity="one">%d 次</item>
+		<item quantity="other">%d 次</item>
+	</plurals>
 	<plurals name="settings_usage_paid_calls">
 		<item quantity="other">%d 次付费调用</item>
 	</plurals>
@@ -303,7 +309,7 @@
 	<string name="settings_usage_days_capped">仅显示最近 %1$d 个有用量的日期。</string>
 	<string name="settings_usage_conversations_capped">仅显示用量最高的 %1$d 个对话。</string>
 	<string name="settings_usage_untitled">未命名对话</string>
-	<string name="settings_usage_body">统计来自本机仍保存的会话记录：服务商上报的 token，以及工具目录标记为付费的工具调用。缓存 token 属于输入，推理 token 属于输出。已删除或回退的回合、压缩摘要不计入。不显示价格，因为价格由各家服务商决定。</string>
+	<string name="settings_usage_body">统计来自本机仍保存的数据：会话记录里服务商上报的 token、工具目录标记为付费的工具调用，以及持续会话整理请求（来自单独的整理记录）。缓存 token 属于输入，推理 token 属于输出。已删除或回退的回合、经典模式的手动压缩摘要不计入。不显示价格，因为价格由各家服务商决定。</string>
 	<string name="settings_section_backup">06 / 备份</string>
 	<string name="settings_backup_title">备份</string>
 	<string name="settings_backup_summary">数据与工作区的加密导出、导入</string>
@@ -1283,4 +1289,44 @@
 	<string name="model_picker_tag_hint">这些标签会覆盖按模型名推断的结果。没有“文本”的模型不会出现在对话模型列表里。</string>
 	<string name="model_picker_tag_clear">清除标签</string>
 	<string name="chat_error_not_a_chat_model">这个模型看起来不是用来对话的。可以在模型列表里更正它的标签，或换一个模型。</string>
+
+	<!-- 持续会话（docs/proposals/continuous-session.md） -->
+	<string name="home_create_continuous">持续会话</string>
+	<string name="home_create_continuous_detail">应用会自动整理早期消息，这段对话不会因为长度而结束。这会偶尔多一次或几次模型请求；用量记在设置 → 用量。</string>
+	<string name="chat_session_memory">会话记忆</string>
+	<string name="chat_session_memory_detail">简报、覆盖范围与维护花费</string>
+	<string name="chat_continuous_enable">改为持续会话</string>
+	<string name="chat_continuous_enable_detail">在这段对话里自动整理早期消息</string>
+	<string name="chat_continuous_enable_confirm">这段对话会自动整理早期消息。这会偶尔多一次或几次模型请求，用量记在设置 → 用量。完整记录仍会保留，并且仍然可以搜索。</string>
+	<string name="chat_continuous_stop">停止维护</string>
+	<string name="chat_continuous_stop_detail">保留记录；当前简报留作手动摘要</string>
+	<string name="chat_continuous_stop_confirm">停止维护？完整记录仍会保留。当前简报会留作手动摘要，可以在经典模式的上下文面板里清除。</string>
+	<string name="chat_maintaining">正在整理早期消息…</string>
+	<string name="chat_maintenance_preparing">正在准备早期消息…</string>
+	<string name="chat_error_context_too_large">这条消息本身太长，模型一次读不完。可以换一个能读更长上下文的模型，或者把内容分成两次发送。</string>
+	<string name="chat_recall_title">检索记录</string>
+	<string name="chat_recall_detail">只读检索这段对话的完整记录</string>
+	<string name="session_memory_title">会话记忆</string>
+	<string name="session_memory_mode">模式：%1$s</string>
+	<string name="session_memory_mode_continuous">持续会话</string>
+	<string name="session_memory_mode_classic">经典会话</string>
+	<string name="session_memory_classic_note">经典会话：由你决定什么时候压缩更早的消息。</string>
+	<string name="session_memory_coverage">第 1–%1$d 回合 · %2$d 条消息</string>
+	<string name="session_memory_coverage_unknown">未记录</string>
+	<string name="session_memory_last_run">最近整理：%1$s</string>
+	<string name="session_memory_never_run">还没有整理过</string>
+	<string name="session_memory_totals">%1$d 次 · 输入 %2$s / 输出 %3$s tokens</string>
+	<string name="session_memory_brief_code">会话 / 简报</string>
+	<string name="session_memory_brief">会话简报</string>
+	<string name="session_memory_brief_empty">还没有简报。第一次整理把早期消息折进去时会写。</string>
+	<string name="session_memory_brief_updated">更新于 %1$s</string>
+	<string name="session_memory_brief_tokens">%1$s tokens（估算）</string>
+	<string name="session_memory_brief_truncated">简报超出预算，已被截断。</string>
+	<string name="session_memory_brief_kind_manual">手动摘要</string>
+	<string name="session_memory_brief_kind_auto">自动维护</string>
+	<string name="session_memory_rebuild">重建</string>
+	<string name="session_memory_rebuild_confirm">从记录重建简报？这会使用一次或多次模型请求（估算），并记入设置 → 用量。</string>
+	<string name="session_memory_search">搜索记录</string>
+	<string name="session_memory_loading">正在读取会话记忆…</string>
+	<string name="session_memory_unavailable">暂时读不到会话记忆。</string>
 </resources>

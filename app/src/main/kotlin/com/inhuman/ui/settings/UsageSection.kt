@@ -93,6 +93,7 @@ internal fun UsageSection(
 		when {
 			report != null -> {
 				UsageTotalsBlock(report)
+				MaintenanceBlock(report)
 				if (failed) UsageFailure(onRetry)
 			}
 			failed -> UsageFailure(onRetry)
@@ -209,6 +210,43 @@ private fun UsageStat(label: String, value: String, modifier: Modifier = Modifie
 		Eyebrow(label)
 		Text(
 			text = value,
+			style = MaterialTheme.typography.titleMedium,
+			fontFamily = FontFamily.Monospace,
+		)
+	}
+}
+
+/**
+ * The maintenance requests behind a continuous session.
+ *
+ * This is spend that has no assistant row: a summary request is a model call
+ * whose product is the brief. The row exists so automatic maintenance on a new
+ * conversation is visible instead of being the one cost the overview cannot
+ * see.
+ */
+@Composable
+private fun MaintenanceBlock(report: UsageReport) {
+	val maintenance = report.maintenance
+	if (!maintenance.hasAny) return
+	Row(
+		modifier = Modifier
+			.fillMaxWidth()
+			.padding(top = 4.dp),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		Eyebrow(stringResource(R.string.settings_usage_maintenance))
+		Spacer(Modifier.weight(1f))
+		Text(
+			text = stringResource(
+				R.string.settings_usage_maintenance_value,
+				pluralStringResource(
+					R.plurals.settings_usage_maintenance_runs,
+					maintenance.runs,
+					maintenance.runs,
+				),
+				TokenFormat.exact(maintenance.inputTokens),
+				TokenFormat.exact(maintenance.outputTokens),
+			),
 			style = MaterialTheme.typography.titleMedium,
 			fontFamily = FontFamily.Monospace,
 		)

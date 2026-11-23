@@ -4,6 +4,7 @@ import androidx.room.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.inhuman.core.data.db.InhumanDatabase
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -26,6 +27,9 @@ class CurrentSchemaTest {
 			assertTrue(db.approvals().count("none") == 0)
 			assertTrue(db.savedPrompts().all().isEmpty())
 			assertTrue(db.messages().all("none").isEmpty())
+			// v23 tables and columns are queryable on the current schema.
+			assertTrue(db.maintenanceRuns().all().isEmpty())
+			assertNull(db.conversations().sessionMode("none"))
 		} finally {
 			db.close()
 		}

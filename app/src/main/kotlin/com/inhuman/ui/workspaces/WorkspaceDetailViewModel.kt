@@ -9,7 +9,9 @@ import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
+import com.inhuman.core.data.db.SessionMode
 import com.inhuman.core.data.db.WorkspaceEntity
+import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.core.files.SessionWorkspace
 import com.inhuman.core.files.WorkspaceZip
 import kotlinx.coroutines.Dispatchers
@@ -39,6 +41,8 @@ class WorkspaceDetailViewModel(
 	private val repository: ConversationRepository,
 	private val agents: AgentRepository,
 	private val workspaceId: String,
+	/** The saved default for new conversations; this path has no Create form. */
+	private val secure: SecureStore,
 ) : ViewModel() {
 
 	private val _state = MutableStateFlow(WorkspaceDetailUiState())
@@ -134,6 +138,11 @@ class WorkspaceDetailViewModel(
 					title = context.getString(R.string.chat_title_fallback),
 					agent = agent,
 					workspaceId = workspaceId,
+					sessionMode = if (secure.newConversationContinuous()) {
+						SessionMode.CONTINUOUS
+					} else {
+						SessionMode.CLASSIC
+					},
 				)
 			}
 				.onSuccess { onCreated?.invoke(it.id) }

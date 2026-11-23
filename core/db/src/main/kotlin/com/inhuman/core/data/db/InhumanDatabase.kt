@@ -196,6 +196,19 @@ interface ConversationDao {
 	@Query("UPDATE conversations SET workspaceInstructions = :block WHERE id = :id")
 	suspend fun setWorkspaceInstructions(id: String, block: String?)
 
+	/**
+	 * Set how this conversation maintains its projection.
+	 *
+	 * No `updatedAt` bump, for the same reason as [setTools]: switching the
+	 * maintenance mode is configuration, not conversation activity, and moving
+	 * the row to the top of the list would be a surprise.
+	 */
+	@Query("UPDATE conversations SET sessionMode = :mode WHERE id = :id")
+	suspend fun setSessionMode(id: String, mode: String)
+
+	@Query("SELECT sessionMode FROM conversations WHERE id = :id")
+	suspend fun sessionMode(id: String): String?
+
 	@Query("SELECT sshAllowed FROM conversations WHERE id = :id")
 	suspend fun sshAllowed(id: String): Boolean?
 
@@ -484,6 +497,33 @@ interface ContextSummaryDao {
 	suspend fun all(): List<ContextSummaryEntity>
 }
 
+/**
+ * The cost ledger for continuous-session maintenance.
+ *
+ * Written by the maintenance path, read by the session-memory sheet and the
+ * usage overview. `id` is the tie-break because two runs inside one
+ * millisecond are possible in a scripted test, and an ordering that changes
+ * between emissions would make the ledger look like it moved.
+ */
+@Dao
+interface MaintenanceRunDao {
+
+	@Query(
+		"SELECT * FROM maintenance_runs WHERE conversationId = :conversationId " +
+			"ORDER BY at DESC, id ASC",
+	)
+	suspend fun byConversation(conversationId: String): List<MaintenanceRunEntity>
+
+	@Query("SELECT * FROM maintenance_runs ORDER BY at DESC, id ASC")
+	suspend fun all(): List<MaintenanceRunEntity>
+
+	@Insert(onConflict = OnConflictStrategy.REPLACE)
+	suspend fun upsert(run: MaintenanceRunEntity)
+
+	@Query("DELETE FROM maintenance_runs WHERE conversationId = :conversationId")
+	suspend fun deleteAllIn(conversationId: String)
+}
+
 @Dao
 interface AgentDao {
 
@@ -634,6 +674,7 @@ interface SavedPromptDao {
 		PathPolicyEntity::class,
 		ApprovalAuditEntity::class,
 		SavedPromptEntity::class,
+		MaintenanceRunEntity::class,
 	],
 	// Bumped when columns were added for tool calls, again for measured
 	// latency, again for assistants, again for the approval rules, again for
@@ -641,12 +682,13 @@ interface SavedPromptDao {
 	// Anthropic thinking signature, and again for OpenAI Responses provider
 	// state, again for the per-assistant follow-up suggestion settings, again
 	// for the OpenCode reasoning-mode correction, again for the pinned
-	// workspace instructions, and again for the per-conversation SSH host
-	// selection. Room refuses to open a database whose schema hash does not
-	// match rather than guessing, which is how each was caught: the app crashed
-	// on launch with "Looks like you've changed schema but forgot to update the
-	// version number" instead of quietly losing conversations.
-	version = 22,
+	// workspace instructions, again for the per-conversation SSH host
+	// selection, and again for continuous-session maintenance. Room refuses to
+	// open a database whose schema hash does not match rather than guessing,
+	// which is how each was caught: the app crashed on launch with "Looks like
+	// you've changed schema but forgot to update the version number" instead of
+	// quietly losing conversations.
+	version = 23,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -655,6 +697,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 	abstract fun workspaces(): WorkspaceDao
 	abstract fun messages(): MessageDao
 	abstract fun contextSummaries(): ContextSummaryDao
+	abstract fun maintenanceRuns(): MaintenanceRunDao
 	abstract fun agents(): AgentDao
 	abstract fun policies(): PolicyDao
 	abstract fun approvals(): ApprovalAuditDao
@@ -664,7 +707,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 		const val NAME = "inhuman.db"
 
 		/** Mirrors the Room annotation; backups record it without reflection. */
-		const val VERSION = 22
+		const val VERSION = 23
 
 		/**
 		 * 1 -> 2: tool-call columns.
@@ -1164,6 +1207,62 @@ abstract class InhumanDatabase : RoomDatabase() {
 		}
 
 		/**
+		 * 22 -> 23: continuous sessions.
+		 *
+		 * Additive and defaulted so every existing row keeps today's behaviour:
+		 * a conversation becomes continuous only when the user's preference is
+		 * on at creation, so the upgraded ones arrive as `classic` (no automatic
+		 * maintenance, no extra requests). The two coverage columns are nullable
+		 * rather than defaulted to 0 because a manual summary written before
+		 * them has no recorded coverage, and "covers 0 turns" would be a claim
+		 * it cannot support.
+		 *
+		 * The new table is a cost ledger, not a projection: it cascades with the
+		 * conversation and does not move the conversation's `updatedAt` when a
+		 * run is written.
+		 */
+		val MIGRATION_22_23 = object : Migration(22, 23) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"ALTER TABLE conversations ADD COLUMN sessionMode TEXT NOT NULL DEFAULT 'classic'",
+				)
+				connection.execSQL(
+					"ALTER TABLE context_summaries ADD COLUMN kind TEXT NOT NULL DEFAULT 'manual'",
+				)
+				connection.execSQL("ALTER TABLE context_summaries ADD COLUMN coveredTurns INTEGER")
+				connection.execSQL("ALTER TABLE context_summaries ADD COLUMN coveredMessages INTEGER")
+				connection.execSQL("ALTER TABLE context_summaries ADD COLUMN summaryTokens INTEGER")
+				connection.execSQL(
+					"ALTER TABLE context_summaries ADD COLUMN truncated INTEGER NOT NULL DEFAULT 0",
+				)
+				connection.execSQL(
+					"""
+					CREATE TABLE IF NOT EXISTS maintenance_runs (
+						id TEXT NOT NULL,
+						conversationId TEXT NOT NULL,
+						at INTEGER NOT NULL,
+						kind TEXT NOT NULL,
+						model TEXT,
+						inputTokens INTEGER,
+						outputTokens INTEGER,
+						omittedMessages INTEGER NOT NULL,
+						omittedTurns INTEGER NOT NULL,
+						outcome TEXT NOT NULL,
+						reason TEXT,
+						PRIMARY KEY(id),
+						FOREIGN KEY(conversationId) REFERENCES conversations(id)
+							ON UPDATE NO ACTION ON DELETE CASCADE
+					)
+					""".trimIndent(),
+				)
+				connection.execSQL(
+					"CREATE INDEX IF NOT EXISTS index_maintenance_runs_conversationId_at " +
+						"ON maintenance_runs (conversationId, at)",
+				)
+			}
+		}
+
+		/**
 		 * Every migration, in order.
 		 *
 		 * A builder must not copy this list. `:core:data` uses
@@ -1193,6 +1292,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 			MIGRATION_19_20,
 			MIGRATION_20_21,
 			MIGRATION_21_22,
+			MIGRATION_22_23,
 		)
 
 		/**
@@ -1490,9 +1590,10 @@ class ConversationStore(private val db: InhumanDatabase) {
 
 	@Transaction
 	suspend fun deleteConversation(id: String) {
-		// The foreign key cascades, but deleting explicitly keeps the behaviour
+		// The foreign keys cascade, but deleting explicitly keeps the behaviour
 		// obvious and survives anyone later switching the cascade off.
 		db.messages().deleteAllIn(id)
+		db.maintenanceRuns().deleteAllIn(id)
 		db.conversations().delete(id)
 	}
 }

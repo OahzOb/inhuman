@@ -1,5 +1,6 @@
 package com.inhuman.ui.settings
 
+import com.inhuman.core.data.db.MaintenanceRunEntity
 import com.inhuman.core.data.db.UsageRow
 import com.inhuman.ui.chat.ChatViewModel
 import java.time.Instant
@@ -71,6 +72,26 @@ data class UsageConversation(
 data class PaidToolUsage(val name: String, val calls: Int)
 
 /**
+ * What session maintenance cost in the same window.
+ *
+ * Kept out of [UsageTotals] because the runs are not message rows: a summary
+ * request has no assistant reply and would otherwise be the one model call the
+ * overview cannot see. That was the state before continuous sessions existed;
+ * making maintenance automatic on new conversations is exactly why it must not
+ * stay that way.
+ *
+ * The token fields are sums of provider-reported values, so a run that reported
+ * nothing contributes 0 rather than a guess.
+ */
+data class MaintenanceUsage(
+	val runs: Int = 0,
+	val inputTokens: Long = 0L,
+	val outputTokens: Long = 0L,
+) {
+	val hasAny: Boolean get() = runs > 0
+}
+
+/**
  * What the Usage section renders.
  *
  * [days] and [conversations] contain only entries with something to count, so
@@ -83,6 +104,7 @@ data class UsageReport(
 	val days: List<UsageDay>,
 	val conversations: List<UsageConversation>,
 	val paidTools: List<PaidToolUsage>,
+	val maintenance: MaintenanceUsage = MaintenanceUsage(),
 ) {
 	val isEmpty: Boolean get() = !totals.hasAny
 }
@@ -119,6 +141,7 @@ fun buildUsageReport(
 	rows: List<UsageRow>,
 	paidToolNames: Set<String>,
 	period: UsagePeriod,
+	maintenanceRuns: List<MaintenanceRunEntity> = emptyList(),
 	now: Instant = Instant.now(),
 	zone: ZoneId = ZoneId.systemDefault(),
 	unrunPrefixes: List<String> = UNRUN_RESULT_PREFIXES,
@@ -165,6 +188,19 @@ fun buildUsageReport(
 		conversationTitles[row.conversationId] = row.conversationTitle
 	}
 
+	val maintenance = maintenanceRuns.asSequence()
+		.filter { run ->
+			val date = Instant.ofEpochMilli(run.at).atZone(zone).toLocalDate()
+			firstDay == null || !date.isBefore(firstDay)
+		}
+		.fold(MaintenanceUsage()) { total, run ->
+			MaintenanceUsage(
+				runs = total.runs + 1,
+				inputTokens = total.inputTokens + (run.inputTokens ?: 0).toLong(),
+				outputTokens = total.outputTokens + (run.outputTokens ?: 0).toLong(),
+			)
+		}
+
 	val days = dayTotals
 		.map { (date, totals) -> UsageDay(date, totals) }
 		.sortedByDescending { it.date }
@@ -193,5 +229,6 @@ fun buildUsageReport(
 		days = days,
 		conversations = conversations,
 		paidTools = paidTools,
+		maintenance = maintenance,
 	)
 }

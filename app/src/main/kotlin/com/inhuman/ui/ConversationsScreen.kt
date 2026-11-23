@@ -82,6 +82,7 @@ import com.inhuman.core.design.Layout
 import com.inhuman.core.design.MetaLine
 import com.inhuman.core.design.StatusDot
 import com.inhuman.core.design.WorkbenchGrid
+import com.inhuman.core.design.WorkbenchSwitch
 import com.inhuman.core.design.Wordmark
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.core.design.prefersFabForPrimaryAction
@@ -277,6 +278,8 @@ fun ConversationsScreen(
 	if (showCreateSheet) {
 		CreateSheet(
 			workspaces = state.permanentWorkspaces,
+			continuous = state.newConversationContinuous,
+			onContinuousChange = viewModel::setNewConversationContinuous,
 			onDismiss = { showCreateSheet = false },
 			onConversation = { workspaceId ->
 				showCreateSheet = false
@@ -485,6 +488,8 @@ fun ConversationsScreen(
 @Composable
 private fun CreateSheet(
 	workspaces: List<com.inhuman.core.data.db.WorkspaceEntity>,
+	continuous: Boolean,
+	onContinuousChange: (Boolean) -> Unit,
 	onDismiss: () -> Unit,
 	onConversation: (String?) -> Unit,
 	onNewWorkspace: () -> Unit,
@@ -531,6 +536,11 @@ private fun CreateSheet(
 					)
 				}
 				Spacer(Modifier.height(8.dp))
+				ContinuousSessionChoice(
+					continuous = continuous,
+					onContinuousChange = onContinuousChange,
+				)
+				Hairline()
 				if (workspaces.isEmpty()) {
 					Text(
 						text = stringResource(R.string.home_create_no_workspaces),
@@ -578,6 +588,11 @@ private fun CreateSheet(
 					detail = stringResource(R.string.home_create_choose_workspace_detail),
 					onClick = { choosingWorkspace = true },
 					leadingIcon = Icons.Outlined.FolderOpen,
+				)
+				Hairline()
+				ContinuousSessionChoice(
+					continuous = continuous,
+					onContinuousChange = onContinuousChange,
 				)
 			}
 		}
@@ -632,6 +647,50 @@ private fun CreateChoice(
 			contentDescription = null,
 			tint = MaterialTheme.colorScheme.onSurfaceVariant,
 			modifier = Modifier.size(18.dp),
+		)
+	}
+}
+
+/**
+ * The create-form switch for a continuous session, with its disclosure.
+ *
+ * Default-on is a product decision, and a default the user never saw would be
+ * automatic spend the app refuses elsewhere. The sentence therefore sits beside
+ * the switch every time the sheet opens -- not behind an "advanced" tap and not
+ * only on first launch. Turning it off is remembered for the next new
+ * conversation by the view model, so the preference is one decision, not a
+ * question asked again every time.
+ */
+@Composable
+private fun ContinuousSessionChoice(
+	continuous: Boolean,
+	onContinuousChange: (Boolean) -> Unit,
+) {
+	Row(
+		modifier = Modifier
+			.fillMaxWidth()
+			.padding(vertical = 10.dp),
+		verticalAlignment = Alignment.Top,
+	) {
+		Column(
+			modifier = Modifier.weight(1f),
+			verticalArrangement = Arrangement.spacedBy(3.dp),
+		) {
+			Text(
+				text = stringResource(R.string.home_create_continuous),
+				style = MaterialTheme.typography.titleMedium,
+				color = MaterialTheme.colorScheme.onBackground,
+			)
+			Text(
+				text = stringResource(R.string.home_create_continuous_detail),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+		WorkbenchSwitch(
+			checked = continuous,
+			onCheckedChange = onContinuousChange,
+			modifier = Modifier.padding(start = 12.dp),
 		)
 	}
 }

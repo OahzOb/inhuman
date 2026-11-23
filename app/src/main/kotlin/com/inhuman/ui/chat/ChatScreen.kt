@@ -147,8 +147,10 @@ import com.inhuman.core.data.SnapshotStats
 import com.inhuman.core.data.SnapshotTurn
 import com.inhuman.core.data.WorkspaceChange
 import com.inhuman.core.data.db.ApprovalDecision
+import com.inhuman.core.data.db.SessionMode
 import com.inhuman.core.files.WorkspaceSelfCheck
 import com.inhuman.core.design.Eyebrow
+import com.inhuman.core.design.SectionHeading
 import com.inhuman.core.design.currentWindowFrame
 import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.Layout
@@ -274,6 +276,28 @@ fun ChatScreen(
 	val error by fieldOf(viewModel.state, null) { it.error }
 	val errorAction by fieldOf(viewModel.state, null) { it.errorAction }
 	val pendingApproval by fieldOf(viewModel.state, null) { it.pendingApproval }
+	// How this conversation maintains its request projection. Read here, not in
+	// the composer, because four different surfaces change with it: the menu, the
+	// transcript's banner/status rows, the composer's gauge, and the error action.
+	val sessionMode by fieldOf(viewModel.state, SessionMode.CLASSIC) { it.sessionMode }
+	val isContinuous = sessionMode == SessionMode.CONTINUOUS
+	val isMaintaining by fieldOf(viewModel.state, false) { it.isMaintaining }
+	val maintenancePreparing by fieldOf(viewModel.state, false) { it.maintenancePreparing }
+	// A continuous conversation has no manual compaction to retry. A context
+	// overflow there is the same dead end Retry already solves, and the copy
+	// names the two things the user can actually do instead of offering a
+	// button that would maintain a projection they do not manage.
+	val contextOverflow = errorAction == ChatErrorAction.CompactAndRetry
+	val visibleError = if (isContinuous && contextOverflow) {
+		stringResource(R.string.chat_error_context_too_large)
+	} else {
+		error
+	}
+	val visibleErrorAction = if (isContinuous && contextOverflow) {
+		ChatErrorAction.Retry
+	} else {
+		errorAction
+	}
 
 	// The composer's own inputs are read inside `ChatBottomBar`, not here: a
 	// keystroke must invalidate the composer, and reading `input` in this scope
@@ -773,10 +797,22 @@ fun ChatScreen(
 
 	// Settings is a different screen; returning to the chat must pick up a
 	// changed auto-read/voice choice without relying on the process restart.
-	LifecycleResumeEffect(Unit) {
+	//
+	// The same effect is the visibility signal the continuous-session scheduler
+	// needs: it runs when the screen composes into a RESUMED activity, and its
+	// pause/dispose block runs when the screen leaves -- another app screen or
+	// the background. `collectAsStateWithLifecycle` is not a substitute: it
+	// stops collecting, it does not tell the view model that this conversation
+	// is unwatched, and maintenance must not spend while nobody is looking.
+	// The key is the view model, not Unit. Opening another conversation from the
+	// in-chat "+" swaps the view model without leaving this screen's composition;
+	// a Unit key would leave the previous conversation marked visible and the new
+	// one never marked visible, and maintenance would run under the wrong one.
+	LifecycleResumeEffect(viewModel) {
 		autoReadReplies = viewModel.autoReadReplies()
 		refreshSpeechSetup()
-		onPauseOrDispose { }
+		viewModel.onChatVisible()
+		onPauseOrDispose { viewModel.onChatHidden() }
 	}
 
 	// Auto-read follows one turn: it fires only on the streaming -> finished
@@ -921,6 +957,28 @@ fun ChatScreen(
 	// staged here until the user confirms it.
 	var pendingRetention by remember { mutableStateOf<Int?>(null) }
 	var showWireDialog by remember { mutableStateOf(false) }
+	var showSessionMemory by remember { mutableStateOf(false) }
+	var sessionMemory by remember { mutableStateOf<SessionMemoryUi?>(null) }
+	var sessionMemoryLoading by remember { mutableStateOf(false) }
+	var sessionMemoryFailed by remember { mutableStateOf(false) }
+	var showRebuildBriefConfirm by remember { mutableStateOf(false) }
+	var showStopMaintainingConfirm by remember { mutableStateOf(false) }
+	var showEnableContinuousConfirm by remember { mutableStateOf(false) }
+	// Read on open rather than kept as a flow: the rows change only while
+	// maintenance runs, and a flow would republish the whole brief on every
+	// maintenance tick for a sheet that is usually closed.
+	LaunchedEffect(showSessionMemory) {
+		if (!showSessionMemory) return@LaunchedEffect
+		sessionMemory = null
+		sessionMemoryFailed = false
+		sessionMemoryLoading = true
+		val loaded = runCatching { viewModel.sessionMemory() }
+			.onFailure { Diag.w("session", "could not read the session memory", it) }
+			.getOrNull()
+		sessionMemory = loaded
+		sessionMemoryFailed = loaded == null
+		sessionMemoryLoading = false
+	}
 	LaunchedEffect(wire) {
 		if (wire?.preview == true) showWireDialog = true
 	}
@@ -956,6 +1014,8 @@ fun ChatScreen(
 		pendingSshConsent != null || rollbackTarget != null || showRewindDialog ||
 		showCompactPreview || showCompactionSummary ||
 		showSnapshotDialog || showToolLimitDialog || showRenameDialog || showWireDialog ||
+		showSessionMemory || showRebuildBriefConfirm || showStopMaintainingConfirm ||
+		showEnableContinuousConfirm ||
 		showApprovalHistory || showCapabilityDetails ||
 		turnWireMessages != null || showToolsDialog || showTurnPicker ||
 			showSaveWorkspaceDialog || showExportDialog || showSshHostsDialog
@@ -1490,6 +1550,22 @@ fun ChatScreen(
 								DropdownMenuItem(
 									text = {
 										Column {
+											Text(stringResource(R.string.chat_session_memory))
+											Text(
+												text = stringResource(R.string.chat_session_memory_detail),
+												style = MaterialTheme.typography.bodySmall,
+												color = MaterialTheme.colorScheme.onSurfaceVariant,
+											)
+										}
+									},
+									onClick = {
+										showChatMenu = false
+										showSessionMemory = true
+									},
+								)
+								DropdownMenuItem(
+									text = {
+										Column {
 											Text(stringResource(R.string.chat_inspect_last))
 											Text(
 												text = if (wire == null) {
@@ -1585,6 +1661,43 @@ fun ChatScreen(
 										showToolsDialog = true
 									},
 								)
+								if (isContinuous) {
+									DropdownMenuItem(
+										text = {
+											Column {
+												Text(stringResource(R.string.chat_continuous_stop))
+												Text(
+													text = stringResource(R.string.chat_continuous_stop_detail),
+													style = MaterialTheme.typography.bodySmall,
+													color = MaterialTheme.colorScheme.onSurfaceVariant,
+												)
+											}
+										},
+										enabled = !isMaintaining && !maintenancePreparing,
+										onClick = {
+											showChatMenu = false
+											showStopMaintainingConfirm = true
+										},
+									)
+								} else {
+									DropdownMenuItem(
+										text = {
+											Column {
+												Text(stringResource(R.string.chat_continuous_enable))
+												Text(
+													text = stringResource(R.string.chat_continuous_enable_detail),
+													style = MaterialTheme.typography.bodySmall,
+													color = MaterialTheme.colorScheme.onSurfaceVariant,
+												)
+											}
+										},
+										enabled = !isStreaming,
+										onClick = {
+											showChatMenu = false
+											showEnableContinuousConfirm = true
+										},
+									)
+								}
 								DropdownMenuItem(
 									text = {
 										Column {
@@ -1940,19 +2053,37 @@ fun ChatScreen(
 					),
 					verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
 				) {
-					compaction?.let { activeCompaction ->
-						item(key = "compaction") {
-							CompactionBanner(
-								compaction = activeCompaction,
-								onView = { showCompactionSummary = true },
-								onClear = viewModel::clearCompaction,
-							)
+					if (!isContinuous) {
+						compaction?.let { activeCompaction ->
+							item(key = "compaction") {
+								CompactionBanner(
+									compaction = activeCompaction,
+									onView = { showCompactionSummary = true },
+									onClear = viewModel::clearCompaction,
+								)
+							}
+						}
+						if (isCompacting) {
+							item(key = "compacting") {
+								Text(
+									text = stringResource(R.string.chat_summarizing),
+									style = MaterialTheme.typography.labelMedium,
+									color = MaterialTheme.colorScheme.onSurfaceVariant,
+									modifier = Modifier.padding(horizontal = 2.dp),
+								)
+							}
 						}
 					}
-					if (isCompacting) {
-						item(key = "compacting") {
+					if (isMaintaining || maintenancePreparing) {
+						item(key = "maintaining") {
 							Text(
-								text = stringResource(R.string.chat_summarizing),
+								text = stringResource(
+									if (isMaintaining) {
+										R.string.chat_maintaining
+									} else {
+										R.string.chat_maintenance_preparing
+									},
+								),
 								style = MaterialTheme.typography.labelMedium,
 								color = MaterialTheme.colorScheme.onSurfaceVariant,
 								modifier = Modifier.padding(horizontal = 2.dp),
@@ -2231,8 +2362,8 @@ fun ChatScreen(
 				configured = configured,
 				messageCount = messageCount,
 				interrupted = interrupted,
-				error = error,
-				errorAction = errorAction,
+				error = visibleError,
+				errorAction = visibleErrorAction,
 				state = viewModel.state,
 				isStreaming = isStreaming,
 				isCompacting = isCompacting,
@@ -2241,6 +2372,8 @@ fun ChatScreen(
 				usage = usage,
 				showContextDetail = showContextDetail,
 				compaction = compaction,
+				isContinuous = isContinuous,
+				maintenancePreparing = maintenancePreparing,
 				showComposer = !searchOpen,
 				actions = composerActions,
 			)
@@ -2561,7 +2694,7 @@ fun ChatScreen(
 		)
 	}
 
-	if (showCompactPreview) {
+	if (!isContinuous && showCompactPreview) {
 		val plan = pendingCompaction
 		AlertDialog(
 			onDismissRequest = { showCompactPreview = false },
@@ -2621,7 +2754,7 @@ fun ChatScreen(
 	}
 
 	compaction?.let { active ->
-		if (showCompactionSummary) {
+		if (!isContinuous && showCompactionSummary) {
 			AlertDialog(
 				onDismissRequest = { showCompactionSummary = false },
 				title = { Text(stringResource(R.string.chat_summary_title)) },
@@ -2656,6 +2789,104 @@ fun ChatScreen(
 				textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
 		}
+	}
+
+	if (showSessionMemory) {
+		SessionMemoryDialog(
+			memory = sessionMemory,
+			loading = sessionMemoryLoading,
+			failed = sessionMemoryFailed,
+			isContinuous = isContinuous,
+			onDismiss = { showSessionMemory = false },
+			onRebuild = {
+				showSessionMemory = false
+				showRebuildBriefConfirm = true
+			},
+			onStopMaintaining = {
+				showSessionMemory = false
+				showStopMaintainingConfirm = true
+			},
+			onEnableContinuous = {
+				showSessionMemory = false
+				showEnableContinuousConfirm = true
+			},
+			onSearch = {
+				showSessionMemory = false
+				searchOpen = true
+			},
+		)
+	}
+
+	if (showRebuildBriefConfirm) {
+		AlertDialog(
+			onDismissRequest = { showRebuildBriefConfirm = false },
+			title = { Text(stringResource(R.string.session_memory_rebuild)) },
+			text = { Text(stringResource(R.string.session_memory_rebuild_confirm)) },
+			confirmButton = {
+				TextButton(
+					onClick = {
+						showRebuildBriefConfirm = false
+						viewModel.rebuildBrief()
+					},
+				) { Text(stringResource(R.string.session_memory_rebuild)) }
+			},
+			dismissButton = {
+				TextButton(onClick = { showRebuildBriefConfirm = false }) {
+					Text(stringResource(R.string.common_cancel))
+				}
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+
+	if (showStopMaintainingConfirm) {
+		AlertDialog(
+			onDismissRequest = { showStopMaintainingConfirm = false },
+			title = { Text(stringResource(R.string.chat_continuous_stop)) },
+			text = { Text(stringResource(R.string.chat_continuous_stop_confirm)) },
+			confirmButton = {
+				TextButton(
+					onClick = {
+						showStopMaintainingConfirm = false
+						viewModel.stopMaintaining()
+					},
+				) { Text(stringResource(R.string.chat_continuous_stop)) }
+			},
+			dismissButton = {
+				TextButton(onClick = { showStopMaintainingConfirm = false }) {
+					Text(stringResource(R.string.common_cancel))
+				}
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+
+	if (showEnableContinuousConfirm) {
+		AlertDialog(
+			onDismissRequest = { showEnableContinuousConfirm = false },
+			title = { Text(stringResource(R.string.chat_continuous_enable)) },
+			text = { Text(stringResource(R.string.chat_continuous_enable_confirm)) },
+			confirmButton = {
+				TextButton(
+					onClick = {
+						showEnableContinuousConfirm = false
+						viewModel.enableContinuousSession()
+					},
+				) { Text(stringResource(R.string.chat_continuous_enable)) }
+			},
+			dismissButton = {
+				TextButton(onClick = { showEnableContinuousConfirm = false }) {
+					Text(stringResource(R.string.common_cancel))
+				}
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
 	}
 
 	if (showSnapshotDialog) {
@@ -3953,6 +4184,18 @@ private fun PaidActionNotice() {
 }
 
 /**
+ * The row title for a tool that has no catalogue entry of its own.
+ *
+ * `recall` is a conversation capability built into continuous mode, not a
+ * catalogue entry the user picked, so it has no `ToolCatalog` name to show.
+ */
+@Composable
+private fun toolRowTitle(name: String?): String = when (name) {
+	"recall", "recall_get" -> stringResource(R.string.chat_recall_title)
+	else -> name ?: stringResource(R.string.chat_tool_result)
+}
+
+/**
  * One tool call, inside the collapsed section.
  *
  * Shows the name, the argument that identifies it, and what happened -- which is
@@ -3975,6 +4218,7 @@ private fun ToolCallLine(call: ToolCallUi) {
 		ToolCallUi.State.Declined -> MaterialTheme.colorScheme.onSurfaceVariant
 		else -> MaterialTheme.colorScheme.onSurfaceVariant
 	}
+	val recallDetail = stringResource(R.string.chat_recall_detail)
 
 	Row(
 		modifier = Modifier.fillMaxWidth(),
@@ -3982,7 +4226,7 @@ private fun ToolCallLine(call: ToolCallUi) {
 		verticalAlignment = Alignment.Top,
 	) {
 		Text(
-			text = call.displayName,
+			text = toolRowTitle(call.displayName),
 			style = MaterialTheme.typography.labelLarge,
 			color = MaterialTheme.colorScheme.tertiary,
 			fontFamily = FontFamily.Monospace,
@@ -3993,8 +4237,15 @@ private fun ToolCallLine(call: ToolCallUi) {
 			?.let { RewindBadge(canRewind = false) }
 		Text(
 			// The single most identifying argument, which for these tools is
-			// almost always the path or the query.
-			text = summariseArguments(call),
+			// almost always the path or the query. A recall call may still be
+			// streaming its arguments; its description says what the row is.
+			text = summariseArguments(call).ifBlank {
+				if (call.displayName == "recall" || call.displayName == "recall_get") {
+					recallDetail
+				} else {
+					""
+				}
+			},
 			style = MaterialTheme.typography.labelLarge,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 			maxLines = 1,
@@ -4153,7 +4404,7 @@ private fun MessageBubble(
 			.firstOrNull { it.isNotBlank() }
 			?.trim()
 			.orEmpty()
-		val (summaryText, summaryCount) = toolResultSummary(message.toolName, firstLine)
+		val (summaryText, summaryCount) = toolResultSummary(toolRowTitle(message.toolName), firstLine)
 		// Mark the row, not just the picker: this is where the cost is incurred.
 		val paid = ToolCatalog.all.firstOrNull { it.name == message.toolName }?.paid == true
 		CollapsibleSection(
@@ -4743,6 +4994,8 @@ private fun ChatBottomBar(
 	usage: ContextUsage,
 	showContextDetail: Boolean,
 	compaction: ContextCompactionUi?,
+	isContinuous: Boolean,
+	maintenancePreparing: Boolean,
 	showComposer: Boolean,
 	actions: ChatComposerActions,
 ) {
@@ -4770,6 +5023,22 @@ private fun ChatBottomBar(
 			) {
 				Text(stringResource(R.string.chat_try_demo_strip))
 			}
+		}
+
+		// Continuous mode has no gauge and no compact button, so the one status
+		// that would otherwise be invisible is the maintenance pass a send is
+		// waiting for. It reads as a sentence, not an error: the request is still
+		// going to be sent.
+		if (isContinuous && maintenancePreparing) {
+			Text(
+				text = stringResource(R.string.chat_maintenance_preparing),
+				style = MaterialTheme.typography.labelMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier
+					.widthIn(max = Layout.ChatMeasure)
+					.fillMaxWidth()
+					.padding(horizontal = comfortableGutter(), vertical = 2.dp),
+			)
 		}
 
 		error?.let { message ->
@@ -4860,6 +5129,8 @@ private fun ChatBottomBar(
 				onToggleContextDetail = actions.onToggleContextDetail,
 				compaction = compaction,
 				isCompacting = isCompacting,
+				isContinuous = isContinuous,
+				maintenancePreparing = maintenancePreparing,
 				onCompact = actions.onCompact,
 				onViewCompaction = actions.onViewCompaction,
 				onClearCompaction = actions.onClearCompaction,
@@ -4893,6 +5164,8 @@ private fun Composer(
 	onToggleContextDetail: () -> Unit,
 	compaction: ContextCompactionUi?,
 	isCompacting: Boolean,
+	isContinuous: Boolean,
+	maintenancePreparing: Boolean,
 	onCompact: () -> Unit,
 	onViewCompaction: () -> Unit,
 	onClearCompaction: () -> Unit,
@@ -5054,7 +5327,7 @@ private fun Composer(
 		// The figures, and only when the ring was tapped. The compact state is
 		// the ring in the input's trailing slot: a permanent row above the field
 		// cost the height of the composer to say one proportion.
-		if (showContextDetail) {
+		if (!isContinuous && showContextDetail) {
 			ContextDetailPanel(
 				usage = context,
 				compaction = compaction,
@@ -5283,7 +5556,9 @@ private fun Composer(
 					// The figures stay one tap away without costing a column of
 					// every line: in the trailing slot the ring reserved its
 					// 48dp for the whole height of a wrapped message.
-					if (context.isKnown) {
+					// Continuous conversations hide the gauge: the app owns the
+					// working set there, and the audit surface is Session memory.
+					if (!isContinuous && context.isKnown) {
 						ContextRing(
 							usage = context,
 							onToggle = onToggleContextDetail,
@@ -5305,7 +5580,8 @@ private fun Composer(
 							onClick = onSend,
 							// An image alone is sendable: "what is this?" is implied, and
 							// requiring text would make attaching one a two-step job.
-							enabled = enabled && !isCompacting && (value.isNotBlank() || attachments.isNotEmpty()),
+							enabled = enabled && !isCompacting && !maintenancePreparing &&
+								(value.isNotBlank() || attachments.isNotEmpty()),
 							shape = MaterialTheme.shapes.small,
 							colors = IconButtonDefaults.filledIconButtonColors(
 								containerColor = MaterialTheme.colorScheme.primary,
@@ -5314,6 +5590,191 @@ private fun Composer(
 						) {
 							Icon(Icons.Filled.ArrowUpward, contentDescription = stringResource(R.string.chat_send))
 						}
+					}
+				}
+			}
+		}
+	}
+}
+
+/**
+ * The session-memory sheet: the audit surface for a continuous conversation.
+ *
+ * It answers the three questions the normal path deliberately does not ask --
+ * what the app is keeping, what maintenance has cost, and what the model is
+ * actually being told. The brief is read-only here: editing it would be a second
+ * system prompt, and the next maintenance pass would overwrite it.
+ *
+ * The primary action is the mode's own action (Rebuild while continuous, turn
+ * the mode on while classic); Stop maintaining and Search record sit in the
+ * scrolling body so the sheet keeps one fixed primary button.
+ */
+@Composable
+private fun SessionMemoryDialog(
+	memory: SessionMemoryUi?,
+	loading: Boolean,
+	failed: Boolean,
+	isContinuous: Boolean,
+	onDismiss: () -> Unit,
+	onRebuild: () -> Unit,
+	onStopMaintaining: () -> Unit,
+	onEnableContinuous: () -> Unit,
+	onSearch: () -> Unit,
+) {
+	WideDialog(
+		onDismissRequest = onDismiss,
+		title = stringResource(R.string.session_memory_title),
+		confirmLabel = if (isContinuous) {
+			stringResource(R.string.session_memory_rebuild)
+		} else {
+			stringResource(R.string.chat_continuous_enable)
+		},
+		onConfirm = if (isContinuous) onRebuild else onEnableContinuous,
+		dismissLabel = stringResource(R.string.chat_close),
+	) {
+		val mode = memory?.sessionMode
+			?: if (isContinuous) SessionMode.CONTINUOUS else SessionMode.CLASSIC
+		Text(
+			text = stringResource(
+				R.string.session_memory_mode,
+				stringResource(
+					if (mode == SessionMode.CONTINUOUS) {
+						R.string.session_memory_mode_continuous
+					} else {
+						R.string.session_memory_mode_classic
+					},
+				),
+			),
+			style = MaterialTheme.typography.titleMedium,
+			color = MaterialTheme.colorScheme.onBackground,
+		)
+		if (mode == SessionMode.CLASSIC) {
+			Text(
+				text = stringResource(R.string.session_memory_classic_note),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+
+		FlowRowCompat {
+			TextButton(onClick = onSearch) {
+				Text(
+					text = stringResource(R.string.session_memory_search),
+					style = MaterialTheme.typography.labelLarge,
+				)
+			}
+			if (isContinuous) {
+				TextButton(onClick = onStopMaintaining) {
+					Text(
+						text = stringResource(R.string.chat_continuous_stop),
+						style = MaterialTheme.typography.labelLarge,
+					)
+				}
+			}
+		}
+
+		when {
+			loading -> Text(
+				text = stringResource(R.string.session_memory_loading),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+
+			failed -> Text(
+				text = stringResource(R.string.session_memory_unavailable),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.error,
+			)
+
+			memory == null -> Unit
+
+			else -> {
+				Hairline()
+				Text(
+					text = if (memory.coverageTurns != null && memory.coverageMessages != null) {
+						stringResource(
+							R.string.session_memory_coverage,
+							memory.coverageTurns,
+							memory.coverageMessages,
+						)
+					} else {
+						stringResource(R.string.session_memory_coverage_unknown)
+					},
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onBackground,
+				)
+				Text(
+					text = memory.lastRunAt?.let {
+						stringResource(R.string.session_memory_last_run, formatSnapshotTime(it))
+					} ?: stringResource(R.string.session_memory_never_run),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				if (memory.runs > 0) {
+					Text(
+						text = stringResource(
+							R.string.session_memory_totals,
+							memory.runs,
+							TokenFormat.compact(memory.inputTokens),
+							TokenFormat.compact(memory.outputTokens),
+						),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
+
+				val brief = memory.brief?.takeIf { it.isNotBlank() }
+				if (brief == null && !isContinuous) {
+					// A classic conversation has no brief by design: the note
+					// above already says older messages are sent in full, and an
+					// empty "Session brief" section would read as a failure.
+				} else {
+					Hairline()
+					SectionHeading(
+						code = stringResource(R.string.session_memory_brief_code),
+						title = stringResource(R.string.session_memory_brief),
+					)
+					if (brief == null) {
+						Text(
+							text = stringResource(R.string.session_memory_brief_empty),
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					} else {
+						val facts = listOfNotNull(
+							when (memory.briefKind) {
+								"manual" -> stringResource(R.string.session_memory_brief_kind_manual)
+								else -> stringResource(R.string.session_memory_brief_kind_auto)
+							},
+							memory.briefUpdatedAt?.let {
+								stringResource(R.string.session_memory_brief_updated, formatSnapshotTime(it))
+							},
+							memory.briefTokens?.let {
+								stringResource(
+									R.string.session_memory_brief_tokens,
+									TokenFormat.compact(it.toLong()),
+								)
+							},
+						)
+						if (facts.isNotEmpty()) {
+							Text(
+								text = facts.joinToString(" · "),
+								style = MaterialTheme.typography.labelSmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+							)
+						}
+						if (memory.briefTruncated) {
+							Text(
+								text = stringResource(R.string.session_memory_brief_truncated),
+								style = MaterialTheme.typography.labelSmall,
+								color = MaterialTheme.colorScheme.error,
+							)
+						}
+						Text(
+							text = brief,
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurface,
+						)
 					}
 				}
 			}

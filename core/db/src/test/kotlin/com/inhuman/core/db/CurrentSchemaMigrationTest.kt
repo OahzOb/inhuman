@@ -9,6 +9,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -59,6 +60,12 @@ class CurrentSchemaMigrationTest {
 			assertTrue(db.messages().all("none").isEmpty())
 			// v18 added messages.providerState; same additive shape.
 			assertTrue(db.messages().all("none").isEmpty())
+			// v23 added continuous-session storage: the upgraded conversation
+			// keeps today's behaviour, and the cost ledger starts empty.
+			val canary = db.conversations().byId("c1")
+			assertTrue("the v12 canary conversation is missing", canary != null)
+			assertEquals("classic", canary?.sessionMode)
+			assertTrue(db.maintenanceRuns().all().isEmpty())
 		} finally {
 			db.close()
 		}
@@ -88,6 +95,14 @@ class CurrentSchemaMigrationTest {
 			for (query in setupQueries) {
 				connection.execSQL(query.jsonPrimitive.content)
 			}
+			// One conversation, so the migration has an upgraded row to assert
+			// the new defaults on. Only the NOT NULL columns without a default
+			// are supplied; the rest arrive through the v11/v12 defaults.
+			connection.execSQL(
+				"INSERT INTO conversations " +
+					"(id, title, workspaceId, thinking, createdAt, updatedAt, pinned) " +
+					"VALUES ('c1', 'canary', 'ws-canary', 0, 1700000000000, 1700000000000, 0)",
+			)
 			connection.execSQL("PRAGMA user_version = 12")
 		} finally {
 			connection.close()

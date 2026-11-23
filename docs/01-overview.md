@@ -186,8 +186,13 @@ Confirmed by `README.md:17-29` and by the code:
   are the boundary. The camera writes into app cache through a dedicated
   FileProvider, and the untouched capture is deleted after its prepared copy is
   staged; it is not added to the gallery.
-- A context ring in the composer's action row, with the figures one tap away
-  and explicit, reversible compaction of older complete turns.
+- **Continuous sessions are the default for new conversations**: the record is
+  never deleted, older complete turns are folded into a viewable and rebuildable
+  session brief, and maintenance runs only while the conversation is visible.
+  In that mode a read-only `recall` tool lets the model search the complete
+  active-branch record, so a lossy brief stays recoverable. The classic context
+  ring, manual compaction and `CONTEXT COMPACTED` banner remain for conversations
+  still in classic mode ([06-agent-loop-ui.md](06-agent-loop-ui.md)).
 - A root `AGENTS.md` in the conversation's workspace is pinned on the
   conversation's first request and appended to the system prompt. Later edits
   apply to new conversations, or to the current one through the chat menu's

@@ -70,7 +70,8 @@ be built and why; they are not a description of current behaviour.
 
 | File | What it proposes |
 | --- | --- |
-| [proposals/continuous-session.md](proposals/continuous-session.md) | A continuous-session mode: the record is never deleted, and the request projection becomes a rolling session brief plus recent turns instead of a user-triggered compaction |
+| [proposals/continuous-session.md](proposals/continuous-session.md) | A continuous-session mode, on by default for new conversations: the record is never deleted, the request projection becomes a rolling session brief plus recent turns, and the model can read the full record through a read-only recall tool |
+| [proposals/roleplay.md](proposals/roleplay.md) | Role-play scenes: a character card on the assistant plus scene data on the conversation, projected into the system message; single-character first, then memory, then multi-character turns |
 | [proposals/deepseek-app-apis.md](proposals/deepseek-app-apis.md) | A triage of DeepSeek's 2026-11-13 application-API suite: the standalone ASR/TTS and OCR APIs were adopted in 0.13.0 as paid app-proxied backends (see `03-ai-provider.md`); the server-side web tools, the Files API and the safety check are refused because they change the capability boundary |
 
 ## Conventions used here

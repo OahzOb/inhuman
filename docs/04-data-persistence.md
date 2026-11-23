@@ -20,22 +20,24 @@ The app installs `InhumanDatabase.MIGRATIONS` and
 `Context` builder. The callback seeds the DeepSeek provider and the default
 assistant on create, so an install does not start from an empty schema.
 
-## The schema, version 21
+## The schema, version 23
 
 `InhumanDatabase` (`core/db/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 22`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 23`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/db/schemas/` by KSP — configured in `core/db/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
 spot.
 
-Eleven entities in four files: `ProviderProfileEntity`, `WorkspaceEntity`,
+Twelve entities in five files: `ProviderProfileEntity`, `WorkspaceEntity`,
 `ConversationEntity`, `MessageEntity`, `AgentEntity` and
 `ContextSummaryEntity` in `db/Entities.kt`, the three approval-policy tables
 (`ApprovalDefaultEntity`, `AgentApprovalEntity`, `PathPolicyEntity`) in
 `db/PolicyEntities.kt` (added by migration 7→8), the approval audit
-(`ApprovalAuditEntity`) in `db/ApprovalAuditEntity.kt` (14→15), and the
-saved-prompt library (`SavedPromptEntity`) in `db/SavedPromptEntity.kt` (15→16).
+(`ApprovalAuditEntity`) in `db/ApprovalAuditEntity.kt` (14→15), the
+saved-prompt library (`SavedPromptEntity`) in `db/SavedPromptEntity.kt` (15→16),
+and the maintenance cost ledger (`MaintenanceRunEntity`) in
+`db/MaintenanceRunEntity.kt` (22→23).
 
 ### `messages.reasoningSignature` — added in 16→17
 
@@ -94,6 +96,36 @@ user, credentials) live in `SecureStore` as one JSON document
 (`ssh.hosts`), so a database backup carries which machines were selected but
 never how to reach them. Only the chat menu's host sheet writes this column, a
 change applies to the next turn, and it resets `sshAllowed`.
+
+### `conversations.sessionMode`, summary coverage, and `maintenance_runs` — added in 22→23
+
+Three changes that make a continuous session auditable without moving the record:
+
+- **`conversations.sessionMode TEXT NOT NULL DEFAULT 'classic'`** — `classic`
+  keeps today's manual compaction; `continuous` lets the app maintain the
+  request projection. Read through `SessionMode.parse`, which maps an unknown or
+  blank value to `classic`: a typo must not turn on automatic spend. New
+  conversations default to the saved Create-sheet preference, but the column
+  itself defaults to classic so a caller that forgets the argument fails toward
+  doing nothing.
+- **`context_summaries` gains `kind`, `coveredTurns`, `coveredMessages`,
+  `summaryTokens` and `truncated`** — the brief is still a derived projection,
+  and the new columns describe it rather than the transcript. Coverage is
+  nullable: a manual summary written before this version recorded no coverage,
+  and `0` would claim it covers nothing. `truncated` means the brief was cut to
+  fit, and the session-memory sheet shows it.
+- **`maintenance_runs`** — one row per request the app spent maintaining a
+  projection: `kind` (auto/manual/rebuild), model, provider-reported input and
+  output tokens, omitted messages/turns, outcome and a short failure reason.
+  It has a cascade foreign key on the conversation and an index on
+  `(conversationId, at)`. Rewinding a turn does not delete its rows: the money
+  was spent, and the usage overview reads this table because a maintenance call
+  has no message row to carry its tokens. Deleting the conversation removes
+  them.
+
+The brief stays in `context_summaries` (one row per conversation, overwritten);
+the cost ledger is append-only. `ContextSummaryEntity.kind` is `manual` for the
+classic compaction path, so the old behaviour and its UI are unchanged.
 
 ### `saved_prompts` — added in 15→16
 
@@ -359,7 +391,7 @@ messages explicitly before the row **even though the FK cascades** — the comme
 says that keeps the behaviour obvious if the cascade is ever switched off
 (`:496-502`).
 
-## Migration history 1 → 21
+## Migration history 1 → 23
 
 All hand-written. There is **no `fallbackToDestructiveMigration` anywhere** and
 the reason is stated at `MIGRATION_1_2`: it would delete every conversation on
@@ -394,6 +426,7 @@ order below.
 | 19→20 | Data only, no schema change: `provider_profiles` rows whose `baseUrl` is an OpenCode Zen/Go endpoint and whose `reasoningMode` is still the old default `none` become `opencode`. Without it the effort chips appear but `reasoning_effort` is dropped on the wire. A non-`none` mode on the same URL is a deliberate choice and is left alone. |
 | 20→21 | `conversations` gains nullable `workspaceInstructions TEXT`: the rendered `AGENTS.md` block pinned on the conversation's first request. Null means unpinned and the first turn pins the file (or `""` if there is none); an upgraded row is unpinned by construction. The column is configuration, not a message, so it is not in the Markdown export but is in the encrypted database backup. |
 | 21→22 | `conversations` gains `sshHostsJson TEXT NOT NULL DEFAULT ''`: the ids of the saved SSH hosts this conversation may use. Empty is the safe default — an upgraded conversation has no host selected, so its SSH tools stay unregistered until the user picks one. The earlier single saved host is *not* inferred as a grant to any conversation; it is converted into the host list in `SecureStore` on first read. |
+| 22→23 | `conversations` gains `sessionMode TEXT NOT NULL DEFAULT 'classic'`; `context_summaries` gains `kind TEXT NOT NULL DEFAULT 'manual'`, nullable `coveredTurns`/`coveredMessages`/`summaryTokens` and `truncated INTEGER NOT NULL DEFAULT 0`; `maintenance_runs` is created empty with a cascade and `(conversationId, at)` index. Every upgraded conversation is classic and every upgraded summary is manual with unknown coverage — the feature is opt-in per conversation, and an upgrade must not start spending. |
 
 The 7→8 comment records a product change that is *not* in the migration:
 deletion no longer asks for approval, and that lives in `DeleteFileTool`, not
@@ -406,18 +439,18 @@ real device. `seedDefaultAgent` binds parameters — the prompt contains
 apostrophes — and `INSERT OR IGNORE`s `DEFAULT_AGENT_ID`, and it is called from
 both `onCreate` and `MIGRATION_3_4`.
 
-**These have device tests.** `core/data/src/androidTest/…/MigrationTest` runs
-every upgrade step against real SQLite, plus "the exported v1 schema can build a
-database" and a policy round-trip. The latest cases assert that 9→10 is null on
-old messages, 10→11 keeps the conversation's workspace and drops the unique
-index, and 11→12 seeds DeepSeek while pointing existing conversations at it.
-The instrumented suite was run on both AVDs after 11→12:
-
-```
-.\gradlew.bat :core:data:connectedDebugAndroidTest
-→ dsh_tablet(AVD), 23 tests, 0 failures
-→ inhuman_phone(AVD), 23 tests, 0 failures
-```
+**The migration chain is tested with two different tools.** The device
+`MigrationTest` builds old databases from hand-written DDL and runs the steps it
+has DDL for (through 12→13), plus "the exported v1 schema can build a database"
+and a policy round-trip. That file has no DDL for later versions, so the upper
+half lives in plain-JVM tests: `CurrentSchemaMigrationTest` builds a v12
+database, opens it through every production migration to the current version and
+asserts the newest columns; `ContinuousSessionMigrationTest` runs
+`MIGRATION_22_23` directly against a minimal v22 database (an old conversation
+reads `classic`, an old summary reads `manual` with null coverage, and
+`maintenance_runs` exists and cascades); `CurrentSchemaTest` opens the current
+schema and queries the new DAO. `tools/ci.ps1` runs the JVM suite; the device
+suite still needs an emulator.
 
 The app-level suite adds 3 tests for web-key isolation; see
 [README.md](README.md).
@@ -553,6 +586,14 @@ Android's Keystore.
   conversation was given. The single host an earlier release wrote to
   `ssh.saved_connection` is converted once, keeping its address and dropping its
   secrets.
+- `chat.new_conversation_continuous` is the Create sheet's saved default for
+  new conversations (`"0"` off; missing or anything else on). It is a UI
+  preference, not a secret, and lives here for the same reason `demo.mode` does:
+  one place owns persisted settings. It is read only when a conversation is
+  created; the chat menu's switch changes `conversations.sessionMode` and never
+  this key, so one conversation's exception does not flip every later one. It is
+  not in a backup, so a restore returns to "on" for new conversations while
+  existing rows keep their own mode.
 
 ## The files outside Room
 
@@ -739,7 +780,10 @@ The JVM and device files below:
 | `ConversationStoreTest` | `activePathOf`: straight-line order, the *older* of two replies winning when the parent names it, newest child shown when nothing is selected, a stable order for rows sharing a millisecond, a three-way sibling tie resolving deterministically under input reversal (that case asserts the `id` tie-break is what decides), several roots → earliest, empty → empty, and a parent cycle → empty because no root exists. |
 | `OrphanedWorkspacesTest` | An unnamed directory is doomed; a named directory is kept even when empty; a healthy install sweeps nothing; **a plain file in the root is left alone**; a missing root returns empty rather than throwing. |
 | `SnapshotStoreTest` | Checkpoint addressing and pruning behind the per-turn rewind. |
-| `MigrationTest` (device) | Every migration through 10→11, including the temporary workspace row, the dropped unique index, and the canary message surviving. |
+| `MigrationTest` (device) | Every migration it has DDL for, through 12→13, including the temporary workspace row, the dropped unique index, and the canary message surviving. |
+| `CurrentSchemaMigrationTest` | A v12 database opens through the production migration list to the current version, and the newest columns/definitions are readable. |
+| `ContinuousSessionMigrationTest` | `MIGRATION_22_23` directly: an old conversation reads classic, an old summary is manual with unknown coverage, and `maintenance_runs` exists with its index. |
+| `ConversationRepositoryTest` | Conversation creation copies settings; `sessionMode` defaults to classic and round-trips; brief coverage fields persist; maintenance runs are newest-first, survive a rewind and die with the conversation. |
 | `WorkspaceLifecycleTest` (device) | A temporary workspace dies with its conversation; a permanent one survives and can hold two; promotion changes the row without moving the directory. |
 | `ConversationLookupTest` (device) | The `id` / `workspaceId` distinction the documents provider depends on. |
 | `WorkspaceDocumentsProviderTest` (device) | A re-queried workspace folder keeps its display name, and delete/rename of the workspace root are refused. |

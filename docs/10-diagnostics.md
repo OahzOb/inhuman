@@ -83,6 +83,8 @@ supported path.
 | Updates | check (current and remote version code, newer flag), download requested/verified (version, bytes), install requested; log upload (bytes, saved file name). No server URL or credential is written. |
 | Tools | run (name, normalised path, argument bytes), done (ok, result bytes, duration), error text (first 240 chars), unknown tool, unparsable arguments, skipped call |
 | Compaction | summary written (omitted messages and chars), a summary that came back empty (finish reason, reasoning length, model), and a save failure with its stack trace; never the summary text |
+| Session maintenance | fold requested (kind, omitted messages/turns), brief written (chars, estimated tokens, truncated, provider input/output tokens), budget refusal, and a failure category with its stack trace; never the brief text |
+| Recall | the `recall` call is recorded like any other tool by name; the query and the returned snippets are not written (the transcript already has the stub, and the request viewer has the rest) |
 | SSH | global switch or ceilings changed; consent ask/allow/deny/revoke (host and user only); connect (host, port, user, auth type); connected (host and `SHA256:` fingerprint); exec done (exit code, stdout/stderr lengths, truncation, duration); list/tail/upload/download/write done (path, entries or bytes; never file content) |
 | Rollback | snapshot captured or refused, restore success/failure, subtree delete request; ids and outcomes only, never file contents |
 | Approval | asked (tool, path, whether a configured rule or the tool's own hook asked, argument bytes), allow, decline |
@@ -112,6 +114,11 @@ bytes in a file.
 `Diag.redact` is a second line of defence, not the first: call sites are expected
 not to pass secrets at all. It masks `sk-…` shapes, bearer tokens and
 `key=value`-shaped secrets before a line is written.
+
+**The session brief and recalled record text are the same class as prompts.**
+The maintenance and recall lines record sizes, ids, hit counts and outcomes, not
+the derived summary or the snippets: the brief is derived from the transcript and
+the request viewer is where the user inspects what was actually sent.
 
 The two transcript egresses — the system share sheet and **Upload conversation**
 — are not this recorder. The share sheet reads a cache copy after the user picks

@@ -163,6 +163,22 @@ class SecureStore(
 	 */
 	override fun hasUsable(key: String): Boolean = !get(key).isNullOrBlank()
 
+	/**
+	 * Whether a new conversation starts as a continuous session.
+	 *
+	 * **On unless stored as `"0"`.** The product decision made continuous
+	 * sessions the default for new conversations, so absence means on. Reading
+	 * `!= "0"` also means a value that cannot be decrypted -- [get] answers
+	 * null in that case -- reads as on rather than silently turning the
+	 * feature off.
+	 */
+	fun newConversationContinuous(): Boolean = get(KEY_NEW_CONVERSATION_CONTINUOUS) != "0"
+
+	/** Remember the user's choice for the next new conversation. */
+	fun setNewConversationContinuous(enabled: Boolean) {
+		put(KEY_NEW_CONVERSATION_CONTINUOUS, if (enabled) "1" else "0")
+	}
+
 	private fun b64(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.NO_WRAP)
 
 	private fun unb64(text: String): ByteArray = Base64.decode(text, Base64.NO_WRAP)
@@ -229,6 +245,17 @@ class SecureStore(
 		 */
 		const val KEY_TIME_HINTS_MODE = "chat.time_hints_mode"
 		const val KEY_TIME_HINTS_GAP_MINUTES = "chat.time_hints_gap_minutes"
+
+		/**
+		 * Whether a new conversation starts as a continuous session.
+		 *
+		 * **On unless stored as "0"** (the 2026-11-23 product decision). Like
+		 * the preferences above it is not a secret; it lives here because this
+		 * is the app's only small key-value store. The
+		 * [newConversationContinuous] helper owns the default so call sites
+		 * cannot each invent one.
+		 */
+		const val KEY_NEW_CONVERSATION_CONTINUOUS = "chat.new_conversation_continuous"
 
 		/**
 		 * Whether the anonymous Bilibili read tools exist at all.

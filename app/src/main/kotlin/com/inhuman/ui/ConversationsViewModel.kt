@@ -10,6 +10,8 @@ import com.inhuman.core.data.ConversationSearchHit
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
+import com.inhuman.core.data.db.SessionMode
+import com.inhuman.core.data.secret.SecureStore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -67,16 +69,39 @@ data class ConversationsUiState(
 	 * from the same dialog.
 	 */
 	val deletingIds: Set<String> = emptySet(),
+	/**
+	 * Whether the next new conversation starts as a continuous session.
+	 *
+	 * A saved preference, not the state of an existing conversation: the Create
+	 * sheet owns the choice, and turning one conversation off later must not
+	 * silently flip this.
+	 */
+	val newConversationContinuous: Boolean = true,
 )
 
 class ConversationsViewModel(
 	private val context: Context,
 	private val repository: ConversationRepository,
 	private val agents: AgentRepository,
+	private val secure: SecureStore,
 ) : ViewModel() {
 
-	private val _state = MutableStateFlow(ConversationsUiState())
+	private val _state = MutableStateFlow(
+		ConversationsUiState(newConversationContinuous = secure.newConversationContinuous()),
+	)
 	val state: StateFlow<ConversationsUiState> = _state.asStateFlow()
+
+	/**
+	 * Remember the Create-sheet choice for later conversations.
+	 *
+	 * It is written when the switch is touched, not when a conversation is
+	 * created: the next new conversation should inherit the last explicit
+	 * choice even if this one is abandoned.
+	 */
+	fun setNewConversationContinuous(enabled: Boolean) {
+		secure.setNewConversationContinuous(enabled)
+		_state.update { it.copy(newConversationContinuous = enabled) }
+	}
 
 	/**
 	 * The workspace chosen in the Create sheet, if any.
@@ -193,6 +218,11 @@ class ConversationsViewModel(
 				title = context.getString(R.string.chat_title_fallback),
 				agent = agent,
 				workspaceId = workspaceId,
+				sessionMode = if (secure.newConversationContinuous()) {
+					SessionMode.CONTINUOUS
+				} else {
+					SessionMode.CLASSIC
+				},
 			)
 			Diag.i(
 				"conv",

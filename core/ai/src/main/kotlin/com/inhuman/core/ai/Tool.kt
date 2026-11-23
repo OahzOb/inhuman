@@ -151,9 +151,24 @@ interface Tool {
 data class ToolResult(
 	val content: String,
 	val isError: Boolean = false,
+	/**
+	 * What the transcript should keep, when [content] is for this turn only.
+	 *
+	 * Null keeps [content]. A read-only lookup whose full text is useful while
+	 * the model answers but would grow every later request -- the conversation
+	 * record search is the first one -- returns the full text in [content] and
+	 * a small summary here. The engine still sends [content] for the rest of
+	 * this turn, so the model can quote it; the host persists this instead.
+	 *
+	 * It must never start with `[interrupted]`: that prefix is how
+	 * `isInterruptedTurn` recognises a call the app had to close, and a
+	 * read-only result is not one.
+	 */
+	val persistedContent: String? = null,
 ) {
 	companion object {
-		fun ok(content: String) = ToolResult(content, isError = false)
+		fun ok(content: String, persistedContent: String? = null) =
+			ToolResult(content, isError = false, persistedContent = persistedContent)
 
 		/**
 		 * A refusal or failure.

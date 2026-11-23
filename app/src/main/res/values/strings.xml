@@ -306,6 +306,12 @@
 	<string name="settings_usage_cached">Cached</string>
 	<string name="settings_usage_reasoning">Reasoning</string>
 	<string name="settings_usage_paid">Paid calls</string>
+	<string name="settings_usage_maintenance">Session maintenance</string>
+	<string name="settings_usage_maintenance_value">%1$s · in %2$s · out %3$s</string>
+	<plurals name="settings_usage_maintenance_runs">
+		<item quantity="one">%d run</item>
+		<item quantity="other">%d runs</item>
+	</plurals>
 	<plurals name="settings_usage_paid_calls">
 		<item quantity="one">%d paid call</item>
 		<item quantity="other">%d paid calls</item>
@@ -318,7 +324,7 @@
 	<string name="settings_usage_days_capped">Showing the latest %1$d active days.</string>
 	<string name="settings_usage_conversations_capped">Showing the top %1$d conversations.</string>
 	<string name="settings_usage_untitled">Untitled conversation</string>
-	<string name="settings_usage_body">Counts come from the transcript still stored on this device: provider-reported tokens, and calls to the tools the catalogue marks paid. Cached tokens are part of input, reasoning tokens part of output. Deleted or rewound turns and compaction summaries are not counted. No prices are shown: providers set them.</string>
+	<string name="settings_usage_body">Counts come from what is still stored on this device: provider-reported tokens from the transcript, calls to the tools the catalogue marks paid, and the maintenance requests a continuous session ran (from its own ledger). Cached tokens are part of input, reasoning tokens part of output. Deleted or rewound turns and classic manual compaction summaries are not counted. No prices are shown: providers set them.</string>
 	<string name="settings_section_backup">06 / Backup</string>
 	<string name="settings_backup_title">Backup</string>
 	<string name="settings_backup_summary">Encrypted export and import of data and workspaces</string>
@@ -1311,4 +1317,44 @@
 	<string name="model_picker_tag_hint">These replace the guess made from the model name. A model without Text is folded out of the chat list.</string>
 	<string name="model_picker_tag_clear">Clear tags</string>
 	<string name="chat_error_not_a_chat_model">It looks like this model is not for chatting. You can correct its tag in the model list, or pick another model.</string>
+
+	<!-- Continuous session (docs/proposals/continuous-session.md) -->
+	<string name="home_create_continuous">Continuous session</string>
+	<string name="home_create_continuous_detail">The app maintains early messages automatically so this conversation does not end at a length limit. This occasionally adds one or more model requests; usage is recorded in Settings → Usage.</string>
+	<string name="chat_session_memory">Session memory</string>
+	<string name="chat_session_memory_detail">Brief, coverage and maintenance cost</string>
+	<string name="chat_continuous_enable">Turn on continuous session</string>
+	<string name="chat_continuous_enable_detail">Maintain early messages automatically in this conversation</string>
+	<string name="chat_continuous_enable_confirm">This conversation will maintain early messages automatically. It occasionally sends one or more extra model requests; usage is recorded in Settings → Usage. The full record is kept and stays searchable.</string>
+	<string name="chat_continuous_stop">Stop maintaining</string>
+	<string name="chat_continuous_stop_detail">Keep the record; the current brief stays as a manual summary</string>
+	<string name="chat_continuous_stop_confirm">Stop maintaining? The full record is kept. The current brief stays as a manual summary and can be cleared from the classic context panel.</string>
+	<string name="chat_maintaining">Maintaining earlier messages…</string>
+	<string name="chat_maintenance_preparing">Preparing earlier messages…</string>
+	<string name="chat_error_context_too_large">This message is too long for the model to read in one request. Choose a model with a larger context window, or send it in two parts.</string>
+	<string name="chat_recall_title">Search record</string>
+	<string name="chat_recall_detail">Read-only search of this conversation\'s complete record</string>
+	<string name="session_memory_title">Session memory</string>
+	<string name="session_memory_mode">Mode: %1$s</string>
+	<string name="session_memory_mode_continuous">Continuous session</string>
+	<string name="session_memory_mode_classic">Classic session</string>
+	<string name="session_memory_classic_note">Classic session: you decide when older messages are compacted.</string>
+	<string name="session_memory_coverage">Turns 1–%1$d · %2$d messages</string>
+	<string name="session_memory_coverage_unknown">Coverage not recorded</string>
+	<string name="session_memory_last_run">Last maintained: %1$s</string>
+	<string name="session_memory_never_run">Not maintained yet</string>
+	<string name="session_memory_totals">%1$d runs · %2$s input / %3$s output tokens</string>
+	<string name="session_memory_brief_code">SESSION / BRIEF</string>
+	<string name="session_memory_brief">Session brief</string>
+	<string name="session_memory_brief_empty">No brief yet. It is written when maintenance first folds older messages.</string>
+	<string name="session_memory_brief_updated">Updated %1$s</string>
+	<string name="session_memory_brief_tokens">%1$s tokens (estimated)</string>
+	<string name="session_memory_brief_truncated">This brief was truncated to fit its budget.</string>
+	<string name="session_memory_brief_kind_manual">Manual summary</string>
+	<string name="session_memory_brief_kind_auto">Maintained automatically</string>
+	<string name="session_memory_rebuild">Rebuild</string>
+	<string name="session_memory_rebuild_confirm">Rebuild the brief from the record? This uses one or more model requests (estimated) and is recorded in Settings → Usage.</string>
+	<string name="session_memory_search">Search record</string>
+	<string name="session_memory_loading">Loading session memory…</string>
+	<string name="session_memory_unavailable">Session memory is unavailable right now.</string>
 </resources>

@@ -241,6 +241,21 @@ data class ContextSummaryEntity(
 	/** Last active message covered by [summary]. */
 	val throughMessageId: String,
 	val summary: String,
+	/** `manual` for the classic compaction, `auto` for automatic maintenance. */
+	@ColumnInfo(defaultValue = "manual")
+	val kind: String = "manual",
+	/**
+	 * How much the summary covers. Nullable rather than 0: a manual summary
+	 * written before these columns existed has no recorded coverage, and "0
+	 * turns" would be a claim it does not make.
+	 */
+	val coveredTurns: Int? = null,
+	val coveredMessages: Int? = null,
+	/** Estimated tokens, for display and the usage overview. */
+	val summaryTokens: Int? = null,
+	/** Set when the brief had to be cut at a section boundary. */
+	@ColumnInfo(defaultValue = "0")
+	val truncated: Boolean = false,
 	val createdAt: Long,
 	val updatedAt: Long,
 )
@@ -375,6 +390,18 @@ data class ConversationEntity(
 	 * then; the chat menu's reload replaces this string deliberately.
 	 */
 	val workspaceInstructions: String? = null,
+
+	/**
+	 * How this conversation maintains its request projection.
+	 *
+	 * [SessionMode.CLASSIC] keeps the manual compaction; [SessionMode.CONTINUOUS]
+	 * lets the app maintain a rolling brief on its own. The column defaults to
+	 * classic on purpose: an old conversation, or a caller that forgot to pass a
+	 * mode, must not start spending on automatic maintenance. Only the user's
+	 * explicit choice creates a continuous conversation.
+	 */
+	@ColumnInfo(defaultValue = SessionMode.CLASSIC)
+	val sessionMode: String = SessionMode.CLASSIC,
 ) {
 	/** The selection, or null for every tool. */
 	val tools: List<String>? get() = ToolsColumn.decode(toolsJson)
@@ -436,6 +463,27 @@ object HostsColumn {
 				.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
 		}.getOrDefault(emptyList())
 	}
+}
+
+/**
+ * How a conversation maintains its request projection.
+ *
+ * Stored as text rather than an enum ordinal so a value written by a newer
+ * build cannot silently become a different mode (the same reason
+ * `ApprovalDecision` stores names). [parse] is deliberately one-way: anything
+ * that is not the continuous marker reads as [CLASSIC], which is the mode that
+ * does **not** spend money on automatic maintenance. A typo, a blank or an
+ * unknown future value therefore fails toward "no extra requests".
+ */
+object SessionMode {
+
+	/** Today's behaviour: the user triggers compaction manually. */
+	const val CLASSIC = "classic"
+
+	/** The app maintains a rolling brief and a bounded verbatim window. */
+	const val CONTINUOUS = "continuous"
+
+	fun parse(raw: String?): String = if (raw == CONTINUOUS) CONTINUOUS else CLASSIC
 }
 
 /**

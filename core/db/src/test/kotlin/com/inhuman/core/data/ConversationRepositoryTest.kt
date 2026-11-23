@@ -3,7 +3,11 @@ package com.inhuman.core.data
 import androidx.room.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.inhuman.core.data.db.InhumanDatabase
+import com.inhuman.core.data.db.MaintenanceRunEntity
+import com.inhuman.core.data.db.MaintenanceRunKind
+import com.inhuman.core.data.db.MaintenanceRunOutcome
 import com.inhuman.core.data.db.MessageEntity
+import com.inhuman.core.data.db.SessionMode
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -222,6 +226,103 @@ class ConversationRepositoryTest {
 		)
 	}
 
+	@Test
+	fun `a new conversation is classic unless the caller says otherwise`() = runBlocking {
+		val classic = repository.create(title = "Classic")
+		assertEquals(SessionMode.CLASSIC, db.conversations().byId(classic.id)?.sessionMode)
+
+		val continuous = repository.create(
+			title = "Continuous",
+			sessionMode = SessionMode.CONTINUOUS,
+		)
+		assertEquals(SessionMode.CONTINUOUS, db.conversations().byId(continuous.id)?.sessionMode)
+
+		// A typo must not turn automatic maintenance on: unknown reads classic.
+		val typo = repository.create(title = "Typo", sessionMode = "continous")
+		assertEquals(SessionMode.CLASSIC, db.conversations().byId(typo.id)?.sessionMode)
+	}
+
+	@Test
+	fun `changing the session mode is configuration, not activity`() = runBlocking {
+		val conversation = repository.create(title = "Mode switch")
+		val before = db.conversations().byId(conversation.id)?.updatedAt
+
+		repository.setSessionMode(conversation.id, SessionMode.CONTINUOUS)
+
+		assertEquals(SessionMode.CONTINUOUS, db.conversations().byId(conversation.id)?.sessionMode)
+		assertEquals(
+			"switching the maintenance mode moved the conversation",
+			before,
+			db.conversations().byId(conversation.id)?.updatedAt,
+		)
+
+		repository.setSessionMode(conversation.id, "play")
+		assertEquals(SessionMode.CLASSIC, db.conversations().byId(conversation.id)?.sessionMode)
+	}
+
+	@Test
+	fun `a continuous brief records its coverage`() = runBlocking {
+		val conversation = repository.create(title = "Brief", sessionMode = SessionMode.CONTINUOUS)
+		val user = message("b-user", conversation.id, null, "user", "hello", 1L)
+		repository.appendMessage(user, null)
+
+		repository.saveContextSummary(
+			conversationId = conversation.id,
+			throughMessageId = user.id,
+			summary = "a brief",
+			kind = "auto",
+			coveredTurns = 3,
+			coveredMessages = 7,
+			summaryTokens = 120,
+			truncated = true,
+		)
+
+		val automatic = repository.contextSummary(conversation.id)
+		assertEquals("a brief", automatic?.summary)
+		assertEquals("auto", automatic?.kind)
+		assertEquals(3, automatic?.coveredTurns)
+		assertEquals(7, automatic?.coveredMessages)
+		assertEquals(120, automatic?.summaryTokens)
+		assertTrue(automatic?.truncated == true)
+
+		// The classic call site keeps working unchanged: manual, no coverage.
+		repository.saveContextSummary(conversation.id, user.id, "manual brief")
+		val manual = repository.contextSummary(conversation.id)
+		assertEquals("manual brief", manual?.summary)
+		assertEquals("manual", manual?.kind)
+		assertNull(manual?.coveredTurns)
+		assertNull(manual?.coveredMessages)
+		assertNull(manual?.summaryTokens)
+		assertFalse(manual?.truncated ?: true)
+	}
+
+	@Test
+	fun `maintenance runs survive a rewind and die with the conversation`() = runBlocking {
+		val conversation = repository.create(title = "Maintenance")
+		val other = repository.create(title = "Other")
+		val user = message("run-user", conversation.id, null, "user", "hello", 1L)
+		repository.appendMessage(user, null)
+
+		repository.recordMaintenanceRun(run(conversation.id, "run-1", 10L))
+		repository.recordMaintenanceRun(run(conversation.id, "run-2", 20L))
+		repository.recordMaintenanceRun(run(other.id, "run-3", 30L))
+
+		assertEquals(
+			listOf("run-2", "run-1"),
+			repository.maintenanceRuns(conversation.id).map { it.id },
+		)
+		assertEquals(3, repository.allMaintenanceRuns().size)
+
+		// The request was paid for, so rewinding the turn must not erase it.
+		repository.deleteSubtree(user.id, null, conversation.id)
+		assertEquals(2, repository.maintenanceRuns(conversation.id).size)
+
+		// Deleting the conversation removes its ledger rows, and only its own.
+		repository.delete(db.conversations().byId(conversation.id)!!)
+		assertTrue(repository.maintenanceRuns(conversation.id).isEmpty())
+		assertEquals(listOf("run-3"), repository.allMaintenanceRuns().map { it.id })
+	}
+
 	private fun message(
 		id: String,
 		conversationId: String,
@@ -236,5 +337,22 @@ class ConversationRepositoryTest {
 		role = role,
 		content = content,
 		createdAt = createdAt,
+	)
+
+	private fun run(
+		conversationId: String,
+		id: String,
+		at: Long,
+	) = MaintenanceRunEntity(
+		id = id,
+		conversationId = conversationId,
+		at = at,
+		kind = MaintenanceRunKind.AUTO,
+		model = "demo-model",
+		inputTokens = 100,
+		outputTokens = 20,
+		omittedMessages = 4,
+		omittedTurns = 2,
+		outcome = MaintenanceRunOutcome.OK,
 	)
 }

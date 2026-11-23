@@ -4,6 +4,7 @@ import com.inhuman.core.data.Branches
 import com.inhuman.core.data.SnapshotStats
 import com.inhuman.core.data.SnapshotTurn
 import com.inhuman.core.data.WorkspaceChange
+import com.inhuman.core.data.db.SessionMode
 import com.inhuman.ui.ssh.SshHostSummary
 
 /**
@@ -281,6 +282,19 @@ data class ChatUiState(
 	val compaction: ContextCompactionUi? = null,
 	/** True while the summarizer call is running; the composer is disabled. */
 	val isCompacting: Boolean = false,
+	/**
+	 * How this conversation maintains its request projection.
+	 *
+	 * [SessionMode.CLASSIC] means the user triggers compaction; the gauge,
+	 * compact button and summary banner are part of that mode. [SessionMode.CONTINUOUS]
+	 * means the app maintains a rolling brief, the context UI is absent from the
+	 * normal path, and the session-memory sheet is the audit surface.
+	 */
+	val sessionMode: String = SessionMode.CLASSIC,
+	/** True while the app is folding older turns into the session brief. */
+	val isMaintaining: Boolean = false,
+	/** True while a send is waiting for a forced fold to make room. */
+	val maintenancePreparing: Boolean = false,
 ) {
 	/** What the error banner should offer, derived from [error]. */
 	val errorAction: ChatErrorAction? get() = chatErrorAction(error)
@@ -297,6 +311,30 @@ data class ContextCompactionUi(
 	val summary: String,
 	val omittedTurns: Int,
 	val omittedMessages: Int,
+)
+
+/**
+ * What the session-memory sheet shows, read on demand.
+ *
+ * Nullable coverage fields are deliberate: a summary written before schema v23
+ * recorded no coverage, and showing 0 would claim the brief covers nothing.
+ * [runs] and the token totals come from `maintenance_runs`, which is a cost
+ * ledger rather than part of the projection -- the brief can be rebuilt, the
+ * money spent cannot be un-spent.
+ */
+data class SessionMemoryUi(
+	val sessionMode: String,
+	val coverageTurns: Int?,
+	val coverageMessages: Int?,
+	val brief: String?,
+	val briefKind: String,
+	val briefUpdatedAt: Long?,
+	val briefTruncated: Boolean,
+	val briefTokens: Int?,
+	val runs: Int,
+	val inputTokens: Long,
+	val outputTokens: Long,
+	val lastRunAt: Long?,
 )
 
 /** An image staged for the next message. */

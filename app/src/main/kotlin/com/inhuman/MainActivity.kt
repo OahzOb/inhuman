@@ -611,7 +611,7 @@ private fun InhumanRoot(
 			val id = openWorkspaceId!!
 			val factory = remember(id, repository, agents) {
 				viewModelFactory {
-					WorkspaceDetailViewModel(context.applicationContext, repository, agents, id)
+					WorkspaceDetailViewModel(context.applicationContext, repository, agents, id, secure)
 				}
 			}
 			val vm: WorkspaceDetailViewModel = viewModel(key = "workspace-$id", factory = factory)
@@ -656,7 +656,7 @@ private fun InhumanRoot(
 		else -> {
 			val factory = remember(repository, agents) {
 				viewModelFactory {
-					ConversationsViewModel(context.applicationContext, repository, agents)
+					ConversationsViewModel(context.applicationContext, repository, agents, secure)
 				}
 			}
 			val vm: ConversationsViewModel = viewModel(factory = factory)

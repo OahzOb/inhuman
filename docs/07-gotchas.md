@@ -298,6 +298,36 @@ the current zone), rewrites the marked part of the prefix once; that is the only
 intended cold request. `TimeHintsTest` pins the decision; `TimeHints.kt` carries
 the reasoning.
 
+### A24. Continuous-session invariants
+
+Five rules keep the automatic projection from becoming a second transcript:
+
+- **The record is authoritative and is never edited.** Maintenance writes only
+  `context_summaries` (the brief) and `maintenance_runs` (the cost ledger).
+  Earlier turns are omitted from the request, never deleted; the brief is
+  derived and can be rebuilt from the record.
+- **The boundary must be on the active branch and end a complete turn.**
+  `planProjection` ignores a `throughMessageId` that is not in the transcript and
+  puts the new boundary before the first kept user turn, so a tool call and its
+  results cannot split. A branch switch or Rewind makes a stale brief inert
+  (full history is sent) rather than applying it to the wrong prefix.
+- **Maintenance spends only while the chat is visible, and never touches
+  `conversations.updatedAt`.** `onChatHidden` cancels the job; a need found while
+  hidden is deferred to the next visible moment. A background fold that bumped
+  `updatedAt` would move the chat to the top of the list and look like the user
+  spoke.
+- **A read is not an event.** `recall` results go on the wire for that turn and
+  are persisted as a stub (`ToolResult.persistedContent`); keeping the full text
+  would make every lookup grow every later request and turn the record into its
+  own echo. The tool is read-only, active-branch only, local, free, and absent
+  from `ToolCatalog` and every picker.
+- **`sessionMode` fails toward classic.** `SessionMode.parse` maps unknown or
+  blank values to `classic`, and `ConversationRepository.create` defaults to
+  classic, so a caller that forgets the user's choice cannot start automatic
+  spending. The Create-sheet preference (`chat.new_conversation_continuous`) is
+  read only when a conversation is created; the chat-menu switch writes the
+  conversation column and never the preference.
+
 ---
 
 ## B. Defects that were found here — and where each one now stands

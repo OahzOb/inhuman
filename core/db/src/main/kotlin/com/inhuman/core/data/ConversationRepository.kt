@@ -7,8 +7,10 @@ import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.ConversationStore
 import com.inhuman.core.data.db.HostsColumn
 import com.inhuman.core.data.db.InhumanDatabase
+import com.inhuman.core.data.db.MaintenanceRunEntity
 import com.inhuman.core.data.db.MessageEntity
 import com.inhuman.core.data.db.MessageTurnRow
+import com.inhuman.core.data.db.SessionMode
 import com.inhuman.core.data.db.ToolsColumn
 import com.inhuman.core.data.db.UsageRow
 import com.inhuman.core.data.db.WorkspaceEntity
@@ -233,11 +235,20 @@ class ConversationRepository(
 	 *
 	 * Only the summary row changes; no message is edited or deleted. A later
 	 * [clearContextSummary] therefore restores the full-transcript request.
+	 *
+	 * The extra fields are optional so the classic manual compaction keeps
+	 * working unchanged: it writes `kind = "manual"` with no coverage recorded.
+	 * The continuous-session maintenance path fills them in.
 	 */
 	suspend fun saveContextSummary(
 		conversationId: String,
 		throughMessageId: String,
 		summary: String,
+		kind: String = "manual",
+		coveredTurns: Int? = null,
+		coveredMessages: Int? = null,
+		summaryTokens: Int? = null,
+		truncated: Boolean = false,
 	) {
 		val now = System.currentTimeMillis()
 		db.contextSummaries().upsert(
@@ -245,6 +256,11 @@ class ConversationRepository(
 				conversationId = conversationId,
 				throughMessageId = throughMessageId,
 				summary = summary,
+				kind = kind,
+				coveredTurns = coveredTurns,
+				coveredMessages = coveredMessages,
+				summaryTokens = summaryTokens,
+				truncated = truncated,
 				createdAt = now,
 				updatedAt = now,
 			),
@@ -254,6 +270,25 @@ class ConversationRepository(
 	suspend fun clearContextSummary(conversationId: String) {
 		db.contextSummaries().clear(conversationId)
 	}
+
+	/**
+	 * Record one maintenance run.
+	 *
+	 * Append-only and separate from the projection: the row must survive a
+	 * rewind because the request it paid for has already happened. It does
+	 * **not** touch the conversation's `updatedAt`; a background run must not
+	 * move the conversation to the top of the list.
+	 */
+	suspend fun recordMaintenanceRun(run: MaintenanceRunEntity) {
+		db.maintenanceRuns().upsert(run)
+	}
+
+	/** The cost ledger for one conversation, newest first. */
+	suspend fun maintenanceRuns(conversationId: String): List<MaintenanceRunEntity> =
+		db.maintenanceRuns().byConversation(conversationId)
+
+	/** Every recorded run, newest first, for the usage overview. */
+	suspend fun allMaintenanceRuns(): List<MaintenanceRunEntity> = db.maintenanceRuns().all()
 
 	/** The workspace for a conversation, opened and ready for tools. */
 	fun workspace(conversation: ConversationEntity) = workspace(conversation.workspaceId)
@@ -433,6 +468,15 @@ class ConversationRepository(
 	suspend fun setWorkspaceInstructions(id: String, block: String?) =
 		db.conversations().setWorkspaceInstructions(id, block)
 
+	/**
+	 * Switch how this conversation maintains its projection.
+	 *
+	 * Normalised through [SessionMode.parse] for the same reason as [create]:
+	 * an unknown value must not turn automatic maintenance on.
+	 */
+	suspend fun setSessionMode(id: String, mode: String) =
+		db.conversations().setSessionMode(id, SessionMode.parse(mode))
+
 	suspend fun setSshAllowed(id: String, allowed: Boolean) =
 		db.conversations().setSshAllowed(id, allowed)
 
@@ -462,11 +506,17 @@ class ConversationRepository(
 	 * makes editing an assistant safe: a model change must not silently rewrite
 	 * conversations already held with it, because a transcript is a record of
 	 * what was actually said and the settings that produced it are part of it.
+	 *
+	 * [sessionMode] defaults to [SessionMode.CLASSIC] and is normalised through
+	 * [SessionMode.parse]. The safe direction matters: a caller that forgets to
+	 * pass the user's choice gets a conversation that does no automatic
+	 * maintenance, rather than one that starts spending on its own.
 	 */
 	suspend fun create(
 		title: String = "New conversation",
 		agent: com.inhuman.core.data.db.AgentEntity? = null,
 		workspaceId: String? = null,
+		sessionMode: String = SessionMode.CLASSIC,
 	): ConversationEntity {
 		val now = System.currentTimeMillis()
 		val conversationId = UUID.randomUUID().toString()
@@ -508,6 +558,7 @@ class ConversationRepository(
 			// assistant's tools must not change what a conversation already
 			// held is able to do.
 			toolsJson = ToolsColumn.encode(agent?.tools),
+			sessionMode = SessionMode.parse(sessionMode),
 			createdAt = now,
 			updatedAt = now,
 		)

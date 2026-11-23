@@ -386,6 +386,16 @@ class SettingsViewModel(
 	 */
 	private var usageRows: List<UsageRow>? = null
 
+	/**
+	 * The maintenance cost rows behind the same read.
+	 *
+	 * A summary request is not a message, so `usageRows` cannot see it; without
+	 * this the automatic maintenance a continuous session runs would be spend
+	 * the overview silently omits.
+	 */
+	private var usageMaintenanceRuns: List<com.inhuman.core.data.db.MaintenanceRunEntity> =
+		emptyList()
+
 	/** One definition of "paid": the catalogue's flag, not a second list here. */
 	private val paidToolNames: Set<String> =
 		ToolCatalog.all.asSequence().filter { it.paid }.map { it.name }.toSet()
@@ -2171,12 +2181,15 @@ class SettingsViewModel(
 		val revision = ++usageRevision
 		_state.update { it.copy(usageLoading = true, usageFailed = false) }
 		viewModelScope.launch {
-			val loaded = runCatching { repository.usageRows() }
-			loaded.onSuccess { rows ->
+			val loaded = runCatching {
+				repository.usageRows() to repository.allMaintenanceRuns()
+			}
+			loaded.onSuccess { (rows, maintenanceRuns) ->
 				usageRows = rows
+				usageMaintenanceRuns = maintenanceRuns
 				val period = _state.value.usagePeriod
 				val report = withContext(Dispatchers.Default) {
-					buildUsageReport(rows, paidToolNames, period)
+					buildUsageReport(rows, paidToolNames, period, maintenanceRuns)
 				}
 				if (revision == usageRevision) {
 					_state.update { it.copy(usageLoading = false, usage = report) }
@@ -2206,7 +2219,7 @@ class SettingsViewModel(
 		val revision = ++usageRevision
 		viewModelScope.launch {
 			val report = withContext(Dispatchers.Default) {
-				buildUsageReport(rows, paidToolNames, period)
+				buildUsageReport(rows, paidToolNames, period, usageMaintenanceRuns)
 			}
 			if (revision == usageRevision) {
 				_state.update { it.copy(usageLoading = false, usage = report) }
