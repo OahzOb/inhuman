@@ -39,6 +39,7 @@ import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.outlined.DataObject
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.automirrored.outlined.Undo
@@ -667,7 +668,6 @@ fun ChatScreen(
 	var speechVoice by remember { mutableStateOf<String?>(null) }
 	var speechConsentConfirmed by remember { mutableStateOf(true) }
 	var speakingReply by remember { mutableStateOf<ChatMessageUi?>(null) }
-	var preparingReply by remember { mutableStateOf<ChatMessageUi?>(null) }
 	var speechPaused by remember { mutableStateOf(false) }
 	var speechPositionMs by remember { mutableStateOf(0) }
 	var speechDurationMs by remember { mutableStateOf(0) }
@@ -677,6 +677,12 @@ fun ChatScreen(
 	// Non-null while the user is dragging the progress slider, in 0f..1f.
 	var speechScrubFraction by remember { mutableStateOf<Float?>(null) }
 	var autoReadReplies by remember { mutableStateOf(false) }
+	// Synthesis is owned by the view model so that leaving this screen does not
+	// cancel a request that has already been billed. This screen only renders
+	// its state and starts playback when the completion event arrives while it
+	// is watching.
+	val speechPreparingId by viewModel.speechPreparing.collectAsStateWithLifecycle()
+	val cachedSpeechIds by viewModel.cachedSpeech.collectAsStateWithLifecycle()
 	val speechPlayer = remember { WorkspaceAudioPlayer(speechContext) }
 	// The lock-screen/notification side of the same playback. It lives and dies
 	// with this composition, so its controls cannot outlive the audio.
@@ -733,44 +739,42 @@ fun ChatScreen(
 		speechSession.progress(bounded, duration, speechCaption)
 	}
 
-	fun startTalking(message: ChatMessageUi) {
-		if (preparingReply != null) return
-		preparingReply = message
-		scope.launch {
-			viewModel.readAloud(message.id, message.plainText).fold(
-				onSuccess = { audio ->
-					preparingReply = null
-					// readAloud remembers the resolved default voice; mirror it
-					// here so the mini bar can offer the picker on the very first
-					// read rather than only after the next screen visit.
-					if (speechVoice == null) speechVoice = viewModel.speechVoice()
-					val id = workspaceId
-					if (id == null) {
-						speechToast(playbackFailedText)
-						return@fold
-					}
-					speechPlayer.stop()
-					speechPaused = false
-					speechPositionMs = 0
-					speechDurationMs = 0
-					speechCaptionText = audio.speechText
-					speechCaptions = emptyList()
-					speechCaption = null
-					speechScrubFraction = null
-					speakingReply = message
-					if (speechPlayer.play(id, audio.relativePath)) {
-						speechSession.start(speechVoice.orEmpty())
-					} else {
-						speakingReply = null
-						speechToast(playbackFailedText)
-					}
-				},
-				onFailure = { failure ->
-					preparingReply = null
-					speechToast(failure.message ?: speechFailedText)
-				},
-			)
+	fun playTalking(message: ChatMessageUi, audio: ChatViewModel.GeneratedAudio) {
+		// readAloud remembers the resolved default voice; mirror it here so the
+		// next tap uses the same voice rather than resolving it again.
+		if (speechVoice == null) speechVoice = viewModel.speechVoice()
+		val id = workspaceId
+		if (id == null) {
+			speechToast(playbackFailedText)
+			return
 		}
+		speechPlayer.stop()
+		speechPaused = false
+		speechPositionMs = 0
+		speechDurationMs = 0
+		speechCaptionText = audio.speechText
+		speechCaptions = emptyList()
+		speechCaption = null
+		speechScrubFraction = null
+		speakingReply = message
+		if (speechPlayer.play(id, audio.relativePath)) {
+			speechSession.start(speechVoice.orEmpty())
+		} else {
+			speakingReply = null
+			speechToast(playbackFailedText)
+		}
+	}
+
+	/**
+	 * Ask the view model to synthesize a reply.
+	 *
+	 * Deliberately not a coroutine in this composition: a conversation switch
+	 * disposes this screen, and a request launched here would be cancelled
+	 * after the user had already paid for it.
+	 */
+	fun prepareTalking(message: ChatMessageUi) {
+		if (speechPreparingId != null) return
+		viewModel.prepareSpeech(message.id, message.plainText)
 	}
 
 	fun refreshSpeechSetup() {
@@ -789,6 +793,9 @@ fun ChatScreen(
 			if (speechPaused) resumeTalking() else pauseTalking()
 			return
 		}
+		// One synthesis at a time. The row with the request in flight shows a
+		// spinner; a second tap cannot start a second paid request.
+		if (speechPreparingId != null) return
 		// The first composition races the conversation load, so the voice list
 		// can still be empty here. Ask again at the point of use rather than
 		// showing a chooser with nothing in it.
@@ -804,7 +811,31 @@ fun ChatScreen(
 		if (speakingReply != null && speakingReply?.id != message.id) {
 			stopTalking()
 		}
-		startTalking(message)
+		prepareTalking(message)
+	}
+
+	// A synthesis finishes in the view model, not here. The event starts
+	// playback only while this screen is composed to receive it: if the user
+	// left the conversation, the file is cached and the reply is marked ready,
+	// but audio does not start in a conversation nobody is looking at.
+	LaunchedEffect(viewModel) {
+		viewModel.speechEvents.collect { event ->
+			when (event) {
+				is ChatViewModel.SpeechEvent.Ready -> {
+					val message = viewModel.state.value.messages
+						.firstOrNull { it.id == event.messageId }
+					if (message != null) playTalking(message, event.audio)
+				}
+				is ChatViewModel.SpeechEvent.Failed ->
+					speechToast(event.message ?: speechFailedText)
+			}
+		}
+	}
+
+	// The cache name includes the voice, so the set of playable replies changes
+	// when the voice does (including when the first tap resolves a default).
+	LaunchedEffect(speechVoice) {
+		viewModel.refreshCachedSpeech(speechVoice)
 	}
 
 	LaunchedEffect(viewModel) {
@@ -861,7 +892,7 @@ fun ChatScreen(
 				if (wasStreaming && !frame.first && frame.second == null &&
 					message != null && message.error == null &&
 					message.id != lastReadId &&
-					speakingReply == null && preparingReply == null
+					speakingReply == null && speechPreparingId == null
 				) {
 					lastReadId = message.id
 					// The Settings switch is the paid opt-in and the paid
@@ -869,7 +900,7 @@ fun ChatScreen(
 					// one-time notice.
 					speechConsentConfirmed = true
 					viewModel.markSpeechConsent()
-					startTalking(message)
+					prepareTalking(message)
 				}
 				wasStreaming = frame.first
 			}
@@ -2220,10 +2251,11 @@ fun ChatScreen(
 									ReplySpeechState.Paused
 								speakingReply?.id == message.id ->
 									ReplySpeechState.Playing
-								preparingReply?.id == message.id ->
+								speechPreparingId == message.id ->
 									ReplySpeechState.Preparing
 								else -> ReplySpeechState.Idle
 							},
+							speechCached = message.id in cachedSpeechIds,
 							onSpeakReply = { requestTalking(message) },
 							// Both ids go up: the alternative being switched to is
 							// not on the active path, so the view model cannot find
@@ -2504,7 +2536,7 @@ fun ChatScreen(
 					viewModel.setSpeechVoice(chosen)
 				}
 				speechConsentFor = null
-				startTalking(message)
+				prepareTalking(message)
 			},
 			onDismiss = { speechConsentFor = null },
 		)
@@ -4406,6 +4438,8 @@ private fun MessageBubble(
 	onShowRewind: () -> Unit,
 	onRetry: () -> Unit,
 	speakState: ReplySpeechState,
+	/** The reply already has audio for the current voice; tapping is free. */
+	speechCached: Boolean,
 	onSpeakReply: () -> Unit,
 	onUseSuggestion: (String) -> Unit,
 	onSelectBranch: (String?, String) -> Unit,
@@ -4867,18 +4901,24 @@ private fun MessageBubble(
 								imageVector = when (speakState) {
 									ReplySpeechState.Playing -> Icons.Filled.Stop
 									ReplySpeechState.Paused -> Icons.Outlined.PlayArrow
-									else -> Icons.AutoMirrored.Outlined.VolumeUp
+									else -> if (speechCached) {
+										Icons.AutoMirrored.Filled.VolumeUp
+									} else {
+										Icons.AutoMirrored.Outlined.VolumeUp
+									}
 								},
 								contentDescription = stringResource(
 									when (speakState) {
 										ReplySpeechState.Playing -> R.string.chat_stop
 										ReplySpeechState.Paused -> R.string.chat_speech_continue
-										else -> R.string.chat_speak_reply
+										else -> if (speechCached) {
+											R.string.chat_speak_reply_cached
+										} else {
+											R.string.chat_speak_reply
+										}
 									},
 								),
-								tint = if (speakState == ReplySpeechState.Playing ||
-									speakState == ReplySpeechState.Paused
-								) {
+								tint = if (speakState != ReplySpeechState.Idle || speechCached) {
 									MaterialTheme.colorScheme.primary
 								} else {
 									MaterialTheme.colorScheme.onSurfaceVariant

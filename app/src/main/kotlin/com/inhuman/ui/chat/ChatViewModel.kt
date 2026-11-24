@@ -128,8 +128,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -331,6 +334,40 @@ class ChatViewModel(
 	/** The last actual provider body, for the read-only wire inspector. */
 	private val _wire = MutableStateFlow<WireSnapshot?>(null)
 	val wire: StateFlow<WireSnapshot?> = _wire.asStateFlow()
+
+	/**
+	 * The reply whose synthesis is in flight, or null.
+	 *
+	 * The screen used to hold this itself and launch the request in its
+	 * composition scope. That scope dies when the conversation is switched, so
+	 * a paid request was cancelled mid-flight and the user paid for audio that
+	 * never landed. The job is owned here, by the view model, which outlives the
+	 * screen; the screen only renders this state.
+	 */
+	private val _speechPreparing = MutableStateFlow<String?>(null)
+	val speechPreparing: StateFlow<String?> = _speechPreparing.asStateFlow()
+
+	/**
+	 * Completion events for a synthesis this view model started.
+	 *
+	 * A shared flow with no replay, deliberately: it is for a screen that is
+	 * currently watching. If the user left the conversation, nobody collects
+	 * the event, and that is right -- audio must not start in a conversation
+	 * the user is no longer looking at. The file is still saved, and the
+	 * transcript shows it as cached when they come back.
+	 */
+	private val _speechEvents = MutableSharedFlow<SpeechEvent>(extraBufferCapacity = 4)
+	val speechEvents: SharedFlow<SpeechEvent> = _speechEvents.asSharedFlow()
+
+	/** Assistant replies that already have audio for the current voice. */
+	private val _cachedSpeech = MutableStateFlow<Set<String>>(emptySet())
+	val cachedSpeech: StateFlow<Set<String>> = _cachedSpeech.asStateFlow()
+
+	/** One finished or refused synthesis, addressed to the reply it was for. */
+	sealed interface SpeechEvent {
+		data class Ready(val messageId: String, val audio: GeneratedAudio) : SpeechEvent
+		data class Failed(val messageId: String, val message: String?) : SpeechEvent
+	}
 
 	private var turnStartedAt = 0L
 
@@ -554,6 +591,10 @@ class ChatViewModel(
 			refreshConfiguration()
 			reload()
 			publishModelState()
+			// The transcript's cached marks come from the workspace, not from
+			// the rows, so they have to be read after the messages exist. The
+			// screen asks again once it has resolved the effective voice.
+			refreshCachedSpeech(speechVoice())
 			resumePendingVideo()
 			Diag.i(
 				"chat",
@@ -1073,7 +1114,10 @@ class ChatViewModel(
 	 * file is returned as-is. A voice change produces a different name and
 	 * therefore a new request, which is what "read it in another voice" means.
 	 */
-	suspend fun readAloud(messageId: String, markdown: String): Result<GeneratedAudio> = runCatching {
+	private suspend fun readAloud(
+		messageId: String,
+		markdown: String,
+	): Result<GeneratedAudio> = runCatching {
 		val entity = conversation ?: error("conversation is not ready")
 		val workspace = repository.workspace(entity)
 		val text = SpeechText.fromMarkdown(markdown).trim()
@@ -1092,7 +1136,8 @@ class ChatViewModel(
 		// re-synthesize on the next tap.
 		if (voice != null && voice != preferred) setSpeechVoice(voice)
 		val path = "generated/speech/" +
-			"${safeFilePart(messageId) ?: "reply"}-${safeFilePart(voice) ?: "default"}" +
+			"${SpeechCache.safeFilePart(messageId) ?: "reply"}-" +
+			"${SpeechCache.safeFilePart(voice) ?: "default"}" +
 			".${result.extension}"
 		val saved = saveGeneratedAudio(workspace, path, result).copy(speechText = text)
 		Diag.i(
@@ -1101,6 +1146,75 @@ class ChatViewModel(
 				"bytes=${saved.bytes} cached=false",
 		)
 		saved
+	}
+
+	/**
+	 * Synthesize one reply in the background, owned by this view model.
+	 *
+	 * The screen used to launch this in its own composition scope, so leaving
+	 * the conversation cancelled the request after it had been billed. Here the
+	 * job belongs to the view model, which outlives the screen; the result is
+	 * saved to the workspace whether or not anyone is watching. A completion
+	 * event lets a visible screen start playback, but a screen that left simply
+	 * misses it -- audio must not start in a conversation the user is not
+	 * looking at. When they come back, the reply is marked as cached.
+	 */
+	fun prepareSpeech(messageId: String, markdown: String) {
+		if (_speechPreparing.value != null) return
+		_speechPreparing.value = messageId
+		viewModelScope.launch {
+			try {
+				val result = readAloud(messageId, markdown)
+				if (_speechPreparing.value == messageId) _speechPreparing.value = null
+				result.fold(
+					onSuccess = { audio ->
+						_cachedSpeech.update { it + messageId }
+						_speechEvents.emit(SpeechEvent.Ready(messageId, audio))
+					},
+					onFailure = { failure ->
+						Diag.w(
+							"speech",
+							"read-aloud failed message=${Diag.shortId(messageId)}",
+							failure,
+						)
+						_speechEvents.emit(SpeechEvent.Failed(messageId, failure.message))
+					},
+				)
+			} finally {
+				// Also reached when the scope is cancelled; the state must not
+				// keep a spinner alive for a job that is no longer running.
+				if (_speechPreparing.value == messageId) _speechPreparing.value = null
+			}
+		}
+	}
+
+	/**
+	 * Recompute which replies in this conversation have audio for [voice].
+	 *
+	 * A directory listing, not a database column: the files are the cache, and
+	 * a row that outlived a deleted file would advertise audio that cannot
+	 * play. Called when the conversation loads and after the screen resolves a
+	 * voice, because the cache name includes the voice.
+	 */
+	fun refreshCachedSpeech(voice: String?) {
+		viewModelScope.launch {
+			val entity = conversation ?: return@launch
+			val workspace = runCatching { repository.workspace(entity) }.getOrNull()
+				?: return@launch
+			val ids = _state.value.messages
+				.filter { !it.fromUser && !it.isToolResult && it.plainText.isNotBlank() }
+				.map { it.id }
+			val names = withContext(Dispatchers.IO) {
+				when (val resolution = workspace.resolve("generated/speech")) {
+					is SessionWorkspace.Resolution.Ok -> resolution.file.listFiles()
+						?.filter { it.isFile && it.length() > 44 }
+						?.map { it.name }
+						.orEmpty()
+					is SessionWorkspace.Resolution.Rejected -> emptyList()
+				}
+			}
+			_cachedSpeech.value = SpeechCache.cachedMessageIds(names, ids, voice)
+		}
 	}
 
 	private fun cachedSpeech(
@@ -1113,7 +1227,7 @@ class ChatViewModel(
 			is SessionWorkspace.Resolution.Rejected -> return null
 		}
 		if (!dir.isDirectory) return null
-		val prefix = "${safeFilePart(messageId) ?: "reply"}-${safeFilePart(voice) ?: "default"}."
+		val prefix = SpeechCache.prefix(messageId, voice)
 		val file = dir.listFiles()?.firstOrNull { candidate ->
 			candidate.isFile && candidate.length() > 44 && candidate.name.startsWith(prefix)
 		} ?: return null
@@ -1125,13 +1239,6 @@ class ChatViewModel(
 		}
 		return GeneratedAudio("generated/speech/${file.name}", file.length().toInt(), mime)
 	}
-
-	/** A filesystem-safe token for the deterministic speech cache name. */
-	private fun safeFilePart(value: String?): String? =
-		value?.trim()
-			?.takeIf { it.isNotEmpty() }
-			?.replace(Regex("[^A-Za-z0-9_-]"), "_")
-			?.take(64)
 
 	private fun saveGeneratedAudio(
 		workspace: SessionWorkspace,

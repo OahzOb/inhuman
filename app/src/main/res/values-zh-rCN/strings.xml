@@ -105,6 +105,7 @@
 	<string name="home_conversation_title">对话标题</string>
 	<string name="home_conversation_actions">对话操作</string>
 	<string name="home_pinned_state">已置顶</string>
+<string name="home_speech_ready">有已转好的语音</string>
 	<string name="home_pin">置顶</string>
 	<string name="home_unpin">取消置顶</string>
 	<string name="home_just_now">刚刚</string>
@@ -946,6 +947,7 @@
 	<string name="settings_speech_voice_hint">留空使用后端默认音色。DeepSeek 支持 stella 和 tide；其他后端填自己的音色 ID。</string>
 
 	<string name="chat_speak_reply">转语音</string>
+<string name="chat_speak_reply_cached">转语音（已缓存）</string>
 	<string name="chat_speak_reply_title">朗读回复</string>
 	<string name="chat_speak_reply_first_use">使用设置中的付费语音后端生成并播放这条回复。每条回复、每个音色只合成一次，重复播放不再计费。</string>
 	<string name="chat_speaking">正在朗读</string>

@@ -37,6 +37,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
@@ -72,6 +73,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.R
 import com.inhuman.core.data.db.ConversationEntity
@@ -144,6 +146,17 @@ fun ConversationsScreen(
 	}
 
 	BackHandler(enabled = state.selecting) { viewModel.cancelSelection() }
+
+	// The speech marker is a fact about the workspace, and the workspace can
+	// gain audio while this screen is away. Rescan on resume, and once more
+	// when the list has actually loaded -- the first resume races the load.
+	LifecycleResumeEffect(Unit) {
+		viewModel.refreshSpeechReady()
+		onPauseOrDispose { }
+	}
+	LaunchedEffect(state.loaded, state.conversations.size) {
+		if (state.loaded) viewModel.refreshSpeechReady()
+	}
 
 	// Ask for the file count when the question is about to be shown, not when it
 	// is answered -- by then the folder is gone and there is nothing to count.
@@ -229,6 +242,7 @@ fun ConversationsScreen(
 						ConversationPanel(
 							conversations = state.conversations,
 							workspaceNames = state.workspaceNames,
+							speechReady = state.speechReadyConversations,
 							searchQuery = state.searchQuery,
 							searchResults = state.searchResults,
 							searching = state.searching,
@@ -263,6 +277,7 @@ fun ConversationsScreen(
 				else -> ConversationPanel(
 					conversations = state.conversations,
 					workspaceNames = state.workspaceNames,
+					speechReady = state.speechReadyConversations,
 					searchQuery = state.searchQuery,
 					searchResults = state.searchResults,
 					searching = state.searching,
@@ -1023,6 +1038,7 @@ private fun BackupReminderBanner(
 private fun ConversationPanel(
 	conversations: List<ConversationEntity>,
 	workspaceNames: Map<String, String>,
+	speechReady: Set<String>,
 	searchQuery: String,
 	searchResults: List<ConversationSearchHit>,
 	searching: Boolean,
@@ -1174,6 +1190,7 @@ private fun ConversationPanel(
 				ConversationList(
 					conversations = conversations,
 					workspaceNames = workspaceNames,
+					speechReady = speechReady,
 					selecting = true,
 					selectedIds = selectedIds,
 					onOpen = onOpen,
@@ -1242,6 +1259,7 @@ private fun ConversationPanel(
 					else -> ConversationList(
 						conversations = conversations,
 						workspaceNames = workspaceNames,
+						speechReady = speechReady,
 						selecting = false,
 						selectedIds = emptySet(),
 						onOpen = onOpen,
@@ -1342,6 +1360,7 @@ private fun SearchResultRow(
 private fun ConversationList(
 	conversations: List<ConversationEntity>,
 	workspaceNames: Map<String, String>,
+	speechReady: Set<String>,
 	selecting: Boolean,
 	selectedIds: Set<String>,
 	onOpen: (String) -> Unit,
@@ -1364,6 +1383,7 @@ private fun ConversationList(
 				index = index,
 				conversation = conversation,
 				workspace = workspaceNames[conversation.workspaceId],
+				hasSpeech = conversation.id in speechReady,
 				now = now,
 				selecting = selecting,
 				selected = conversation.id in selectedIds,
@@ -1383,6 +1403,7 @@ private fun ConversationRow(
 	index: Int,
 	conversation: ConversationEntity,
 	workspace: String?,
+	hasSpeech: Boolean,
 	now: Long,
 	selecting: Boolean,
 	selected: Boolean,
@@ -1446,6 +1467,15 @@ private fun ConversationRow(
 					overflow = TextOverflow.Ellipsis,
 					modifier = Modifier.weight(1f, fill = false),
 				)
+				if (hasSpeech) {
+					Spacer(Modifier.width(8.dp))
+					Icon(
+						imageVector = Icons.AutoMirrored.Outlined.VolumeUp,
+						contentDescription = stringResource(R.string.home_speech_ready),
+						tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
+						modifier = Modifier.size(13.dp),
+					)
+				}
 				if (conversation.pinned) {
 					Spacer(Modifier.width(8.dp))
 					Icon(

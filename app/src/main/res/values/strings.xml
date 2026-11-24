@@ -114,6 +114,7 @@
 	<string name="home_conversation_title">Conversation title</string>
 	<string name="home_conversation_actions">Conversation actions</string>
 	<string name="home_pinned_state">Pinned</string>
+<string name="home_speech_ready">Has read-aloud audio</string>
 	<string name="home_pin">Pin</string>
 	<string name="home_unpin">Unpin</string>
 	<string name="home_just_now">just now</string>
@@ -969,6 +970,7 @@
 	<string name="settings_speech_voice_hint">Leave blank for the backend default. DeepSeek supports stella and tide; another backend expects its own voice id.</string>
 
 	<string name="chat_speak_reply">Convert reply to speech</string>
+<string name="chat_speak_reply_cached">Convert reply to speech (audio cached)</string>
 	<string name="chat_speak_reply_title">Read reply aloud</string>
 	<string name="chat_speak_reply_first_use">Generates and plays this reply with the paid speech backend configured in Settings. Each reply is synthesized once per voice; replaying it does not bill again.</string>
 	<string name="chat_speaking">Reading aloud</string>

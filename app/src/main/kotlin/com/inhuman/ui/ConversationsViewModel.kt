@@ -8,6 +8,7 @@ import com.inhuman.R
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ConversationRepository
 import com.inhuman.core.data.ConversationSearchHit
+import com.inhuman.core.data.DataPaths
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
@@ -17,6 +18,8 @@ import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.core.files.WorkspaceTransfer
 import com.inhuman.ui.chat.ConversationBundleCodec
 import com.inhuman.ui.chat.ConversationBundleZip
+import com.inhuman.ui.chat.SpeechCache
+import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +40,14 @@ data class ConversationsUiState(
 	val permanentWorkspaceIds: Set<String> = emptySet(),
 	/** Permanent workspaces offered by the Create sheet, in display order. */
 	val permanentWorkspaces: List<com.inhuman.core.data.db.WorkspaceEntity> = emptyList(),
+	/**
+	 * Conversations whose workspace holds at least one finished speech file.
+	 *
+	 * Any voice, not the current one: this is the "there is something to hear
+	 * in here" hint on the home list. Which replies are playable in the current
+	 * voice is answered inside the transcript, where the voice is known.
+	 */
+	val speechReadyConversations: Set<String> = emptySet(),
 	val loaded: Boolean = false,
 	/** Multi-select state for deleting several conversations at once. */
 	val selecting: Boolean = false,
@@ -107,6 +118,42 @@ class ConversationsViewModel(
 	fun setNewConversationContinuous(enabled: Boolean) {
 		secure.setNewConversationContinuous(enabled)
 		_state.update { it.copy(newConversationContinuous = enabled) }
+	}
+
+	/**
+	 * Rescan the workspaces for finished speech files.
+	 *
+	 * A directory check per conversation, not a database column: the audio is
+	 * ordinary workspace content, and the files are the only truth about
+	 * whether a read is still free. Called when the home list becomes visible
+	 * and when it first loads, never during a chat.
+	 */
+	fun refreshSpeechReady() {
+		val conversations = _state.value.conversations
+		if (conversations.isEmpty()) {
+			_state.update { it.copy(speechReadyConversations = emptySet()) }
+			return
+		}
+		viewModelScope.launch {
+			val ready = withContext(Dispatchers.IO) {
+				val workspaces = DataPaths(context.filesDir)
+				conversations.asSequence()
+					.filter { conversation ->
+						val dir = File(
+							workspaces.workspaceDir(conversation.workspaceId),
+							"generated/speech",
+						)
+						val names = dir.listFiles()
+							?.filter { file -> file.isFile && file.length() > 44 }
+							?.map { file -> file.name }
+							.orEmpty()
+						SpeechCache.hasAnyAudio(names)
+					}
+					.map { it.id }
+					.toSet()
+			}
+			_state.update { it.copy(speechReadyConversations = ready) }
+		}
 	}
 
 	/**

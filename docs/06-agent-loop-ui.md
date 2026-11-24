@@ -331,6 +331,14 @@ caption. The session and the notification are released when the chat screen
 leaves, so audio never outlives the screen that started it. Starting another
 reply stops the first; starting a new turn stops whatever was playing.
 
+Synthesis is a view-model job, not a coroutine in this composition: switching
+conversations does not cancel a request that has already been billed. The
+completion event starts playback only if the screen is still there to collect
+it; a screen that left misses the event, and the file waits in the workspace.
+When the conversation is reopened, a reply with audio for the current voice
+carries a filled speaker (tapping it is free), and the home list marks a
+conversation whose workspace has any speech file with a small speaker.
+
 Audio is cached by message id and voice under `generated/speech/`, so replaying
 the same reply in the same voice makes no request and is instant; changing the
 voice synthesizes a second file and re-reads the reply. The reply is projected

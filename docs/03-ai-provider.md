@@ -667,6 +667,21 @@ second file and re-reads the reply. `SpeechText` projects the Markdown reply to
 speech text first (syntax removed, code blocks and tables announced once), so
 billed characters are words rather than markup.
 
+Synthesis is started by the view model, not by the composition. A tap calls
+`ChatViewModel.prepareSpeech`, which runs in `viewModelScope` and outlives the
+screen; switching conversations therefore no longer cancels a request the user
+has already paid for. Completion is a `SharedFlow` event with no replay: a
+screen that is still watching starts playback, and a screen that left misses
+the event, so audio never starts in a conversation the user has moved away
+from. The file is saved either way, and the reply is marked ready when the
+conversation is reopened.
+
+The marker is a filled speaker on a reply whose audio for the current voice
+exists, and a small speaker beside a conversation on the home list when its
+workspace holds any speech file. Both come from `SpeechCache` reading the
+`generated/speech` names, not from a database flag: deleting the file stops the
+marker, where a stored flag would keep claiming the audio is free.
+
 Playback is in-process through a `WorkspaceAudioPlayer` over the
 DocumentsProvider descriptor. The chat screen owns one player and one
 `MediaSession`, plus a `MediaStyle` notification, so Pause/Resume/Stop work from
@@ -813,6 +828,14 @@ buttons, and the slider sits under the caption in that row's column; the voice
 picker moved to Settings (and the first-use dialog), because a picker costs a
 row and a voice is not changed mid-sentence. The pause icon becomes a play icon
 while paused; the seek row and `current / total` are unchanged.
+
+0.23.0 moves synthesis out of the chat composition (a conversation switch used
+to cancel the HTTP request after it had been billed), and adds the cache marks:
+a filled speaker on a reply whose audio exists for the current voice, and a
+speaker beside a conversation on the home list when its workspace has any
+speech file. The home marker is any voice, because the list does not know which
+voice the transcript will use; the transcript's marker is the honest one --
+tapping it is free.
 
 **OAuth subscription login is a generic PKCE flow, not bundled provider clients.**
 The provider row's OAuth button opens a dialog for a user-registered public
