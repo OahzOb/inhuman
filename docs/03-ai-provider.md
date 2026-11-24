@@ -671,8 +671,8 @@ Playback is in-process through a `WorkspaceAudioPlayer` over the
 DocumentsProvider descriptor. The chat screen owns one player and one
 `MediaSession`, plus a `MediaStyle` notification, so Pause/Resume/Stop work from
 the app's mini bar, the notification and the lock screen; both are released when
-the screen leaves. The mini bar above the composer shows the voice, the
-transport controls, the caption currently being read, and a seekable progress
+the screen leaves. The one-row mini bar above the composer shows the transport
+controls as icons, the caption currently being read, and a seekable progress
 row with `current / total`. One ticker publishes the position to the row, the
 session and the notification:
 the metadata carries the duration, the playback state carries the position, and
@@ -805,6 +805,14 @@ timestamps, which the API does not provide.
 caption left the user looking at the transcript without knowing which sentence
 was playing; the timeline was already computed for the notification, so this is
 the same estimate rendered on the screen, not a second alignment.
+
+0.22.1 compacts that bar. It had become three stacked rows -- state, caption,
+progress -- about 107dp above the composer on a 360dp phone. Now the caption is
+the label in the same row as the transport, Pause/Resume and Stop are icon
+buttons, and the slider sits under the caption in that row's column; the voice
+picker moved to Settings (and the first-use dialog), because a picker costs a
+row and a voice is not changed mid-sentence. The pause icon becomes a play icon
+while paused; the seek row and `current / total` are unchanged.
 
 **OAuth subscription login is a generic PKCE flow, not bundled provider clients.**
 The provider row's OAuth button opens a dialog for a user-registered public

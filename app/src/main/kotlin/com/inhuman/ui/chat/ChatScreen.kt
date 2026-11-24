@@ -79,6 +79,7 @@ import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.List
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
@@ -667,7 +668,6 @@ fun ChatScreen(
 	var speechConsentConfirmed by remember { mutableStateOf(true) }
 	var speakingReply by remember { mutableStateOf<ChatMessageUi?>(null) }
 	var preparingReply by remember { mutableStateOf<ChatMessageUi?>(null) }
-	var speechVoiceMenu by remember { mutableStateOf(false) }
 	var speechPaused by remember { mutableStateOf(false) }
 	var speechPositionMs by remember { mutableStateOf(0) }
 	var speechDurationMs by remember { mutableStateOf(0) }
@@ -2358,27 +2358,8 @@ fun ChatScreen(
 
 			if (speakingReply != null) {
 				SpeechPlayerBar(
-					voice = speechVoice,
-					voices = speechVoices,
 					paused = speechPaused,
 					caption = speechCaption,
-					voiceMenuOpen = speechVoiceMenu,
-					onVoiceMenu = { speechVoiceMenu = it },
-					onVoice = { chosen ->
-						speechVoiceMenu = false
-						val current = speakingReply
-						if (chosen != speechVoice) {
-							speechVoice = chosen
-							viewModel.setSpeechVoice(chosen)
-							// Re-read in the new voice: the user asked to hear
-							// the difference, and the cache is per voice, so
-							// this is a real second synthesis.
-							if (current != null) {
-								stopTalking()
-								startTalking(current)
-							}
-						}
-					},
 					onPauseResume = { if (speechPaused) resumeTalking() else pauseTalking() },
 					onStop = { stopTalking() },
 					positionMs = if (speechScrubFraction != null && speechDurationMs > 0) {
@@ -6350,21 +6331,20 @@ private fun DecisionDialog(
 }
 
 /**
- * The compact bar above the composer while a reply is being read.
+ * The reply read-aloud bar.
  *
- * Mature chat clients keep playback visible and stoppable without leaving the
- * transcript. This is the same shape: one row, the voice in use, and Stop. It
- * is a view of the screen's single player, not a second player.
+ * It used to be three rows -- state label, caption, progress -- about 107dp
+ * above the composer on a 360dp phone, roughly a sixth of a 16:9 screen spent
+ * on a control that is mostly read. It is now one row: the caption is the
+ * label, the transport is two icon buttons, and the progress sits under the
+ * caption in the same column. The voice picker moved out: a bar that switches
+ * voices costs a whole row, and a voice is chosen before or after listening,
+ * not while. Settings -> Network & media -> Reply read-aloud keeps the picker.
  */
 @Composable
 private fun SpeechPlayerBar(
-	voice: String?,
-	voices: List<String>,
 	paused: Boolean,
 	caption: String?,
-	voiceMenuOpen: Boolean,
-	onVoiceMenu: (Boolean) -> Unit,
-	onVoice: (String) -> Unit,
 	onPauseResume: () -> Unit,
 	onStop: () -> Unit,
 	positionMs: Int,
@@ -6380,113 +6360,72 @@ private fun SpeechPlayerBar(
 			modifier = Modifier.fillMaxWidth(),
 			contentAlignment = Alignment.Center,
 		) {
-			Column(
+			Row(
 				modifier = Modifier
 					.widthIn(max = Layout.ChatMeasure)
 					.fillMaxWidth()
-					.padding(horizontal = comfortableGutter(), vertical = 2.dp),
+					.padding(start = comfortableGutter(), end = 4.dp, top = 2.dp, bottom = 2.dp),
+				verticalAlignment = Alignment.CenterVertically,
 			) {
-				Row(
-					modifier = Modifier.fillMaxWidth(),
-					verticalAlignment = Alignment.CenterVertically,
-					horizontalArrangement = Arrangement.spacedBy(6.dp),
-				) {
+				IconButton(onClick = onPauseResume) {
 					Icon(
-						imageVector = Icons.AutoMirrored.Outlined.VolumeUp,
-						contentDescription = null,
-						tint = MaterialTheme.colorScheme.primary,
-						modifier = Modifier.size(16.dp),
-					)
-					Text(
-						text = stringResource(
-							if (paused) R.string.chat_speech_paused else R.string.chat_speaking,
+						imageVector = if (paused) {
+							Icons.Outlined.PlayArrow
+						} else {
+							Icons.Filled.Pause
+						},
+						contentDescription = stringResource(
+							if (paused) R.string.chat_speech_continue else R.string.chat_pause,
 						),
-						style = MaterialTheme.typography.labelLarge,
-						color = MaterialTheme.colorScheme.onSurface,
+						tint = MaterialTheme.colorScheme.primary,
+						modifier = Modifier.size(20.dp),
 					)
-					if (voices.size > 1 && voice != null) {
-						Box {
-							TextButton(
-								onClick = { onVoiceMenu(true) },
-								contentPadding = PaddingValues(horizontal = 8.dp),
-							) {
-								Text(
-									text = speechVoiceLabel(voice),
-									style = MaterialTheme.typography.labelMedium,
-									color = MaterialTheme.colorScheme.onSurfaceVariant,
-								)
-							}
-							DropdownMenu(
-								expanded = voiceMenuOpen,
-								onDismissRequest = { onVoiceMenu(false) },
-							) {
-								voices.forEach { id ->
-									DropdownMenuItem(
-										text = { Text(speechVoiceLabel(id)) },
-										onClick = { onVoice(id) },
-									)
-								}
-							}
+				}
+				Column(modifier = Modifier.weight(1f)) {
+					if (!caption.isNullOrBlank()) {
+						Text(
+							text = caption,
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurface,
+							maxLines = 1,
+							overflow = TextOverflow.Ellipsis,
+						)
+					}
+					// The progress row is the same position the media session
+					// publishes, and dragging it seeks. When the backend returns
+					// a file with no duration yet, the row stays out rather than
+					// drawing a fake 0%.
+					if (durationMs > 0) {
+						Row(
+							modifier = Modifier.fillMaxWidth(),
+							verticalAlignment = Alignment.CenterVertically,
+						) {
+							Slider(
+								value = (positionMs.toFloat() / durationMs).coerceIn(0f, 1f),
+								onValueChange = onScrub,
+								onValueChangeFinished = onScrubFinished,
+								modifier = Modifier
+									.weight(1f)
+									.height(28.dp),
+							)
+							Text(
+								text = "${SpeechTime.format(positionMs)} / " +
+									SpeechTime.format(durationMs),
+								style = MaterialTheme.typography.labelSmall,
+								fontFamily = FontFamily.Monospace,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+								modifier = Modifier.padding(start = 6.dp),
+							)
 						}
 					}
-					Spacer(Modifier.weight(1f))
-					TextButton(onClick = onPauseResume) {
-						Text(
-							text = stringResource(
-								if (paused) R.string.chat_resume else R.string.chat_pause,
-							),
-							style = MaterialTheme.typography.labelMedium,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-						)
-					}
-					TextButton(onClick = onStop) {
-						Text(
-							text = stringResource(R.string.chat_stop),
-							style = MaterialTheme.typography.labelMedium,
-							color = MaterialTheme.colorScheme.primary,
-						)
-					}
 				}
-				// The sentence being read, on the same estimated timeline as
-				// the notification's caption. The bar used to show only the
-				// time, so a user looking at the transcript had no idea which
-				// sentence the audio was on; the notification had the caption
-				// and the screen did not. Two lines, because a caption is a
-				// sentence and a 90-character one does not fit one line on a
-				// 360dp phone.
-				if (!caption.isNullOrBlank()) {
-					Text(
-						text = caption,
-						style = MaterialTheme.typography.bodySmall,
-						color = MaterialTheme.colorScheme.onSurface,
-						maxLines = 2,
-						overflow = TextOverflow.Ellipsis,
-						modifier = Modifier.padding(vertical = 2.dp),
+				IconButton(onClick = onStop) {
+					Icon(
+						imageVector = Icons.Filled.Stop,
+						contentDescription = stringResource(R.string.chat_stop),
+						tint = MaterialTheme.colorScheme.primary,
+						modifier = Modifier.size(18.dp),
 					)
-				}
-				// The progress row is the same position the media session
-				// publishes, and dragging it seeks. When the backend returns a
-				// file with no duration yet, the row stays out rather than
-				// drawing a fake 0%.
-				if (durationMs > 0) {
-					Row(
-						modifier = Modifier.fillMaxWidth(),
-						verticalAlignment = Alignment.CenterVertically,
-					) {
-						Slider(
-							value = (positionMs.toFloat() / durationMs).coerceIn(0f, 1f),
-							onValueChange = onScrub,
-							onValueChangeFinished = onScrubFinished,
-							modifier = Modifier.weight(1f),
-						)
-						Text(
-							text = "${SpeechTime.format(positionMs)} / ${SpeechTime.format(durationMs)}",
-							style = MaterialTheme.typography.labelSmall,
-							fontFamily = FontFamily.Monospace,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-							modifier = Modifier.padding(start = 8.dp),
-						)
-					}
 				}
 			}
 		}

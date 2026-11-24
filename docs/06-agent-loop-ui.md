@@ -305,9 +305,12 @@ assistant reply with text. It is a per-reply action, not a turn action. The
 first tap shows a one-time paid notice and the voice picker; after that is
 confirmed a tap **synthesizes and starts playback immediately** -- there is no
 per-reply dialog. The speaker becomes Stop while that reply plays (Play again
-while paused), and a mini bar above the composer shows the state, the voice in
-use (tappable to switch), Pause/Resume/Stop, the **sentence currently being
-read**, and a **seekable progress row** with `current / total` time.
+while paused), and a one-row mini bar above the composer carries Pause/Resume
+and Stop as icon buttons, the **sentence currently being read** as its label,
+and a **seekable progress row** with `current / total` time under it. The bar
+does not carry the voice picker: a picker costs a row, and a voice is chosen
+before or after listening. Settings -> Network & media -> Reply read-aloud
+keeps it, and the first-use dialog already offers it.
 
 Playback also appears in the media notification and on the lock screen: the
 screen owns one `MediaSession` and a `MediaStyle` notification while a reply is
@@ -317,8 +320,8 @@ the media metadata carries the duration, the playback state carries the
 position, and the notification shows the **caption currently being read** as
 its second line, with the voice and `1:23 / 4:56` in the subtext. The in-app
 mini bar shows the same caption, so the screen and the notification never
-disagree about which sentence is playing. The caption
-comes from `SpeechCaptions`: the projected reply is split into sentence-sized
+disagree about which sentence is playing. The caption comes from
+`SpeechCaptions`: the projected reply is split into sentence-sized
 pieces and the known duration is distributed over them by visible character
 count, because the TTS API returns audio and a duration but no word timestamps.
 It is an estimate for reading along, not forced alignment; the lock-screen
