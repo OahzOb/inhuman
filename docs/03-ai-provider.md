@@ -672,8 +672,9 @@ DocumentsProvider descriptor. The chat screen owns one player and one
 `MediaSession`, plus a `MediaStyle` notification, so Pause/Resume/Stop work from
 the app's mini bar, the notification and the lock screen; both are released when
 the screen leaves. The mini bar above the composer shows the voice, the
-transport controls, and a seekable progress row with `current / total`. One
-ticker publishes the position to the row, the session and the notification:
+transport controls, the caption currently being read, and a seekable progress
+row with `current / total`. One ticker publishes the position to the row, the
+session and the notification:
 the metadata carries the duration, the playback state carries the position, and
 the notification's second line is the **caption currently being read**. The
 caption timeline is `SpeechCaptions`, which splits the projected reply into
@@ -799,6 +800,11 @@ all of them, and the lock-screen scrubber seeks the same player.
 read** (`SpeechCaptions`), keeping voice and time in the subtext. The caption is
 estimated from character-proportional sentence boundaries, not from TTS
 timestamps, which the API does not provide.
+
+0.22.0 shows that same caption in the in-app mini bar. The notification-only
+caption left the user looking at the transcript without knowing which sentence
+was playing; the timeline was already computed for the notification, so this is
+the same estimate rendered on the screen, not a second alignment.
 
 **OAuth subscription login is a generic PKCE flow, not bundled provider clients.**
 The provider row's OAuth button opens a dialog for a user-registered public

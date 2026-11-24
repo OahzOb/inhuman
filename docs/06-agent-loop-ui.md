@@ -306,8 +306,8 @@ first tap shows a one-time paid notice and the voice picker; after that is
 confirmed a tap **synthesizes and starts playback immediately** -- there is no
 per-reply dialog. The speaker becomes Stop while that reply plays (Play again
 while paused), and a mini bar above the composer shows the state, the voice in
-use (tappable to switch), Pause/Resume/Stop and a **seekable progress row** with
-`current / total` time.
+use (tappable to switch), Pause/Resume/Stop, the **sentence currently being
+read**, and a **seekable progress row** with `current / total` time.
 
 Playback also appears in the media notification and on the lock screen: the
 screen owns one `MediaSession` and a `MediaStyle` notification while a reply is
@@ -315,7 +315,9 @@ being read, so the system's transport controls pause/resume/stop the same
 player. One ticker publishes the position about once a second to both surfaces;
 the media metadata carries the duration, the playback state carries the
 position, and the notification shows the **caption currently being read** as
-its second line, with the voice and `1:23 / 4:56` in the subtext. The caption
+its second line, with the voice and `1:23 / 4:56` in the subtext. The in-app
+mini bar shows the same caption, so the screen and the notification never
+disagree about which sentence is playing. The caption
 comes from `SpeechCaptions`: the projected reply is split into sentence-sized
 pieces and the known duration is distributed over them by visible character
 count, because the TTS API returns audio and a duration but no word timestamps.

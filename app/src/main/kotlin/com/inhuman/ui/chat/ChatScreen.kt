@@ -2361,6 +2361,7 @@ fun ChatScreen(
 					voice = speechVoice,
 					voices = speechVoices,
 					paused = speechPaused,
+					caption = speechCaption,
 					voiceMenuOpen = speechVoiceMenu,
 					onVoiceMenu = { speechVoiceMenu = it },
 					onVoice = { chosen ->
@@ -6360,6 +6361,7 @@ private fun SpeechPlayerBar(
 	voice: String?,
 	voices: List<String>,
 	paused: Boolean,
+	caption: String?,
 	voiceMenuOpen: Boolean,
 	onVoiceMenu: (Boolean) -> Unit,
 	onVoice: (String) -> Unit,
@@ -6444,6 +6446,23 @@ private fun SpeechPlayerBar(
 							color = MaterialTheme.colorScheme.primary,
 						)
 					}
+				}
+				// The sentence being read, on the same estimated timeline as
+				// the notification's caption. The bar used to show only the
+				// time, so a user looking at the transcript had no idea which
+				// sentence the audio was on; the notification had the caption
+				// and the screen did not. Two lines, because a caption is a
+				// sentence and a 90-character one does not fit one line on a
+				// 360dp phone.
+				if (!caption.isNullOrBlank()) {
+					Text(
+						text = caption,
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurface,
+						maxLines = 2,
+						overflow = TextOverflow.Ellipsis,
+						modifier = Modifier.padding(vertical = 2.dp),
+					)
 				}
 				// The progress row is the same position the media session
 				// publishes, and dragging it seeks. When the backend returns a
