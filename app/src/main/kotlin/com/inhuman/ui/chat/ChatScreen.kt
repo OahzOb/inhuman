@@ -606,6 +606,8 @@ fun ChatScreen(
 	}
 	val sshAllowed by fieldOf(viewModel.state, false) { it.sshAllowed }
 	val sshToolEnabled by fieldOf(viewModel.state, false) { it.sshToolEnabled }
+	val downloadAllowed by fieldOf(viewModel.state, false) { it.downloadAllowed }
+	val downloadEnabled by fieldOf(viewModel.state, false) { it.downloadEnabled }
 	val sshHosts by fieldOf(viewModel.state, emptyList()) { it.sshHosts }
 	val sshHostIds by fieldOf(viewModel.state, emptyList()) { it.sshHostIds }
 	val suggestionsEnabled by fieldOf(viewModel.state, false) { it.suggestionsEnabled }
@@ -627,6 +629,7 @@ fun ChatScreen(
 		suggestionsEnabled,
 		bilibiliEnabled,
 		bilibiliLoggedIn,
+		downloadEnabled,
 	) {
 		conversationToolPlan(
 			sshEnabled = sshToolEnabled,
@@ -636,6 +639,7 @@ fun ChatScreen(
 			suggestionsEnabled = suggestionsEnabled,
 			bilibiliEnabled = bilibiliEnabled,
 			bilibiliLoggedIn = bilibiliLoggedIn,
+			downloadEnabled = downloadEnabled,
 		)
 	}
 	val rollbackAvailable by fieldOf(viewModel.state, false) { it.rollbackAvailable }
@@ -649,6 +653,7 @@ fun ChatScreen(
 	val wire by viewModel.wire.collectAsStateWithLifecycle(null)
 	val toolRoundLimit by fieldOf(viewModel.state, 8) { it.toolRoundLimit }
 	val pendingSshConsent by fieldOf(viewModel.state, null) { it.pendingSshConsent }
+	val pendingDownloadConsent by fieldOf(viewModel.state, null) { it.pendingDownloadConsent }
 	val workspaceName by fieldOf(viewModel.state, "") { it.workspaceName }
 	val workspaceId by fieldOf(viewModel.state, null) { it.workspaceId }
 	val workspaceIsPermanent by fieldOf(viewModel.state, false) { it.workspaceIsPermanent }
@@ -1062,7 +1067,8 @@ fun ChatScreen(
 	// Both this and the approval gate are transient questions that Back should
 	// answer by dismissing, not by navigating away from.
 	val anyDialogOpen = searchOpen || showModelPicker || pendingApproval != null ||
-		pendingSshConsent != null || rollbackTarget != null || showRewindDialog ||
+		pendingSshConsent != null || pendingDownloadConsent != null ||
+		rollbackTarget != null || showRewindDialog ||
 		showCompactPreview || showCompactionSummary ||
 		showSnapshotDialog || showToolLimitDialog || showRenameDialog || showWireDialog ||
 		showSessionMemory || showRebuildBriefConfirm || showStopMaintainingConfirm ||
@@ -1854,6 +1860,18 @@ fun ChatScreen(
 										},
 									)
 								}
+								if (downloadEnabled) {
+									// The capability grant is per conversation, so the
+									// way out lives where the grant does: this menu.
+									DropdownMenuItem(
+										text = { Text(stringResource(R.string.chat_revoke_download)) },
+										enabled = downloadAllowed,
+										onClick = {
+											showChatMenu = false
+											viewModel.revokeDownloadAccess()
+										},
+									)
+								}
 							}
 						}
 					},
@@ -2640,6 +2658,14 @@ fun ChatScreen(
 			consent = consent,
 			onAllow = viewModel::allowSshConsent,
 			onDeny = viewModel::denySshConsent,
+		)
+	}
+
+	pendingDownloadConsent?.let { consent ->
+		DownloadConsentDialog(
+			consent = consent,
+			onAllow = viewModel::allowDownloadConsent,
+			onDeny = viewModel::denyDownloadConsent,
 		)
 	}
 
@@ -4104,6 +4130,84 @@ private fun SshConsentDialog(
 		},
 		confirmButton = {
 			TextButton(onClick = onAllow, enabled = understood) { Text(stringResource(R.string.chat_allow_ssh)) }
+		},
+		dismissButton = {
+			TextButton(onClick = onDeny) { Text(stringResource(R.string.common_cancel)) }
+		},
+		containerColor = MaterialTheme.colorScheme.surface,
+		titleContentColor = MaterialTheme.colorScheme.onSurface,
+		textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+	)
+}
+
+/**
+ * The once-per-conversation URL-download acknowledgement.
+ *
+ * The first URL is shown whole, because it is the most concrete warning
+ * available. The checkbox and the warning exist for the part the URL cannot
+ * show: a URL is an outbound channel, and anything the model encodes into one
+ * leaves the device when the request is made. Allowing here allows every later
+ * `download_url` call in this conversation to follow ordinary tool policy.
+ */
+@Composable
+private fun DownloadConsentDialog(
+	consent: DownloadConsent,
+	onAllow: () -> Unit,
+	onDeny: () -> Unit,
+) {
+	var understood by remember { mutableStateOf(false) }
+	AlertDialog(
+		onDismissRequest = onDeny,
+		title = { Text(stringResource(R.string.chat_download_title)) },
+		text = {
+			Column(
+				modifier = Modifier
+					.fillMaxWidth()
+					.heightIn(max = 460.dp)
+					.verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(12.dp),
+			) {
+				Text(
+					text = stringResource(R.string.chat_download_body, consent.host),
+					style = MaterialTheme.typography.bodyLarge,
+				)
+				Text(
+					text = consent.url,
+					style = MaterialTheme.typography.bodyMedium,
+					fontFamily = FontFamily.Monospace,
+					modifier = Modifier
+						.fillMaxWidth()
+						.background(
+							MaterialTheme.colorScheme.surfaceVariant,
+							RoundedCornerShape(8.dp),
+						)
+						.padding(10.dp),
+				)
+				// The checkbox sits above the long warning: on a phone the
+				// warning scrolls, and a checkbox below the fold left "Allow"
+				// disabled with no visible reason.
+				Row(verticalAlignment = Alignment.CenterVertically) {
+					Checkbox(
+						checked = understood,
+						onCheckedChange = { understood = it },
+					)
+					Text(
+						text = stringResource(R.string.chat_download_understand),
+						style = MaterialTheme.typography.bodyMedium,
+						modifier = Modifier.weight(1f),
+					)
+				}
+				Text(
+					text = stringResource(R.string.chat_download_warning),
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.error,
+				)
+			}
+		},
+		confirmButton = {
+			TextButton(onClick = onAllow, enabled = understood) {
+				Text(stringResource(R.string.chat_allow_download))
+			}
 		},
 		dismissButton = {
 			TextButton(onClick = onDeny) { Text(stringResource(R.string.common_cancel)) }

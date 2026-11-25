@@ -360,6 +360,43 @@ Five rules keep the automatic projection from becoming a second transcript:
   keeps the credential. Web-tool keys are cleared together because one section
   with one Save would otherwise keep half of a deleted credential.
 
+### A27. URL downloads are one shared rule and one capability grant
+
+- **One validator, two callers.** `DownloadUrl` (`core/ai/.../tools/`) owns the
+  scheme, length, credential, private-address and filename rules for both the
+  user-facing Files download and `download_url`. Do not add a second copy: a
+  missing private-address check is invisible in a working download, and the tool
+  and the Files path drifting apart is exactly how one of them loses a check.
+  The tool passes `requireHttps = true`; the Files path keeps accepting `http`.
+- **The DNS check must stay at connect time.** Rejecting a literal private host in
+  the string is not enough: a public name can resolve to `127.0.0.1` (DNS
+  rebinding) and a redirect can point anywhere. `UrlDownloader`'s custom `Dns`
+  refuses private/loopback/link-local/multicast/CGNAT/reserved answers before the
+  socket, and every redirect is re-validated by hand. `download_url` reuses that
+  client; do not give it a plain `OkHttpClient`.
+- **The sink is `WorkspaceTransfer.import`, not a direct write.** That is what
+  applies the per-file ceiling, total quota, file count, free-space reserve and
+  the " (2)" naming while streaming, with a staging file so a failed download
+  never leaves a truncated file that looks complete. The tool's declared
+  `Content-Length` check is only a fast refusal: a server can lie, so the sink
+  counts as it goes.
+- **Consent is a capability grant, not `needsApproval`.** Four separate facts:
+  the Settings switch (off by default), the catalogue's `optIn`/`gatedByDownload`
+  flags, the per-conversation `conversations.downloadAllowed` persisted by the
+  first-call dialogue, and the ordinary `ToolPolicy` after that. Writing a URL
+  download as `needsApproval = true` would make the default per-call prompt the
+  policy, which is the one thing `docs/09-approvals.md` says approvals are not.
+- **The URL is an outbound channel, so it is not logged.** Diagnostics record the
+  host and byte count only; the consent dialogue shows the URL because the user
+  is the one deciding, but the transcript and logs must not become a second copy
+  of query strings that may contain data. The tool result names the saved path and
+  size, never the URL's contents.
+- **It is not `web_fetch`.** `web_fetch` returns page text through a paid backend
+  and is capped in characters; `download_url` streams bytes through the app's own
+  client into the workspace. Do not fold them together, and do not route the
+  download through the paid search/fetch key: that would make a free operation
+  depend on a configured bill.
+
 ---
 
 ## B. Defects that were found here — and where each one now stands

@@ -564,6 +564,9 @@ private fun InhumanRoot(
 						sshToolEnabled = {
 							secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1"
 						},
+						downloadEnabled = {
+							secure.get(SecureStore.KEY_DOWNLOAD_TOOL_ENABLED) == "1"
+						},
 						sshLimits = {
 							SshLimits.fromStored(
 								commandTimeoutSeconds = secure.get(SecureStore.KEY_SSH_COMMAND_TIMEOUT_SECONDS),
@@ -681,6 +684,7 @@ private fun InhumanRoot(
 				},
 				sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
 				bilibiliEnabled = secure.get(SecureStore.KEY_BILIBILI_TOOL_ENABLED) == "1",
+				downloadEnabled = secure.get(SecureStore.KEY_DOWNLOAD_TOOL_ENABLED) == "1",
 				backupReminder = backupReminder,
 				onOpenBackup = {
 					backupReminder = null

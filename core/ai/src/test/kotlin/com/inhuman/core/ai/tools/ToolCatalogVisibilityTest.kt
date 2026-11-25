@@ -97,10 +97,38 @@ class ToolCatalogVisibilityTest {
 			"speak",
 			"ssh_upload",
 			"ssh_download",
+			"download_url",
 		).forEach { assertTrue("$it should be workspace-bound", it in marked) }
 
 		assertFalse("read_time is workspace-free", "read_time" in marked)
 		assertFalse("web_fetch is workspace-free", "web_fetch" in marked)
+	}
+
+	@Test
+	fun downloadToolIsAbsentUntilItsSwitchIsOn() {
+		// The global switch is the first gate for the same reason as SSH: while
+		// it is off the row does not exist anywhere, so no picker, approval
+		// table or gap report advertises a capability the user turned off.
+		val off = ToolCatalog.visible(includeSsh = false).map { it.name }
+		assertFalse("download_url" in off)
+
+		val on = ToolCatalog.visible(includeSsh = false, includeDownload = true).map { it.name }
+		assertTrue("download_url" in on)
+		// Enabling one external read must not drag the others in with it.
+		assertFalse("ssh_exec" in on)
+		assertFalse("bili_search" in on)
+	}
+
+	@Test
+	fun downloadToolIsOptInAndWritesOnlyTheWorkspace() {
+		val entry = ToolCatalog.all.first { it.name == "download_url" }
+		assertTrue("a new external path must be chosen, not inherited", entry.optIn)
+		assertTrue("it writes a workspace copy", entry.mutates)
+		assertTrue("the copy can be rolled back", entry.reversible)
+		assertTrue("it needs the workspace to land in", entry.workspaceBound)
+		assertFalse("the app pays no third party for it", entry.paid)
+		assertFalse("it does not reach a remote machine", entry.remote)
+		assertTrue("it belongs to the download capability", entry.gatedByDownload)
 	}
 
 	@Test

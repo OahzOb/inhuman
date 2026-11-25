@@ -81,6 +81,8 @@
 	<string name="home_rail_tools_value_ssh">文件、网络、按需 SSH</string>
 	<string name="home_rail_tools_value_bilibili">文件、网络、B 站只读</string>
 	<string name="home_rail_tools_value_ssh_bilibili">文件、网络、按需 SSH、B 站只读</string>
+	<string name="home_rail_downloads_label">下载</string>
+	<string name="home_rail_downloads_value">URL 抓取，每个对话单独授权</string>
 	<string name="home_rail_model_label">模型</string>
 	<string name="home_rail_model_value">你配置的服务商</string>
 	<plurals name="home_threads_stored">
@@ -236,11 +238,14 @@
 	<string name="settings_media_error_key">请输入 API 密钥。</string>
 	<string name="settings_media_saved">媒体工具已保存。</string>
 	<string name="settings_section_runtime">03 / 运行时</string>
-	<string name="settings_runtime_title">演示与 SSH</string>
-	<string name="settings_runtime_summary">无需密钥的脚本回复，以及远程 SSH 开关</string>
+	<string name="settings_runtime_title">演示、SSH 与下载</string>
+	<string name="settings_runtime_summary">无需密钥的脚本回复，以及远程 SSH 与 URL 下载开关</string>
 	<string name="settings_demo_title">演示模式</string>
 	<string name="settings_demo_body">回复由设备本地按脚本生成，文件工具会真实执行；不会向任何地方发送内容，也不需要密钥。开启工具后，它会先创建一个文件再删除，因此不用账号也能完整跑通工具循环。</string>
 	<string name="settings_ssh_title">SSH 工具</string>
+	<string name="settings_download_title">URL 下载</string>
+	<string name="agents_download_excluded">「全部」同样不包含 URL 下载；需要显式选择 download_url。</string>
+	<string name="settings_download_body">默认关闭。打开后助手可以选用 download_url：由 app 代它请求一个 https URL，把文件存到对话工作区的 downloads/ 下。助手自身仍然没有网络，请求由 app 发出；但 URL 不是中性的——任何编码进 URL 的内容都会随请求离开设备。每段对话的第一次下载会弹出授权，显示 URL 并说明这一点；之后走普通工具策略。单文件上限 64 MiB，拒绝私网和回环地址，不执行文件内容。</string>
 	<string name="settings_ssh_body">默认关闭。开启后，可以给助手授予 SSH 工具：ssh_hosts 列出你分享给这个对话的主机信息（只读，不连接），ssh_probe 读取主机快照，ssh_list 和 ssh_read_file 通过 SFTP 读取远端文件，ssh_write_file 写入小型文本文件，ssh_upload 和 ssh_download 传输文件，ssh_exec 执行命令。只选读取类工具就不经过 shell；之后再加 ssh_exec 或 ssh_upload 会重置这个对话的授权。下面保存的是地址簿：只有别名、地址、端口、用户名和可选指纹，不保存密码或私钥。连接凭据由助手在调用里给出（工作区里的密钥文件，或你告诉它的密码），所以任何一次调用都不需要 app 保存的凭据。每个对话首次调用 SSH 时会显示与所选工具匹配的授权提示，之后按普通工具策略执行。按选择不同，助手可以读取文件、替换文件或在远程机器上执行任意命令，这些操作可能无法撤销。</string>
 	<string name="settings_ssh_hosts_title">SSH 主机</string>
 	<string name="settings_ssh_hosts_body">地址簿：别名、地址、端口、用户名、可选指纹。这里没有密码或私钥——工具永远不会用 app 保存的凭据去连接，助手必须自己拿到密钥文件或密码。</string>
@@ -741,6 +746,7 @@
 	<string name="tool_blurb_ssh_exec">在另一台机器上通过 SSH 执行命令</string>
 	<string name="tool_blurb_ssh_upload">把工作区文件发送到远程机器</string>
 	<string name="tool_blurb_ssh_download">把远程文件复制到工作区</string>
+	<string name="tool_blurb_download_url">从 URL 下载文件到工作区</string>
 	<string name="tool_blurb_write_file">创建或替换文件</string>
 	<string name="tool_blurb_write_document">创建或替换 CSV、TXT、DOCX、XLSX、PDF 或 XLS 文档</string>
 	<string name="tool_blurb_convert_document">转换文档并报告丢失的内容</string>
@@ -902,6 +908,13 @@
 	<string name="chat_try_demo">试试演示模式</string>
 	<string name="chat_open_files">打开文件</string>
 	<string name="chat_ssh_title">允许这个对话使用 SSH？</string>
+	<string name="chat_download_title">允许这个对话下载 URL？</string>
+	<string name="chat_download_body">助手正在请求 app 从 %1$s 下载一个文件到这段对话的文件夹。允许之后，它可以让 app 在这段对话里抓取任何公网 https URL，不再逐次询问。助手自身没有网络，请求由 app 发出。</string>
+	<string name="chat_download_understand">我明白这会让 app 去抓取助手指定的 URL</string>
+	<string name="chat_download_warning">URL 可以把数据带出去：助手编码进 URL 的任何内容都会随请求离开设备。只在你信任的对话里允许。</string>
+	<string name="chat_allow_download">允许 URL 下载</string>
+	<string name="chat_revoke_download">撤销 URL 下载授权</string>
+	<string name="chat_phase_download">等待下载授权</string>
 	<string name="chat_ssh_body">助手可以连接到 %1$s@%2$s，在那里执行任意命令，并在此对话的工作区和这台机器之间传输文件。它也可以连接任何你提供了凭据的主机，本对话中不再询问。</string>
 	<string name="chat_ssh_body_upload">助手可以连接到 %1$s@%2$s，读取该机器上的文件、把文件下载到此对话的工作区，也可以把工作区文件上传到该机器。它不能执行命令。</string>
 	<string name="chat_ssh_body_write_file">助手可以连接到 %1$s@%2$s，读取、下载文件，并写入小型文本文件。它不能上传工作区文件，也不能执行任意命令。</string>
@@ -1072,6 +1085,8 @@
 	<string name="settings_status_demo_on">演示模式已开启。回复在本地按脚本生成，不会发送任何请求。</string>
 	<string name="settings_status_ssh_enabled">SSH 工具已启用。助手仍须单独选择它，每个对话的首次调用会请求授权。</string>
 	<string name="settings_status_ssh_disabled">SSH 工具已禁用。已有的 SSH 授权已被撤销。</string>
+	<string name="settings_status_download_enabled">URL 下载已启用。助手仍须单独选择这个工具，每个对话的首次调用会请求授权。</string>
+	<string name="settings_status_download_disabled">URL 下载已禁用。已有的下载授权已被撤销。</string>
 	<string name="settings_status_bilibili_enabled">B 站只读工具已启用。助手仍须单独选择它们。</string>
 	<string name="settings_status_bilibili_disabled">B 站只读工具已关闭。</string>
 	<string name="settings_error_provider_name">请给服务商起个名字。</string>

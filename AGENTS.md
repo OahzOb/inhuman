@@ -16,12 +16,12 @@ than implementation; the old feasibility studies are archived under
 | --- | --- |
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
-| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the per-tool media backends (image/video/speech/transcription/decision)**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)**, and the user-set `SshLimits` ceilings |
-| `docs/04-data-persistence.md` | Room schema v23, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup, and the continuous-session cost ledger |
+| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the per-tool media backends (image/video/speech/transcription/decision)**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)**, **`download_url` (app-proxied file download into the workspace)**, and the user-set `SshLimits` ceilings |
+| `docs/04-data-persistence.md` | Room schema v24, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup, and the continuous-session cost ledger |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the file and document tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, continuous-session projection and read-only record recall, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
-| `docs/08-port-philosophy.md` | **Why** the runtime is ported, which options the project refuses to have, the seven design questions, the paid-disclosure rule (§1.4), and the SSH exception (§1.2.1/§1.5) |
+| `docs/08-port-philosophy.md` | **Why** the runtime is ported, which options the project refuses to have, the seven design questions, the paid-disclosure rule (§1.4), and the SSH and URL-download exceptions (§1.2.1/§1.5/§1.6) |
 | `docs/09-approvals.md` | The approval model: why the default is no prompts at all, how per-tool, per-assistant and per-path rules compose, and what of it is built |
 | `docs/10-diagnostics.md` | The flight recorder: what is logged, what is deliberately not, where the file lives and how to share it |
 | `docs/11-conversation-tools.md` | The conversation-level tool sheet: who may change it, the assistant ceiling, when it applies, and why it is not a new SSH exception |
@@ -72,8 +72,9 @@ Two consequences bind every future change, and neither is negotiable:
   set; a change takes effect on the next turn.
 - **The capability boundary must be statable in one sentence a person can
   read.** The default sentence is: *code runs on your device, sees only what you
-  hand it, cannot reach the network, and cannot reach your files.* One exception
-  exists, and only one: **the SSH tools (`ssh_probe`, `ssh_list`,
+  hand it, cannot reach the network, and cannot reach your files.* **Two
+  exceptions exist, and both are off by default and granted per conversation.**
+  The first is **the SSH tools (`ssh_probe`, `ssh_list`,
   `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`),
   off by default, enabled globally, selected explicitly on the assistant or the
   conversation, and granted for that conversation's current SSH capability set.
@@ -87,8 +88,16 @@ Two consequences bind every future change, and neither is negotiable:
   (`docs/13-product.md`). The connection, including its key or password, is in
   the call; the agent can only use what the user handed it, and a password sent
   that way stays in the transcript. Command text, paths and `ssh_write_file` content
-  are part of the call and remain in the transcript. Do not add another exception
-  without answering `docs/08-port-philosophy.md` §1.2.1 and §1.5.
+  are part of the call and remain in the transcript.
+  The second is **`download_url`**: the app fetches one `https` URL the agent
+  names and saves the bytes under `downloads/` in the workspace. The agent still
+  has no socket of its own, but a URL can carry data out, so it has its own
+  global switch (default off), its own `optIn` catalogue flag, and a
+  once-per-conversation acknowledgement persisted in
+  `conversations.downloadAllowed`; the request is `https` only, public addresses
+  only, 64 MiB per file, into the ordinary workspace quota, never overwriting,
+  and nothing is executed. Do not add another exception without answering
+  `docs/08-port-philosophy.md` §1.2.1, §1.5 and §1.6.
 
 **Safety here comes from structure, not from prompts.** The agent can only see
 and change the workspace the conversation is attached to, and what the user
@@ -128,6 +137,16 @@ conversation. Command text, paths and `ssh_write_file` content are not redacted.
 The ordinary approval dialog must never show a password or private key;
 `ssh_upload` and `ssh_write_file` are `NO REWIND` because they replace remote
 files. The rules are `docs/08-port-philosophy.md` §1.2.1 and §1.5.
+
+**App-proxied downloads are disclosed separately too.** `download_url` carries
+`optIn` and `gatedByDownload` in the catalogue, a global Settings switch that is
+off by default, and a dedicated first-call acknowledgement showing the URL and
+host. It is not `remote` (it changes nothing outside the device) and not `paid`
+(the app pays no third party). It is `REWIND` because it writes a workspace copy,
+but the request itself is an outbound channel: the consent text, the Settings
+copy and the tool description all say that a URL can carry data out, and
+diagnostics record only host and byte count. The rules are
+`docs/08-port-philosophy.md` §1.6 and `docs/07-gotchas.md` A27.
 
 Full reasoning, plus the design questions and how each was answered, is in
 `docs/08-port-philosophy.md`. Do not add a mode, a permission prompt, or a "pro"
@@ -563,6 +582,20 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   to an existing grant resets `sshAllowed`; adding `ssh_probe`, `ssh_list` or
   `ssh_read_file`, and removing any tool, does not. Changing the conversation's
   host selection does not touch it: the list is information.
+- **URL download consent is a capability grant, and one validator serves both
+  download paths.** `download_url` is gated four ways: the Settings switch
+  (`SecureStore.KEY_DOWNLOAD_TOOL_ENABLED`, default off), the catalogue's
+  `optIn`/`gatedByDownload` flags, the per-conversation
+  `conversations.downloadAllowed` persisted by the first-call dialogue, and the
+  ordinary `ToolPolicy` after that. It is not `needsApproval`. `DownloadUrl`
+  (`core/ai/.../tools/DownloadUrl.kt`) is the one scheme/length/credential/
+  private-address/filename rule, shared with the Files downloader -- do not add a
+  second copy. The request must keep the app's SSRF-guarded client: the custom
+  `Dns` check at connect time (DNS rebinding) and redirect re-validation are what
+  stop the tool from reaching `127.0.0.1`. The sink must be
+  `WorkspaceTransfer.import` so quota, file count, free-space reserve and the
+  staging file apply; the URL must never be written to diagnostics (host and
+  bytes only). `docs/07-gotchas.md` A27 and `docs/08-port-philosophy.md` §1.6.
 - **The address book is information; the call carries the connection.** Saved
   entries live in `SecureStore` as one document with **no credential**, and
   `conversations.sshHostsJson` holds only the ids `ssh_hosts` may return. No

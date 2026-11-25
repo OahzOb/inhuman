@@ -483,6 +483,24 @@ class ConversationRepository(
 	suspend fun sshAllowed(id: String): Boolean? = db.conversations().sshAllowed(id)
 
 	/**
+	 * Persist this conversation's URL-download acknowledgement.
+	 *
+	 * A capability grant, not a per-call approval: after it, later `download_url`
+	 * calls in this conversation follow the ordinary tool policy. Revoked by the
+	 * chat menu, and cleared for every conversation when the global switch goes
+	 * off -- the same rule as SSH, for the same reason ("consent that survives
+	 * the capability being switched off is consent the user did not give").
+	 */
+	suspend fun setDownloadAllowed(id: String, allowed: Boolean) =
+		db.conversations().setDownloadAllowed(id, allowed)
+
+	suspend fun downloadAllowed(id: String): Boolean? =
+		db.conversations().downloadAllowed(id)
+
+	/** Turning the global download switch off revokes every conversation's consent. */
+	suspend fun clearAllDownloadAllowed() = db.conversations().clearAllDownloadAllowed()
+
+	/**
 	 * Replace the set of saved hosts this conversation may use.
 	 *
 	 * The whole set, not a delta, and empty means none: a conversation that has

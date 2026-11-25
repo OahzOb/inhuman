@@ -19,9 +19,16 @@ Settings switch and a per-conversation acknowledgement. The app can optionally
 save one host and its credentials in the platform secret store for convenience,
 without a security or privacy promise; there is no host list or fleet manager.
 The agent can only reach a machine whose address and credentials the user
-supplies. With SSH off — the
-default — the paragraph above is true as written. See
-[03-ai-provider.md](03-ai-provider.md) and [08-port-philosophy.md](08-port-philosophy.md) §1.2.1.
+supplies.
+
+A second, narrower path is `download_url`: the app fetches one https URL the agent
+names and saves the bytes into the workspace. It is also **off by default**, must
+be selected on the assistant, and is acknowledged once per conversation. The
+agent still has no network of its own, but a URL can carry data out, so the
+acknowledgement is a capability grant rather than a per-call approval. With both
+off — the default — the paragraph above is true as written. See
+[03-ai-provider.md](03-ai-provider.md),
+[08-port-philosophy.md](08-port-philosophy.md) §1.2.1 and §1.6.
 
 Single user. DeepSeek is the seeded provider; additional
 OpenAI-compatible profiles can be configured per assistant. Open source under
@@ -362,3 +369,11 @@ on another machine, so their effects are not a workspace copy and cannot be undo
 by deleting the conversation. That is why the capability does not follow the
 "default asks nothing" argument, and why it has a separate once-per-conversation
 consent instead of only a `ToolPolicy`.
+
+`download_url` is the second capability with that shape, for a different reason:
+the file it writes is a workspace copy (Rewind can remove it), but the request
+itself is an outbound channel. It has its own global switch, `optIn` catalogue
+entry and per-conversation acknowledgement; the URL must be https and public, is
+capped at 64 MiB, and lands under `downloads/` through the ordinary import path.
+It is not `web_fetch`: that returns page text from a paid backend, while this
+writes bytes using the app's own HTTP client.

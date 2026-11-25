@@ -809,6 +809,52 @@ fun SettingsScreen(
 				color = MaterialTheme.colorScheme.outlineVariant,
 			)
 
+			// URL downloads. A second outbound path, so the copy says the two
+			// things that matter: the app makes the request (the assistant has
+			// no network), and a URL is not inert -- anything encoded into one
+			// leaves the device when it is fetched.
+			Column(
+				modifier = Modifier
+					.widthIn(max = Layout.ReadableMeasure)
+					.fillMaxWidth(),
+				verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
+			) {
+				Row(
+					modifier = Modifier
+						.fillMaxWidth()
+						.toggleable(
+							value = state.downloadEnabled,
+							role = Role.Switch,
+							onValueChange = viewModel::setDownloadEnabled,
+						),
+					horizontalArrangement = Arrangement.SpaceBetween,
+					verticalAlignment = Alignment.Top,
+				) {
+					Column(modifier = Modifier.weight(1f)) {
+						Text(
+							text = stringResource(R.string.settings_download_title),
+							style = MaterialTheme.typography.titleMedium,
+							color = MaterialTheme.colorScheme.onBackground,
+						)
+						Text(
+							text = stringResource(R.string.settings_download_body),
+							style = MaterialTheme.typography.bodyMedium,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
+					WorkbenchSwitch(
+						checked = state.downloadEnabled,
+						onCheckedChange = null,
+						modifier = Modifier.padding(top = 2.dp),
+					)
+				}
+			}
+
+			HorizontalDivider(
+				modifier = Modifier.padding(vertical = 8.dp),
+				color = MaterialTheme.colorScheme.outlineVariant,
+			)
+
 			// SSH tool. Off by default, and the copy says what turning it on
 			// does *not* do: it does not authorize a call by itself.
 			Column(
@@ -1178,6 +1224,7 @@ fun SettingsScreen(
 					suggestionsEnabled = state.suggestionsEnabled,
 					bilibiliEnabled = state.bilibiliEnabled,
 					bilibiliLoggedIn = state.bilibiliLoggedIn,
+					downloadEnabled = state.downloadEnabled,
 					onRuleChange = viewModel::setApprovalRule,
 				)
 			}
@@ -3045,6 +3092,7 @@ private fun ApprovalRulesSection(
 	suggestionsEnabled: Boolean,
 	bilibiliEnabled: Boolean,
 	bilibiliLoggedIn: Boolean,
+	downloadEnabled: Boolean,
 	onRuleChange: (String, ToolPolicy) -> Unit,
 ) {
 	Column(
@@ -3074,6 +3122,7 @@ private fun ApprovalRulesSection(
 			includeSuggestions = suggestionsEnabled,
 			includeBilibili = bilibiliEnabled,
 			includeBilibiliLogin = bilibiliLoggedIn,
+			includeDownload = downloadEnabled,
 			includePdfVision = true,
 		)) {
 			val current = rules[entry.name] ?: ToolPolicy.Free

@@ -311,6 +311,16 @@ class SecureStore(
 		const val KEY_SSH_TOOL_ENABLED = "ssh.tool_enabled"
 
 		/**
+		 * Whether the URL-download tool is available at all.
+		 *
+		 * Default off. Turning it on makes `download_url` selectable on an
+		 * assistant; the first call in each conversation still asks for a
+		 * capability acknowledgement, because the app then makes an outbound
+		 * request the model chose and a URL can carry data out.
+		 */
+		const val KEY_DOWNLOAD_TOOL_ENABLED = "download.tool_enabled"
+
+		/**
 		 * User ceilings for SSH work. The model may only ask for less.
 		 *
 		 * Seconds for the command ceiling, bytes for output and reads, and a

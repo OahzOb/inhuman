@@ -1134,6 +1134,55 @@ $env:DEEPSEEK_LIVE_KEY = 'sk-...'
 It checks the request shape that fixtures cannot, and it is what caught the
 `&amp;` URL-encoding issue above.
 
+## `download_url`: app-proxied downloads into the workspace
+
+`web_fetch` returns one page's text; `download_url` saves **bytes** to the
+conversation workspace. It exists because users ask the agent to fetch a link and
+then want the file locally -- a PDF to read with `read_document`, an archive, an
+image to attach -- and "save it to Downloads, then import it in Files" turns one
+request into three.
+
+- **The app makes the request.** `DownloadTool` (`core/ai/.../tools/DownloadTool.kt`)
+  is given a `DownloadFetcher`; the Android host implements it with
+  `HttpDownloadFetcher`, which reuses the Files downloader's OkHttp client
+  (`UrlDownloader`): no cookies, redirects followed by hand and re-validated,
+  private/loopback/link-local/CGNAT addresses refused at DNS time.
+  `DownloadUrl` (`tools/DownloadUrl.kt`) is the shared validation and naming rule
+  for both callers; the tool passes `requireHttps = true`, the user-facing Files
+  downloader keeps accepting `http`.
+- **The sink is the workspace import path.** `WorkspaceDownloadSink`
+  (`app/.../download/`) writes `downloads/<sanitised name>` through
+  `WorkspaceTransfer.import`, so the per-file ceiling, total quota, file-count
+  ceiling and free-space reserve are the ordinary ones, checked while streaming.
+  A name collision becomes " (2)"; nothing is ever overwritten. The file is a
+  workspace copy, so Rewind can remove it.
+- **Limits** are hard-coded, not model choices: `https` only, 64 MiB per file
+  (`DownloadTool.MAX_BYTES`), public addresses only, GET only, no credentials or
+  custom headers, no execution and no parsing. The tool result names the path,
+  byte count and MIME and says the content is untrusted; it never pastes the
+  bytes into context.
+- **Registration is gated three ways.** The Settings switch
+  (`SecureStore.KEY_DOWNLOAD_TOOL_ENABLED`, default off) makes the row exist at
+  all; the catalogue entry is `optIn` (`gatedByDownload`), so `null` ("all") does
+  not inherit it; the first call per conversation shows a dedicated capability
+  consent (`ChatViewModel.gateEngineCall`) and persists
+  `conversations.downloadAllowed` (schema v25). Revoke from the chat menu; turning
+  the global switch off clears every conversation's grant. `unavailable_tools`
+  uses `ToolCatalog.visible(includeDownload = ...)`, so a switched-off download
+  tool is absent from the gap report rather than named.
+- **Why consent and not just opt-in.** A URL is not inert: anything encoded into
+  its path or query leaves the device when the request is made. That is the same
+  property `web_fetch` has, but downloads are free and uncounted. The consent
+  dialogue shows the first URL and host and says so; diagnostics log only host
+  and byte count, never the URL. The design decision is
+  `docs/08-port-philosophy.md` §1.6.
+
+`DownloadToolTest` (fake fetcher/sink: success, plaintext refusal, private
+literal refusal, declared-size refusal, transport and sink failures) and
+`DownloadUrlTest` (scheme, length, SSRF ranges, file-name sanitising) run on the
+JVM; `WorkspaceDownloadSinkTest` covers the `downloads/` naming and the quota
+path.
+
 ## `read_scanned`: DeepSeek OCR for pages a local reader cannot read
 
 The local document tools read a PDF's text layer. A scanned page has none, and
@@ -1598,9 +1647,10 @@ collapsing them would make one impossible to express (`ToolCatalog.kt:66-74`).
 `allSelection()` returns `null` for "select all" so that a later release adding
 a tool gives it to assistants that had chosen everything.
 
-The 18 tools and their `mutates` flags are tabulated in
-[05-files-sandbox.md](05-files-sandbox.md) and
-[01-overview.md](01-overview.md).
+The per-entry flags (`mutates`, `reversible`, `paid`, `remote`, `workspaceBound`,
+`optIn`, `gatedBySsh`, `gatedByBilibili`, `gatedByDownload`) are what every
+picker, approval table and request is built from; the file-tool subset is
+tabulated in [05-files-sandbox.md](05-files-sandbox.md).
 
 ## Tests in this module
 
@@ -1625,6 +1675,8 @@ environment).
 | `DeepSeekOcrApiTest` | Multipart order (`purpose` before `file`), page parsing, locator-token cleaning, and the error/refusal bodies |
 | `WebSearchToolTest` | The tool against a fake provider: count, empty result, failure text |
 | `WebFetchToolTest` | Title/URL/body format, truncation marker, missing URL, provider failure |
+| `DownloadToolTest` | Fake fetcher and sink: success text, plaintext/private-address refusals before the fetcher, declared-size refusal, transport and sink failures |
+| `DownloadUrlTest` | Shared validation: https-only for the tool, length bound, SSRF ranges, `Content-Disposition` names, hostile names |
 | `TimeToolTest` | Zone handling and date arithmetic |
 | `ToolCatalogTest` | null vs empty, renamed tools, ordering (reads before writes), SSH is never covered by `null` |
 | `SshClientTest` | Password and Ed25519 auth against embedded MINA SSHD; TOFU reuse, changed-key refusal, explicit fingerprint, timeout, output cap, exit code |

@@ -37,6 +37,12 @@ internal fun conversationToolPlan(
 	bilibiliEnabled: Boolean = false,
 	/** False hides `bili_transcript`; the anonymous Bilibili reads stay. */
 	bilibiliLoggedIn: Boolean = false,
+	/**
+	 * False hides `download_url`. The stored name stays in the conversation, so
+	 * switching the capability back on restores a selection without asking the
+	 * user to remember it.
+	 */
+	downloadEnabled: Boolean = false,
 ): ConversationToolPlan {
 	val allNonRemote = ToolCatalog.all
 		.filterNot { it.remote }
@@ -57,6 +63,7 @@ internal fun conversationToolPlan(
 		includeSuggestions = suggestionsEnabled,
 		includeBilibili = bilibiliEnabled,
 		includeBilibiliLogin = bilibiliLoggedIn,
+		includeDownload = downloadEnabled,
 		includePdfVision = true,
 	)
 		.filter { it.name in ceiling || it.name in current }

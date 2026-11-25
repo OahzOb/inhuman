@@ -42,6 +42,7 @@ fun toolBlurb(entry: ToolCatalog.Entry): String = when (entry.name) {
 	"ssh_exec" -> stringResource(R.string.tool_blurb_ssh_exec)
 	"ssh_upload" -> stringResource(R.string.tool_blurb_ssh_upload)
 	"ssh_download" -> stringResource(R.string.tool_blurb_ssh_download)
+	"download_url" -> stringResource(R.string.tool_blurb_download_url)
 	"write_file" -> stringResource(R.string.tool_blurb_write_file)
 	"append_file" -> stringResource(R.string.tool_blurb_append_file)
 	"create_directory" -> stringResource(R.string.tool_blurb_create_directory)

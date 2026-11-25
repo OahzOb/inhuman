@@ -246,6 +246,15 @@ data class SettingsUiState(
 	/** App-wide SSH ceilings; the model may only ask for less. */
 	val sshLimits: SshLimits = SshLimits(),
 	/**
+	 * The global URL-download switch.
+	 *
+	 * Off by default. Turning it on makes `download_url` selectable on an
+	 * assistant; the first call in each conversation still asks for a
+	 * capability acknowledgement, because the app then makes an outbound
+	 * request the model chose and a URL can carry data out.
+	 */
+	val downloadEnabled: Boolean = false,
+	/**
 	 * The global approval rules, by tool name.
 	 *
 	 * Absent means [ToolPolicy.Free], which is why this is a map rather than a
@@ -441,6 +450,7 @@ class SettingsViewModel(
 				secure.get(SecureStore.KEY_TIME_HINTS_GAP_MINUTES),
 			),
 			sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
+			downloadEnabled = secure.get(SecureStore.KEY_DOWNLOAD_TOOL_ENABLED) == "1",
 			sshLimits = SshLimits.fromStored(
 				commandTimeoutSeconds = secure.get(SecureStore.KEY_SSH_COMMAND_TIMEOUT_SECONDS),
 				outputBytes = secure.get(SecureStore.KEY_SSH_OUTPUT_BYTES),
@@ -1301,6 +1311,30 @@ class SettingsViewModel(
 		Diag.i("ssh", "global tool enabled=$enabled")
 		if (!enabled) {
 			viewModelScope.launch { repository.clearAllSshAllowed() }
+		}
+	}
+
+	/**
+	 * Turn the URL-download tool on or off globally.
+	 *
+	 * Disabling revokes every conversation's acknowledgement, for the same
+	 * reason SSH does: a consent that survives the capability being switched off
+	 * and on again is a consent the user did not give for the second enabling.
+	 */
+	fun setDownloadEnabled(enabled: Boolean) {
+		secure.put(SecureStore.KEY_DOWNLOAD_TOOL_ENABLED, if (enabled) "1" else "0")
+		_state.value = _state.value.copy(
+			downloadEnabled = enabled,
+			status = if (enabled) {
+				context.getString(R.string.settings_status_download_enabled)
+			} else {
+				context.getString(R.string.settings_status_download_disabled)
+			},
+			statusIsError = false,
+		)
+		Diag.i("download", "global tool enabled=$enabled")
+		if (!enabled) {
+			viewModelScope.launch { repository.clearAllDownloadAllowed() }
 		}
 	}
 

@@ -66,6 +66,9 @@ class CurrentSchemaMigrationTest {
 			assertTrue("the v12 canary conversation is missing", canary != null)
 			assertEquals("classic", canary?.sessionMode)
 			assertTrue(db.maintenanceRuns().all().isEmpty())
+			// v24 added the per-conversation URL download acknowledgement; an
+			// upgraded conversation starts unallowed, which is the safe default.
+			assertEquals(false, canary?.downloadAllowed)
 		} finally {
 			db.close()
 		}

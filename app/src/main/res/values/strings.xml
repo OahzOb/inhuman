@@ -88,6 +88,8 @@
 	<string name="home_rail_tools_value_ssh">Files, web, SSH on demand</string>
 	<string name="home_rail_tools_value_bilibili">Files, web, Bilibili reads</string>
 	<string name="home_rail_tools_value_ssh_bilibili">Files, web, SSH on demand, Bilibili reads</string>
+	<string name="home_rail_downloads_label">Downloads</string>
+	<string name="home_rail_downloads_value">URL fetch, consent per conversation</string>
 	<string name="home_rail_model_label">Model</string>
 	<string name="home_rail_model_value">Your configured provider</string>
 	<plurals name="home_threads_stored">
@@ -250,11 +252,14 @@
 	<string name="settings_media_error_key">Enter an API key.</string>
 	<string name="settings_media_saved">Media tool saved.</string>
 	<string name="settings_section_runtime">03 / Runtime</string>
-	<string name="settings_runtime_title">Demo &amp; SSH</string>
-	<string name="settings_runtime_summary">Scripted replies without a key, and the remote-shell switch</string>
+	<string name="settings_runtime_title">Demo, SSH &amp; downloads</string>
+	<string name="settings_runtime_summary">Scripted replies without a key, plus the remote-shell and URL-download switches</string>
 	<string name="settings_demo_title">Demo mode</string>
 	<string name="settings_demo_body">Replies are scripted on the device, and the file tools run for real. Nothing is sent anywhere and no key is needed. With tools switched on it creates a file and then deletes it, so the tool loop runs end to end without an account.</string>
 	<string name="settings_ssh_title">SSH tool</string>
+	<string name="settings_download_title">URL downloads</string>
+	<string name="agents_download_excluded">URL downloads are not included by \"All\" either; download_url has to be chosen explicitly.</string>
+	<string name="settings_download_body">Off by default. When on, an assistant can be given download_url: the app fetches an https URL and saves the file under downloads/ in the conversation\'s folder. The assistant itself still has no network -- the app makes the request -- but a URL is not inert: anything encoded into it leaves the device when the request is made. The first download in each conversation asks for an acknowledgement that names the URL and warns about this; after that, normal tool policy applies. A file is capped at 64 MiB, private and loopback addresses are refused, and nothing is executed.</string>
 	<string name="settings_ssh_body">Off by default. When on, an assistant can be given the SSH tools: ssh_hosts lists the machines you shared with this conversation (read-only, it does not connect), ssh_probe takes a read-only host snapshot, ssh_list and ssh_read_file read remote files over SFTP, ssh_write_file writes a small text file, ssh_upload and ssh_download move files, and ssh_exec runs commands. Selecting only the read tools uses no shell; adding ssh_exec or ssh_upload later resets the conversation\'s consent. What you save below is an address book: alias, address, port, username and an optional fingerprint -- no password or key. The agent supplies the credential in the call itself (a key file in the workspace, or a password you gave it), so no call ever uses a credential the app stored. The first SSH call in each conversation shows a consent warning matched to the selected tools; after that, normal tool policy applies. Depending on the selection, the agent can read files, replace files or run any command on the remote machine, which may be irreversible.</string>
 	<string name="settings_ssh_hosts_title">SSH hosts</string>
 	<string name="settings_ssh_hosts_body">Address book: alias, address, port, username and an optional fingerprint. There is no password or key here -- a tool never connects with a credential the app stored; the agent has to be given a key file or a password.</string>
@@ -761,6 +766,7 @@
 	<string name="tool_blurb_ssh_exec">Run a command on another machine over SSH</string>
 	<string name="tool_blurb_ssh_upload">Send a workspace file to the remote machine</string>
 	<string name="tool_blurb_ssh_download">Copy a remote file into the workspace</string>
+	<string name="tool_blurb_download_url">Download a file from a URL into the folder</string>
 	<string name="tool_blurb_write_file">Create or replace a file</string>
 	<string name="tool_blurb_write_document">Create or replace a CSV, TXT, DOCX, XLSX, PDF or XLS document</string>
 	<string name="tool_blurb_convert_document">Convert a document and report what was lost</string>
@@ -925,6 +931,13 @@
 	<string name="chat_try_demo">Try demo mode</string>
 	<string name="chat_open_files">Open files</string>
 	<string name="chat_ssh_title">Allow SSH in this conversation?</string>
+	<string name="chat_download_title">Allow URL downloads in this conversation?</string>
+	<string name="chat_download_body">The agent is asking the app to download a file from %1$s into this conversation\'s folder. Once allowed, it can ask the app to fetch any public https URL in this conversation without asking again. The agent itself has no network; the app makes the request.</string>
+	<string name="chat_download_understand">I understand this lets the app fetch URLs the agent names</string>
+	<string name="chat_download_warning">A URL can carry data out: anything the agent encodes into the URL leaves the device when the request is made. Only allow this in a conversation you trust.</string>
+	<string name="chat_allow_download">Allow URL downloads</string>
+	<string name="chat_revoke_download">Revoke URL download access</string>
+	<string name="chat_phase_download">Waiting for download consent</string>
 	<string name="chat_ssh_body">The agent will be able to connect to %1$s@%2$s, run any command there, and move files between this conversation\'s workspace and that machine. It can also connect to any other host it is given credentials for, without asking again in this conversation.</string>
 	<string name="chat_ssh_body_upload">The agent will be able to connect to %1$s@%2$s, read files there, download them into this conversation\'s workspace, and upload workspace files to that machine. It cannot run commands.</string>
 	<string name="chat_ssh_body_write_file">The agent will be able to connect to %1$s@%2$s, read and download files, and write small text files there. It cannot upload workspace files or run arbitrary commands.</string>
@@ -1097,6 +1110,8 @@
 	<string name="settings_status_demo_on">Demo mode on. Replies are scripted locally and no request is sent.</string>
 	<string name="settings_status_ssh_enabled">SSH tool enabled. An assistant must still select it, and the first call in each conversation asks for consent.</string>
 	<string name="settings_status_ssh_disabled">SSH tool disabled. Existing SSH consents were revoked.</string>
+	<string name="settings_status_download_enabled">URL downloads enabled. An assistant must still select the tool, and the first call in each conversation asks for consent.</string>
+	<string name="settings_status_download_disabled">URL downloads disabled. Existing download consents were revoked.</string>
 	<string name="settings_status_bilibili_enabled">Bilibili read tools enabled. An assistant must still select them.</string>
 	<string name="settings_status_bilibili_disabled">Bilibili read tools disabled.</string>
 	<string name="settings_error_provider_name">Give the provider a name.</string>

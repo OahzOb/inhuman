@@ -128,6 +128,21 @@ object ToolCatalog {
 		 */
 		val gatedByBilibili: Boolean = false,
 		/**
+		 * Whether the tool belongs to the app-proxied URL download capability.
+		 *
+		 * The app makes the request and the agent still has no socket, but a
+		 * URL is not inert: anything encoded into its path or query leaves the
+		 * device. That is why the capability is off by default, chosen per
+		 * assistant, and consented per conversation. While the global switch is
+		 * off the row is absent from every picker, request and gap report -- the
+		 * same rule §1.2.1 applies to the remote tools, for the same reason.
+		 *
+		 * It is also [optIn]: a null "all tools" selection predates this name,
+		 * and a new external path must not appear in every existing assistant
+		 * because a release added it.
+		 */
+		val gatedByDownload: Boolean = false,
+		/**
 		 * Whether this tool only works while a Bilibili account is linked.
 		 *
 		 * The host hides it while the login is absent: a row that cannot run is
@@ -368,6 +383,14 @@ object ToolCatalog {
 			workspaceBound = true,
 		),
 		Entry(
+			"download_url",
+			"Download a file from a URL into the folder",
+			mutates = true,
+			workspaceBound = true,
+			optIn = true,
+			gatedByDownload = true,
+		),
+		Entry(
 			"generate_image",
 			"Generate an image and save it in the workspace",
 			mutates = true,
@@ -474,6 +497,15 @@ object ToolCatalog {
 		 */
 		includeBilibiliLogin: Boolean = false,
 		/**
+		 * Whether the global URL-download switch is on.
+		 *
+		 * Off means `download_url` is absent from the pickers, the approval
+		 * table and `unavailable_tools`, not a greyed row -- the same rule the
+		 * remote tools follow. Off is the default so a caller that has not
+		 * wired the switch cannot offer a row that would do nothing.
+		 */
+		includeDownload: Boolean = false,
+		/**
 		 * Whether the host implements [PDF_VISION_TOOL]. Unlike SSH or the
 		 * sandbox this is not a runtime capability switch: it is a statement
 		 * about the binary. The Android pickers pass true; the default keeps a
@@ -488,6 +520,7 @@ object ToolCatalog {
 				(includeSuggestions || entry.name != "suggest_replies") &&
 				(includeBilibili || !entry.gatedByBilibili) &&
 				(includeBilibiliLogin || !entry.bilibiliLoginRequired) &&
+				(includeDownload || !entry.gatedByDownload) &&
 				(includePdfVision || entry.name != PDF_VISION_TOOL)
 		}
 

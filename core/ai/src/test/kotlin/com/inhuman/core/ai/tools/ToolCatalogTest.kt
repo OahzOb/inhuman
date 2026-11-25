@@ -41,6 +41,13 @@ class ToolCatalogTest {
 		assertFalse(ToolCatalog.permits(null, "suggest_replies"))
 		assertFalse(ToolCatalog.permits(emptyList(), "suggest_replies"))
 		assertTrue(ToolCatalog.permits(listOf("suggest_replies"), "suggest_replies"))
+
+		// The URL download is opt-in for a stronger reason: it is the only
+		// workspace write whose bytes come from outside the device, so a new
+		// name appearing must not put it in every existing assistant.
+		assertFalse(ToolCatalog.permits(null, "download_url"))
+		assertFalse(ToolCatalog.permits(emptyList(), "download_url"))
+		assertTrue(ToolCatalog.permits(listOf("download_url"), "download_url"))
 	}
 
 	@Test
@@ -184,6 +191,7 @@ class ToolCatalogTest {
 				"generate_image", "generate_video", "video_status", "speak", "write_file",
 				"append_file", "create_directory", "move_file", "delete_file", "write_document",
 				"convert_document", "ssh_exec", "ssh_upload", "ssh_write_file", "ssh_download",
+				"download_url",
 			),
 			mutating,
 		)

@@ -215,6 +215,15 @@ interface ConversationDao {
 	@Query("UPDATE conversations SET sshAllowed = 0")
 	suspend fun clearAllSshAllowed()
 
+	@Query("SELECT downloadAllowed FROM conversations WHERE id = :id")
+	suspend fun downloadAllowed(id: String): Boolean?
+
+	@Query("UPDATE conversations SET downloadAllowed = :allowed WHERE id = :id")
+	suspend fun setDownloadAllowed(id: String, allowed: Boolean)
+
+	@Query("UPDATE conversations SET downloadAllowed = 0")
+	suspend fun clearAllDownloadAllowed()
+
 	@Query("UPDATE conversations SET model = :model WHERE id = :id")
 	suspend fun setModel(id: String, model: String?)
 
@@ -683,12 +692,13 @@ interface SavedPromptDao {
 	// state, again for the per-assistant follow-up suggestion settings, again
 	// for the OpenCode reasoning-mode correction, again for the pinned
 	// workspace instructions, again for the per-conversation SSH host
-	// selection, and again for continuous-session maintenance. Room refuses to
-	// open a database whose schema hash does not match rather than guessing,
-	// which is how each was caught: the app crashed on launch with "Looks like
-	// you've changed schema but forgot to update the version number" instead of
+	// selection, again for continuous-session maintenance, and again for the
+	// per-conversation URL download acknowledgement. Room refuses to open a
+	// database whose schema hash does not match rather than guessing, which is
+	// how each was caught: the app crashed on launch with "Looks like you've
+	// changed schema but forgot to update the version number" instead of
 	// quietly losing conversations.
-	version = 23,
+	version = 24,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -707,7 +717,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 		const val NAME = "inhuman.db"
 
 		/** Mirrors the Room annotation; backups record it without reflection. */
-		const val VERSION = 23
+		const val VERSION = 24
 
 		/**
 		 * 1 -> 2: tool-call columns.
@@ -1263,6 +1273,23 @@ abstract class InhumanDatabase : RoomDatabase() {
 		}
 
 		/**
+		 * 23 -> 24: the per-conversation URL download acknowledgement.
+		 *
+		 * Additive and defaulted, so an upgrade starts with URL downloads
+		 * unallowed. That is the only safe meaning for a consent flag, and it
+		 * matches the global switch's default (off): an upgraded install
+		 * behaves exactly as it did until the user enables the capability and
+		 * then consents in a conversation.
+		 */
+		val MIGRATION_23_24 = object : Migration(23, 24) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"ALTER TABLE conversations ADD COLUMN downloadAllowed INTEGER NOT NULL DEFAULT 0",
+				)
+			}
+		}
+
+		/**
 		 * Every migration, in order.
 		 *
 		 * A builder must not copy this list. `:core:data` uses
@@ -1293,6 +1320,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 			MIGRATION_20_21,
 			MIGRATION_21_22,
 			MIGRATION_22_23,
+			MIGRATION_23_24,
 		)
 
 		/**

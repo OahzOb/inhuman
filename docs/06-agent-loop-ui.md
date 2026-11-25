@@ -237,6 +237,32 @@ The gate lives in `ChatViewModel.gateEngineCall`; the engine only knows the
 `EngineApproval` callback and `EngineDecision`, which is what keeps the shared
 loop free of Android policy.
 
+### The URL-download consent plumbing
+
+`download_url` has the same shape for a different reason: its own
+`CancellableContinuation<Boolean>`, its own `pendingDownloadConsent` state and
+its own `allowDownloadConsent`/`denyDownloadConsent`/`revokeDownloadAccess`.
+The gate validates the URL first (a malformed one is refused without showing a
+dialogue), re-reads the global switch after the answer, and persists
+`ConversationRepository.setDownloadAllowed`. `ChatUiState.downloadAllowed` feeds
+the chat menu's **Revoke URL download access** item; turning the Settings switch
+off clears every conversation's grant, and the next call re-reads the column so
+an off→on round trip cannot inherit the old consent. `stop()` cancels this
+continuation too, and `reload()` clears any pending consent like an approval.
+
+### The URL-download consent dialog
+
+Separate from the approval dialog and from the SSH consent, because it grants a
+different capability: the app will fetch the **https URL the model names** for
+the rest of the conversation. It shows the first URL whole and its host, says
+that the agent has no network of its own and the app makes the request, and
+warns in the error colour that a URL can carry data out — anything encoded into
+it leaves the device when the request is made. A required checkbox gates
+"Allow URL downloads"; Cancel and Back decline. The warning is deliberate and
+is the reason the capability is a consent rather than a default-on read: a URL
+is not inert, and this is the only place the user sees that stated before the
+first request happens.
+
 ## Regeneration, without re-running tools
 
 `regenerate()` refuses while streaming; targets the last non-user, non-tool
@@ -930,6 +956,16 @@ not have it clears `sshAllowed`, so the next call asks again; adding `ssh_probe`
 The checkbox sits **above** the long warning, not after it. On a phone the body
 scrolls; with the checkbox last it fell below the fold, so "Allow SSH" was
 disabled with no visible reason. Verified at phone width and on the pad.
+
+### The URL-download consent dialog
+
+`DownloadConsentDialog` follows the same layout rules: the URL is shown in mono
+on a tinted block, the checkbox is above the scrolling warning, and the confirm
+button says "Allow URL downloads". Its warning is about the outbound channel
+rather than remote damage: the app fetches a public https URL the agent names,
+so the request itself can carry data out. The dialog appears once per
+conversation; after that the tool follows ordinary `ToolPolicy`, and the chat
+menu can revoke the grant.
 
 ### SSH limits
 

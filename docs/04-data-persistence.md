@@ -20,10 +20,10 @@ The app installs `InhumanDatabase.MIGRATIONS` and
 `Context` builder. The callback seeds the DeepSeek provider and the default
 assistant on create, so an install does not start from an empty schema.
 
-## The schema, version 23
+## The schema, version 24
 
 `InhumanDatabase` (`core/db/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 23`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 24`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/db/schemas/` by KSP — configured in `core/db/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
@@ -249,6 +249,7 @@ The lifetime rule is in the row, not the directory:
 | `createdAt`, `updatedAt`, `pinned` | Ordering and list state. |
 | `sshAllowed` | The conversation-level SSH acknowledgement, default `0`. Added in 8→9. Per conversation, not per assistant: consenting in one thread must not grant another thread the same capability. Room stores no credential; the address book lives in `SecureStore`, and this column is the conversation's acknowledgement that the agent may open SSH connections at all. |
 | `sshHostsJson` | The ids of the saved hosts this conversation is told about by `ssh_hosts`, `[]`/empty meaning none. Added in 21→22. Only the chat's host sheet writes it; a change applies to the next turn and does **not** touch `sshAllowed` — the list is information, not a capability, and no tool resolves it into a connection. Unlike `toolsJson` there is no "all" state: an entry added in Settings must not silently appear in an existing conversation. |
+| `downloadAllowed` | The conversation-level URL-download acknowledgement, default `0`. Added in 23→24. Defaulted off is the only safe meaning for a consent flag: an upgraded conversation starts with no grant. Persisted by the first `download_url` consent dialogue and cleared by the chat menu or by turning the global switch off; Room stores no URL or credential. |
 
 ### `messages` (`Entities.kt:207-319`)
 
@@ -427,6 +428,7 @@ order below.
 | 20→21 | `conversations` gains nullable `workspaceInstructions TEXT`: the rendered `AGENTS.md` block pinned on the conversation's first request. Null means unpinned and the first turn pins the file (or `""` if there is none); an upgraded row is unpinned by construction. The column is configuration, not a message, so it is not in the Markdown export but is in the encrypted database backup. |
 | 21→22 | `conversations` gains `sshHostsJson TEXT NOT NULL DEFAULT ''`: the ids of the saved SSH hosts this conversation may use. Empty is the safe default — an upgraded conversation has no host selected, so its SSH tools stay unregistered until the user picks one. The earlier single saved host is *not* inferred as a grant to any conversation; it is converted into the host list in `SecureStore` on first read. |
 | 22→23 | `conversations` gains `sessionMode TEXT NOT NULL DEFAULT 'classic'`; `context_summaries` gains `kind TEXT NOT NULL DEFAULT 'manual'`, nullable `coveredTurns`/`coveredMessages`/`summaryTokens` and `truncated INTEGER NOT NULL DEFAULT 0`; `maintenance_runs` is created empty with a cascade and `(conversationId, at)` index. Every upgraded conversation is classic and every upgraded summary is manual with unknown coverage — the feature is opt-in per conversation, and an upgrade must not start spending. |
+| 23→24 | `conversations` gains `downloadAllowed INTEGER NOT NULL DEFAULT 0`: the per-conversation URL-download acknowledgement. Additive and defaulted off, so an upgraded install behaves exactly as before until the user switches the capability on globally, selects it on an assistant, and consents in a conversation. |
 
 The 7→8 comment records a product change that is *not* in the migration:
 deletion no longer asks for approval, and that lives in `DeleteFileTool`, not

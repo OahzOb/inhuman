@@ -100,3 +100,22 @@ data class SshConsent(
 	/** Present only when the model supplied an explicit host-key pin. */
 	val hostKeyFingerprint: String? = null,
 )
+
+/**
+ * The once-per-conversation URL-download acknowledgement.
+ *
+ * Separate from [SshConsent] and from [PendingApproval]: it is a capability
+ * grant for one new outbound path. The first URL and its host are shown because
+ * they are the most concrete warning available, but allowing this allows the
+ * app to fetch any public https URL the model names for the rest of the
+ * conversation -- which is why the dialogue also says that a URL can carry data
+ * out.
+ */
+data class DownloadConsent(
+	val messageId: String,
+	val call: ToolCallUi,
+	/** The validated URL, shown whole so the user can see what is being fetched. */
+	val url: String,
+	/** The host, for the one-line summary and the diagnostics line. */
+	val host: String,
+)

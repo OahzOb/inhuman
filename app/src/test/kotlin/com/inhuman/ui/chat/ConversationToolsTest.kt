@@ -213,4 +213,34 @@ class ConversationToolsTest {
 		assertTrue("bili_transcript" in names(withLogin))
 		assertFalse("the opt-in rule still applies", "bili_transcript" in withLogin.selected)
 	}
+
+	@Test
+	fun `download row appears only while its global switch is on and is never inherited`() {
+		val off = conversationToolPlan(
+			sshEnabled = false,
+			agentTools = null,
+			conversationTools = null,
+		)
+		assertFalse("a switched-off capability must be absent, not greyed", "download_url" in names(off))
+
+		val on = conversationToolPlan(
+			sshEnabled = false,
+			agentTools = null,
+			conversationTools = null,
+			downloadEnabled = true,
+		)
+		assertTrue("the row appears after enabling the switch", "download_url" in names(on))
+		// The assistant's null ceiling means "all tools", but a new opt-in
+		// external path arriving switched on would let an untouched assistant
+		// start making requests because a release added a name.
+		assertFalse("a null ceiling must not enable a download", "download_url" in on.selected)
+
+		val selected = conversationToolPlan(
+			sshEnabled = false,
+			agentTools = listOf("read_file", "download_url"),
+			conversationTools = listOf("read_file", "download_url"),
+			downloadEnabled = true,
+		)
+		assertTrue("an explicit selection stays selected", "download_url" in selected.selected)
+	}
 }

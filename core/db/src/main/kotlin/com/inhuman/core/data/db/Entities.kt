@@ -369,6 +369,18 @@ data class ConversationEntity(
 	val sshAllowed: Boolean = false,
 
 	/**
+	 * Whether this conversation's first URL download has been acknowledged.
+	 *
+	 * Per conversation for the same reason [sshAllowed] is: the app makes an
+	 * outbound request on the model's behalf, and a URL can carry data out.
+	 * Consenting in one thread must not consent to the same assistant in
+	 * another. Additive and defaulted, so an upgrade starts with downloads
+	 * unallowed -- the only safe meaning for a consent flag.
+	 */
+	@ColumnInfo(defaultValue = "0")
+	val downloadAllowed: Boolean = false,
+
+	/**
 	 * The saved SSH hosts this conversation may use, as ids.
 	 *
 	 * Empty means none, and that is a capability, not a preference: with no

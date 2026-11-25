@@ -77,6 +77,24 @@ SSH 工具不在会话目录里执行。远端的一台机器不是副本，删�
 这不是把默认审批改成"每次问"，而是承认一个结构性例外：**默认边界仍然关闭，
 打开后用户明确授权一个不可逆的能力。**
 
+### 第二个例外是 URL 下载，它同样用能力授权
+
+`download_url` 让 app 代模型请求一个 https URL 并把文件存进工作区。它不改变
+"副本可逆"的论证（落盘的是工作区副本，Rewind 能删），但它有一条 SSH 之外的
+新性质：**URL 本身可以携带数据出去**——模型把内容编码进 path/query，请求发出
+时就离开了设备。这不可逆，和远端损坏同类，所以它也不能只靠"默认 Free"。
+
+处理方式和 SSH 同构，而不是新增审批层：Settings 全局开关默认关；打开后助手必须
+显式选中这个工具（catalogue 里 `optIn` + `gatedByDownload`）；每个会话第一次调用
+弹专用授权，显示 URL 与 host、要求勾选"URL 可以把数据带出去"，允许后写
+`conversations.downloadAllowed`，之后该会话的下载调用走普通 `ToolPolicy`（默认
+Free，不再逐条问）。撤销在聊天菜单；全局开关关闭清空所有会话的授权。若用户把
+`download_url` 的规则设成 `Ask`，每次调用会先过能力授权、再过单次审批。
+
+它不把 URL 内容提供成"可检查的审批材料"：编码后的 URL 人眼也看不出，所以这里
+不假装审批能防外传——防的是**未经用户同意就开启这条通道**。设计记录见
+[08-port-philosophy.md](08-port-philosophy.md) §1.6。
+
 ### 工具集合与审批是两件事
 
 会话菜单里的“本会话工具”只改变**有哪些工具**，不改变**调用要不要问**。它不
@@ -245,6 +263,10 @@ path_policy(conversationId TEXT, relPath TEXT, policy TEXT NOT NULL,
   不是 `needsApproval`。`ChatViewModel.gateEngineCall` 在普通策略分支之前处理它；
   `SshExecTool.needsApproval` 返回 `false`。授权后按普通策略执行，撤销/全局关闭
   会清掉持久授权；全局关闭后再打开，下一次 SSH 调用必须重新授权。
+- **URL 下载的第一道门同样是能力授权**（schema 24→25 的
+  `conversations.downloadAllowed`），由 `ChatViewModel.gateEngineCall` 在普通策略
+  之前处理：malformed URL 直接拒绝、不弹窗；全局开关在对话框之后重读；授权后
+  走普通策略；聊天菜单可撤销；全局开关关闭清空所有会话的授权。
 - **审批审计**（schema 14→15 的 `approval_audit`）：提问前写 `asked`，回答后写
   `allowed` / `declined` / `timed_out` 与 `decidedAt`；规则来源一并存储。10 分钟
   无回答按 `timed_out` 拒绝。会话菜单可读历史。写库失败只记诊断，不改变决定。

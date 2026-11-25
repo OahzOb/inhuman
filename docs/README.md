@@ -28,7 +28,7 @@ not; `AGENTS.md` states the non-negotiable working rules. These files explain
 | [01-overview.md](01-overview.md) | What this is, which module holds what, what the app does today, what is deliberately missing |
 | [02-architecture.md](02-architecture.md) | Module graph, dependency rule, start-up wiring, navigation, build toolchain, build/verify commands |
 | [03-ai-provider.md](03-ai-provider.md) | Provider interface and stream types, provider profiles, OpenAI-compatible / Anthropic / Gemini / Responses adapters, SSE, demo mode, paid web tools, SSH tools and limits |
-| [04-data-persistence.md](04-data-persistence.md) | Room schema v22 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
+| [04-data-persistence.md](04-data-persistence.md) | Room schema v24 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | Turn lifecycle, tool execution, approval gate, cancellation, context gauge, Compose layout |
 | [07-gotchas.md](07-gotchas.md) | Load-bearing invariants, and mistakes that already cost someone a day |
@@ -187,7 +187,9 @@ repository root; `…/` stands for `src/main/kotlin/com/inhuman/`.
 | Workspaces, lifetime, promotion, absolute path | `app/…/ui/workspaces/`, `core/db/…/ConversationRepository.kt` |
 | Conversation list, pinning, delete confirmation | `app/…/ui/ConversationsScreen.kt`, `ConversationsViewModel.kt` |
 | Browsing, import, export, preview | `app/…/ui/files/FilesScreen.kt`, `FilesViewModel.kt` |
-| URL download; SSRF, redirect and file-name rules | `app/…/ui/files/UrlDownloader.kt` |
+| URL download (user-initiated); SSRF, redirect and file-name rules | `app/…/ui/files/UrlDownloader.kt`, shared rules in `core/ai/…/tools/DownloadUrl.kt` |
+| Agent URL download (`download_url`): tool, limits, consent | `core/ai/…/tools/DownloadTool.kt`, `ToolCatalog.kt`, `ChatViewModel.gateEngineCall` |
+| Agent URL download: the Android fetch and the workspace sink | `app/…/download/HttpDownloadFetcher.kt`, `WorkspaceDownloadSink.kt` |
 | Provider list/editor, web backends and keys | `app/…/ui/settings/SettingsScreen.kt`, `app/…/ui/chat/SettingsViewModel.kt`, `app/…/web/WebToolProviders.kt` |
 | Media tool backends, per-tool provider/model or separate API | `app/…/ui/chat/MediaTools.kt`, `app/…/ui/settings/MediaToolDialog.kt` |
 | Usage totals, paid-call counting, day buckets | `app/…/ui/settings/UsageReport.kt`, `UsageSection.kt`, `:core:db` `MessageDao.usageRows()` |

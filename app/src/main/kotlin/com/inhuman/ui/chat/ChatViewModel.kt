@@ -86,6 +86,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import com.inhuman.core.ai.tools.FetchProvider
+import com.inhuman.download.HttpDownloadFetcher
+import com.inhuman.download.WorkspaceDownloadSink
+import com.inhuman.core.ai.tools.DownloadTool
+import com.inhuman.core.ai.tools.DownloadUrl
 import com.inhuman.core.ai.tools.QwenDecisionTool
 import com.inhuman.core.ai.tools.SearchProvider
 import com.inhuman.core.ai.bilibili.BilibiliReadService
@@ -282,6 +286,16 @@ class ChatViewModel(
 	 */
 	private val bilibiliLoggedIn: () -> Boolean = { false },
 	/**
+	 * Whether the global URL-download capability is on.
+	 *
+	 * Read per turn, like the SSH switch: the user can flip it in Settings while
+	 * this view model lives, and a tool still registered after being switched
+	 * off is a gate that opens the wrong way. Even when on, the assistant must
+	 * select `download_url` and the first call in each conversation must be
+	 * acknowledged -- the switch only makes the capability possible.
+	 */
+	private val downloadEnabled: () -> Boolean = { false },
+	/**
 	 * Called whenever a stream starts or stops.
 	 *
 	 * The app layer owns the foreground service; the view model deliberately
@@ -315,6 +329,7 @@ class ChatViewModel(
 			suggestionsEnabled = suggestionsEnabled(),
 			bilibiliEnabled = bilibiliEnabled(),
 			bilibiliLoggedIn = bilibiliLoggedIn(),
+			downloadEnabled = downloadEnabled(),
 		),
 	)
 	val state: StateFlow<ChatUiState> = _state.asStateFlow()
@@ -420,6 +435,8 @@ class ChatViewModel(
 		val phase = when {
 			current.pendingApproval != null -> context.getString(R.string.chat_phase_approval)
 			current.pendingSshConsent != null -> context.getString(R.string.chat_phase_ssh)
+			current.pendingDownloadConsent != null ->
+				context.getString(R.string.chat_phase_download)
 			current.isCompacting -> context.getString(R.string.chat_phase_compacting)
 			call != null -> context.getString(R.string.chat_phase_using, call.displayName)
 			streaming && lastAssistant?.plainText.isNullOrBlank() ->
@@ -435,7 +452,9 @@ class ChatViewModel(
 			streaming = streaming,
 			preview = if (!streaming) lastAssistant?.plainText?.take(240) else null,
 			failed = !streaming && current.error != null,
-			awaitingApproval = current.pendingApproval != null || current.pendingSshConsent != null,
+			awaitingApproval = current.pendingApproval != null ||
+				current.pendingSshConsent != null ||
+				current.pendingDownloadConsent != null,
 		)
 		if (!streaming) turnStartedAt = 0L
 		return status
@@ -463,6 +482,8 @@ class ChatViewModel(
 	@Volatile
 	private var userStopped = false
 	private var sshAllowed: Boolean = false
+	/** This conversation's URL-download acknowledgement; see [DownloadConsent]. */
+	private var downloadAllowed: Boolean = false
 
 	/**
 	 * The saved hosts this conversation shares with the agent, as ids.
@@ -1999,6 +2020,7 @@ class ChatViewModel(
 		// the branch point.
 		val branchInfo = repository.branchesIn(conversationId)
 		sshAllowed = loaded?.entity?.sshAllowed ?: false
+		downloadAllowed = loaded?.entity?.downloadAllowed ?: false
 		sshHostIds = loaded?.entity?.sshHosts.orEmpty()
 		val workspace = loaded?.entity?.let { entity ->
 			runCatching { repository.workspaceRecord(entity.workspaceId) }
@@ -2111,12 +2133,15 @@ class ChatViewModel(
 				sshHostIds = sshHostIds,
 				sshToolEnabled = sshToolEnabled(),
 				suggestionsEnabled = suggestionsEnabled(),
+				downloadAllowed = downloadAllowed,
+				downloadEnabled = downloadEnabled(),
 				conversationTools = loaded?.entity?.tools,
 				agentTools = agent?.tools,
 				toolsKnown = loaded?.entity != null,
 				workspaceInstructionsPinned = loaded?.entity?.workspaceInstructions != null,
 				workspaceInstructionsChars = loaded?.entity?.workspaceInstructions?.length ?: 0,
 				pendingSshConsent = null,
+				pendingDownloadConsent = null,
 				rollbackAvailable = rollbackAvailable,
 				rollbackBlockedReason = rollbackBlockedReason,
 				snapshotStats = snapshotStats,
@@ -2857,7 +2882,11 @@ class ChatViewModel(
 	 */
 	fun continueInterruptedTurn() {
 		if (_state.value.isStreaming || _state.value.isCompacting) return
-		if (_state.value.pendingApproval != null || _state.value.pendingSshConsent != null) return
+		if (_state.value.pendingApproval != null || _state.value.pendingSshConsent != null ||
+			_state.value.pendingDownloadConsent != null
+		) {
+			return
+		}
 		if (!isInterruptedTurn(_state.value.messages, _state.value.isStreaming)) return
 		val anchor = _state.value.messages.lastOrNull { it.fromUser } ?: return
 
@@ -3460,6 +3489,7 @@ class ChatViewModel(
 					error = null,
 					pendingApproval = null,
 					pendingSshConsent = null,
+					pendingDownloadConsent = null,
 				)
 			}
 			reload()
@@ -3677,6 +3707,7 @@ class ChatViewModel(
 				toolRoundLimit = toolRoundLimit(),
 				toolCallLimit = toolCallLimit(),
 				sshToolEnabled = sshToolEnabled(),
+				downloadEnabled = downloadEnabled(),
 				suggestionsEnabled = suggestionsEnabled(),
 			)
 		}
@@ -3728,11 +3759,14 @@ class ChatViewModel(
 		approvalContinuation = null
 		sshConsentContinuation?.cancel()
 		sshConsentContinuation = null
+		downloadConsentContinuation?.cancel()
+		downloadConsentContinuation = null
 		_state.update { s ->
 			s.copy(
 				isStreaming = false,
 				pendingApproval = null,
 				pendingSshConsent = null,
+				pendingDownloadConsent = null,
 				messages = s.messages.map {
 					if (it.isStreaming) it.copy(isStreaming = false) else it
 				},
@@ -4935,6 +4969,7 @@ class ChatViewModel(
 		}
 
 		val remote = ToolCatalog.all.firstOrNull { it.name == tool.name }?.remote == true
+		val download = ToolCatalog.all.firstOrNull { it.name == tool.name }?.gatedByDownload == true
 		if (remote) {
 			// Never show a consent dialogue for a call the tool would reject as
 			// malformed: the dialogue describes a call that can actually happen.
@@ -5041,6 +5076,72 @@ class ChatViewModel(
 					"${REFUSED_MARKER} SSH was disabled in Settings before the call ran.",
 					stopTurn = false,
 				)
+			}
+		}
+
+		// A second outbound path, with the same shape as SSH: a malformed URL
+		// never reaches the dialogue, the global switch is re-read here, the
+		// persisted grant decides whether the user has to be asked again, and
+		// the grant itself is one acknowledgement per conversation.
+		if (download) {
+			val rawUrl = stringArg(parsed, "url").orEmpty()
+			val uri = try {
+				DownloadUrl.validate(rawUrl, requireHttps = true)
+			} catch (e: IllegalArgumentException) {
+				Diag.w("download", "malformed url")
+				return EngineDecision.Deny("download_url: ${e.message}", stopTurn = false)
+			}
+			if (!downloadEnabled()) {
+				Diag.i("download", "refused: global switch off")
+				return EngineDecision.Deny(
+					"${REFUSED_MARKER} URL downloads are disabled in Settings.",
+					stopTurn = false,
+				)
+			}
+			if (downloadAllowed) {
+				val persisted = runCatching { repository.downloadAllowed(conversationId) }
+					.getOrNull()
+				if (persisted == false) {
+					downloadAllowed = false
+					_state.update { it.copy(downloadAllowed = false) }
+					Diag.i("download", "persisted consent gone; asking again")
+				}
+			}
+			if (!downloadAllowed) {
+				val host = uri.host.orEmpty()
+				Diag.i("download", "consent ask host=$host")
+				_state.update {
+					it.copy(
+						pendingDownloadConsent = DownloadConsent(
+							messageId = id,
+							call = call.toUi(),
+							url = uri.toString(),
+							host = host,
+						),
+					)
+				}
+				val allowed = awaitDownloadConsent()
+				if (!allowed) {
+					Diag.i("download", "consent denied host=$host")
+					markCall(id, call.index, ToolCallUi.State.Declined)
+					return EngineDecision.Deny(
+						DECLINED_MARKER + " The user declined URL downloads for this conversation.",
+						stopTurn = true,
+						declined = true,
+					)
+				}
+				downloadAllowed = true
+				runCatching { repository.setDownloadAllowed(conversationId, true) }
+					.onFailure { Diag.w("download", "could not persist consent", it) }
+				_state.update { it.copy(downloadAllowed = true) }
+				Diag.i("download", "consent allow host=$host")
+				if (!downloadEnabled()) {
+					Diag.i("download", "global switch turned off during consent")
+					return EngineDecision.Deny(
+						"${REFUSED_MARKER} URL downloads were disabled in Settings before the call ran.",
+						stopTurn = false,
+					)
+				}
 			}
 		}
 
@@ -5192,6 +5293,7 @@ class ChatViewModel(
 
 	private var approvalContinuation: kotlinx.coroutines.CancellableContinuation<Boolean>? = null
 	private var sshConsentContinuation: kotlinx.coroutines.CancellableContinuation<Boolean>? = null
+	private var downloadConsentContinuation: kotlinx.coroutines.CancellableContinuation<Boolean>? = null
 
 	private suspend fun awaitSshConsent(): Boolean =
 		kotlinx.coroutines.suspendCancellableCoroutine { cont ->
@@ -5225,6 +5327,40 @@ class ChatViewModel(
 		_state.update { it.copy(sshAllowed = false) }
 		viewModelScope.launch { repository.setSshAllowed(conversationId, false) }
 		Diag.i("ssh", "consent revoked")
+	}
+
+	private suspend fun awaitDownloadConsent(): Boolean =
+		kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+			downloadConsentContinuation = cont
+		}
+
+	fun allowDownloadConsent() {
+		val pending = _state.value.pendingDownloadConsent ?: return
+		Diag.i("download", "consent allow requested host=${pending.host}")
+		_state.update { it.copy(pendingDownloadConsent = null) }
+		downloadConsentContinuation?.let { cont ->
+			downloadConsentContinuation = null
+			if (cont.isActive) cont.resumeWith(Result.success(true))
+		}
+	}
+
+	fun denyDownloadConsent() {
+		val pending = _state.value.pendingDownloadConsent ?: return
+		Diag.i("download", "consent denied host=${pending.host}")
+		_state.update { it.copy(pendingDownloadConsent = null) }
+		downloadConsentContinuation?.let { cont ->
+			downloadConsentContinuation = null
+			if (cont.isActive) cont.resumeWith(Result.success(false))
+		}
+	}
+
+	/** Revoke this conversation's URL-download consent; the next call asks again. */
+	fun revokeDownloadAccess() {
+		if (!downloadAllowed) return
+		downloadAllowed = false
+		_state.update { it.copy(downloadAllowed = false) }
+		viewModelScope.launch { repository.setDownloadAllowed(conversationId, false) }
+		Diag.i("download", "consent revoked")
 	}
 
 	private suspend fun awaitApproval(): ApprovalAnswer {
@@ -5510,6 +5646,24 @@ class ChatViewModel(
 			// that it cannot use it, and it says so.
 			searchProvider()?.let { add(WebSearchTool(it)) }
 			fetchProvider()?.let { add(WebFetchTool(it)) }
+			// Agent-initiated downloads. Three gates: the global switch, the
+			// assistant's explicit selection (the entry is opt-in, so null
+			// "all tools" must not inherit it), and the conversation-level
+			// acknowledgement the engine gate asks for on the first call. A
+			// missing workspace means there is nowhere to put the bytes.
+			val downloadWorkspace = workspace
+			if (
+				downloadWorkspace != null &&
+				downloadEnabled() &&
+				selected?.contains("download_url") == true
+			) {
+				add(
+					DownloadTool(
+						fetcher = HttpDownloadFetcher(),
+						sink = WorkspaceDownloadSink(downloadWorkspace),
+					),
+				)
+			}
 			// OCR reads a workspace file through DeepSeek's paid OCR service.
 			// The key is the DeepSeek tools key, not the chat key, for the same
 			// reason search/fetch have their own: uploading a document is a
@@ -5706,6 +5860,7 @@ class ChatViewModel(
 							includeSuggestions = suggestionsEnabled(),
 							includeBilibili = bilibiliEnabled(),
 							includeBilibiliLogin = bilibiliLoggedIn(),
+							includeDownload = downloadEnabled(),
 							includePdfVision = true,
 						),
 					)

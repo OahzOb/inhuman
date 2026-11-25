@@ -116,6 +116,7 @@ fun ConversationsScreen(
 	onNewWorkspace: () -> Unit,
 	sshToolEnabled: Boolean = false,
 	bilibiliEnabled: Boolean = false,
+	downloadEnabled: Boolean = false,
 	backupReminder: BackupReminderUi? = null,
 	onOpenBackup: () -> Unit = {},
 	onLaterBackup: () -> Unit = {},
@@ -230,6 +231,7 @@ fun ConversationsScreen(
 						conversationCount = state.conversations.size,
 						sshToolEnabled = sshToolEnabled,
 						bilibiliEnabled = bilibiliEnabled,
+						downloadEnabled = downloadEnabled,
 						modifier = Modifier
 							.width(320.dp)
 							.fillMaxSize(),
@@ -925,6 +927,7 @@ private fun HomeRail(
 	conversationCount: Int,
 	sshToolEnabled: Boolean,
 	bilibiliEnabled: Boolean,
+	downloadEnabled: Boolean,
 	modifier: Modifier = Modifier,
 ) {
 	Box(modifier.background(MaterialTheme.colorScheme.surface)) {
@@ -965,6 +968,15 @@ private fun HomeRail(
 					else -> stringResource(R.string.home_rail_tools_value)
 				},
 			)
+			if (downloadEnabled) {
+				// A capability that is on but absent from this summary would be
+				// a claim the rail does not make; "Files, web" while the agent
+				// can fetch URLs would read as if it could not.
+				MetaLine(
+					stringResource(R.string.home_rail_downloads_label),
+					stringResource(R.string.home_rail_downloads_value),
+				)
+			}
 			MetaLine(
 				stringResource(R.string.home_rail_model_label),
 				stringResource(R.string.home_rail_model_value),

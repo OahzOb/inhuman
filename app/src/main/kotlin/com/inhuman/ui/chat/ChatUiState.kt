@@ -154,6 +154,12 @@ data class ChatUiState(
 	val pendingSshConsent: SshConsent? = null,
 	/** Whether this conversation may run ssh_exec without asking again. */
 	val sshAllowed: Boolean = false,
+	/** A first URL download waiting on the conversation-level acknowledgement. */
+	val pendingDownloadConsent: DownloadConsent? = null,
+	/** Whether this conversation may download URLs without asking again. */
+	val downloadAllowed: Boolean = false,
+	/** Whether the global download capability is on; off hides every affordance. */
+	val downloadEnabled: Boolean = false,
 	/**
 	 * The machines saved in Settings, for the host sheet to list.
 	 *

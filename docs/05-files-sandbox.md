@@ -489,6 +489,20 @@ against a link to `127.0.0.1` or a router's admin page. Only `http`/`https` are
 accepted, credentials in the URL are refused, and a hostile
 `Content-Disposition` name is sanitised before it reaches either destination.
 
+### Agent-initiated download: `download_url`
+
+The *second* download path is the agent's tool, and it is a different capability
+with a different gate: off by default globally, explicitly selected per
+assistant, and consented per conversation on first use
+(`docs/08-port-philosophy.md` §1.6). It is https-only, capped at 64 MiB per file,
+and writes to `downloads/<name>` through `WorkspaceTransfer.import`, so the same
+quota, file-count and free-space checks apply. The shared rules
+(`DownloadUrl`) are the user path's: same address blocking, same redirect
+re-validation, same `Content-Disposition` sanitising. The difference is that the
+agent names the URL, which is why the consent dialogue exists: a URL can carry
+data out. The user-facing Files path above is unchanged and remains unreachable
+from any tool.
+
 ### In-app editor and external editors
 
 Files → open a text file → **Edit** opens a full-screen monospace editor. Save
