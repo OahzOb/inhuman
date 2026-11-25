@@ -79,6 +79,9 @@ import com.inhuman.core.design.Eyebrow
 import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.core.engine.roleplay.RoleplayCard
+import com.inhuman.core.engine.roleplay.RoleplayCodec
+import com.inhuman.core.engine.roleplay.RoleplayPrompt
 import com.inhuman.ui.common.FlowRowCompat
 import com.inhuman.ui.common.WorkbenchBackButton
 import com.inhuman.ui.common.PaidBadge
@@ -304,14 +307,23 @@ private fun AgentRow(
 		)
 
 		// The instructions, clipped rather than hidden: enough to recognise the
-		// assistant, with the whole text one tap away in the editor.
-		Text(
-			text = agent.systemPrompt,
-			style = MaterialTheme.typography.bodyMedium,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-			maxLines = 2,
-			overflow = TextOverflow.Ellipsis,
-		)
+		// assistant, with the whole text one tap away in the editor. A card-only
+		// character has no instructions, so its card's description is what makes
+		// it recognisable -- an empty line under a name is not.
+		val card = RoleplayCodec.decodeCard(agent.rpJson)
+		val cardSummary = stringResource(R.string.roleplay_card_set)
+		val summary = agent.systemPrompt
+			.ifBlank { card?.description.orEmpty() }
+			.ifBlank { if (card == null) "" else cardSummary }
+		if (summary.isNotEmpty()) {
+			Text(
+				text = summary,
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 2,
+				overflow = TextOverflow.Ellipsis,
+			)
+		}
 	}
 }
 
@@ -354,6 +366,9 @@ private fun AgentEditor(
 
 	// Local, because it is a view of the draft rather than part of it.
 	var showPreview by remember { mutableStateOf(false) }
+	// Also local: the card belongs to the draft, but its editor is a separate
+	// dialog that has to be openable and closable without touching the draft.
+	var showCardEditor by remember { mutableStateOf(false) }
 	// Whether per-tool descriptions are shown. Off by default: the list is ten
 	// rows and the blurbs are the only part not needed to make a choice, so
 	// showing them doubles the length of the section to answer a question most
@@ -602,8 +617,12 @@ private fun AgentEditor(
 		if (!draft.canSave) {
 			// The Save button is disabled by validation a few sections below;
 			// without this line the only feedback was a button that did nothing.
+			//
+			// The card is a second way to satisfy the prompt requirement, so
+			// "both missing" only holds while there is no card either; otherwise
+			// the message names the one thing actually missing.
 			val missing = when {
-				draft.name.isBlank() && draft.systemPrompt.isBlank() ->
+				draft.name.isBlank() && draft.systemPrompt.isBlank() && draft.card.isBlank ->
 					stringResource(R.string.agents_missing_both)
 				draft.name.isBlank() -> stringResource(R.string.agents_missing_name)
 				else -> stringResource(R.string.agents_missing_prompt)
@@ -636,11 +655,40 @@ private fun AgentEditor(
 			// level, and which tools travel with it.
 			TextButton(
 				onClick = { showPreview = true },
-				enabled = draft.systemPrompt.isNotBlank(),
+				// A card-only character still has a request worth previewing.
+				enabled = draft.systemPrompt.isNotBlank() || !draft.card.isBlank,
 			) {
 				Text(stringResource(R.string.agents_preview_request), style = MaterialTheme.typography.labelLarge)
 			}
 		}
+
+		// --- role-play card -------------------------------------------------
+		//
+		// Grouped with the prompt rather than with the model and tools: the card
+		// is character content, while the provider, sampling and tool list are
+		// how it runs. Only the summary is here -- the card itself is edited in
+		// its own dialog, because seven prose fields would double this form and
+		// their limits would read as part of the assistant's Save.
+		Row(
+			modifier = Modifier.fillMaxWidth(),
+			horizontalArrangement = Arrangement.SpaceBetween,
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			SectionLabel(stringResource(R.string.roleplay_card_section))
+			TextButton(onClick = { showCardEditor = true }) {
+				Text(
+					text = stringResource(R.string.roleplay_card_edit),
+					style = MaterialTheme.typography.labelLarge,
+				)
+			}
+		}
+		Text(
+			text = stringResource(
+				if (draft.card.isBlank) R.string.roleplay_card_none else R.string.roleplay_card_set,
+			),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
 
 		HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
@@ -1054,6 +1102,21 @@ private fun AgentEditor(
 		)
 	}
 
+	if (showCardEditor) {
+		RoleplayCardEditor(
+			card = draft.card,
+			onSave = { edited ->
+				onChange { it.copy(card = edited) }
+				showCardEditor = false
+			},
+			onRemove = {
+				onChange { it.copy(card = RoleplayCard()) }
+				showCardEditor = false
+			},
+			onDismiss = { showCardEditor = false },
+		)
+	}
+
 	pendingImport?.let { imported ->
 		AlertDialog(
 			onDismissRequest = { pendingImport = null },
@@ -1185,6 +1248,39 @@ private fun PromptPreview(
 							.heightIn(max = 200.dp)
 							.verticalScroll(rememberScrollState()),
 					)
+				}
+
+				// The card travels in the same system message, after the
+				// assistant's own prompt, so a preview that stopped at the prompt
+				// would no longer show what the model receives. The text comes
+				// from the engine's renderer rather than a paraphrase here, so the
+				// two cannot drift apart.
+				if (!draft.card.isBlank) {
+					HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+					SectionLabel(stringResource(R.string.roleplay_card_section))
+					Text(
+						text = stringResource(R.string.roleplay_card_scene_note),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+					SelectionContainer {
+						Text(
+							text = RoleplayPrompt.systemSections(
+								draft.card,
+								// A scene belongs to a conversation, not to the
+								// assistant, so there is none to render here.
+								scene = null,
+								characterName = draft.name,
+							).joinToString("\n\n"),
+							style = MaterialTheme.typography.bodySmall,
+							fontFamily = FontFamily.Monospace,
+							color = MaterialTheme.colorScheme.onSurface,
+							modifier = Modifier
+								.fillMaxWidth()
+								.heightIn(max = 200.dp)
+								.verticalScroll(rememberScrollState()),
+						)
+					}
 				}
 
 				HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

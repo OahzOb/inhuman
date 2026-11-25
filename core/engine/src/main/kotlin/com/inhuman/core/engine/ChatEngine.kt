@@ -58,6 +58,9 @@ class ChatEngine(
 				model = turn.model,
 				messages = history,
 				tools = turn.tools.map(::spec),
+				temperature = turn.temperature,
+				topP = turn.topP,
+				maxTokens = turn.maxTokens,
 				thinking = turn.thinking,
 				reasoningEffort = turn.reasoningEffort,
 				userId = turn.userId,
@@ -369,6 +372,22 @@ data class EngineTurn(
 	val tools: List<Tool> = emptyList(),
 	val maxRounds: Int = 8,
 	val maxCalls: Int = 24,
+	/**
+	 * Per-turn sampling overrides, forwarded unchanged to every round's
+	 * [ChatRequest].
+	 *
+	 * Null means "leave the provider/model default alone", not zero and not
+	 * "adapter default unless set": a turn whose card asks for no override has
+	 * to produce exactly the wire body it produced before these fields existed.
+	 * The retry loop reuses the round's request, so an override is also stable
+	 * across a retried attempt -- a retry is the same completion, not a new one.
+	 *
+	 * [maxTokens] is the output ceiling; an adapter that has its own default
+	 * (Anthropic and Gemini both do) substitutes it only when this is null.
+	 */
+	val temperature: Double? = null,
+	val topP: Double? = null,
+	val maxTokens: Int? = null,
 	val thinking: Boolean? = null,
 	val reasoningEffort: String? = null,
 	val userId: String? = null,

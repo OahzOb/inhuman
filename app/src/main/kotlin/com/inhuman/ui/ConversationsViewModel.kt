@@ -15,6 +15,12 @@ import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.MessageEntity
 import com.inhuman.core.data.db.SessionMode
 import com.inhuman.core.data.secret.SecureStore
+import com.inhuman.core.engine.roleplay.RoleplayCard
+import com.inhuman.core.engine.roleplay.RoleplayCodec
+import com.inhuman.core.engine.roleplay.RoleplayLimitError
+import com.inhuman.core.engine.roleplay.RoleplayLimits
+import com.inhuman.core.engine.roleplay.RoleplayPrompt
+import com.inhuman.core.engine.roleplay.RoleplayScene
 import com.inhuman.core.files.WorkspaceTransfer
 import com.inhuman.ui.chat.ConversationBundleCodec
 import com.inhuman.ui.chat.ConversationBundleZip
@@ -94,7 +100,111 @@ data class ConversationsUiState(
 	 * silently flip this.
 	 */
 	val newConversationContinuous: Boolean = true,
+	/**
+	 * The new-role-play-scene dialog, non-null only while it is open.
+	 *
+	 * The character list lives in the dialog's state rather than in the screen:
+	 * it is read when the dialog opens, offered once, and dropped when it
+	 * closes. A card edited on the assistants screen (or an assistant deleted)
+	 * while the form is open must not move the choice under the user's finger,
+	 * which is why this is a snapshot rather than a second observed flow.
+	 */
+	val sceneDialog: SceneDraft? = null,
 )
+
+/**
+ * A character card the scene dialog may offer.
+ *
+ * The decoded card is kept beside the assistant row so the picker can show a
+ * description and the create path can render the greeting without decoding the
+ * same JSON twice. The name is the assistant's, not a field on the card: a card
+ * does not name its character, and the name the user typed in the assistant
+ * editor is the one the transcript will be titled with.
+ */
+data class SceneCharacter(
+	val agent: AgentEntity,
+	val card: RoleplayCard,
+) {
+	val name: String get() = agent.name.trim()
+
+	/**
+	 * The one-line reminder of who this character is, for the picker row.
+	 *
+	 * [RoleplayCard.description] is the field meant for it, but every card field
+	 * is optional and a card with only a personality is legal. Falling back
+	 * keeps the row from being a bare name that says nothing about which of two
+	 * characters it is.
+	 */
+	val description: String
+		get() = card.description.trim()
+			.ifBlank { card.personality.trim() }
+			.ifBlank { card.scenario.trim() }
+}
+
+/**
+ * What the open "new role-play scene" dialog is holding.
+ *
+ * A draft rather than a [RoleplayScene]: every scene field is optional, and the
+ * dialog is the only place these values exist before the conversation does. The
+ * screen edits it through [ConversationsViewModel.updateScene]; nothing is
+ * written until Start.
+ */
+data class SceneDraft(
+	val characters: List<SceneCharacter> = emptyList(),
+	val selectedAgentId: String? = null,
+	val world: String = "",
+	val premise: String = "",
+	val userPersona: String = "",
+	val format: String = "",
+	val notes: String = "",
+	/**
+	 * True until the character read has finished.
+	 *
+	 * While true the "no role-play characters" message is withheld: the read is
+	 * a local table scan, and the empty message would otherwise flash on a
+	 * dialog that is about to have rows in it -- which reads as a fact about the
+	 * install rather than as a read in flight.
+	 */
+	val loading: Boolean = true,
+	/**
+	 * True while the conversation row is being written.
+	 *
+	 * The dialog cannot be dismissed in that window: the row may already exist,
+	 * and a dismissal would drop the navigation to it. The write is short, so
+	 * the only alternatives would be a spinner over a half-live dialog or a
+	 * retry that cannot tell whether the first attempt landed.
+	 */
+	val creating: Boolean = false,
+	/** Why the last create attempt failed, shown in the dialog so it can retry. */
+	val error: String? = null,
+) {
+	val selectedCharacter: SceneCharacter?
+		get() = characters.firstOrNull { it.agent.id == selectedAgentId }
+
+	/**
+	 * The scene these fields describe.
+	 *
+	 * Trimmed because the renderer trims every field anyway; storing the
+	 * whitespace would only make the character count disagree with the prompt.
+	 */
+	fun toScene(): RoleplayScene = RoleplayScene(
+		world = world.trim(),
+		premise = premise.trim(),
+		userPersona = userPersona.trim(),
+		format = format.trim(),
+		notes = notes.trim(),
+	)
+
+	/** Every limit the typed scene breaks, in field order, total last. */
+	val sceneErrors: List<RoleplayLimitError> get() = RoleplayLimits.sceneErrors(toScene())
+
+	/**
+	 * Whether Start can be tapped: someone to play, no over-long field, and no
+	 * create already running.
+	 */
+	val canStart: Boolean
+		get() = !loading && !creating && selectedCharacter != null && sceneErrors.isEmpty()
+}
 
 class ConversationsViewModel(
 	private val context: Context,
@@ -257,6 +367,157 @@ class ConversationsViewModel(
 		create(agent, workspaceId, onCreated)
 	}
 
+	/**
+	 * Open the new-scene dialog and read the role-play characters it offers.
+	 *
+	 * Read on open rather than observed. A scene is configured once, and a
+	 * continuously observed list would change under the user while they type (a
+	 * card edited on the assistants screen, an assistant deleted); the row the
+	 * user picked is the copy taken here.
+	 *
+	 * The list is filtered by [RoleplayCodec.decodeCard] rather than by "rpJson
+	 * is non-empty". That decoder also rejects a malformed or blank card, so a
+	 * card this release cannot use is not offered as a character that would
+	 * silently play without one; a plain assistant is simply absent.
+	 */
+	fun openSceneDialog() {
+		if (_state.value.sceneDialog != null) return
+		_state.update { it.copy(sceneDialog = SceneDraft()) }
+		viewModelScope.launch {
+			val characters = runCatching { agents.all() }
+				.onFailure { Diag.w("scene", "character list read failed", it) }
+				.getOrDefault(emptyList())
+				.mapNotNull { agent ->
+					val card = RoleplayCodec.decodeCard(agent.rpJson)
+						?: return@mapNotNull null
+					SceneCharacter(agent, card)
+				}
+			_state.update { current ->
+				// Closed while the read ran: do not resurrect the dialog.
+				val draft = current.sceneDialog ?: return@update current
+				current.copy(
+					sceneDialog = draft.copy(
+						characters = characters,
+						// The first character is the default, because a picker
+						// with exactly one row should not also require a tap to
+						// select it.
+						selectedAgentId = draft.selectedAgentId
+							?: characters.firstOrNull()?.agent?.id,
+						loading = false,
+					),
+				)
+			}
+		}
+	}
+
+	/** Close the scene dialog, unless the conversation is already being written. */
+	fun cancelScene() {
+		if (_state.value.sceneDialog?.creating == true) return
+		_state.update { it.copy(sceneDialog = null) }
+	}
+
+	/** Change the open scene draft in place; the dialog's only writer. */
+	fun updateScene(transform: (SceneDraft) -> SceneDraft) {
+		_state.update { current ->
+			current.sceneDialog?.let { current.copy(sceneDialog = transform(it)) } ?: current
+		}
+	}
+
+	/**
+	 * Create the conversation behind the open scene dialog.
+	 *
+	 * The conversation is created like an ordinary new one -- a temporary
+	 * workspace, the same continuous-session preference -- and then given the
+	 * three things that make it a scene:
+	 *
+	 * - **The title is the character's name.** A scene has no name of its own,
+	 *   and the home list has to be readable at a glance; the character is the
+	 *   one fact actually chosen before the conversation existed.
+	 * - **Tools are an explicit empty list.** `null` would copy the assistant's
+	 *   tool set, so a story would start with whatever file and web tools the
+	 *   assistant happens to carry. `emptyList()` writes the real `"[]"` (none)
+	 *   selection; the conversation tool sheet is where the user adds them
+	 *   later, which is deliberately not a field in this dialog.
+	 * - **The greeting is a stored assistant row**, written by the repository in
+	 *   the same transaction as the conversation. The character spoke first;
+	 *   faking a user message so the history begins with a user turn would make
+	 *   the transcript lie about who said what, so that shape is handled on the
+	 *   wire (`RoleplayPrompt.KICKOFF`) instead.
+	 *
+	 * A failure keeps the dialog open with the reason inside it: the form is the
+	 * only copy of what the user typed, and closing it over a retryable database
+	 * error would throw that away to report a message about a screen they are no
+	 * longer looking at.
+	 */
+	fun startScene(onCreated: (String) -> Unit) {
+		val draft = _state.value.sceneDialog ?: return
+		if (!draft.canStart) return
+		val character = draft.selectedCharacter ?: return
+		val scene = draft.toScene()
+		Diag.i(
+			"scene",
+			"create character=${Diag.shortId(character.agent.id)} " +
+				"chars=${RoleplayLimits.sceneChars(scene)}",
+		)
+		_state.update { current ->
+			current.sceneDialog?.let {
+				current.copy(sceneDialog = it.copy(creating = true, error = null))
+			} ?: current
+		}
+		viewModelScope.launch {
+			val result = runCatching {
+				repository.create(
+					title = character.name.ifBlank { context.getString(R.string.scene_title) },
+					agent = character.agent,
+					// Null is a new temporary workspace, exactly as the ordinary
+					// "New conversation" choice means it: a scene is one story and
+					// its files go with it when the conversation is deleted.
+					workspaceId = null,
+					sessionMode = newConversationSessionMode(),
+					tools = emptyList(),
+					sceneJson = RoleplayCodec.encodeScene(scene),
+					greeting = RoleplayPrompt.greeting(character.card, character.name)
+						.takeIf { it.isNotBlank() },
+				)
+			}
+			result.onSuccess { conversation ->
+				Diag.i(
+					"scene",
+					"created id=${Diag.shortId(conversation.id)} " +
+						"agent=${Diag.shortId(conversation.agentId)} " +
+						"workspace=${Diag.shortId(conversation.workspaceId)}",
+				)
+				_state.update { it.copy(sceneDialog = null) }
+				onCreated(conversation.id)
+			}.onFailure { failure ->
+				Diag.w(
+					"scene",
+					"create failed character=${Diag.shortId(character.agent.id)}",
+					failure,
+				)
+				val message = context.getString(
+					R.string.chat_new_conversation_failed,
+					failure.message ?: failure::class.simpleName ?: "unknown error",
+				)
+				_state.update { current ->
+					current.sceneDialog?.let {
+						current.copy(sceneDialog = it.copy(creating = false, error = message))
+					} ?: current
+				}
+			}
+		}
+	}
+
+	/**
+	 * The session mode a new conversation starts in.
+	 *
+	 * One expression shared by the ordinary and the scene creation paths: the
+	 * Create sheet's choice applies to every new conversation, and two copies of
+	 * this conditional would be two places for the preference to drift.
+	 */
+	private fun newConversationSessionMode(): String =
+		if (secure.newConversationContinuous()) SessionMode.CONTINUOUS else SessionMode.CLASSIC
+
 	private fun create(
 		agent: AgentEntity?,
 		workspaceId: String?,
@@ -271,11 +532,7 @@ class ConversationsViewModel(
 				title = context.getString(R.string.chat_title_fallback),
 				agent = agent,
 				workspaceId = workspaceId,
-				sessionMode = if (secure.newConversationContinuous()) {
-					SessionMode.CONTINUOUS
-				} else {
-					SessionMode.CLASSIC
-				},
+				sessionMode = newConversationSessionMode(),
 			)
 			Diag.i(
 				"conv",

@@ -53,6 +53,10 @@ import com.inhuman.core.engine.projection.calibrate
 import com.inhuman.core.engine.projection.estimateTokens
 import com.inhuman.core.engine.projection.planProjection
 import com.inhuman.core.engine.projection.weightedChars
+import com.inhuman.core.engine.roleplay.RoleplayCard
+import com.inhuman.core.engine.roleplay.RoleplayCodec
+import com.inhuman.core.engine.roleplay.RoleplayPrompt
+import com.inhuman.core.engine.roleplay.RoleplayScene
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ApprovalRecord
 import com.inhuman.core.data.Branches
@@ -518,6 +522,27 @@ class ChatViewModel(
 	/** The assistant behind this conversation, once loaded. */
 	private var agent: AgentEntity? = null
 
+	/**
+	 * The assistant's character card, or null for a plain assistant.
+	 *
+	 * Decoded from the in-memory assistant row rather than passed around: this
+	 * is read once per request build (and once for the sampling values), so a
+	 * decoded copy in a field would have to be invalidated whenever the row was
+	 * reloaded. The card cannot change while this view model lives unless the
+	 * user leaves the chat to edit the assistant, and reopening the chat
+	 * reloads it -- the same lifetime the assistant's system prompt has.
+	 */
+	private fun roleplayCard(): RoleplayCard? = RoleplayCodec.decodeCard(agent?.rpJson)
+
+	/**
+	 * This conversation's role-play scene, or null when it has none.
+	 *
+	 * The scene belongs to the conversation and is read from the in-memory row;
+	 * [setScene] updates that row's copy when the user edits it, so the next
+	 * request sees the change without a reopen.
+	 */
+	private fun roleplayScene(): RoleplayScene? = RoleplayCodec.decodeScene(conversation?.sceneJson)
+
 	private var model: String? = null
 	private var reasoningEffort: String? = null
 	private var thinking: Boolean = false
@@ -596,6 +621,15 @@ class ChatViewModel(
 			// started. The agent supplies the defaults it was created with.
 			agent = c?.agentId?.let { agents.byId(it) }
 				?: agents.byId(Database.DEFAULT_AGENT_ID)
+			// The scene is part of the conversation row; the character belongs to
+			// the assistant. Both are mirrored into the UI state so the chat menu
+			// can offer scene settings without re-reading either row.
+			_state.update {
+				it.copy(
+					roleplayCharacter = roleplayCard() != null,
+					roleplayScene = roleplayScene(),
+				)
+			}
 			providerId = c?.providerId ?: agent?.providerId
 				?: com.inhuman.core.data.db.ProviderIds.DEEPSEEK
 			val profile = runCatching { agents.provider(providerId) }.getOrNull()
@@ -1512,6 +1546,40 @@ class ChatViewModel(
 				.onFailure { failure ->
 					Diag.w("tools", "could not persist conversation tools", failure)
 					reload()
+				}
+		}
+	}
+
+	/**
+	 * Replace this conversation's role-play scene.
+	 *
+	 * Only the user writes this (the scene dialog). A scene is prompt content,
+	 * not a capability: it cannot add a tool, change an approval or widen the
+	 * workspace, which is why no approval or consent gate is involved.
+	 *
+	 * The in-memory row is updated before the write so the next request and the
+	 * menu see the change immediately. A failed write reloads the row rather
+	 * than leaving the screen claiming a scene that is not on disk.
+	 */
+	fun setScene(scene: RoleplayScene?) {
+		if (_state.value.isStreaming || _state.value.isCompacting) return
+		val entity = conversation ?: return
+		val json = scene?.let(RoleplayCodec::encodeScene).orEmpty()
+		conversation = entity.copy(sceneJson = json)
+		_state.update { it.copy(roleplayScene = RoleplayCodec.decodeScene(json)) }
+		Diag.i(
+			"roleplay",
+			"scene conv=${Diag.shortId(conversationId)} set=${json.isNotEmpty()}",
+		)
+		viewModelScope.launch {
+			runCatching { repository.setSceneJson(conversationId, json) }
+				.onFailure { failure ->
+					Diag.w("roleplay", "could not persist scene", failure)
+					// Put the in-memory row back rather than leaving the screen
+					// describing a scene the database does not have.
+					conversation = runCatching { repository.conversationEntity(conversationId) }
+						.getOrNull() ?: entity
+					_state.update { it.copy(roleplayScene = roleplayScene()) }
 				}
 		}
 	}
@@ -2590,7 +2658,17 @@ class ChatViewModel(
 					if (end <= plan.foldFromIndex) break
 					val batch = messages.subList(plan.foldFromIndex, end)
 					val startedAt = System.currentTimeMillis()
-					val result = summarizeBrief(batch, _state.value.compaction?.summary, kind)
+					val result = summarizeBrief(
+						batch = batch,
+						oldBrief = _state.value.compaction?.summary,
+						kind = kind,
+						// A character card makes this a story: the task-oriented
+						// headings ("Decisions & constraints", "Files & artifacts")
+						// would flatten a scene into a work report. The scene's own
+						// static setting is already in the system prefix, so the
+						// brief only needs what happened.
+						story = roleplayCard() != null,
+					)
 					if (result == null) {
 						failed = true
 						recordFailedMaintenance(kind, "summary-failed", startedAt, batch)
@@ -2686,12 +2764,22 @@ class ChatViewModel(
 		batch: List<ChatMessageUi>,
 		oldBrief: String?,
 		kind: String,
+		story: Boolean,
 	): BriefSummary? {
 		if (demoEnabled()) {
 			val body = demoCompactionSummary(batch)
+			// The offline brief uses the same headings as the live one. A demo
+			// brief that looked like a work log while a real scene's looked like
+			// a story would make the offline path verify a shape the app does
+			// not actually produce.
 			val text = capBrief(
-				"### Goal & current state\n$body\n\n" +
-					"### Timeline\n(offline demo brief; $kind)",
+				if (story) {
+					"### Story so far\n$body\n\n" +
+						"### Timeline\n(offline demo brief; $kind)"
+				} else {
+					"### Goal & current state\n$body\n\n" +
+						"### Timeline\n(offline demo brief; $kind)"
+				},
 				projectionPolicy.maxBriefTokens,
 			)
 			return BriefSummary(
@@ -2711,7 +2799,10 @@ class ChatViewModel(
 		val request = ChatRequest(
 			model = summaryModel,
 			messages = listOf(
-				ChatMessage(Role.System, BRIEF_SYSTEM_PROMPT),
+				ChatMessage(
+					Role.System,
+					if (story) RoleplayPrompt.STORY_BRIEF_PROMPT else BRIEF_SYSTEM_PROMPT,
+				),
 				ChatMessage(
 					Role.User,
 					buildString {
@@ -3881,7 +3972,10 @@ class ChatViewModel(
 			turnAnchorId = userMessage.id
 			turnSnapshotReady = false
 			turnIrreversible = false
-			if (_state.value.messages.count { it.fromUser } == 1) {
+			// A scene is titled after its character at creation; the first player
+			// line is part of the story, not its title, so auto-titling would
+			// rename the scene to "I walk into the tavern".
+			if (_state.value.messages.count { it.fromUser } == 1 && roleplayScene() == null) {
 				// An image-only first message has no text to derive a title
 				// from, so it falls back rather than leaving the list blank.
 				repository.autoTitle(
@@ -3937,6 +4031,7 @@ class ChatViewModel(
 					val policies = loadPolicies()
 					val tools = buildTools(policies, turnProvider = provider)
 					val history = buildWireHistory(includeCurrent = true)
+					val card = roleplayCard()
 					val request = ChatRequest(
 						model = turnModel,
 						messages = history,
@@ -3944,6 +4039,12 @@ class ChatViewModel(
 						thinking = thinking,
 						reasoningEffort = reasoningEffort,
 						userId = conversationId,
+						// The preview must show the same parameters a send
+						// would use, or the two paths disagree about what the
+						// provider receives.
+						temperature = card?.temperature,
+						topP = card?.topP,
+						maxTokens = card?.maxTokens,
 					)
 					provider.previewRequest(request)
 				}
@@ -4400,6 +4501,11 @@ class ChatViewModel(
 			toolDispatcher = Dispatchers.IO,
 		)
 
+		// The card may pin sampling for the character's voice. Null on a plain
+		// assistant and on a card that left the fields blank, which is the
+		// provider/request default rather than a hardcoded value.
+		val card = roleplayCard()
+
 		try {
 			engine.run(
 				EngineTurn(
@@ -4412,6 +4518,9 @@ class ChatViewModel(
 					reasoningEffort = reasoningEffort,
 					userId = conversationId,
 					suppressToolCalls = suppressToolCalls,
+					temperature = card?.temperature,
+					topP = card?.topP,
+					maxTokens = card?.maxTokens,
 				),
 			).collect { event ->
 				when (event) {
@@ -6330,11 +6439,31 @@ class ChatViewModel(
 		}
 
 		val continuous = sessionMode == SessionMode.CONTINUOUS
+		// Role-play content is static per conversation: the card belongs to the
+		// assistant, the scene to the conversation. Both go before the
+		// continuous instruction and the rolling brief, so the only part of the
+		// system message that moves between turns is at the tail -- and editing
+		// a card or a scene is one rebuilt prefix, which the editors say.
+		val card = roleplayCard()
+		val scene = roleplayScene()
 		val system = buildString {
 			agent?.systemPrompt?.takeIf { it.isNotBlank() }?.let { append(it) }
+			if (card != null) {
+				val name = agent?.name?.trim().takeUnless { it.isNullOrEmpty() } ?: "the character"
+				for (section in RoleplayPrompt.systemSections(card, scene, name)) {
+					if (isNotEmpty()) append("\n\n")
+					append(section)
+				}
+			}
 			if (continuous) {
 				if (isNotEmpty()) append("\n\n")
-				append(CONTINUOUS_SESSION_INSTRUCTION)
+				append(
+					if (card != null) {
+						RoleplayPrompt.CONTINUOUS_INSTRUCTION
+					} else {
+						CONTINUOUS_SESSION_INSTRUCTION
+					},
+				)
 			}
 			if (activeSummary != null) {
 				if (isNotEmpty()) append("\n\n")
@@ -6357,6 +6486,17 @@ class ChatViewModel(
 			}
 		}
 		if (system.isNotBlank()) out += ChatMessage(Role.System, system)
+
+		// A scene may open with the character's greeting as the only stored
+		// row. Some providers reject (or read badly) a history whose first turn
+		// is the assistant's, so the request gets a wire-only user line. The
+		// record keeps exactly what was said and by whom; like the continue
+		// instruction and the time hints, this never reaches the transcript,
+		// search, export or rewind.
+		val firstWire = visible.drop(firstSent).firstOrNull()
+		if (card != null && firstWire != null && !firstWire.fromUser && firstWire.toolResultFor == null) {
+			out += ChatMessage(Role.User, RoleplayPrompt.KICKOFF)
+		}
 
 		for (m in visible.drop(firstSent)) {
 			when {

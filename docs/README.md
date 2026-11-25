@@ -28,7 +28,7 @@ not; `AGENTS.md` states the non-negotiable working rules. These files explain
 | [01-overview.md](01-overview.md) | What this is, which module holds what, what the app does today, what is deliberately missing |
 | [02-architecture.md](02-architecture.md) | Module graph, dependency rule, start-up wiring, navigation, build toolchain, build/verify commands |
 | [03-ai-provider.md](03-ai-provider.md) | Provider interface and stream types, provider profiles, OpenAI-compatible / Anthropic / Gemini / Responses adapters, SSE, demo mode, paid web tools, SSH tools and limits |
-| [04-data-persistence.md](04-data-persistence.md) | Room schema v24 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
+| [04-data-persistence.md](04-data-persistence.md) | Room schema v25 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | Turn lifecycle, tool execution, approval gate, cancellation, context gauge, Compose layout |
 | [07-gotchas.md](07-gotchas.md) | Load-bearing invariants, and mistakes that already cost someone a day |
@@ -71,8 +71,13 @@ be built and why; they are not a description of current behaviour.
 | File | What it proposes |
 | --- | --- |
 | [proposals/continuous-session.md](proposals/continuous-session.md) | A continuous-session mode, on by default for new conversations: the record is never deleted, the request projection becomes a rolling session brief plus recent turns, and the model can read the full record through a read-only recall tool |
-| [proposals/roleplay.md](proposals/roleplay.md) | Role-play scenes: a character card on the assistant plus scene data on the conversation, projected into the system message; single-character first, then memory, then multi-character turns |
 | [proposals/deepseek-app-apis.md](proposals/deepseek-app-apis.md) | A triage of DeepSeek's 2026-11-13 application-API suite: the standalone ASR/TTS and OCR APIs were adopted in 0.13.0 as paid app-proxied backends (see `03-ai-provider.md`); the server-side web tools, the Files API and the safety check are refused because they change the capability boundary |
+
+The role-play proposal (`proposals/roleplay.md`) was implemented on 2026-11-25
+(single character, single scene; no multi-character turns, world books or card
+import); current behaviour is described in
+[06-agent-loop-ui.md](06-agent-loop-ui.md) and
+[04-data-persistence.md](04-data-persistence.md).
 
 ## Conventions used here
 
@@ -197,6 +202,9 @@ repository root; `…/` stands for `src/main/kotlin/com/inhuman/`.
 | `web_search` / `web_fetch` backends | `core/ai/…/provider/deepseek/DeepSeekSearchApi.kt`, `provider/exa/ExaSearchApi.kt`, `tools/WebFetchTool.kt` |
 | Anything a model can call; `mutates`; approval policy | `core/ai/…/Tool.kt` |
 | Which tools exist; the static catalogue | `core/ai/…/tools/ToolCatalog.kt` |
+| Role-play card, scene, codec and limits | `core/engine/…/roleplay/Roleplay.kt` |
+| Role-play system prompt, rules, story-brief prompt, start line | `core/engine/…/roleplay/RoleplayPrompt.kt` |
+| Role-play card editor; new-scene flow; scene settings | `app/…/ui/agents/RoleplayCardEditor.kt`, `app/…/ui/NewSceneDialog.kt`, `app/…/ui/chat/ChatScreen.kt`, `app/…/ui/chat/ChatViewModel.kt` |
 | File tools' behaviour | `core/files/…/tools/FileTools.kt` |
 | Quotas and guarded reads/writes/lists | `core/files/…/WorkspaceTool.kt`, `WorkspaceLimits.kt` |
 | A path becoming a `File`; confinement | `core/files/…/SessionWorkspace.kt` |

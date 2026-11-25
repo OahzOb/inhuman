@@ -178,6 +178,16 @@ interface ConversationDao {
 	suspend fun sshHosts(id: String): String?
 
 	/**
+	 * Replace a conversation's role-play scene.
+	 *
+	 * No `updatedAt` bump, for the same reason as [setTools]: the scene is
+	 * setting, not conversation activity, and editing it must not move the row
+	 * to the top of the list. An empty string removes the scene.
+	 */
+	@Query("UPDATE conversations SET sceneJson = :json WHERE id = :id")
+	suspend fun setSceneJson(id: String, json: String)
+
+	/**
 	 * Replace a conversation's tool selection.
 	 *
 	 * No `updatedAt` bump: changing which tools exist is not new conversation
@@ -692,13 +702,14 @@ interface SavedPromptDao {
 	// state, again for the per-assistant follow-up suggestion settings, again
 	// for the OpenCode reasoning-mode correction, again for the pinned
 	// workspace instructions, again for the per-conversation SSH host
-	// selection, again for continuous-session maintenance, and again for the
-	// per-conversation URL download acknowledgement. Room refuses to open a
-	// database whose schema hash does not match rather than guessing, which is
-	// how each was caught: the app crashed on launch with "Looks like you've
-	// changed schema but forgot to update the version number" instead of
-	// quietly losing conversations.
-	version = 24,
+	// selection, again for continuous-session maintenance, again for
+	// role-play cards and scenes, and again for the per-conversation URL
+	// download acknowledgement. Room refuses to open a database whose schema
+	// hash does not match rather than guessing, which is how each was caught:
+	// the app crashed on launch with "Looks like you've changed schema but
+	// forgot to update the version number" instead of quietly losing
+	// conversations.
+	version = 25,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -717,7 +728,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 		const val NAME = "inhuman.db"
 
 		/** Mirrors the Room annotation; backups record it without reflection. */
-		const val VERSION = 24
+		const val VERSION = 25
 
 		/**
 		 * 1 -> 2: tool-call columns.
@@ -1273,7 +1284,28 @@ abstract class InhumanDatabase : RoomDatabase() {
 		}
 
 		/**
-		 * 23 -> 24: the per-conversation URL download acknowledgement.
+		 * 23 -> 24: role-play cards and scenes.
+		 *
+		 * Two additive text columns with empty defaults: no existing assistant
+		 * becomes a character and no existing conversation becomes a scene, so
+		 * an upgrade changes nothing until the user edits an assistant or
+		 * starts a scene. Both values are prompt content only -- no capability
+		 * check reads them -- and a malformed value decodes as "not role-play"
+		 * rather than blocking the row.
+		 */
+		val MIGRATION_23_24 = object : Migration(23, 24) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"ALTER TABLE agents ADD COLUMN rpJson TEXT NOT NULL DEFAULT ''",
+				)
+				connection.execSQL(
+					"ALTER TABLE conversations ADD COLUMN sceneJson TEXT NOT NULL DEFAULT ''",
+				)
+			}
+		}
+
+		/**
+		 * 24 -> 25: the per-conversation URL download acknowledgement.
 		 *
 		 * Additive and defaulted, so an upgrade starts with URL downloads
 		 * unallowed. That is the only safe meaning for a consent flag, and it
@@ -1281,7 +1313,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 		 * behaves exactly as it did until the user enables the capability and
 		 * then consents in a conversation.
 		 */
-		val MIGRATION_23_24 = object : Migration(23, 24) {
+		val MIGRATION_24_25 = object : Migration(24, 25) {
 			override fun migrate(connection: SQLiteConnection) {
 				connection.execSQL(
 					"ALTER TABLE conversations ADD COLUMN downloadAllowed INTEGER NOT NULL DEFAULT 0",
@@ -1321,6 +1353,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 			MIGRATION_21_22,
 			MIGRATION_22_23,
 			MIGRATION_23_24,
+			MIGRATION_24_25,
 		)
 
 		/**

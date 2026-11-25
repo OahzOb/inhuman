@@ -175,7 +175,30 @@ data class ChatRequest(
 	val model: String,
 	val messages: List<ChatMessage>,
 	val tools: List<ToolSpec> = emptyList(),
+	/**
+	 * Sampling temperature for this request, or null for the provider/model
+	 * default.
+	 *
+	 * Per-request rather than a provider or app setting: a role-play card can
+	 * ask for a different voice on its own turn while every other conversation
+	 * keeps the model's default, so no process-wide value can express it. Null
+	 * must stay null on the wire -- sending 0.0 would pin the model to greedy
+	 * decoding instead of leaving the provider's default alone.
+	 */
 	val temperature: Double? = null,
+	/**
+	 * Nucleus sampling cutoff for this request, or null for the default.
+	 *
+	 * Nullable for the same reason as [temperature]: most turns pass no
+	 * override, and an omitted field is the only way to say "provider default".
+	 *
+	 * The spelling differs per wire protocol -- `top_p` for the
+	 * OpenAI-compatible and Responses adapters, `topP` inside Gemini's
+	 * `generationConfig` -- so [ChatRequest] keeps the neutral Kotlin name and
+	 * each adapter owns its own mapping.
+	 */
+	val topP: Double? = null,
+	/** Output-token ceiling for this request, or null for the adapter default. */
 	val maxTokens: Int? = null,
 	/**
 	 * Whether to ask the model to think before answering.

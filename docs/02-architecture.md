@@ -35,7 +35,12 @@ snapshots, compaction or consent; the host injects those through the hook. Every
 Android provider turn uses it, SSH included. `ChatViewModel.gateEngineCall` is
 where the Android app applies the SSH capability grant, the approval rules, the
 start checkpoint and argument normalisation. A missing provider or model is
-refused before the engine starts. There is no second turn loop.
+refused before the engine starts. There is no second turn loop. The module also
+holds the two pure, platform-free request-projection pieces: `projection/` (the
+continuous-session planner and token estimator) and `roleplay/` (the character
+card and scene model, their JSON codec and limits, and the renderer that turns
+them into the system-message sections). Both are values-in/text-out so their
+tests need no device, database or network.
 Three things about this graph are deliberate and are commented where they
 are declared:
 

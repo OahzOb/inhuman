@@ -265,6 +265,30 @@ This removes the old permanent stuck state: reaching the context ceiling is
 still possible if a single recent turn is larger than the window, but the older
 history can now be projected down without losing it.
 
+### Role-play scenes
+
+A conversation can be a story. An assistant may carry a **character card** —
+description, personality and voice, default scenario, greeting, example
+dialogue, boundaries, an author note, and optional temperature / top-p /
+reply-token limits — and the home screen's **New role-play scene** flow picks
+such a character and records the scene's world, premise, player persona,
+narration format and notes on the conversation. Nothing here is a new
+capability: the card and the scene are text in the system message, the greeting
+is stored as the character's first assistant message (with a wire-only start
+line so a history never begins with the assistant), and a scene is created with
+an explicit empty tool selection that the conversation tool sheet can change
+later. A character card can stand alone — the assistant prompt is optional.
+
+A scene runs as a continuous session by default, and its rolling brief uses
+story-state sections (story so far, characters and relationships, world
+details, unresolved threads, continuity, player character) instead of the task
+brief. Scenes do not share memory with each other: a card is reusable, a story's
+memory is not. `/ooc` at the start of a line tells the assistant, out of
+character, rather than the character. Multi-character scenes, world books and
+card import are not implemented. Current behaviour and its invariants are in
+[06-agent-loop-ui.md](docs/06-agent-loop-ui.md) and
+[07-gotchas.md](docs/07-gotchas.md) A26.
+
 ---
 
 ## The toolchain, and the four things that will bite you

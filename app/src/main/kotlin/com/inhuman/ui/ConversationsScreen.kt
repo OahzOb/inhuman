@@ -48,6 +48,7 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.TheaterComedy
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -327,6 +328,10 @@ fun ConversationsScreen(
 				showCreateSheet = false
 				bundleImporter.launch(arrayOf("application/zip", "application/x-zip-compressed"))
 			},
+			onNewScene = {
+				showCreateSheet = false
+				viewModel.openSceneDialog()
+			},
 			onDismiss = { showCreateSheet = false },
 			onConversation = { workspaceId ->
 				showCreateSheet = false
@@ -545,6 +550,22 @@ fun ConversationsScreen(
 			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 	}
+
+	// The new role-play scene form.
+	//
+	// Start creates the conversation and hands back its id through the same
+	// `onCreated` callback the ordinary creation path uses, so a scene opens
+	// through the one existing navigation path rather than a second one. The
+	// dialog is driven entirely by the view model's draft: that is what lets a
+	// failed create stay on screen with the text intact.
+	state.sceneDialog?.let { draft ->
+		NewSceneDialog(
+			draft = draft,
+			onDraftChange = viewModel::updateScene,
+			onStart = { viewModel.startScene(onOpenConversation) },
+			onDismiss = viewModel::cancelScene,
+		)
+	}
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -556,6 +577,7 @@ private fun CreateSheet(
 	onImportBundle: () -> Unit,
 	onDismiss: () -> Unit,
 	onConversation: (String?) -> Unit,
+	onNewScene: () -> Unit,
 	onNewWorkspace: () -> Unit,
 ) {
 	val sheetState = androidx.compose.material3.rememberModalBottomSheetState(
@@ -576,7 +598,7 @@ private fun CreateSheet(
 				.fillMaxWidth()
 				.padding(horizontal = 24.dp)
 				.padding(bottom = 24.dp)
-				// The sheet now has four choices plus the continuous-session
+				// The sheet now has five choices plus the continuous-session
 				// disclosure. On a 360x640 phone at 1.5x font that can exceed the
 				// sheet's height, so the content scrolls rather than clipping the
 				// last choice.
@@ -645,6 +667,15 @@ private fun CreateSheet(
 					detail = stringResource(R.string.home_create_new_conversation_detail),
 					onClick = { onConversation(null) },
 					leadingIcon = Icons.Filled.Add,
+				)
+				// Beside "New conversation" rather than under a second heading:
+				// both start an empty temporary workspace, and the only
+				// difference is the form that comes before it opens.
+				CreateChoice(
+					title = stringResource(R.string.scene_new),
+					detail = stringResource(R.string.scene_new_detail),
+					onClick = onNewScene,
+					leadingIcon = Icons.Outlined.TheaterComedy,
 				)
 				CreateChoice(
 					title = stringResource(R.string.home_import_bundle),

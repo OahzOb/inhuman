@@ -85,6 +85,17 @@ class DemoProvider(
 			return@flow
 		}
 
+		// A role-play scene. The app puts a fixed marker in the system message
+		// (RoleplayPrompt.SYSTEM_MARKER); keying on it rather than on "no tools"
+		// matters, because a continuous scene always carries `recall` and
+		// `unavailable_tools`, so the tool set is never empty. Returning before
+		// the file script also keeps a scene with file tools from writing files
+		// while it is supposed to be telling a story.
+		if (isRoleplayRequest(request)) {
+			emitRoleplay()
+			return@flow
+		}
+
 		val calls = scriptedCalls(request, offered)
 		// After the answer, and only then: a turn that is still calling file
 		// tools is not finished, and a suggestion call in that round would make
@@ -150,6 +161,51 @@ class DemoProvider(
 				// word next to the reply.
 				reason = if (emitted.isEmpty()) FinishReason.Stop else FinishReason.ToolCalls,
 				responseId = "demo-${System.currentTimeMillis()}",
+				model = "demo-model",
+			),
+		)
+	}
+
+	/**
+	 * Whether the app's request is a role-play scene.
+	 *
+	 * The marker is a contract between two strings in this repository, like
+	 * [SUGGESTION_QUESTION_PREFIX]: `RoleplayPrompt` writes it into the system
+	 * message and `:core:ai` cannot see app code, so the constant is duplicated
+	 * here. It is a fixed label, not anything a card or a user writes, so a
+	 * scene cannot accidentally trigger it and ordinary chats cannot either.
+	 */
+	private fun isRoleplayRequest(request: ChatRequest): Boolean =
+		request.messages.firstOrNull { it.role == Role.System }
+			?.content?.contains(ROLEPLAY_MARKER) == true
+
+	/**
+	 * The scripted scene answer.
+	 *
+	 * No reasoning block and no tool calls: a conversation in demo mode should
+	 * show the streaming renderer and the role-play projection, not another
+	 * copy of the file-tool script. The last line stays honest about what it
+	 * is -- a demo that pretended to be a model would be the same class of lie
+	 * as a comment that contradicts its code.
+	 */
+	private suspend fun FlowCollector<StreamChunk>.emitRoleplay() {
+		emit(StreamChunk.TextStart())
+		for (piece in ROLEPLAY_ANSWER.split(" ")) {
+			emit(StreamChunk.TextDelta("$piece "))
+			delay(chunkDelayMillis)
+		}
+		emit(StreamChunk.TextEnd())
+		emit(
+			StreamChunk.Usage(
+				promptTokens = 96,
+				completionTokens = ROLEPLAY_ANSWER.length / 4,
+				totalTokens = 96 + ROLEPLAY_ANSWER.length / 4,
+			),
+		)
+		emit(
+			StreamChunk.Finish(
+				reason = FinishReason.Stop,
+				responseId = "demo-roleplay-${System.currentTimeMillis()}",
 				model = "demo-model",
 			),
 		)
@@ -293,6 +349,35 @@ class DemoProvider(
 
 		/** The marker `SuggestRepliesTool` puts in front of the question. */
 		const val SUGGESTION_QUESTION_PREFIX = "[suggest_replies]"
+
+		/**
+		 * The prefix of the app's role-play rules block.
+		 *
+		 * `RoleplayPrompt.SYSTEM_MARKER` is the other half of this contract; it
+		 * lives in `:core:engine` (and therefore cannot be referenced from
+		 * `:core:ai`), so the literal is duplicated. It is a fixed label, not
+		 * text derived from a card, a scene or a user message.
+		 */
+		const val ROLEPLAY_MARKER = "[ROLE-PLAY"
+
+		/**
+		 * The scripted scene reply.
+		 *
+		 * Markdown on purpose, like the other demo answers: the point of the
+		 * offline path is to watch the incremental renderer and the role-play
+		 * projection with no key, and a one-line answer would exercise neither.
+		 * It also ends by naming itself a demo rather than pretending to be a
+		 * model.
+		 */
+		val ROLEPLAY_ANSWER = """
+			*The keeper sets the lamp down and looks up, as if the tide had carried you in.*
+
+			"You are late," she says. The room smells of salt and cold iron. Then, quieter: "Or perhaps the sea is early."
+
+			*She waits, one hand on the rail, for you to answer.*
+
+			(Demo mode: this scene reply is scripted, not a model. Add a model key in settings to talk to a real character.)
+		""".trimIndent()
 
 		val SUGGESTIONS = listOf("Continue", "Explain the demo", "Try another question")
 

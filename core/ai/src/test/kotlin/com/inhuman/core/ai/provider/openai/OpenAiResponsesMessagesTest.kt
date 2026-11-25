@@ -229,4 +229,41 @@ class OpenAiResponsesMessagesTest {
 
 		assertEquals(FinishReason.Unknown, chunks.filterIsInstance<StreamChunk.Finish>().single().reason)
 	}
+
+	@Test
+	fun `sampling parameters are sent only while reasoning is off`() {
+		val plain = OpenAiResponsesWire.requestBody(
+			ChatRequest(
+				model = "gpt-test",
+				messages = listOf(ChatMessage(Role.User, "hi")),
+				temperature = 0.2,
+				topP = 0.9,
+			),
+		)
+		assertEquals("0.2", plain["temperature"]?.toString())
+		// Responses spells it `top_p`, not the Kotlin `topP`.
+		assertEquals("0.9", plain["top_p"]?.toString())
+		assertTrue(plain["topP"] == null)
+
+		val reasoning = OpenAiResponsesWire.requestBody(
+			ChatRequest(
+				model = "gpt-test",
+				messages = listOf(ChatMessage(Role.User, "hi")),
+				thinking = true,
+				temperature = 0.2,
+				topP = 0.9,
+			),
+		)
+		assertTrue("reasoning must be enabled", reasoning["reasoning"] != null)
+		// A reasoning request rejects sampling parameters, so both are absent
+		// rather than sent and ignored.
+		assertTrue("reasoning rejects temperature", reasoning["temperature"] == null)
+		assertTrue("reasoning rejects top_p", reasoning["top_p"] == null)
+
+		val none = OpenAiResponsesWire.requestBody(
+			ChatRequest(model = "gpt-test", messages = listOf(ChatMessage(Role.User, "hi"))),
+		)
+		assertTrue("unset temperature is omitted", none["temperature"] == null)
+		assertTrue("unset top_p is omitted", none["top_p"] == null)
+	}
 }

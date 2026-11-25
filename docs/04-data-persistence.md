@@ -20,10 +20,10 @@ The app installs `InhumanDatabase.MIGRATIONS` and
 `Context` builder. The callback seeds the DeepSeek provider and the default
 assistant on create, so an install does not start from an empty schema.
 
-## The schema, version 24
+## The schema, version 25
 
 `InhumanDatabase` (`core/db/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 24`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 25`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/db/schemas/` by KSP — configured in `core/db/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
@@ -126,6 +126,43 @@ Three changes that make a continuous session auditable without moving the record
 The brief stays in `context_summaries` (one row per conversation, overwritten);
 the cost ledger is append-only. `ContextSummaryEntity.kind` is `manual` for the
 classic compaction path, so the old behaviour and its UI are unchanged.
+
+### `agents.rpJson` and `conversations.sceneJson` — added in 23→24
+
+Two additive text columns with an empty default. Empty means "not role-play":
+an upgraded assistant stays a plain assistant and an upgraded conversation
+stays an ordinary conversation, so nothing changes until the user edits an
+assistant or starts a scene.
+
+- **`agents.rpJson`** holds the character card as JSON: description,
+  personality/voice, default scenario, greeting, example dialogue, boundaries,
+  author note, and optional `temperature` / `topP` / `maxTokens`. It lives on
+  the assistant because an assistant is already "persona + model + tools +
+  approvals", and a card is that row with character content attached; a second
+  table would immediately raise which row owns the model. The name is the
+  assistant's, not a card field. `RoleplayCodec` decodes it; a blank or
+  malformed value reads as "no card" rather than breaking the assistant, and
+  `""` is the value that turns the feature off. The fields are capped (16 KiB
+  total, per-field limits) because the card is prepended to every request in
+  every scene using it; the editor refuses an over-limit card instead of
+  truncating it.
+- **`conversations.sceneJson`** holds the scene: world, premise, user persona,
+  narration format and notes. It belongs to one conversation because the same
+  character can be dropped into unrelated stories. Like the card it is prompt
+  content, not capability: no tool, approval, SSH or workspace check reads it,
+  and a malformed value reads as "no scene".
+- **The greeting is a message, not a column.** `ConversationRepository.create`
+  accepts a `greeting` and writes it as the only root **assistant** message in
+  the same transaction as the conversation, so the transcript says who spoke.
+  A history that would start with an assistant turn is made legal on the wire
+  by `RoleplayPrompt.KICKOFF`, never by faking a user row.
+- **Scene creation passes `tools = emptyList()`**, which stores `"[]"` (a real
+  "no tools" selection). `""` would mean every tool, and `null` would copy the
+  assistant's set; both are wrong for a scene default. The conversation tool
+  sheet remains the only post-creation writer.
+- **Editing a scene does not bump `conversations.updatedAt`**, for the same
+  reason as the tool or session-mode setters: setting is configuration, not new
+  conversation activity.
 
 ### `saved_prompts` — added in 15→16
 
@@ -249,7 +286,7 @@ The lifetime rule is in the row, not the directory:
 | `createdAt`, `updatedAt`, `pinned` | Ordering and list state. |
 | `sshAllowed` | The conversation-level SSH acknowledgement, default `0`. Added in 8→9. Per conversation, not per assistant: consenting in one thread must not grant another thread the same capability. Room stores no credential; the address book lives in `SecureStore`, and this column is the conversation's acknowledgement that the agent may open SSH connections at all. |
 | `sshHostsJson` | The ids of the saved hosts this conversation is told about by `ssh_hosts`, `[]`/empty meaning none. Added in 21→22. Only the chat's host sheet writes it; a change applies to the next turn and does **not** touch `sshAllowed` — the list is information, not a capability, and no tool resolves it into a connection. Unlike `toolsJson` there is no "all" state: an entry added in Settings must not silently appear in an existing conversation. |
-| `downloadAllowed` | The conversation-level URL-download acknowledgement, default `0`. Added in 23→24. Defaulted off is the only safe meaning for a consent flag: an upgraded conversation starts with no grant. Persisted by the first `download_url` consent dialogue and cleared by the chat menu or by turning the global switch off; Room stores no URL or credential. |
+| `downloadAllowed` | The conversation-level URL-download acknowledgement, default `0`. Added in 24→25. Defaulted off is the only safe meaning for a consent flag: an upgraded conversation starts with no grant. Persisted by the first `download_url` consent dialogue and cleared by the chat menu or by turning the global switch off; Room stores no URL or credential. |
 
 ### `messages` (`Entities.kt:207-319`)
 
@@ -428,7 +465,8 @@ order below.
 | 20→21 | `conversations` gains nullable `workspaceInstructions TEXT`: the rendered `AGENTS.md` block pinned on the conversation's first request. Null means unpinned and the first turn pins the file (or `""` if there is none); an upgraded row is unpinned by construction. The column is configuration, not a message, so it is not in the Markdown export but is in the encrypted database backup. |
 | 21→22 | `conversations` gains `sshHostsJson TEXT NOT NULL DEFAULT ''`: the ids of the saved SSH hosts this conversation may use. Empty is the safe default — an upgraded conversation has no host selected, so its SSH tools stay unregistered until the user picks one. The earlier single saved host is *not* inferred as a grant to any conversation; it is converted into the host list in `SecureStore` on first read. |
 | 22→23 | `conversations` gains `sessionMode TEXT NOT NULL DEFAULT 'classic'`; `context_summaries` gains `kind TEXT NOT NULL DEFAULT 'manual'`, nullable `coveredTurns`/`coveredMessages`/`summaryTokens` and `truncated INTEGER NOT NULL DEFAULT 0`; `maintenance_runs` is created empty with a cascade and `(conversationId, at)` index. Every upgraded conversation is classic and every upgraded summary is manual with unknown coverage — the feature is opt-in per conversation, and an upgrade must not start spending. |
-| 23→24 | `conversations` gains `downloadAllowed INTEGER NOT NULL DEFAULT 0`: the per-conversation URL-download acknowledgement. Additive and defaulted off, so an upgraded install behaves exactly as before until the user switches the capability on globally, selects it on an assistant, and consents in a conversation. |
+| 23→24 | `agents` gains `rpJson TEXT NOT NULL DEFAULT ''` and `conversations` gains `sceneJson TEXT NOT NULL DEFAULT ''`: the role-play character card and the scene. Empty is "not role-play", so an upgraded assistant stays a plain assistant and an upgraded conversation stays an ordinary one; both values are prompt content only (no capability check reads them), and a malformed value decodes as "not role-play" rather than blocking the row. |
+| 24→25 | `conversations` gains `downloadAllowed INTEGER NOT NULL DEFAULT 0`: the per-conversation URL-download acknowledgement. Additive and defaulted off, so an upgraded install behaves exactly as before until the user switches the capability on globally, selects it on an assistant, and consents in a conversation. |
 
 The 7→8 comment records a product change that is *not* in the migration:
 deletion no longer asks for approval, and that lives in `DeleteFileTool`, not
@@ -785,7 +823,8 @@ The JVM and device files below:
 | `MigrationTest` (device) | Every migration it has DDL for, through 12→13, including the temporary workspace row, the dropped unique index, and the canary message surviving. |
 | `CurrentSchemaMigrationTest` | A v12 database opens through the production migration list to the current version, and the newest columns/definitions are readable. |
 | `ContinuousSessionMigrationTest` | `MIGRATION_22_23` directly: an old conversation reads classic, an old summary is manual with unknown coverage, and `maintenance_runs` exists with its index. |
-| `ConversationRepositoryTest` | Conversation creation copies settings; `sessionMode` defaults to classic and round-trips; brief coverage fields persist; maintenance runs are newest-first, survive a rewind and die with the conversation. |
+| `RoleplayMigrationTest` | `MIGRATION_23_24` directly: an old assistant's `rpJson` and an old conversation's `sceneJson` both read as empty, which is the "not role-play" state. |
+| `ConversationRepositoryTest` | Conversation creation copies settings; `sessionMode` defaults to classic and round-trips; a scene is created with an explicit empty tool selection, its `sceneJson`, and its greeting as the only root assistant row (a blank greeting writes no row); brief coverage fields persist; maintenance runs are newest-first, survive a rewind and die with the conversation. |
 | `WorkspaceLifecycleTest` (device) | A temporary workspace dies with its conversation; a permanent one survives and can hold two; promotion changes the row without moving the directory. |
 | `ConversationLookupTest` (device) | The `id` / `workspaceId` distinction the documents provider depends on. |
 | `WorkspaceDocumentsProviderTest` (device) | A re-queried workspace folder keeps its display name, and delete/rename of the workspace root are refused. |

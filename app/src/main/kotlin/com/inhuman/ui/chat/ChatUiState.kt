@@ -5,6 +5,7 @@ import com.inhuman.core.data.SnapshotStats
 import com.inhuman.core.data.SnapshotTurn
 import com.inhuman.core.data.WorkspaceChange
 import com.inhuman.core.data.db.SessionMode
+import com.inhuman.core.engine.roleplay.RoleplayScene
 import com.inhuman.ui.ssh.SshHostSummary
 
 /**
@@ -301,6 +302,21 @@ data class ChatUiState(
 	val isMaintaining: Boolean = false,
 	/** True while a send is waiting for a forced fold to make room. */
 	val maintenancePreparing: Boolean = false,
+	/**
+	 * Whether this conversation's assistant has a role-play character card.
+	 *
+	 * Only decides whether the chat menu offers scene settings; the card
+	 * itself is read by the request builder, never by the screen.
+	 */
+	val roleplayCharacter: Boolean = false,
+	/**
+	 * The conversation's scene, or null when it has none.
+	 *
+	 * Parsed for the scene dialog. The request builder reads the row through
+	 * the same codec, so the dialog and the wire cannot disagree about what a
+	 * scene says.
+	 */
+	val roleplayScene: RoleplayScene? = null,
 ) {
 	/** What the error banner should offer, derived from [error]. */
 	val errorAction: ChatErrorAction? get() = chatErrorAction(error)

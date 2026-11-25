@@ -1,8 +1,10 @@
 # 角色扮演（RP）— 设计提案
 
-> **状态：提案，未实现。** 本文描述建议的设计，不是当前行为。实现后，结论应并入
-> `docs/06-agent-loop-ui.md`、`docs/04-data-persistence.md`、`docs/13-product.md`
-> 和 `docs/07-gotchas.md`；在那之前，不要按本文判断代码会做什么。
+> **状态：已实现（2026-11-25，Phase 1）。** 单角色、单会话形态已落地：schema v24
+> 的两列、角色卡编辑器、新建场景流程、开场白与 wire 起始行、分层投影、采样参数、
+> 故事状态简报模板和离线 demo 脚本。**未实现**：世界书/场景记忆（Phase 2）、多角色
+> （Phase 3）、JSON/PNG 卡导入、把卡或场景写进对话包。当前行为以正式文档
+> （`04` / `06` / `07` / `13`）为准，本文保留为设计与决定记录。
 >
 > 词汇：**角色卡**（character card）是一个助手背后的人设数据；**场景**（scene）是一段
 > RP 对话及其设定；**投影**（projection）是这一次请求实际发给模型的 system + messages。
@@ -383,6 +385,43 @@ Phase 1 的投影稳定，否则多角色的上下文形状会返工。
 7. **验收**：先在哪台设备、哪个 provider 上试跑？要不要我先写 3 张卡而不是先写代码？
 
 > 这几个问题答完，我把 §4/§5/§11 改成定稿再开工；没有答完之前不建议动 schema。
+
+---
+
+## 16. 决定记录（2026-11-25）
+
+1. **不做个人助理（`continuous-session.md` §16.1 里的 B），本轮只做 RP。** RP 与个人助理
+   在投影层是同一个机制，但个人助理的跨对话记忆是另一套作用域和写入规则；用户决定不做。
+2. **形态：单角色、单会话。** 一次请求只有一个说话者；同一张角色卡可以开多段互不相干的
+   场景，但场景之间不共享记忆。GM（一个模型扮演所有 NPC、做旁白）不需要单独实现：它就是
+   一张写着 GM 规则的单角色卡。多角色（§7）不在本轮，`messages.speakerId` 与每回合 N 次
+   调用都不做。
+3. **迁移是 v23 → v24**（原文 §4.1 写的 v22 → v23 已过时；持续会话占了 23）。
+   `agents.rpJson` + `conversations.sceneJson`，两列都是 `TEXT NOT NULL DEFAULT ''`，
+   空串表示不是角色卡/场景。
+4. **Phase 1 范围**：角色卡（§4.2 最小集 + 采样参数）、场景字段、开场白落成 assistant
+   记录、新建场景流程（工具默认 `[]`，标题用角色名）、system 投影（规则 → 卡 → 场景 →
+   持续指令 → 简报 → `AGENTS.md`）、每回合 `temperature`/`topP`/`maxTokens` 贯通到
+   DeepSeek/OpenAI 兼容、Anthropic、Gemini、Responses、RP 场景的故事状态简报模板、
+   DemoProvider 的离线场景脚本、`/ooc` 约定。
+5. **不做**：世界书（Phase 2）、多角色、PNG 卡导入、SillyTavern JSON 导入（表单先做对，
+   导入是后续小步）、自动上下文压缩之外的新记忆机制、RP 专用的全局开关或权限档。
+6. **持续会话是默认载体**。新对话默认持续会话，所以场景也自动维护简报；为此简报提示词
+   按「有没有角色卡」选故事状态模板。经典模式下场景照常工作，只是简报用通用模板。
+7. **开场白的 wired 处理**：开场白落库为 assistant 记录（这是角色真的说过的话）；请求
+   以 assistant 开头时，投影在 wire 上加一条**不落库**的起始 user 指令
+   （`RoleplayPrompt.KICKOFF`），不伪造用户消息。
+8. **工具**：建场景时写入显式的「无工具」（`ToolsColumn.NONE`，即 `"[]"`），不是空白、
+   也不是锁死。用户仍可在会话工具清单里改，从下一回合生效；持续会话自带的只读 `recall`
+   与能力缺口工具仍会出现，它们是记忆基础设施，不是场景选中的能力。
+9. **实现落点（2026-11-25）**：`core/engine/.../roleplay/`（`RoleplayCard`/`RoleplayScene`、
+   `RoleplayCodec`、`RoleplayLimits`、`RoleplayPrompt` 与单测）；`agents.rpJson` /
+   `conversations.sceneJson`（v23→v24）与 `ConversationRepository.create` 的
+   `tools`/`sceneJson`/`greeting` 参数；`RoleplayCardEditor`、`NewSceneDialog`、
+   `SceneSettingsDialog`；`ChatViewModel` 的投影、起始行、采样透传、故事简报选择与
+   `setScene`；`DemoProvider` 的场景脚本。开场白带 `finishReason = "stop"`，否则一个只有
+   开场白的场景会被 `isInterruptedTurn` 判成中断并显示「继续」——这是设备验证时抓到的
+   真实缺陷。角色卡可以在助手系统提示词为空时单独保存（`AgentDraft.canSave`）。
 
 ---
 

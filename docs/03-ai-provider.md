@@ -203,17 +203,37 @@ not re-serialised from a parsed object (`ChatTypes.kt:23-27`). Re-serialising
 would change key order and whitespace, and the transcript is compared against
 what the provider produced.
 
-### `ChatRequest` has no `maxTokens` or `temperature` set by the app today
+### Sampling parameters are per request, and most turns send none
 
-`ChatRequest.maxTokens` exists and is forwarded when non-null
-(`DeepSeekRequest.kt:38`), and `ChatRequest.temperature` the same way
-(`DeepSeekRequest.kt:37`), but the app never sets either — grep the tree: the
-only assignments of `temperature`/`maxTokens` on a `ChatRequest` are the
-defaulted constructor parameters themselves. That is half of why a
-conversation that reaches the context ceiling gets stuck
-(`README.md:81-88`). `userId` **is** set per conversation: DeepSeek uses it for
-KV-cache isolation and content-safety scoping, so one conversation's cache is
-not shared with another (`ChatTypes.kt:152-159`).
+`ChatRequest` carries optional `temperature`, `topP` and `maxTokens`; null means
+"provider default", never a zero, so an assistant that has not chosen anything
+sends none and the provider's own defaults apply. Three places set them:
+
+- **Auxiliary requests.** The session-brief summarizer and `read_pdf_vision` set
+  `maxTokens` only (the 16,384 headroom is deliberate: a model that thinks first
+  can spend a small output budget on reasoning and then write nothing);
+  `suggest_replies` sets `maxTokens = 300` and `thinking = false`.
+- **A role-play turn.** A character card may pin `temperature`, `topP` and the
+  reply-token ceiling. They travel `EngineTurn` → `ChatRequest` unchanged, and
+  the per-round retry re-sends the same request object, so a retried round cannot
+  change sampling.
+- **Nothing else.** A plain conversation turn still sends none, so its request
+  shape is exactly the pre-role-play one.
+
+Wire names differ per adapter: `temperature`/`top_p`/`max_tokens` in the
+OpenAI-compatible and DeepSeek bodies; `top_p` in Responses, written only in the
+same branch as `temperature` (both are omitted while reasoning is enabled);
+`top_p` in Anthropic, written only while thinking is off **and** only when
+`temperature` is null (Anthropic wants one of the two, and the temperature
+suppression while thinking is documented at the adapter); and `topP` inside
+Gemini's `generationConfig`. Each adapter owns its own mapping, so a new field
+added to `ChatRequest` is silently absent from any adapter not edited; that is
+why the builders are tested individually. There is no `stop` parameter: the APIs
+disagree on its shape and the app does not send one.
+
+`userId` **is** set per conversation: DeepSeek uses it for KV-cache isolation and
+content-safety scoping, so one conversation's cache is not shared with another
+(`ChatTypes.kt:152-159`).
 
 ### Cache is a prefix, and the request shape is part of it
 

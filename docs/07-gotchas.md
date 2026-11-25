@@ -360,6 +360,37 @@ Five rules keep the automatic projection from becoming a second transcript:
   keeps the credential. Web-tool keys are cleared together because one section
   with one Save would otherwise keep half of a deleted credential.
 
+### A26. Role-play content is content, not capability
+
+- **A card and a scene are prompt text and nothing else.** They live in
+  `agents.rpJson` and `conversations.sceneJson`, are rendered by
+  `RoleplayPrompt`, and no tool registry, approval rule, SSH check or workspace
+  path reads them. Editing or importing one cannot add a tool or widen the
+  fence; the rules block tells the model that, but the boundary is that the code
+  never consults the text.
+- **The greeting is a real assistant row; the start line is wire-only.** A scene
+  opens with the character's greeting stored as the only root message, so the
+  transcript says who spoke. When the request's first sent turn would be that
+  assistant row, `buildWireHistory` prepends `RoleplayPrompt.KICKOFF` as a user
+  message; it is never persisted. Faking a user row instead would put words in
+  the user's mouth and show up in search, export and Rewind.
+- **A scene is created with `ToolsColumn.NONE` (`"[]"`), not `""`.** `""` means
+  every tool including future ones, which is the opposite of the scene default;
+  `null` would copy the assistant's set. The conversation tool sheet remains the
+  only post-creation writer.
+- **Scenes get the story-state brief.** `summarizeBrief` chooses
+  `RoleplayPrompt.STORY_BRIEF_PROMPT` when the assistant has a card, so a story
+  is not summarized under "Decisions & constraints / Files & artifacts". The
+  brief is still derived, capped and rebuildable; classic-mode scenes use the
+  manual summary.
+- **A scene keeps its own title.** `send` skips auto-titling when the
+  conversation has a scene value; otherwise the first player line ("I walk into
+  the tavern") would rename the scene.
+- **No cross-scene memory.** Each scene has its own transcript, workspace and
+  brief. A card is reusable, but nothing learned in one scene is injected into
+  another; that would be the personal-assistant feature the project has not
+  built.
+
 ### A27. URL downloads are one shared rule and one capability grant
 
 - **One validator, two callers.** `DownloadUrl` (`core/ai/.../tools/`) owns the

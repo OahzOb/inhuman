@@ -205,4 +205,29 @@ class DemoProviderTest {
 	fun `a request with no user message answers nothing`() = runTest {
 		assertTrue(callsIn(request(messages = emptyList())).isEmpty())
 	}
+
+	@Test
+	fun `a role-play scene gets the scene script and no file calls`() = runTest {
+		// A continuous scene always carries recall and unavailable_tools, so
+		// "no tools offered" cannot be the trigger. The system marker is what
+		// separates a story from a work turn, and file tools must not fire
+		// while the script is telling one.
+		val scene = request(
+			tools = listOf("write_file", "delete_file", "recall"),
+			messages = listOf(
+				ChatMessage(Role.System, "[ROLE-PLAY RULES]\nStay in character as Aster."),
+				ChatMessage(Role.User, "I step out of the rain."),
+			),
+		)
+
+		val chunks = noDelay.stream(scene).toList()
+		val text = chunks.filterIsInstance<StreamChunk.TextDelta>().joinToString("") { it.text }
+		assertTrue(text.contains("You are late"))
+		assertTrue("the script names itself a demo", text.contains("Demo mode"))
+		assertTrue(callsIn(scene).isEmpty())
+		assertEquals(
+			FinishReason.Stop,
+			chunks.filterIsInstance<StreamChunk.Finish>().single().reason,
+		)
+	}
 }

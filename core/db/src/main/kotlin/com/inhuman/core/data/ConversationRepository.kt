@@ -477,6 +477,17 @@ class ConversationRepository(
 	suspend fun setSessionMode(id: String, mode: String) =
 		db.conversations().setSessionMode(id, SessionMode.parse(mode))
 
+	/**
+	 * Replace this conversation's role-play scene.
+	 *
+	 * Empty removes the scene. The value is prompt content: it cannot add a
+	 * tool, change an approval or widen the workspace, and no capability check
+	 * reads it. Only the user writes it (the scene dialog); a tool result or a
+	 * message cannot.
+	 */
+	suspend fun setSceneJson(id: String, sceneJson: String) =
+		db.conversations().setSceneJson(id, sceneJson)
+
 	suspend fun setSshAllowed(id: String, allowed: Boolean) =
 		db.conversations().setSshAllowed(id, allowed)
 
@@ -529,12 +540,28 @@ class ConversationRepository(
 	 * [SessionMode.parse]. The safe direction matters: a caller that forgets to
 	 * pass the user's choice gets a conversation that does no automatic
 	 * maintenance, rather than one that starts spending on its own.
+	 *
+	 * [tools] is an explicit override for the copy made from the assistant: a
+	 * role-play scene is created with [ToolsColumn.NONE] ("[]", a real empty
+	 * selection) while `null` keeps the assistant's set. The distinction with
+	 * `""` matters here -- `""` means every tool, including ones added later,
+	 * which is the opposite of what a scene wants.
+	 *
+	 * [sceneJson] is the conversation's role-play scene; empty means an ordinary
+	 * conversation. [greeting] is the character's first line, written as the
+	 * only root assistant message in the same transaction as the conversation.
+	 * It is the character actually speaking, not a faked user message: some
+	 * providers reject a history that starts with an assistant turn, and that is
+	 * handled on the wire by `RoleplayPrompt.KICKOFF`, never in the record.
 	 */
 	suspend fun create(
 		title: String = "New conversation",
 		agent: com.inhuman.core.data.db.AgentEntity? = null,
 		workspaceId: String? = null,
 		sessionMode: String = SessionMode.CLASSIC,
+		tools: List<String>? = null,
+		sceneJson: String = "",
+		greeting: String? = null,
 	): ConversationEntity {
 		val now = System.currentTimeMillis()
 		val conversationId = UUID.randomUUID().toString()
@@ -575,13 +602,40 @@ class ConversationRepository(
 			// Copied, not read through the assistant later: editing an
 			// assistant's tools must not change what a conversation already
 			// held is able to do.
-			toolsJson = ToolsColumn.encode(agent?.tools),
+			toolsJson = ToolsColumn.encode(tools ?: agent?.tools),
+			// Role-play data only tells the model about the story; it is not a
+			// capability and no tool or approval reads it.
+			sceneJson = sceneJson,
 			sessionMode = SessionMode.parse(sessionMode),
 			createdAt = now,
 			updatedAt = now,
 		)
+		val firstMessage = greeting?.trim()?.takeIf { it.isNotEmpty() }?.let { text ->
+			// The character's opening line is a real assistant row, not a
+			// faked user message: the transcript must say who spoke. A history
+			// that starts with an assistant turn is made legal on the wire by
+			// the projection, not by inventing a user line here.
+			MessageEntity(
+				id = UUID.randomUUID().toString(),
+				conversationId = conversationId,
+				parentId = null,
+				role = "assistant",
+				content = text,
+				model = agent?.model,
+				// A greeting is a finished assistant turn, not a partial one.
+				// Without this the row's null finishReason makes
+				// `isInterruptedTurn` offer **Continue** on a scene that has
+				// only just opened -- a control that exists for a killed turn.
+				finishReason = "stop",
+				createdAt = now,
+			)
+		}
 		paths.workspaceDir(resolvedWorkspace).mkdirs()
-		db.conversations().upsert(conversation)
+		// One transaction for the row and its opening line: a scene that
+		// exists without the greeting it was created with would open with the
+		// user talking to nobody, and a retry would have to guess whether to
+		// write it again.
+		store.createConversation(conversation, firstMessage)
 		return conversation
 	}
 

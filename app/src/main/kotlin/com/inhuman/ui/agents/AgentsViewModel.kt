@@ -13,6 +13,8 @@ import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.SavedPromptEntity
 import com.inhuman.core.data.db.ToolsColumn
 import com.inhuman.core.data.secret.SecureStore
+import com.inhuman.core.engine.roleplay.RoleplayCard
+import com.inhuman.core.engine.roleplay.RoleplayCodec
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,6 +57,16 @@ data class AgentDraft(
 	val isDefault: Boolean,
 	val name: String,
 	val systemPrompt: String,
+	/**
+	 * The role-play character card, or a blank one for a plain assistant.
+	 *
+	 * Carried in the draft rather than read from the entity when saving, because
+	 * the editor changes it in its own dialog and Cancel has to discard it. It
+	 * is content, not capability, and [RoleplayCodec] encodes it only in
+	 * [toEntity] -- an empty card becomes `""`, which is what turns role-play
+	 * off for this assistant.
+	 */
+	val card: RoleplayCard = RoleplayCard(),
 	/** Which provider profile the model id belongs to. */
 	val providerId: String = com.inhuman.core.data.db.ProviderIds.DEEPSEEK,
 	val model: String?,
@@ -96,12 +108,22 @@ data class AgentDraft(
 	 */
 	val rules: Map<String, ToolPolicy> = emptyMap(),
 ) {
-	val canSave: Boolean get() = name.isNotBlank() && systemPrompt.isNotBlank()
+	/**
+	 * A card-only character is legal.
+	 *
+	 * The card defines who the model is, and the assistant prompt is what to do
+	 * in every request; a role-play assistant may legitimately carry no prompt
+	 * at all. Requiring both made Save disabled with no way to explain that the
+	 * card would have been enough.
+	 */
+	val canSave: Boolean
+		get() = name.isNotBlank() && (systemPrompt.isNotBlank() || !card.isBlank)
 
 	fun toEntity(now: Long) = AgentEntity(
 		id = id,
 		name = name.trim(),
 		systemPrompt = systemPrompt.trim(),
+		rpJson = RoleplayCodec.encodeCard(card),
 		providerId = providerId,
 		model = model,
 		reasoningEffort = reasoningEffort,
@@ -249,6 +271,7 @@ class AgentsViewModel(
 					isDefault = agent.isDefault,
 					name = agent.name,
 					systemPrompt = agent.systemPrompt,
+					card = RoleplayCodec.decodeCard(agent.rpJson) ?: RoleplayCard(),
 					providerId = agent.providerId,
 					model = agent.model,
 					reasoningEffort = agent.reasoningEffort,

@@ -651,9 +651,9 @@
 	<string name="agents_system_prompt_hint">Tell the assistant what it is for.</string>
 	<string name="agents_imported">Imported %1$s (%2$d characters).</string>
 	<string name="agents_import_failed">Could not import the file.</string>
-	<string name="agents_missing_both">a name and a system prompt</string>
+	<string name="agents_missing_both">a name, and a system prompt or a role-play card</string>
 	<string name="agents_missing_name">a name</string>
-	<string name="agents_missing_prompt">a system prompt</string>
+	<string name="agents_missing_prompt">a system prompt or a role-play card</string>
 	<string name="agents_add_missing">Add %1$s to save.</string>
 	<string name="agents_prompt_long">%1$d characters. This is sent on every turn and counts against the model\'s context window.</string>
 	<string name="agents_prompt_every_turn">Sent on every turn in this assistant\'s conversations.</string>
@@ -713,6 +713,58 @@
 	<string name="agents_policy_hide">hide</string>
 	<string name="agents_prompt_file_type">Choose a .txt or .md file.</string>
 	<string name="agents_prompt_open_failed">Could not open the file.</string>
+
+	<!-- Role-play: a character card on the assistant and a scene on the conversation.
+	     Both are prompt content, not capability: nothing here can add a tool,
+	     change an approval or widen the workspace. -->
+	<string name="roleplay_card_section">Role-play card</string>
+	<string name="roleplay_card_none">None — a plain assistant.</string>
+	<string name="roleplay_card_set">Set — used by scenes with this character.</string>
+	<string name="roleplay_card_edit">Edit card</string>
+	<string name="roleplay_card_title">Character card</string>
+	<string name="roleplay_card_intro">The card is setting, not capability: it shapes how the character speaks and what a scene knows, and cannot add tools, approvals or remote access. It is sent with every request in a scene using this character, so editing it rebuilds that request prefix on the next turn.</string>
+	<string name="roleplay_hint_placeholders">{{char}} is replaced with the character\'s name; {{user}} is explained to the model.</string>
+	<string name="roleplay_hint_greeting">Written as the character\'s first message when a scene starts. {{char}} becomes the character\'s name.</string>
+	<string name="roleplay_hint_example">Pin the voice with a few lines; the model treats it as a reference, not a script.</string>
+	<string name="roleplay_hint_boundaries">What the character must not do, and what must not be done to the user.</string>
+	<string name="roleplay_hint_sampling">Blank uses the conversation default. These are sent only where the provider accepts them.</string>
+	<string name="roleplay_sampling_range">Allowed: %1$s.</string>
+	<string name="roleplay_card_scene_note">Scene setting is added per conversation; this preview shows the card and its rules only.</string>
+	<string name="roleplay_field_description">Description</string>
+	<string name="roleplay_field_personality">Personality and voice</string>
+	<string name="roleplay_field_scenario">Default scenario</string>
+	<string name="roleplay_field_greeting">Greeting</string>
+	<string name="roleplay_field_example">Example dialogue</string>
+	<string name="roleplay_field_boundaries">Boundaries</string>
+	<string name="roleplay_field_author_note">Author\'s note</string>
+	<string name="roleplay_field_world">World</string>
+	<string name="roleplay_field_premise">Premise</string>
+	<string name="roleplay_field_user_persona">You play</string>
+	<string name="roleplay_field_format">Narration format</string>
+	<string name="roleplay_field_notes">Notes</string>
+	<string name="roleplay_field_card_total">Card total</string>
+	<string name="roleplay_field_scene_total">Scene total</string>
+	<string name="roleplay_limit_over">%1$s: %2$d of %3$d characters.</string>
+	<string name="roleplay_temperature">Temperature</string>
+	<string name="roleplay_top_p">Top-p</string>
+	<string name="roleplay_max_tokens">Max reply tokens</string>
+	<string name="roleplay_save">Save</string>
+	<string name="roleplay_cancel">Cancel</string>
+	<string name="roleplay_remove">Remove</string>
+	<string name="roleplay_remove_confirm">Remove this character card? Scenes already created keep their transcript; from their next turn they stop using the card.</string>
+	<string name="scene_new">New role-play scene</string>
+	<string name="scene_new_detail">Pick a role-play character and set the scene.</string>
+	<string name="scene_title">New role-play scene</string>
+	<string name="scene_pick_character">Character</string>
+	<string name="scene_no_characters">No role-play characters yet. Add a role-play card to an assistant first.</string>
+	<string name="scene_start">Start scene</string>
+	<string name="scene_settings">Scene settings</string>
+	<string name="scene_settings_detail">World, premise, who you play, narration format.</string>
+	<string name="scene_save">Save scene</string>
+	<string name="scene_save_intro">Changes apply from the next turn and rebuild one request prefix.</string>
+	<string name="scene_format_hint">For example: second person, two short paragraphs.</string>
+	<string name="scene_notes_hint">Anything the model should keep in mind for this story.</string>
+	<string name="chat_scene_menu">Scene settings…</string>
 
 
 	<!-- Chat: transcript, composer, welcome and the blocking dialogs. -->

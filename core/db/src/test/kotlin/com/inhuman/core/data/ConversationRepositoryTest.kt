@@ -90,6 +90,49 @@ class ConversationRepositoryTest {
 	}
 
 	@Test
+	fun `a scene starts with no tools a scene value and the greeting stored as its root`() = runBlocking {
+		val sceneJson = """{"world":"The sea does not recede."}"""
+		val conversation = repository.create(
+			title = "Aster",
+			tools = emptyList(),
+			sceneJson = sceneJson,
+			greeting = "  Aster looks up. \"You are late.\"  ",
+		)
+
+		val loaded = repository.conversation(conversation.id)!!
+		// "[]" is an explicit empty selection; "" would mean every tool, which
+		// is the opposite of the scene default.
+		assertEquals("[]", loaded.entity.toolsJson)
+		assertEquals(sceneJson, loaded.entity.sceneJson)
+		// The greeting is the character actually speaking: one assistant root,
+		// no fabricated user row, trimmed. The user's first message becomes its
+		// child when the chat screen sends it.
+		val greeting = loaded.messages.single()
+		assertEquals("assistant", greeting.role)
+		assertNull(greeting.parentId)
+		assertEquals("Aster looks up. \"You are late.\"", greeting.content)
+		// A greeting is a finished turn: a null finish reason reads as an
+		// interrupted one and puts a Continue banner over a fresh scene.
+		assertEquals("stop", greeting.finishReason)
+	}
+
+	@Test
+	fun `an ordinary conversation has no scene and no greeting row`() = runBlocking {
+		val conversation = repository.create(title = "Plain")
+
+		val loaded = repository.conversation(conversation.id)!!
+		assertEquals("", loaded.entity.sceneJson)
+		assertTrue(loaded.messages.isEmpty())
+	}
+
+	@Test
+	fun `a blank greeting is not written as an empty assistant row`() = runBlocking {
+		val conversation = repository.create(title = "Blank", greeting = "   ")
+
+		assertTrue(repository.conversation(conversation.id)!!.messages.isEmpty())
+	}
+
+	@Test
 	fun `deleting a subtree is one transaction on the JVM`() = runBlocking {
 		val conversation = repository.create(title = "Rewind")
 		val user = message("t-user", conversation.id, null, "user", "hello", 1L)

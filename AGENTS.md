@@ -17,7 +17,7 @@ than implementation; the old feasibility studies are archived under
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
 | `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the per-tool media backends (image/video/speech/transcription/decision)**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)**, **`download_url` (app-proxied file download into the workspace)**, and the user-set `SshLimits` ceilings |
-| `docs/04-data-persistence.md` | Room schema v24, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup, and the continuous-session cost ledger |
+| `docs/04-data-persistence.md` | Room schema v25, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup, and the continuous-session cost ledger |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the file and document tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, continuous-session projection and read-only record recall, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
@@ -98,6 +98,17 @@ Two consequences bind every future change, and neither is negotiable:
   only, 64 MiB per file, into the ordinary workspace quota, never overwriting,
   and nothing is executed. Do not add another exception without answering
   `docs/08-port-philosophy.md` §1.2.1, §1.5 and §1.6.
+
+**Role-play is content configuration, not a mode.** A character card
+(`agents.rpJson`) and a scene (`conversations.sceneJson`) are text rendered into
+the system message by `core/engine/.../roleplay/`; they add no tool, approval,
+SSH grant or network path, and nothing in the capability checks reads them. Do
+not turn role-play into a permission level, a global switch or a second turn
+loop: single character and single speaker is the implemented shape, and
+multi-character scenes (several calls per turn, `messages.speakerId`) are a
+separate design that answers `docs/08-port-philosophy.md` Q4. A greeting is a
+real assistant row and the request's wire-only start line must stay wire-only;
+see `docs/07-gotchas.md` A26.
 
 **Safety here comes from structure, not from prompts.** The agent can only see
 and change the workspace the conversation is attached to, and what the user

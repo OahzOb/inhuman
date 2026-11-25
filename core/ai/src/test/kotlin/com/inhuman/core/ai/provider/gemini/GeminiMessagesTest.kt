@@ -8,6 +8,7 @@ import com.inhuman.core.ai.StreamChunk
 import com.inhuman.core.ai.ToolCall
 import com.inhuman.core.ai.ToolSpec
 import com.inhuman.core.ai.stream.SseFrame
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -121,5 +122,40 @@ class GeminiMessagesTest {
 			FinishReason.ToolCalls,
 			chunks.filterIsInstance<StreamChunk.Finish>().single().reason,
 		)
+	}
+
+	@Test
+	fun `sampling parameters join generationConfig next to temperature`() {
+		val body = GeminiWire.requestBody(
+			ChatRequest(
+				model = "gemini-test",
+				messages = listOf(ChatMessage(Role.User, "hi")),
+				temperature = 0.2,
+				topP = 0.9,
+				maxTokens = 512,
+			),
+		)
+
+		val generation = body["generationConfig"]!!.jsonObject
+		assertEquals("0.2", generation["temperature"]?.toString())
+		// Gemini's wire name is camelCase, unlike the OpenAI-compatible
+		// adapters' `top_p`; writing the other spelling is silently ignored.
+		assertEquals("0.9", generation["topP"]?.toString())
+		assertTrue("top_p is not Gemini's spelling", generation["top_p"] == null)
+		assertEquals("512", generation["maxOutputTokens"]?.toString())
+	}
+
+	@Test
+	fun `sampling parameters are omitted when unset`() {
+		val body = GeminiWire.requestBody(
+			ChatRequest(model = "gemini-test", messages = listOf(ChatMessage(Role.User, "hi"))),
+		)
+
+		val generation = body["generationConfig"]!!.jsonObject
+		// An omitted field means "model default"; maxOutputTokens has to stay
+		// present because that is the adapter's documented fallback.
+		assertTrue(generation["temperature"] == null)
+		assertTrue(generation["topP"] == null)
+		assertEquals("4096", generation["maxOutputTokens"]?.toString())
 	}
 }

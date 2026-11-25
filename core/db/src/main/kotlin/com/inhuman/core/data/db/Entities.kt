@@ -123,6 +123,23 @@ data class AgentEntity(
 	 * name is how a prompt ends up doing something nobody intended.
 	 */
 	val systemPrompt: String,
+	/**
+	 * The role-play character card, as JSON, or empty for a plain assistant.
+	 *
+	 * The card is content, not capability: it is rendered into the system
+	 * message and cannot add tools, change approvals or widen the workspace.
+	 * Stored here rather than in a `characters` table because an assistant is
+	 * already "persona + model + tools + approvals", and a character is that
+	 * same row with a card attached; a second table would immediately raise
+	 * "which one owns the model" with no benefit until cards are shared.
+	 *
+	 * Empty is the only default that is safe for an upgraded install: no
+	 * existing assistant suddenly starts acting in character. [com.inhuman.core.engine.roleplay.RoleplayCodec]
+	 * decodes it; a malformed value reads as "no card" rather than breaking the
+	 * assistant.
+	 */
+	@ColumnInfo(defaultValue = "")
+	val rpJson: String = "",
 	/** Which provider profile answers this assistant. */
 	@ColumnInfo(defaultValue = ProviderIds.DEEPSEEK)
 	val providerId: String = ProviderIds.DEEPSEEK,
@@ -402,6 +419,19 @@ data class ConversationEntity(
 	 * then; the chat menu's reload replaces this string deliberately.
 	 */
 	val workspaceInstructions: String? = null,
+
+	/**
+	 * The role-play scene, as JSON, or empty for an ordinary conversation.
+	 *
+	 * The scene is additional setting for one story (world, premise, who the
+	 * user plays, narration format) and belongs to the conversation, not the
+	 * assistant: the same character can be dropped into several unrelated
+	 * stories. A scene only changes what the model is told; it cannot add a
+	 * tool or change an approval, and a scene conversation's tool list is the
+	 * ordinary conversation tool sheet.
+	 */
+	@ColumnInfo(defaultValue = "")
+	val sceneJson: String = "",
 
 	/**
 	 * How this conversation maintains its request projection.

@@ -131,7 +131,11 @@ internal object GeminiWire {
 			}
 			val generation = buildJsonObject {
 				put("maxOutputTokens", request.maxTokens ?: DEFAULT_MAX_TOKENS)
+				// Gemini's wire names are camelCase inside `generationConfig`, so
+				// the Kotlin `topP` maps to `topP` here -- unlike the
+				// OpenAI-compatible adapters, which spell it `top_p`.
 				if (request.temperature != null) put("temperature", request.temperature)
+				if (request.topP != null) put("topP", request.topP)
 			}
 			if (generation.isNotEmpty()) put("generationConfig", generation)
 		}

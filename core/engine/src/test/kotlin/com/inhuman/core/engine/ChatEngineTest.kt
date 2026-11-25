@@ -366,6 +366,69 @@ class ChatEngineTest {
 		assertTrue(sentBack?.providerState?.contains("sealed-state") == true)
 	}
 
+	@Test
+	fun `a turn's sampling values reach the provider request unchanged`() = runBlocking {
+		var seen: ChatRequest? = null
+		val provider = object : ChatProvider {
+			override val id = "capturing"
+			override suspend fun listModels(): List<RemoteModel> = emptyList()
+			override fun stream(request: ChatRequest): Flow<StreamChunk> = flow {
+				seen = request
+				emit(StreamChunk.TextDelta("done"))
+				emit(StreamChunk.Finish(FinishReason.Stop))
+			}
+		}
+
+		val events = ChatEngine(provider).run(
+			EngineTurn(
+				model = "capture",
+				messages = listOf(ChatMessage(Role.User, "hi")),
+				temperature = 0.35,
+				topP = 0.9,
+				maxTokens = 512,
+			),
+		).toList()
+
+		// Both views matter: the host reads the round's request to show a
+		// preview, and the provider receives the one that goes on the wire.
+		val announced = events.filterIsInstance<EngineEvent.RoundStarted>().single().request
+		assertEquals(0.35, announced.temperature)
+		assertEquals(0.9, announced.topP)
+		assertEquals(512, announced.maxTokens)
+
+		assertEquals(0.35, seen?.temperature)
+		assertEquals(0.9, seen?.topP)
+		assertEquals(512, seen?.maxTokens)
+	}
+
+	@Test
+	fun `a turn without sampling values sends none`() = runBlocking {
+		var seen: ChatRequest? = null
+		val provider = object : ChatProvider {
+			override val id = "capturing"
+			override suspend fun listModels(): List<RemoteModel> = emptyList()
+			override fun stream(request: ChatRequest): Flow<StreamChunk> = flow {
+				seen = request
+				emit(StreamChunk.TextDelta("done"))
+				emit(StreamChunk.Finish(FinishReason.Stop))
+			}
+		}
+
+		ChatEngine(provider).run(
+			EngineTurn(
+				model = "capture",
+				messages = listOf(ChatMessage(Role.User, "hi")),
+			),
+		).toList()
+
+		// Null must stay null: an adapter turns null into "omit the field", and
+		// an old turn has to build the same request it built before the fields
+		// existed.
+		assertNull(seen?.temperature)
+		assertNull(seen?.topP)
+		assertNull(seen?.maxTokens)
+	}
+
 	private fun noWaitRetries(maxRetries: Int = RetryPolicy.DEFAULT_MAX_RETRIES) =
 		RetryPolicy(
 			maxRetries = maxRetries,

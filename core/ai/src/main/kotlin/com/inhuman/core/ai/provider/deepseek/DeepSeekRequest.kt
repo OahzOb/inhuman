@@ -41,7 +41,12 @@ internal object DeepSeekRequest {
 			put("stream_options", buildJsonObject { put("include_usage", true) })
 		}
 
+		// Sampling fields are sent only when the caller set them. The model name
+		// is `topP`; the OpenAI-compatible wire name is `top_p` -- writing the
+		// camelCase form here would be silently ignored by the server rather
+		// than rejected.
 		request.temperature?.let { put("temperature", JsonPrimitive(it)) }
+		request.topP?.let { put("top_p", JsonPrimitive(it)) }
 		request.maxTokens?.let { put("max_tokens", JsonPrimitive(it)) }
 		// `user_id` is DeepSeek's cache-isolation field. An arbitrary compatible
 		// server may not know it; only the DeepSeek mode sends it.

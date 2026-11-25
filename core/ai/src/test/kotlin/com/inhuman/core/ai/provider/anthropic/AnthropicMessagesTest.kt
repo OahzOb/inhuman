@@ -222,6 +222,55 @@ class AnthropicMessagesTest {
 	}
 
 	@Test
+	fun `max tokens override replaces the adapter default`() {
+		// The default is 4096 and the API requires the field, so an unset value
+		// has to fall back rather than disappear; a per-turn ceiling must win.
+		val body = AnthropicWire.requestBody(
+			ChatRequest(
+				model = "claude-test",
+				messages = listOf(ChatMessage(Role.User, "hi")),
+				maxTokens = 1234,
+			),
+		)
+
+		assertEquals("1234", body["max_tokens"]?.toString())
+
+		val fallback = AnthropicWire.requestBody(
+			ChatRequest(model = "claude-test", messages = listOf(ChatMessage(Role.User, "hi"))),
+		)
+		assertEquals("4096", fallback["max_tokens"]?.toString())
+		assertTrue("unset temperature is omitted", fallback["temperature"] == null)
+		assertTrue("unset top_p is omitted", fallback["top_p"] == null)
+	}
+
+	@Test
+	fun `top p is sent without thinking and temperature wins when both are set`() {
+		val topPOnly = AnthropicWire.requestBody(
+			ChatRequest(
+				model = "claude-test",
+				messages = listOf(ChatMessage(Role.User, "hi")),
+				topP = 0.9,
+			),
+		)
+		assertEquals("0.9", topPOnly["top_p"]?.toString())
+		assertTrue(topPOnly["temperature"] == null)
+
+		// Anthropic accepts at most one of temperature/top_p. When a turn sets
+		// both, temperature wins and top_p is omitted rather than sent beside
+		// it; two sampling fields on one request is a 400, not an override.
+		val both = AnthropicWire.requestBody(
+			ChatRequest(
+				model = "claude-test",
+				messages = listOf(ChatMessage(Role.User, "hi")),
+				temperature = 0.2,
+				topP = 0.9,
+			),
+		)
+		assertEquals("0.2", both["temperature"]?.toString())
+		assertTrue("temperature and top_p are mutually exclusive", both["top_p"] == null)
+	}
+
+	@Test
 	fun `temperature is omitted while thinking and kept otherwise`() {
 		val thinking = AnthropicWire.requestBody(
 			ChatRequest(
@@ -229,10 +278,12 @@ class AnthropicMessagesTest {
 				messages = listOf(ChatMessage(Role.User, "hi")),
 				thinking = true,
 				temperature = 0.2,
+				topP = 0.9,
 			),
 		)
 		assertTrue(thinking["thinking"] != null)
 		assertTrue("thinking rejects a temperature", thinking["temperature"] == null)
+		assertTrue("thinking rejects top_p as well", thinking["top_p"] == null)
 
 		val plain = AnthropicWire.requestBody(
 			ChatRequest(

@@ -110,8 +110,14 @@ internal object OpenAiResponsesWire {
 				// function call has nothing to replay with store=false.
 				put("include", buildJsonArray { add("reasoning.encrypted_content") })
 			}
-			if (request.temperature != null && reasoning == null) {
-				put("temperature", request.temperature)
+			// Reasoning requests reject sampling parameters, so temperature and
+			// top_p share one branch: with reasoning on, neither is sent. Sending
+			// them alone would be a 400; sending them beside reasoning would be a
+			// parameter the model is not allowed to honour. The wire name is
+			// `top_p`, not Kotlin's `topP`.
+			if (reasoning == null) {
+				request.temperature?.let { put("temperature", it) }
+				request.topP?.let { put("top_p", it) }
 			}
 			request.maxTokens?.let { put("max_output_tokens", it) }
 			if (request.tools.isNotEmpty()) {

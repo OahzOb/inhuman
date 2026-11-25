@@ -200,6 +200,19 @@ Confirmed by `README.md:17-29` and by the code:
   active-branch record, so a lossy brief stays recoverable. The classic context
   ring, manual compaction and `CONTEXT COMPACTED` banner remain for conversations
   still in classic mode ([06-agent-loop-ui.md](06-agent-loop-ui.md)).
+- **Role-play scenes are a conversation type, not a capability.** An assistant
+  can carry a character card — description, personality and voice, default
+  scenario, greeting, example dialogue, boundaries, author note, and optional
+  temperature / top-p / reply-token limit — and the home screen's **New
+  role-play scene** flow picks such a character and records the scene's world,
+  premise, user persona, narration format and notes on the conversation. The card
+  and scene are rendered into the system message after the assistant's own
+  prompt and before the rolling brief; the greeting is stored as the character's
+  first assistant message, and a request whose history would start there gets a
+  wire-only user start line. A scene is created with an explicit empty tool
+  selection (changeable from the conversation tool sheet), and its continuous
+  briefing uses story-state headings rather than the task brief
+  ([06-agent-loop-ui.md](06-agent-loop-ui.md)).
 - A root `AGENTS.md` in the conversation's workspace is pinned on the
   conversation's first request and appended to the system prompt. Later edits
   apply to new conversations, or to the current one through the chat menu's

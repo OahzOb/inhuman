@@ -150,6 +150,9 @@ import com.inhuman.core.data.SnapshotTurn
 import com.inhuman.core.data.WorkspaceChange
 import com.inhuman.core.data.db.ApprovalDecision
 import com.inhuman.core.data.db.SessionMode
+import com.inhuman.core.engine.roleplay.RoleplayField
+import com.inhuman.core.engine.roleplay.RoleplayLimits
+import com.inhuman.core.engine.roleplay.RoleplayScene
 import com.inhuman.core.files.WorkspaceSelfCheck
 import com.inhuman.core.design.Eyebrow
 import com.inhuman.core.design.SectionHeading
@@ -285,6 +288,10 @@ fun ChatScreen(
 	val isContinuous = sessionMode == SessionMode.CONTINUOUS
 	val isMaintaining by fieldOf(viewModel.state, false) { it.isMaintaining }
 	val maintenancePreparing by fieldOf(viewModel.state, false) { it.maintenancePreparing }
+	// Role-play scenes only add a menu entry here; the card and the scene are
+	// read by the request builder, never by this screen.
+	val roleplayCharacter by fieldOf(viewModel.state, false) { it.roleplayCharacter }
+	val roleplayScene by fieldOf(viewModel.state, null) { it.roleplayScene }
 	// A continuous conversation has no manual compaction to retry. A context
 	// overflow there is the same dead end Retry already solves, and the copy
 	// names the two things the user can actually do instead of offering a
@@ -1057,6 +1064,7 @@ fun ChatScreen(
 	var turnWireMessages by remember { mutableStateOf<List<ChatMessageUi>?>(null) }
 	var showToolLimitDialog by remember { mutableStateOf(false) }
 	var showToolsDialog by remember { mutableStateOf(false) }
+	var showSceneDialog by remember { mutableStateOf(false) }
 	var showSshHostsDialog by remember { mutableStateOf(false) }
 	var showRenameDialog by remember { mutableStateOf(false) }
 	var renameInput by remember { mutableStateOf("") }
@@ -1076,7 +1084,7 @@ fun ChatScreen(
 		showApprovalHistory || showCapabilityDetails ||
 		turnWireMessages != null || showToolsDialog || showTurnPicker ||
 			showSaveWorkspaceDialog || showExportDialog || showSshHostsDialog ||
-			showBundleExportResult
+			showBundleExportResult || showSceneDialog
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
 	// Re-read the key and demo setting whenever this screen appears. The view
@@ -1738,6 +1746,25 @@ fun ChatScreen(
 										showToolsDialog = true
 									},
 								)
+								if (roleplayCharacter || roleplayScene != null) {
+									DropdownMenuItem(
+										text = {
+											Column {
+												Text(stringResource(R.string.scene_settings))
+												Text(
+													text = stringResource(R.string.scene_settings_detail),
+													style = MaterialTheme.typography.bodySmall,
+													color = MaterialTheme.colorScheme.onSurfaceVariant,
+												)
+											}
+										},
+										enabled = !isStreaming,
+										onClick = {
+											showChatMenu = false
+											showSceneDialog = true
+										},
+									)
+								}
 								if (isContinuous) {
 									DropdownMenuItem(
 										text = {
@@ -3159,6 +3186,18 @@ fun ChatScreen(
 				showToolsDialog = false
 			},
 			onDismiss = { showToolsDialog = false },
+		)
+	}
+
+	if (showSceneDialog) {
+		SceneSettingsDialog(
+			initial = roleplayScene,
+			streaming = isStreaming,
+			onSave = { scene ->
+				viewModel.setScene(scene)
+				showSceneDialog = false
+			},
+			onDismiss = { showSceneDialog = false },
 		)
 	}
 
@@ -6189,6 +6228,135 @@ private fun ConversationToolsDialog(
 		textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 	)
 }
+
+/**
+ * The scene settings of a role-play conversation.
+ *
+ * A scene is setting, not capability: the five fields are rendered into the
+ * system message and nothing here can add a tool, change an approval or widen
+ * the workspace. Saving an emptied scene removes it (the codec stores `""` for
+ * a blank scene), which is the same result as going back to an ordinary chat.
+ *
+ * `WideDialog` rather than `AlertDialog` for the same reason as the assistant
+ * editor: five multi-line fields in a platform-width dialog leave a phone with
+ * a strip of text, and this body scrolls while the actions stay put.
+ */
+@Composable
+private fun SceneSettingsDialog(
+	initial: RoleplayScene?,
+	streaming: Boolean,
+	onSave: (RoleplayScene) -> Unit,
+	onDismiss: () -> Unit,
+) {
+	val base = initial ?: RoleplayScene()
+	var world by remember(initial) { mutableStateOf(base.world) }
+	var premise by remember(initial) { mutableStateOf(base.premise) }
+	var userPersona by remember(initial) { mutableStateOf(base.userPersona) }
+	var format by remember(initial) { mutableStateOf(base.format) }
+	var notes by remember(initial) { mutableStateOf(base.notes) }
+	val scene = RoleplayScene(
+		world = world,
+		premise = premise,
+		userPersona = userPersona,
+		format = format,
+		notes = notes,
+	)
+	val errors = RoleplayLimits.sceneErrors(scene)
+
+	WideDialog(
+		onDismissRequest = onDismiss,
+		title = stringResource(R.string.scene_settings),
+		confirmLabel = stringResource(R.string.scene_save),
+		onConfirm = { onSave(scene) },
+		confirmEnabled = errors.isEmpty() && !streaming,
+		dismissLabel = stringResource(R.string.roleplay_cancel),
+	) {
+		Text(
+			text = stringResource(R.string.scene_save_intro),
+			style = MaterialTheme.typography.bodyMedium,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		SceneField(stringResource(R.string.roleplay_field_world), world) { world = it }
+		SceneField(stringResource(R.string.roleplay_field_premise), premise) { premise = it }
+		SceneField(stringResource(R.string.roleplay_field_user_persona), userPersona) {
+			userPersona = it
+		}
+		SceneField(
+			label = stringResource(R.string.roleplay_field_format),
+			value = format,
+			hint = stringResource(R.string.scene_format_hint),
+		) { format = it }
+		SceneField(
+			label = stringResource(R.string.roleplay_field_notes),
+			value = notes,
+			hint = stringResource(R.string.scene_notes_hint),
+		) { notes = it }
+		errors.forEach { error ->
+			Text(
+				text = stringResource(
+					R.string.roleplay_limit_over,
+					roleplayFieldName(error.field),
+					error.actual,
+					error.max,
+				),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.error,
+			)
+		}
+		if (streaming) {
+			Text(
+				text = stringResource(R.string.chat_tools_streaming),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.error,
+			)
+		}
+	}
+}
+
+/** One scene text field; the hint names the field's job without a second label. */
+@Composable
+private fun SceneField(
+	label: String,
+	value: String,
+	hint: String? = null,
+	onChange: (String) -> Unit,
+) {
+	OutlinedTextField(
+		value = value,
+		onValueChange = onChange,
+		modifier = Modifier.fillMaxWidth(),
+		label = { Text(label) },
+		minLines = 2,
+		maxLines = 6,
+		supportingText = if (hint == null) null else ({ Text(hint) }),
+	)
+}
+
+/**
+ * The localized name of a role-play field, for a limit message.
+ *
+ * Exhaustive over the enum so adding a field is a compile error here rather
+ * than an empty label in a dialog.
+ */
+@Composable
+private fun roleplayFieldName(field: RoleplayField): String = stringResource(
+	when (field) {
+		RoleplayField.World -> R.string.roleplay_field_world
+		RoleplayField.Premise -> R.string.roleplay_field_premise
+		RoleplayField.UserPersona -> R.string.roleplay_field_user_persona
+		RoleplayField.Format -> R.string.roleplay_field_format
+		RoleplayField.Notes -> R.string.roleplay_field_notes
+		RoleplayField.SceneTotal -> R.string.roleplay_field_scene_total
+		RoleplayField.CardTotal -> R.string.roleplay_field_card_total
+		RoleplayField.Description -> R.string.roleplay_field_description
+		RoleplayField.Personality -> R.string.roleplay_field_personality
+		RoleplayField.Scenario -> R.string.roleplay_field_scenario
+		RoleplayField.Greeting -> R.string.roleplay_field_greeting
+		RoleplayField.ExampleDialogue -> R.string.roleplay_field_example
+		RoleplayField.Boundaries -> R.string.roleplay_field_boundaries
+		RoleplayField.AuthorNote -> R.string.roleplay_field_author_note
+	},
+)
 
 /**
  * The picked file's display name.

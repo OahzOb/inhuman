@@ -632,9 +632,9 @@
 	<string name="agents_system_prompt_hint">告诉助手它负责什么。</string>
 	<string name="agents_imported">已导入 %1$s（%2$d 个字符）。</string>
 	<string name="agents_import_failed">无法导入这个文件。</string>
-	<string name="agents_missing_both">名称和系统提示词</string>
+	<string name="agents_missing_both">名称，以及系统提示词或角色扮演卡</string>
 	<string name="agents_missing_name">名称</string>
-	<string name="agents_missing_prompt">系统提示词</string>
+	<string name="agents_missing_prompt">系统提示词或角色扮演卡</string>
 	<string name="agents_add_missing">添加 %1$s 后才能保存。</string>
 	<string name="agents_prompt_long">%1$d 个字符。每个回合都会发送，并占用模型的上下文窗口。</string>
 	<string name="agents_prompt_every_turn">这个助手的每个回合都会发送。</string>
@@ -694,6 +694,57 @@
 	<string name="agents_policy_hide">隐藏</string>
 	<string name="agents_prompt_file_type">请选择 .txt 或 .md 文件。</string>
 	<string name="agents_prompt_open_failed">无法打开这个文件。</string>
+
+	<!-- 角色扮演：助手上的角色卡 + 对话上的场景。两者都是提示词内容，不是能力：
+	     这里的任何字段都不能增加工具、改变审批或扩大工作区。 -->
+	<string name="roleplay_card_section">角色扮演卡</string>
+	<string name="roleplay_card_none">未设置 — 普通助手。</string>
+	<string name="roleplay_card_set">已设置 — 使用这个角色的场景会带上它。</string>
+	<string name="roleplay_card_edit">编辑角色卡</string>
+	<string name="roleplay_card_title">角色卡</string>
+	<string name="roleplay_card_intro">角色卡是设定，不是能力：它决定角色怎么说话、场景知道什么，不能增加工具、审批或远程访问。使用这个角色的每个请求都会带上它，所以编辑后下一回合会重建一次请求前缀。</string>
+	<string name="roleplay_hint_placeholders">{{char}} 会替换为角色名；{{user}} 会向模型说明。</string>
+	<string name="roleplay_hint_greeting">开场景时作为角色的第一条消息写入；{{char}} 会替换为角色名。</string>
+	<string name="roleplay_hint_example">用几行固定语气；模型会把它当参考，不会照抄。</string>
+	<string name="roleplay_hint_boundaries">角色不能做什么，以及不能对用户做什么。</string>
+	<string name="roleplay_hint_sampling">留空使用对话默认值；只在服务商支持时发送。</string>
+	<string name="roleplay_sampling_range">允许范围：%1$s。</string>
+	<string name="roleplay_card_scene_note">场景设定按对话添加；这里只预览角色卡和它的规则。</string>
+	<string name="roleplay_field_description">身份与背景</string>
+	<string name="roleplay_field_personality">性格与说话方式</string>
+	<string name="roleplay_field_scenario">默认场景</string>
+	<string name="roleplay_field_greeting">开场白</string>
+	<string name="roleplay_field_example">示例对白</string>
+	<string name="roleplay_field_boundaries">边界</string>
+	<string name="roleplay_field_author_note">作者注记</string>
+	<string name="roleplay_field_world">世界</string>
+	<string name="roleplay_field_premise">当前情境</string>
+	<string name="roleplay_field_user_persona">你扮演</string>
+	<string name="roleplay_field_format">叙事格式</string>
+	<string name="roleplay_field_notes">笔记</string>
+	<string name="roleplay_field_card_total">角色卡总长度</string>
+	<string name="roleplay_field_scene_total">场景总长度</string>
+	<string name="roleplay_limit_over">%1$s：%2$d / %3$d 个字符。</string>
+	<string name="roleplay_temperature">温度</string>
+	<string name="roleplay_top_p">Top-p</string>
+	<string name="roleplay_max_tokens">回复 token 上限</string>
+	<string name="roleplay_save">保存</string>
+	<string name="roleplay_cancel">取消</string>
+	<string name="roleplay_remove">移除</string>
+	<string name="roleplay_remove_confirm">移除这张角色卡？已经创建的场景保留记录；从下一回合起不再带上角色卡。</string>
+	<string name="scene_new">新建角色扮演场景</string>
+	<string name="scene_new_detail">选一个角色卡，设定场景。</string>
+	<string name="scene_title">新建角色扮演场景</string>
+	<string name="scene_pick_character">角色</string>
+	<string name="scene_no_characters">还没有角色卡。先给一个助手添加角色卡。</string>
+	<string name="scene_start">开始场景</string>
+	<string name="scene_settings">场景设定</string>
+	<string name="scene_settings_detail">世界、情境、你扮演谁、叙事格式。</string>
+	<string name="scene_save">保存场景</string>
+	<string name="scene_save_intro">改动从下一回合生效，会重建一次请求前缀。</string>
+	<string name="scene_format_hint">例如：第二人称，两段短段落。</string>
+	<string name="scene_notes_hint">这段故事里模型需要记住的事。</string>
+	<string name="chat_scene_menu">场景设定…</string>
 
 
 	<!-- 聊天：记录、输入框、欢迎页与阻塞式对话框。 -->

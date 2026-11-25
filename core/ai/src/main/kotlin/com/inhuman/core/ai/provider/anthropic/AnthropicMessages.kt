@@ -124,11 +124,23 @@ internal object AnthropicWire {
 			put("max_tokens", maxTokens)
 			put("stream", true)
 			if (system.isNotBlank()) put("system", system)
-			// Anthropic rejects a temperature other than 1 while extended thinking is
-// enabled. The app has no temperature control today, but a future caller must
-// not be able to build a request that 400s just because thinking was on.
-			if (request.temperature != null && thinkingBudget == null) {
-				put("temperature", request.temperature)
+			// Anthropic rejects sampling parameters while extended thinking is
+			// enabled: a temperature other than 1, and `top_p` as well. A future
+			// caller must not be able to build a request that 400s just because
+			// thinking was on, so both are gated on the budget being absent.
+			//
+			// Anthropic also wants at most one of temperature/top_p per request,
+			// so when a turn sets both, temperature wins and `top_p` is omitted
+			// rather than sent beside it. That precedence is deliberate: the
+			// temperature field is the older, better-understood knob, and a
+			// second sampling field is an extra, not a replacement.
+			if (thinkingBudget == null) {
+				if (request.temperature != null) {
+					put("temperature", request.temperature)
+				} else {
+					// The wire name is `top_p`, not Kotlin's `topP`.
+					request.topP?.let { put("top_p", it) }
+				}
 			}
 			put(
 				"messages",
