@@ -143,6 +143,14 @@ data class ChatUiState(
 	val workspaceConversationCount: Int = 1,
 	val messages: List<ChatMessageUi> = emptyList(),
 	val input: String = "",
+	/**
+	 * Messages written while a turn was running, waiting for delivery.
+	 *
+	 * Memory only, like [input]: the composer draft has never been persisted,
+	 * and a queue that outlived the process would need a reconciliation with the
+	 * turn it was written into. Cleared as each entry is sent or inserted.
+	 */
+	val queued: List<QueuedMessage> = emptyList(),
 	val isStreaming: Boolean = false,
 	val error: String? = null,
 	/** True once the provider has been configured with a usable key. */
@@ -388,6 +396,15 @@ data class ChatMessageUi(
 	val parentId: String? = null,
 	val fromUser: Boolean,
 	/**
+	 * True for a user row sent while its turn was already running.
+	 *
+	 * The row stays a user message on the wire and in the transcript, but turn
+	 * grouping, the jump list and Rewind must not treat it as a new turn; see
+	 * `MessageEntity.injected`. It is loaded from the database so a reopened
+	 * conversation keeps the same shape ([ChatMessageUi.isTurnRoot]).
+	 */
+	val injected: Boolean = false,
+	/**
 	 * When the row was stored, from `messages.createdAt`.
 	 *
 	 * Carried into the UI state because `buildWireHistory` needs it: the time
@@ -501,6 +518,18 @@ data class ChatMessageUi(
 	 */
 	val suggestions: List<String> = emptyList(),
 )
+
+/**
+ * Whether this row starts a turn rather than continuing one.
+ *
+ * One definition for a question five different groupings ask -- the footer
+ * summary, the turn jump list, Rewind's start point, the compaction boundary and
+ * the context projection. A user row sent while the turn was running is a real
+ * user message but not a new turn; if any one grouping disagreed about that, a
+ * single insertion would show up as a turn with no start checkpoint.
+ */
+internal val ChatMessageUi.isTurnRoot: Boolean
+	get() = fromUser && !injected
 
 /**
  * What one turn cost.

@@ -20,10 +20,10 @@ The app installs `InhumanDatabase.MIGRATIONS` and
 `Context` builder. The callback seeds the DeepSeek provider and the default
 assistant on create, so an install does not start from an empty schema.
 
-## The schema, version 25
+## The schema, version 26
 
 `InhumanDatabase` (`core/db/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 25`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 26`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/db/schemas/` by KSP — configured in `core/db/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
@@ -163,6 +163,24 @@ assistant or starts a scene.
 - **Editing a scene does not bump `conversations.updatedAt`**, for the same
   reason as the tool or session-mode setters: setting is configuration, not new
   conversation activity.
+
+### `messages.injected` — added in 25→26
+
+A boolean column, false by default, marking a user message the user sent *while
+the turn was already running* and that the engine showed to the model before the
+next round (`EngineTurn.beforeRound`). The default is the contract: a transcript
+written before this release contains no insertions, so every existing user row
+stays a turn root and every Rewind gate keeps working.
+
+The row is a real user message -- it is what the model read, and search/export
+render it as the user's words -- but it is not a new turn. Turn grouping,
+the turn jump list, the rewind gate (`MessageTurnRow.injected`),
+compaction/projection boundaries (`ProjectionMessage.injected`) and
+`continueInterruptedTurn` all read the flag; `docs/07-gotchas.md` A29 lists what
+each one would break without it. The queue of not-yet-delivered messages is *not*
+in the database: it lives in the view model, exactly like the composer draft,
+because neither has ever been persisted and a durable queue would need a
+reconciliation with the turn it was queued against.
 
 ### `saved_prompts` — added in 15→16
 

@@ -15,6 +15,7 @@ import com.inhuman.core.files.SessionWorkspace
 import com.inhuman.core.files.tools.FileTools
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -266,6 +267,85 @@ class ChatEngineTest {
 		assertEquals("example.test", tool.seen?.get("host")?.jsonPrimitive?.content)
 		assertEquals("root", tool.seen?.get("username")?.jsonPrimitive?.content)
 		assertNull(tool.seen?.get("arguments"))
+	}
+
+	@Test
+	fun `an in-turn message is added only before a later round's request`() = runBlocking {
+		val tool = RecordingTool()
+		val calls = mutableListOf<Int>()
+		// Snapshot each request when it is emitted: the engine hands the flow a
+		// reference to its live history list, so a RoundStarted event inspected
+		// after the turn shows every later append too.
+		val requests = mutableListOf<List<ChatMessage>>()
+		val events = ChatEngine(AnswersAfterOneCall("call-1", tool.name, "{}")).run(
+			EngineTurn(
+				model = "scripted",
+				messages = listOf(ChatMessage(Role.User, "probe")),
+				tools = listOf(tool),
+				beforeRound = EngineBeforeRound { round ->
+					calls += round
+					listOf("wait, use the other directory")
+				},
+			),
+		)
+			.onEach { event ->
+				if (event is EngineEvent.RoundStarted) requests += event.request.messages.toList()
+			}
+			.toList()
+
+		assertEquals(listOf(2), calls)
+		assertEquals(2, requests.size)
+		// The first request is exactly what the host built: nothing was
+		// inserted before any tool ran.
+		assertEquals(1, requests[0].size)
+		// The second request carries the tool result *and* the user's line, in
+		// that order. The adapters map this to a user message after the tool
+		// message, which is what the record now also contains.
+		val second = requests[1]
+		assertEquals(Role.Tool, second[second.size - 2].role)
+		assertEquals(Role.User, second.last().role)
+		assertEquals("wait, use the other directory", second.last().content)
+		assertTrue(events.any { it is EngineEvent.Finished })
+	}
+
+	@Test
+	fun `a before-round hook that returns nothing adds nothing`() = runBlocking {
+		val tool = RecordingTool()
+		val requests = mutableListOf<List<ChatMessage>>()
+		val events = ChatEngine(AnswersAfterOneCall("call-1", tool.name, "{}")).run(
+			EngineTurn(
+				model = "scripted",
+				messages = listOf(ChatMessage(Role.User, "probe")),
+				tools = listOf(tool),
+				beforeRound = EngineBeforeRound { emptyList() },
+			),
+		)
+			.onEach { event ->
+				if (event is EngineEvent.RoundStarted) requests += event.request.messages.toList()
+			}
+			.toList()
+
+		assertEquals(Role.Tool, requests[1].last().role)
+		assertTrue(events.any { it is EngineEvent.Finished })
+	}
+
+	@Test
+	fun `the before-round hook is not called when the first round answers`() = runBlocking {
+		val calls = AtomicInteger()
+		val events = ChatEngine(DemoProvider(chunkDelayMillis = 0)).run(
+			EngineTurn(
+				model = "demo-model",
+				messages = listOf(ChatMessage(Role.User, "plain")),
+				tools = FileTools.all(SessionWorkspace.open(tmp.newFolder("no-rounds"))),
+				beforeRound = EngineBeforeRound {
+					calls.incrementAndGet()
+					emptyList()
+				},
+			),
+		).toList()
+
+		assertEquals(0, calls.get())
+		assertEquals(1, events.filterIsInstance<EngineEvent.RoundStarted>().size)
 	}
 
 	@Test

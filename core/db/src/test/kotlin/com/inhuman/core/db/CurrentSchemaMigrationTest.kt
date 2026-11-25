@@ -72,6 +72,11 @@ class CurrentSchemaMigrationTest {
 			// v25 added the per-conversation URL download acknowledgement; an
 			// upgraded conversation starts unallowed, which is the safe default.
 			assertEquals(false, canary?.downloadAllowed)
+			// v26 added the in-turn user message marker on `messages`; the
+			// conversation canary cannot prove it, so the dedicated
+			// `InjectedMessageMigrationTest` writes a message row. This assertion
+			// keeps the chain itself exercised to the newest version.
+			assertTrue(db.messages().all("none").isEmpty())
 		} finally {
 			db.close()
 		}

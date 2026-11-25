@@ -1080,6 +1080,17 @@
 	<string name="chat_add_key_hint">Add an API key to start</string>
 	<string name="chat_stop">Stop</string>
 	<string name="chat_send">Send</string>
+	<string name="chat_send_after_turn">Send after this reply</string>
+	<string name="chat_insert_short">Insert</string>
+	<string name="chat_you_injected">You · sent mid-turn</string>
+	<string name="chat_queue_state_after">After this turn</string>
+	<string name="chat_queue_state_insert">Inserting this turn</string>
+	<string name="chat_queue_state_held">Not sent</string>
+	<string name="chat_queue_insert_action">Insert</string>
+	<string name="chat_queue_send_action">Send</string>
+	<string name="chat_queue_cancel">Remove queued message</string>
+	<string name="chat_queue_image_only">(image)</string>
+	<string name="chat_queue_full">At most %1$d messages can wait for the current reply; cancel one first.</string>
 	<string name="chat_compact_none_title">Nothing to compact yet</string>
 	<string name="chat_compact_title">Compact conversation?</string>
 	<string name="chat_compact_needs">Compaction needs at least three complete turns: two recent turns stay verbatim, and older ones become a summary.</string>

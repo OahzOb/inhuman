@@ -28,7 +28,7 @@ not; `AGENTS.md` states the non-negotiable working rules. These files explain
 | [01-overview.md](01-overview.md) | What this is, which module holds what, what the app does today, what is deliberately missing |
 | [02-architecture.md](02-architecture.md) | Module graph, dependency rule, start-up wiring, navigation, build toolchain, build/verify commands |
 | [03-ai-provider.md](03-ai-provider.md) | Provider interface and stream types, provider profiles, OpenAI-compatible / Anthropic / Gemini / Responses adapters, SSE, demo mode, paid web tools, SSH tools and limits |
-| [04-data-persistence.md](04-data-persistence.md) | Room schema v25 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
+| [04-data-persistence.md](04-data-persistence.md) | Room schema v26 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | Turn lifecycle, tool execution, approval gate, cancellation, context gauge, Compose layout |
 | [07-gotchas.md](07-gotchas.md) | Load-bearing invariants, and mistakes that already cost someone a day |
@@ -65,27 +65,28 @@ above are that answer.
 
 ## Proposals
 
-Design proposals for features that are **not implemented**. They say what should
-be built and why; they are not a description of current behaviour.
+Design proposals, mostly for features that are **not implemented**; an entry
+marked implemented is kept as the design and decision record. They say what
+should be built and why; they are not a description of current behaviour.
 
 | File | What it proposes |
 | --- | --- |
 | [proposals/continuous-session.md](proposals/continuous-session.md) | A continuous-session mode, on by default for new conversations: the record is never deleted, the request projection becomes a rolling session brief plus recent turns, and the model can read the full record through a read-only recall tool |
 | [proposals/deepseek-app-apis.md](proposals/deepseek-app-apis.md) | A triage of DeepSeek's 2026-11-13 application-API suite: the standalone ASR/TTS and OCR APIs were adopted in 0.13.0 as paid app-proxied backends (see `03-ai-provider.md`); the server-side web tools, the Files API and the safety check are refused because they change the capability boundary |
-| [proposals/in-turn-user-message.md](proposals/in-turn-user-message.md) | Two ways to deliver a message the user sends while the agent is working: queue it and send it after the current turn (small, recommended first), or splice it into the current turn before the next model call (needs schema v26, changes to five turn-walk assumptions, and per-provider live verification) |
+| [proposals/in-turn-user-message.md](proposals/in-turn-user-message.md) | **Implemented 2026-11-25**: a message written while a turn runs is queued for the next turn, or inserted before the current turn's next model call (schema v26, `messages.injected`); kept as the design and decision record |
 | [proposals/user-cloud-sync.md](proposals/user-cloud-sync.md) | Let the user bring their own cloud storage: phase 1 mirrors the existing encrypted backup into a user-picked SAF folder that the user's own sync client uploads; phase 2 is conversation-level two-way sync with stable ids, tombstones and explicit conflict copies |
 | [proposals/rp-authoring-assistant.md](proposals/rp-authoring-assistant.md) | An assistant *template* that writes character-card and scene JSON into the workspace, plus JSON import in the card/scene editors; explicitly not a general personal assistant — cross-conversation memory stays deferred |
-
-The last three proposals were assessed on 2026-11-25. `in-turn-user-message.md`
-has been decided (queue **and** insert-before-next-call, both in one delivery) and
-is the first one being implemented; the other two still wait on product decisions.
-Each records its own open questions and suggested order.
 
 The role-play proposal (`proposals/roleplay.md`) was implemented on 2026-11-25
 (single character, single scene; no multi-character turns, world books or card
 import); current behaviour is described in
 [06-agent-loop-ui.md](06-agent-loop-ui.md) and
-[04-data-persistence.md](04-data-persistence.md).
+[04-data-persistence.md](04-data-persistence.md). The in-turn message proposal
+was implemented the same day (queue and insert-before-next-call, schema v26);
+its current behaviour is in [06-agent-loop-ui.md](06-agent-loop-ui.md) and
+[07-gotchas.md](07-gotchas.md) A29. The RP authoring assistant and the
+user-configured sync proposals still wait on product decisions; each records its
+own open questions and suggested order.
 
 ## Conventions used here
 
@@ -213,6 +214,7 @@ repository root; `…/` stands for `src/main/kotlin/com/inhuman/`.
 | Role-play card, scene, codec and limits | `core/engine/…/roleplay/Roleplay.kt` |
 | Role-play system prompt, rules, story-brief prompt, start line | `core/engine/…/roleplay/RoleplayPrompt.kt` |
 | Role-play card editor; new-scene flow; scene settings | `app/…/ui/agents/RoleplayCardEditor.kt`, `app/…/ui/NewSceneDialog.kt`, `app/…/ui/chat/ChatScreen.kt`, `app/…/ui/chat/ChatViewModel.kt` |
+| Messages written while a turn runs: queue, insertion, turn roots | `app/…/ui/chat/TurnQueue.kt`, `app/…/ui/chat/ChatViewModel.kt`, `app/…/ui/chat/ChatScreen.kt`; `core/engine/…/ChatEngine.kt` (`EngineTurn.beforeRound`) |
 | File tools' behaviour | `core/files/…/tools/FileTools.kt` |
 | Quotas and guarded reads/writes/lists | `core/files/…/WorkspaceTool.kt`, `WorkspaceLimits.kt` |
 | A path becoming a `File`; confinement | `core/files/…/SessionWorkspace.kt` |

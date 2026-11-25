@@ -35,6 +35,7 @@ internal fun recordMessages(messages: List<ChatMessageUi>): List<ProjectionMessa
 				weightedChars(message.reasoningText) +
 				message.toolCalls.sumOf { weightedChars(it.argumentsJson) },
 			hasImages = message.attachments.isNotEmpty(),
+			injected = message.injected,
 		)
 	}
 
@@ -86,7 +87,10 @@ internal fun chooseBatchEnd(
 	val projections = recordMessages(messages)
 	val turnEnds = buildList {
 		for (index in start until messages.size) {
-			if (index == messages.lastIndex || messages[index + 1].fromUser) {
+			// The end of a turn is where the *next* turn root starts; an
+			// in-turn insertion continues the current turn and must not end a
+			// fold batch, or the brief would cover half a turn.
+			if (index == messages.lastIndex || messages[index + 1].isTurnRoot) {
 				add(index + 1)
 			}
 		}

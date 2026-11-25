@@ -184,20 +184,73 @@ Three hard numbers, none of them a setting:
 
 | Scope | Limit | Where it is enforced |
 | --- | --- | --- |
-| One conversation | 1 turn | `ChatViewModel.isStreaming`; `send`, `regenerate`, `regenerateFrom` and `continueInterruptedTurn` all refuse while it is true |
+| One conversation | 1 turn | `ChatViewModel.isStreaming`; `regenerate`, `regenerateFrom` and `continueInterruptedTurn` refuse while it is true, and `send` queues instead of starting a second turn |
 | The process | 2 turns | `TurnConcurrency.tryAcquire()` in `runTurn`, released in `finally`; the third turn gets `chat_error_too_many_turns` and is **not queued** |
 | One turn | 1 tool at a time | The engine's sequential `for (call in calls)`; `ChatEngineTest`'s "two calls in one round run one at a time" measures overlap |
 
-Two is one visible turn plus one in the background. A queue was rejected: the
-user would believe a turn had started when it had not, and no screen would show
-the queue. The permit is taken after the cheap refusals (no key, no model) and
-released on stop, cancellation and failure, so a stopped turn cannot keep a slot.
+Two is one visible turn plus one in the background. A queue of *turns* was
+rejected: the user would believe a turn had started when it had not, and no
+screen would show the queue. The permit is taken after the cheap refusals (no
+key, no model) and released on stop, cancellation and failure, so a stopped turn
+cannot keep a slot. A queue of **messages** written while one turn runs is a
+different thing and does exist -- see "Messages sent while a turn runs" below.
 
 **Subagents do not exist**, so their ceiling is 0. If one is ever added,
 `docs/08-port-philosophy.md` Q4 already fixes its shape: one at a time, serial,
 and no recursion. Parallel tool calls are likewise not ported: the engine's
 approval, checkpoint and cancellation ordering all assume one call at a time,
 and the "2–3" from that note was spent on concurrent *conversations* instead.
+
+### Messages sent while a turn runs
+
+The composer stays usable while a reply streams. Send then means "deliver this,
+not start a second turn": the current turn's tool set and request prefix are
+already fixed (`docs/11-conversation-tools.md`), so a new turn mid-stream is
+still refused. There are two deliveries, and the UI names both:
+
+- **After this turn** (the filled arrow while streaming): the message joins an
+  in-memory queue shown above the composer and is sent as the next turn when
+  this one ends. Each row is cancellable, the cap is five, and the strip is
+  visible -- the failure mode this replaces is a message that was "sent" but is
+  nowhere on screen. The queue is memory-only, like the composer draft: neither
+  has ever been persisted, and a durable queue would need a reconciliation with
+  the turn it was queued against.
+- **Insert** (the text button while streaming, or a queued row's Insert): the
+  message is shown to the model before this turn's next round. `ChatEngine`
+  calls `EngineTurn.beforeRound` at the top of every round after the first --
+  after a tool group ran, before the request is built -- and appends the
+  returned lines as user messages. The host persists each row **before** the
+  hook returns, so the record and the wire cannot disagree. The row carries
+  `messages.injected` (schema v26): a real user message that is not a new turn
+  (`docs/07-gotchas.md` A29). No adapter changed: a user message after the tool
+  messages is legal in all four formats, and Anthropic/Gemini merge it into the
+  tool-result user turn.
+- Insertion is **text only**. An image would have to be added to a request whose
+  cache prefix is fixed, so an attachment queues instead; the button is disabled
+  and the view model refuses it too.
+- Delivery needs a later round. A turn that answers in one round has no "next
+  call": the entry is demoted to "after this turn" at the end of the turn rather
+  than pretending to deliver. Same for a turn stopped before its next round.
+- **Stop still stops**, and the queued messages are then sent -- the user did
+  press send. A **failed** turn holds the queue instead, and the strip offers
+  Send per row, so a configuration error is not retried automatically once per
+  queued message.
+- Capability does not change. An inserted message cannot add a tool, change an
+  approval, or grant SSH/download consent; the tool set is still fixed per turn.
+  The insertion cannot be used to change what this turn may do, only what it is
+  asked to do.
+
+Because the insertion lands between a tool result and the next assistant row,
+`WireHistory.closeDanglingCalls` must keep working: the hook runs only after the
+whole tool group ran, so the run of `Role.Tool` messages is complete before the
+user line. The engine appends to its live history only after the host's write
+succeeds; a failed write leaves the entry queued and the turn continues without
+it.
+
+**Short-landscape caveat:** on a 640×360dp window with the soft keyboard open the
+IME consumes the remaining height and the composer is covered. That is a
+pre-existing IME limitation (typing any message in that ratio shows the same),
+not a property of the queue; it was not fixed here.
 
 ### The approval plumbing
 

@@ -108,6 +108,23 @@ class ChatSearchTest {
 	}
 
 	@Test
+	fun `an in-turn insertion is not a jump target`() {
+		val turns = userTurnsOf(
+			listOf(
+				user("u1", "first"),
+				assistant("a1", "working"),
+				ChatMessageUi(id = "u2", fromUser = true, injected = true, plainText = "also"),
+				assistant("a2", "done"),
+			),
+		)
+
+		// The jump list names turns; an insertion shares its turn with u1, so
+		// listing it would send the reader to a "turn" that has no start.
+		assertEquals(listOf("u1"), turns.map { it.messageId })
+		assertEquals(listOf(0), turns.map { it.messageIndex })
+	}
+
+	@Test
 	fun `a preview keeps only the first non-empty line`() {
 		val turns = userTurnsOf(listOf(user("u1", "\n  \n first line \n second line")))
 		assertEquals("first line", turns.single().preview)

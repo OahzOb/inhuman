@@ -1,11 +1,11 @@
 # 工作期间的用户消息（排队 / 插入）— 设计提案
 
-> **状态：已拍板（2026-11-25）：先做 A，并包含 B。** 两项在同一功能里交付：
-> A（排队到回合结束自动发）是默认路径；B（插入本回合下一次模型调用前）是流式期间可选的
-> "立即插入"；本轮没有下一次调用时退回 A。实现顺序 A → B，合计成本 M–L。
->
-> 当前行为：工作（流式）期间**根本发不出消息**——输入框禁用，发送键变成停止键。
-> 这不是"排队策略不好"，是这条路不存在。
+> **状态：已实现（2026-11-25）。** 排队与"插入下一次调用前"在同一次交付里落地：
+> `ChatUiState.queued` + `TurnQueue.kt`、`EngineTurn.beforeRound`、schema v26 的
+> `messages.injected`，以及所有 turn 判定改走 "turn root"（`fromUser && !injected`）。
+> **未在真实账号上验证**四家 provider 的"工具结果后跟用户消息"（结构上合法，见 §1.5）。
+> 当前行为以 `docs/06-agent-loop-ui.md`、`docs/07-gotchas.md` A29、`docs/04-data-persistence.md`
+> 和 `docs/13-product.md` 为准，本文保留为设计与决定记录。
 >
 > 实现时改：`docs/01-overview.md`、`docs/06-agent-loop-ui.md`（回合生命周期与并发一节）、
 > `docs/07-gotchas.md`（新增条目）、`docs/13-product.md`（对话与回答）、`docs/11-conversation-tools.md`
@@ -213,4 +213,26 @@ A（S）→ B（M–L）。两项一次交付，因为 B 依赖 A 的队列状�
 4. **能力边界不变**：插入不改变本回合工具、审批、SSH/下载授权；工具清单只在回合边界由用户改。
 5. 仍待拍板的实现细节：Stop 后是否自动发（建议发）、报错后是否自动发（建议不发、保留队列）、
    队列上限、插入按钮的文案与位置。
+
+## 9. 实现记录（2026-11-25）
+
+已按 §8 落地，未做第二次设计评审。实现时的具体选择和留下的边界：
+
+- **数据**：schema v26 的 `messages.injected`（默认 false，v25→v26 只加一列）；
+  `MessageTurnRow.injected` 与 `ProjectionMessage.injected` 让结构性读取和折叠边界不必加载正文。
+- **引擎**：`EngineTurn.beforeRound: EngineBeforeRound?`，在 `round > 1` 的循环顶部、构造请求
+  之前调用；host 在 hook 内先落库、再把文本返回。`ChatEngineTest` 三个新用例钉住：只在后续
+  轮次调用、返回空不加消息、单轮回答不调用。
+- **记录语义**：插入行是真实 user 行，归入当前 turn；新增 `isTurnRoot`
+  （`fromUser && !injected`），替换了五处 `fromUser`：turn 分组、回合跳转、
+  reload/refreshTurnMeta 的 `lastUser`、压缩/投影边界、Continue 的 anchor。
+- **交付**：`QueuedMessage` + `TurnQueue.kt`（内存队列，上限 5）；流式期间输入框可用；
+  发送键=排队，新增"插入"TextButton 与每行的"插入"升级；队列表可见、可取消；
+  Stop 后队列继续发送；失败回合保留队列、由用户逐条发送；没有下一次调用时插入降级为排队。
+- **未验证**：四家 provider 真实账号上"工具结果后跟随用户消息"的 live 行为（结构合法，
+  引擎测试断言了顺序）；设备侧只在模拟器（平板 profile，以及 360×800 / 640×360 / 700×700
+  调整尺寸）验证，物理手机当时不可用。
+- **已知限制**：640×360 横屏 + 软键盘打开时，输入法吃掉剩余高度，composer 被遮住。这是
+  短横屏下 IME 的既有限制（普通打字同样出现），不是这次新增按钮或队列表造成的，本次不修。
+
 

@@ -96,6 +96,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -1250,7 +1251,9 @@ fun ChatScreen(
 				"streaming=${viewModel.state.value.isStreaming}",
 		)
 		lastAssistantId = messages.lastOrNull { !it.fromUser && !it.isToolResult }?.id
-		lastUserId = messages.lastOrNull { it.fromUser }?.id
+		// A message inserted mid-turn is not the turn's start: the retry and
+		// rewind controls belong to the row the turn began with.
+		lastUserId = messages.lastOrNull { it.isTurnRoot }?.id
 	}
 	LaunchedEffect(isStreaming) {
 		Diag.i(
@@ -1274,6 +1277,10 @@ fun ChatScreen(
 				viewModel.send()
 			},
 			onStop = viewModel::stop,
+			onSendInsert = viewModel::sendInsert,
+			onCancelQueued = viewModel::cancelQueued,
+			onSendQueued = viewModel::sendQueued,
+			onInsertQueued = viewModel::insertQueued,
 			onInputChange = viewModel::onInputChange,
 			onAttachFromFiles = { importer.launch(arrayOf("image/*")) },
 			onCapturePhoto = {
@@ -4677,10 +4684,13 @@ private fun MessageBubble(
 				Spacer(Modifier.width(7.dp))
 			}
 			Eyebrow(
-				text = if (message.fromUser) {
-					stringResource(R.string.chat_you)
-				} else {
-					stringResource(R.string.chat_assistant)
+				text = when {
+					// The words are the user's; the marker says when they were
+					// written, because a message inside a turn does not get its
+					// own turn number or its own Rewind point.
+					message.injected -> stringResource(R.string.chat_you_injected)
+					message.fromUser -> stringResource(R.string.chat_you)
+					else -> stringResource(R.string.chat_assistant)
 				},
 				color = if (message.fromUser) {
 					MaterialTheme.colorScheme.onSurfaceVariant
@@ -5187,6 +5197,11 @@ private fun ContinueTurnBanner(onContinue: () -> Unit) {
 private class ChatComposerActions(
 	val onSend: () -> Unit,
 	val onStop: () -> Unit,
+	/** Show the draft to the running turn before its next model call. */
+	val onSendInsert: () -> Unit,
+	val onCancelQueued: (String) -> Unit,
+	val onSendQueued: (String) -> Unit,
+	val onInsertQueued: (String) -> Unit,
 	val onInputChange: (String) -> Unit,
 	val onAttachFromFiles: () -> Unit,
 	val onCapturePhoto: () -> Unit,
@@ -5232,6 +5247,7 @@ private fun ChatBottomBar(
 	// these fields.
 	val input by fieldOf(state, "") { it.input }
 	val pendingAttachments by fieldOf(state, emptyList()) { it.pendingAttachments }
+	val queued by fieldOf(state, emptyList()) { it.queued }
 	val ctx = LocalContext.current
 	Column(
 		modifier = Modifier.fillMaxWidth(),
@@ -5341,6 +5357,11 @@ private fun ChatBottomBar(
 				onValueChange = actions.onInputChange,
 				onSend = actions.onSend,
 				onStop = actions.onStop,
+				onSendInsert = actions.onSendInsert,
+				queued = queued,
+				onCancelQueued = actions.onCancelQueued,
+				onSendQueued = actions.onSendQueued,
+				onInsertQueued = actions.onInsertQueued,
 				isStreaming = isStreaming,
 				enabled = configured,
 				attachments = pendingAttachments,
@@ -5375,6 +5396,12 @@ private fun Composer(
 	onValueChange: (String) -> Unit,
 	onSend: () -> Unit,
 	onStop: () -> Unit,
+	/** Show the draft to the running turn before its next model call. */
+	onSendInsert: () -> Unit,
+	queued: List<QueuedMessage>,
+	onCancelQueued: (String) -> Unit,
+	onSendQueued: (String) -> Unit,
+	onInsertQueued: (String) -> Unit,
 	isStreaming: Boolean,
 	enabled: Boolean,
 	attachments: List<PendingAttachment>,
@@ -5632,6 +5659,21 @@ private fun Composer(
 			)
 		}
 
+		// The queue strip is the visible proof that a message written during a
+		// turn exists. A message that was accepted but is neither in the
+		// transcript nor on screen is the failure the old disabled composer
+		// avoided by refusing the send outright; the strip replaces that refusal
+		// with a state the user can see, edit their mind about, and cancel.
+		if (queued.isNotEmpty()) {
+			QueuedMessagesStrip(
+				queued = queued,
+				isStreaming = isStreaming,
+				onInsert = onInsertQueued,
+				onCancel = onCancelQueued,
+				onSend = onSendQueued,
+			)
+		}
+
 		// ## One surface, text above actions
 		//
 		// The field used to be an OutlinedTextField with the context ring in
@@ -5645,7 +5687,10 @@ private fun Composer(
 		// beside it.
 		val fieldInteraction = remember { MutableInteractionSource() }
 		val fieldFocused by fieldInteraction.collectIsFocusedAsState()
-		val inputEnabled = enabled && !isStreaming && !isCompacting
+		// Typing is allowed while a reply streams: the send path queues instead
+		// of starting a second turn. Compaction still disables it, because that
+		// request rewrites the projection this draft would be sent against.
+		val inputEnabled = enabled && !isCompacting
 		val fieldBorder = when {
 			!inputEnabled -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
 			fieldFocused -> MaterialTheme.colorScheme.primary
@@ -5785,17 +5830,46 @@ private fun Composer(
 					// 48dp for the whole height of a wrapped message.
 					// Continuous conversations hide the gauge: the app owns the
 					// working set there, and the audit surface is Session memory.
-					if (!isContinuous && context.isKnown) {
+					// The context gauge is a reading of the last completed request;
+					// while a reply streams it is neither current nor actionable,
+					// and the row needs its 48dp for the send/insert/stop trio.
+					if (!isStreaming && !isContinuous && context.isKnown) {
 						ContextRing(
 							usage = context,
 							onToggle = onToggleContextDetail,
 						)
 					}
 
-					// One button, two meanings: send while idle, stop while streaming.
-					// Reaching for a separate stop control mid-generation is worse than
-					// having the same target do the obvious thing.
+					// While streaming, sending has two different promises: queue
+					// for the next turn, or splice this text into the current
+					// turn before its next model call. They are separate targets
+					// because a single button whose meaning silently depended on
+					// a mode toggle is exactly the ambiguity the old disabled
+					// composer avoided by refusing the message.
 					if (isStreaming) {
+						TextButton(
+							onClick = onSendInsert,
+							enabled = enabled && !isCompacting && canInsertNow(value, attachments),
+						) {
+							Text(
+								text = stringResource(R.string.chat_insert_short),
+								style = MaterialTheme.typography.labelLarge,
+							)
+						}
+						FilledTonalIconButton(
+							onClick = onSend,
+							// Images alone are sendable; an insertion is not, and
+							// the button above reflects that. The queue accepts
+							// both.
+							enabled = enabled && !isCompacting && !maintenancePreparing &&
+								(value.isNotBlank() || attachments.isNotEmpty()),
+							shape = MaterialTheme.shapes.small,
+						) {
+							Icon(
+								Icons.Filled.ArrowUpward,
+								contentDescription = stringResource(R.string.chat_send_after_turn),
+							)
+						}
 						FilledIconButton(
 							onClick = onStop,
 							shape = MaterialTheme.shapes.small,
@@ -5818,6 +5892,76 @@ private fun Composer(
 							Icon(Icons.Filled.ArrowUpward, contentDescription = stringResource(R.string.chat_send))
 						}
 					}
+				}
+			}
+		}
+	}
+}
+
+/**
+ * The messages waiting to be delivered, above the composer.
+ *
+ * Each row is one thing the user wrote while a turn was running. Its state word
+ * is the promise being made: "after this turn", "inserting this turn", or "not
+ * sent" when a failed turn held the queue. Actions are per row rather than
+ * global, because "cancel this one" and "send this one now" are decisions about
+ * individual messages; inserting is offered only while it can still happen.
+ */
+@Composable
+private fun QueuedMessagesStrip(
+	queued: List<QueuedMessage>,
+	isStreaming: Boolean,
+	onInsert: (String) -> Unit,
+	onCancel: (String) -> Unit,
+	onSend: (String) -> Unit,
+) {
+	Column(
+		modifier = Modifier
+			.widthIn(max = Layout.ChatMeasure)
+			.fillMaxWidth()
+			.padding(horizontal = comfortableGutter(), vertical = 2.dp),
+		verticalArrangement = Arrangement.spacedBy(2.dp),
+	) {
+		for (entry in queued) {
+			Row(
+				modifier = Modifier.fillMaxWidth(),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				Text(
+					text = when {
+						entry.insert -> stringResource(R.string.chat_queue_state_insert)
+						isStreaming -> stringResource(R.string.chat_queue_state_after)
+						else -> stringResource(R.string.chat_queue_state_held)
+					},
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				Spacer(Modifier.width(8.dp))
+				Text(
+					text = entry.preview.ifBlank { stringResource(R.string.chat_queue_image_only) },
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurface,
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis,
+					modifier = Modifier.weight(1f),
+				)
+				if (isStreaming && !entry.insert && entry.insertable) {
+					TextButton(onClick = { onInsert(entry.id) }) {
+						Text(stringResource(R.string.chat_queue_insert_action))
+					}
+				}
+				if (!isStreaming) {
+					TextButton(onClick = { onSend(entry.id) }) {
+						Text(stringResource(R.string.chat_queue_send_action))
+					}
+				}
+				IconButton(onClick = { onCancel(entry.id) }) {
+					Icon(
+						Icons.Filled.Close,
+						contentDescription = stringResource(R.string.chat_queue_cancel),
+						tint = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.size(16.dp),
+					)
 				}
 			}
 		}

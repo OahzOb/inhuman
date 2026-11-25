@@ -36,4 +36,12 @@ data class ProjectionMessage(
 	val chars: Int,
 	/** True when this message carries at least one image. */
 	val hasImages: Boolean = false,
+	/**
+	 * True when this user message was sent while its turn was running.
+	 *
+	 * A fold boundary must land between turns, and an insertion does not start
+	 * one: without this the planner can cut inside a turn whose start checkpoint
+	 * is keyed by the message before the cut.
+	 */
+	val injected: Boolean = false,
 )

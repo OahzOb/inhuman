@@ -442,6 +442,44 @@ a root-relative path is combined with the base's scheme and authority. Do not
 (`built-in update presets are valid HTTPS endpoints on the latest release`)
 asserting that a mirror preset resolves to its own release directory.
 
+### A29. A message sent during a turn is a user row but not a turn root
+
+`messages.injected` (schema v26) marks a user message the user wrote while a turn
+was running and that the engine appended before the next round's request
+(`EngineTurn.beforeRound`, `ChatEngine.run`). The row is a real user message: it
+is what the model read, it is searched, exported and rendered as the user's
+words. It is **not** a new turn.
+
+One flag, five readers -- and each one moves a Rewind point or a turn count if it
+disagrees:
+
+- `turnSummariesOf` used to close a turn at every `fromUser` row, so an insertion
+  would draw one turn as two and put a usage footer mid-turn.
+- `userTurnsOf` (the turn jump list) would offer a turn number with no start.
+- `ChatViewModel.reload` / `refreshTurnMeta` take the **last user row** as the
+  turn root. The insertion has no start checkpoint (the checkpoint is keyed by
+  the root's user id), so Rewind would be hidden or pointed at the wrong row.
+  `MessageTurnRow.injected` exists so the structural read can exclude it without
+  loading prose.
+- the compaction and continuous-session boundary must fall between complete
+  turns; `ProjectionMessage.injected` keeps a fold boundary off an insertion.
+- `isInterruptedTurn` still reports a tail insertion as interrupted -- the turn
+  really is unfinished -- but `continueInterruptedTurn` must anchor on the root,
+  not on the insertion.
+
+The wire needs no new adapter shape: a user message after the tool messages is
+legal in all four formats, and Anthropic/Gemini merge it into the tool-result
+user turn. The engine appends the text to its live history *after* the host has
+persisted the row inside the hook, so the record and the request cannot
+disagree; returning before the write would leave a row the model saw and the
+transcript lost. `closeDanglingCalls` stays safe because the hook runs only
+after a complete tool group.
+
+Do not "simplify" the marker away by starting a new turn at the insertion: that
+moves `lastUser`, orphans the start checkpoint, and turns Continue into a second
+kind of retry. The queue itself (`ChatUiState.queued`) is memory-only, exactly
+like the composer draft; the draft has never been persisted either.
+
 ---
 
 ## B. Defects that were found here — and where each one now stands

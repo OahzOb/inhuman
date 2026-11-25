@@ -154,7 +154,10 @@ class RecallTool(
 
 	private fun turnOf(branch: List<ChatMessageUi>, index: Int): Int {
 		var turn = 0
-		for (i in 0..index) if (branch[i].fromUser) turn++
+		// Count turn roots, not every user row: an in-turn insertion shares its
+		// turn with the message before it, and recall's numbers have to match the
+		// turn strip the user sees.
+		for (i in 0..index) if (branch[i].isTurnRoot) turn++
 		return turn
 	}
 

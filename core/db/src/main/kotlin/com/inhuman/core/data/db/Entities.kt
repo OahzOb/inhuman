@@ -687,4 +687,23 @@ data class MessageEntity(
 	 * that is free; for one that wrote or deleted files it means doing it twice.
 	 */
 	val mutated: Boolean = false,
+
+	/**
+	 * True for a user message sent *while the turn was already running*.
+	 *
+	 * The row is a real user message -- it is what the model read, and it is
+	 * shown and exported as the user's words -- but it is **not a new turn**. It
+	 * belongs to the turn whose user message precedes it, and the code that
+	 * groups turns (the footer, the turn jump list, Rewind, compaction
+	 * boundaries) reads this flag so one turn stays one turn. Without it, every
+	 * such insertion would move `lastUser` forward, orphan the start checkpoint
+	 * (which is keyed by the turn's user id) and offer a Rewind that cannot
+	 * restore anything.
+	 *
+	 * Additive with a false default: an upgraded transcript has no insertions,
+	 * so every existing row is a turn root, which is the shape it was written
+	 * in.
+	 */
+	@ColumnInfo(defaultValue = "0")
+	val injected: Boolean = false,
 )

@@ -40,6 +40,7 @@ import com.inhuman.core.ai.speech.SpeechAudio
 import com.inhuman.core.ai.speech.SpeechBackend
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.engine.ChatEngine
+import com.inhuman.core.engine.EngineBeforeRound
 import com.inhuman.core.engine.EngineDecision
 import com.inhuman.core.engine.EngineEvent
 import com.inhuman.core.engine.EngineFailure
@@ -2101,11 +2102,11 @@ class ChatViewModel(
 		} ?: 1
 		val sharedWorkspace = workspace?.isPermanent == true && workspaceConversations > 1
 
-		// What the last turn can safely undo. A mutating turn needs a snapshot
-		// that was captured before its first write; an irreversible tool means
-		// no rollback at all, because deleting the transcript would leave the
-		// remote effects untouched.
-		val lastUser = entities.lastOrNull { it.role == "user" }
+		// What the last turn can safely undo. A message inserted mid-turn is not
+		// a turn root: the start checkpoint is keyed by the message that began
+		// the turn, so using the insertion here would look for a checkpoint that
+		// does not exist and hide Rewind for a turn that has one.
+		val lastUser = entities.lastOrNull { it.role == "user" && !it.injected }
 		val lastTurn = lastUser?.let { user ->
 			entities.dropWhile { it.id != user.id }
 		}.orEmpty()
@@ -2167,7 +2168,8 @@ class ChatViewModel(
 					ContextCompactionUi(
 						throughMessageId = summary.throughMessageId,
 						summary = summary.summary,
-						omittedTurns = entities.take(boundary + 1).count { it.role == "user" },
+						omittedTurns = entities.take(boundary + 1)
+							.count { it.role == "user" && !it.injected },
 						omittedMessages = boundary + 1,
 					)
 				}
@@ -2477,7 +2479,7 @@ class ChatViewModel(
 		SessionMemoryUi(
 			sessionMode = SessionMode.parse(entity.sessionMode),
 			coverageTurns = summary?.coveredTurns
-				?: branch.take(boundary + 1).count { it.fromUser }.takeIf { boundary >= 0 },
+				?: branch.take(boundary + 1).count { it.isTurnRoot }.takeIf { boundary >= 0 },
 			coverageMessages = summary?.coveredMessages
 				?: (boundary + 1).takeIf { boundary >= 0 },
 			brief = summary?.summary,
@@ -2675,7 +2677,7 @@ class ChatViewModel(
 						break
 					}
 					val through = messages[end - 1].id
-					val coveredTurns = messages.take(end).count { it.fromUser }
+					val coveredTurns = messages.take(end).count { it.isTurnRoot }
 					runCatching {
 						repository.saveContextSummary(
 							conversationId = conversationId,
@@ -2697,7 +2699,7 @@ class ChatViewModel(
 								inputTokens = result.inputTokens,
 								outputTokens = result.outputTokens,
 								omittedMessages = batch.size,
-								omittedTurns = batch.count { it.fromUser },
+								omittedTurns = batch.count { it.isTurnRoot },
 								outcome = if (result.truncated) {
 									MaintenanceRunOutcome.TRUNCATED
 								} else {
@@ -2979,7 +2981,9 @@ class ChatViewModel(
 			return
 		}
 		if (!isInterruptedTurn(_state.value.messages, _state.value.isStreaming)) return
-		val anchor = _state.value.messages.lastOrNull { it.fromUser } ?: return
+		// Continue resumes the turn that the insertion belongs to, so the anchor
+		// is its root -- not the last user row, which may be an insertion.
+		val anchor = _state.value.messages.lastOrNull { it.isTurnRoot } ?: return
 
 		val demo = demoEnabled()
 		if (!demo && !agents.hasKey(providerId)) {
@@ -3009,6 +3013,7 @@ class ChatViewModel(
 			runTurn(demo = demo, continuation = true)
 			recordChangedFiles()
 			refreshTurnMeta()
+			flushQueueAfterTurn()
 		}
 	}
 
@@ -3234,6 +3239,7 @@ class ChatViewModel(
 			// transcript alone.
 			refreshReplyBranches(questionId)
 			refreshTurnMeta()
+			flushQueueAfterTurn()
 		}
 	}
 
@@ -3291,7 +3297,7 @@ class ChatViewModel(
 			}
 			return
 		}
-		val lastUser = visible.lastOrNull { it.fromUser } ?: return
+		val lastUser = visible.lastOrNull { it.isTurnRoot } ?: return
 		val startAvailable = _state.value.regenerationPoints
 			.firstOrNull { it.checkpointId == SnapshotStore.START }
 			?.checkpointAvailable == true
@@ -3360,6 +3366,7 @@ class ChatViewModel(
 			runTurn(demo = demo, includeTools = true)
 			recordChangedFiles()
 			refreshTurnMeta()
+			flushQueueAfterTurn()
 		}
 	}
 
@@ -3384,7 +3391,7 @@ class ChatViewModel(
 				Diag.w("rollback", "turn metadata read failed", failure)
 				return
 			}
-		val lastUser = rows.lastOrNull { it.role == "user" }
+		val lastUser = rows.lastOrNull { it.role == "user" && !it.injected }
 		val lastTurn = lastUser?.let { user ->
 			rows.dropWhile { it.id != user.id }
 		}.orEmpty()
@@ -3431,7 +3438,8 @@ class ChatViewModel(
 					ContextCompactionUi(
 						throughMessageId = summary.throughMessageId,
 						summary = summary.summary,
-						omittedTurns = rows.take(boundary + 1).count { it.role == "user" },
+						omittedTurns = rows.take(boundary + 1)
+							.count { it.role == "user" && !it.injected },
 						omittedMessages = boundary + 1,
 					)
 				}
@@ -3506,7 +3514,7 @@ class ChatViewModel(
 			}
 			return
 		}
-		val target = _state.value.messages.lastOrNull { it.fromUser }?.takeIf { it.id == messageId }
+		val target = _state.value.messages.lastOrNull { it.isTurnRoot }?.takeIf { it.id == messageId }
 			?: return
 		val turn = _state.value.messages.dropWhile { it.id != target.id }
 		val irreversible = turn.any { message ->
@@ -3840,8 +3848,19 @@ class ChatViewModel(
 		if (!_state.value.isStreaming) return
 		userStopped = true
 		Diag.i("turn", "stop requested streaming=${_state.value.isStreaming}")
-		streamJob?.cancel()
+		val stoppedJob = streamJob
+		stoppedJob?.cancel()
 		streamJob = null
+		// Cancelling the job means the end-of-turn code in `send` never runs, so
+		// a queued message would otherwise be stranded after Stop. Join first:
+		// the turn's own finally is what writes the partial answer and clears
+		// `isStreaming` for good.
+		if (_state.value.queued.isNotEmpty()) {
+			viewModelScope.launch {
+				stoppedJob?.join()
+				flushQueueAfterTurn()
+			}
+		}
 		// Stopping while a dialogue is open must also release the gate's
 		// continuation. Cancelling the stream job usually gets there first, but
 		// leaving the field pointing at a dead continuation made the next
@@ -3900,32 +3919,146 @@ class ChatViewModel(
 
 	// --- sending -------------------------------------------------------------
 
+	/**
+	 * Send the composer, or queue it when a turn is already running.
+	 *
+	 * While streaming, the current turn was built with a fixed tool set and a
+	 * fixed request prefix; the honest things to do with a message written now
+	 * are to show it to the model before the turn's next round ([sendInsert]) or
+	 * to send it after the turn ends. Starting a second turn mid-stream is what
+	 * `isStreaming` refuses, and it stays refused.
+	 */
 	fun send() {
 		val text = _state.value.input.trim()
 		val attachments = _state.value.pendingAttachments
 		// Images alone are a complete message -- "what is this?" is often
 		// implied -- but an empty message with nothing attached is not.
-		if ((text.isEmpty() && attachments.isEmpty()) || _state.value.isStreaming ||
-			_state.value.isCompacting
-		) {
-			Diag.d(
-				"turn",
-				"send ignored chars=${text.length} attachments=${attachments.size} " +
-					"streaming=${_state.value.isStreaming} compacting=${_state.value.isCompacting}",
-			)
+		if (text.isEmpty() && attachments.isEmpty()) {
+			Diag.d("turn", "send ignored: empty")
 			return
 		}
-		cancelMaintenanceForSend()
-		userStopped = false
+		if (_state.value.isStreaming) {
+			enqueue(text, attachments, insert = false)
+			return
+		}
+		if (_state.value.isCompacting) {
+			Diag.d("turn", "send ignored: compacting")
+			return
+		}
+		startSend(text, attachments, fromComposer = true)
+	}
 
+	/**
+	 * Ask for the composer's text to reach the running turn's next model call.
+	 *
+	 * Text only. The wire can carry a user message after a tool group, but an
+	 * image attached mid-round would have to be spliced into a request whose
+	 * cache prefix is already fixed; an attachment queues instead. The composer
+	 * disables the control in that case and this refuses it too, so the queue
+	 * never holds an insertion the engine cannot deliver.
+	 */
+	fun sendInsert() {
+		val state = _state.value
+		if (!state.isStreaming || state.isCompacting) return
+		val text = state.input.trim()
+		if (!canInsertNow(text, state.pendingAttachments)) return
+		enqueue(text, emptyList(), insert = true)
+	}
+
+	/** Drop one queued message. Never sends. */
+	fun cancelQueued(id: String) {
+		_state.update { state -> state.copy(queued = state.queued.filterNot { it.id == id }) }
+	}
+
+	/**
+	 * Upgrade a queued message to "insert before the next call".
+	 *
+	 * The queue makes the decision reversible: a user who sent while streaming
+	 * and then realised the running turn is the one that should see it can
+	 * change the promise instead of cancelling and retyping. Refused once the
+	 * turn is no longer running -- there is no next call to insert before.
+	 */
+	fun insertQueued(id: String) {
+		if (!_state.value.isStreaming) return
+		_state.update { state ->
+			state.copy(
+				queued = state.queued.map { entry ->
+					if (entry.id == id && entry.insertable) entry.copy(insert = true) else entry
+				},
+			)
+		}
+	}
+
+	/**
+	 * Send one queued message now, out of order.
+	 *
+	 * The queue strip offers this after a failed turn: the messages were held
+	 * rather than fed into a provider or configuration error, and pressing this
+	 * is the user deciding to try again. It never fires on its own.
+	 */
+	fun sendQueued(id: String) {
+		if (_state.value.isStreaming || _state.value.isCompacting) return
+		val entry = _state.value.queued.firstOrNull { it.id == id } ?: return
+		_state.update { it.copy(error = null) }
+		deliverQueued(entry)
+	}
+
+	private fun enqueue(text: String, attachments: List<PendingAttachment>, insert: Boolean) {
+		val state = _state.value
+		if (state.queued.size >= MAX_QUEUED) {
+			_state.update {
+				it.copy(error = context.getString(R.string.chat_queue_full, MAX_QUEUED))
+			}
+			return
+		}
+		val entry = QueuedMessage(
+			id = UUID.randomUUID().toString(),
+			text = text,
+			attachments = attachments,
+			insert = insert,
+		)
+		_state.update {
+			it.copy(
+				queued = it.queued + entry,
+				// The composer is cleared only when the message is committed to
+				// the queue: a refused enqueue above leaves the draft intact.
+				input = "",
+				pendingAttachments = emptyList(),
+				error = null,
+			)
+		}
+		Diag.i(
+			"turn",
+			"queued insert=$insert chars=${text.length} " +
+				"attachments=${attachments.size} queue=${state.queued.size + 1}",
+		)
+	}
+
+	/**
+	 * Start a turn with an explicit body.
+	 *
+	 * Split out of [send] so a queued message can start the next turn without
+	 * being written back into the composer. The cheap refusals still happen
+	 * before anything is cleared or persisted, so a missing key leaves the
+	 * draft (or the queue entry) where it was.
+	 */
+	private fun startSend(
+		text: String,
+		attachments: List<PendingAttachment>,
+		fromComposer: Boolean,
+	): Boolean {
+		if (text.isEmpty() && attachments.isEmpty()) return false
+		if (_state.value.isStreaming || _state.value.isCompacting) return false
 		val demo = demoEnabled()
 		if (!demo && !agents.hasKey(providerId)) {
 			Diag.w("turn", "send refused: no API key and demo mode off provider=$providerId")
 			_state.update {
 				it.copy(error = context.getString(R.string.chat_error_add_key_demo, providerName))
 			}
-			return
+			return false
 		}
+		cancelMaintenanceForSend()
+		userStopped = false
 
 		val parent = _state.value.messages.lastOrNull()?.id
 		val userMessage = MessageEntity(
@@ -3941,11 +4074,12 @@ class ChatViewModel(
 		_state.update {
 			it.copy(
 				messages = it.messages + userMessage.toUi(),
-				input = "",
 				// Cleared only now, when the message that carries them is
 				// committed. Clearing earlier would lose them if the send were
-				// refused above.
-				pendingAttachments = emptyList(),
+				// refused above, and a queued send must not wipe a draft the
+				// user has started typing meanwhile.
+				input = if (fromComposer) "" else it.input,
+				pendingAttachments = if (fromComposer) emptyList() else it.pendingAttachments,
 				isStreaming = true,
 				error = null,
 			)
@@ -3975,7 +4109,7 @@ class ChatViewModel(
 			// A scene is titled after its character at creation; the first player
 			// line is part of the story, not its title, so auto-titling would
 			// rename the scene to "I walk into the tavern".
-			if (_state.value.messages.count { it.fromUser } == 1 && roleplayScene() == null) {
+			if (_state.value.messages.count { it.isTurnRoot } == 1 && roleplayScene() == null) {
 				// An image-only first message has no text to derive a title
 				// from, so it falls back rather than leaving the list blank.
 				repository.autoTitle(
@@ -3988,7 +4122,96 @@ class ChatViewModel(
 			runTurn(demo = demo)
 			recordChangedFiles()
 			refreshTurnMeta()
+			flushQueueAfterTurn()
 		}
+		return true
+	}
+
+	/**
+	 * Send the queue's head as its own turn.
+	 *
+	 * One message per turn, in order. The next one is picked up when that turn
+	 * ends, which is why this does not loop: two user messages sent back to back
+	 * would answer the first with the second's context already in the request.
+	 */
+	private fun sendNextQueued() {
+		val state = _state.value
+		if (state.isStreaming || state.isCompacting) return
+		val next = state.queued.firstOrNull() ?: return
+		deliverQueued(next)
+	}
+
+	private fun deliverQueued(entry: QueuedMessage) {
+		if (startSend(entry.text, entry.attachments, fromComposer = false)) {
+			_state.update { state ->
+				state.copy(queued = state.queued.filterNot { it.id == entry.id })
+			}
+		}
+	}
+
+	/**
+	 * Hand the engine what the user wrote during the current turn.
+	 *
+	 * Called by the engine at the start of every round after the first, i.e.
+	 * after a tool group finished. Each line is **persisted before it is
+	 * returned**: the model must not read text the transcript does not contain.
+	 * A failed write leaves the entry in the queue, and the end-of-turn flush
+	 * sends it as the next turn rather than losing it.
+	 */
+	private suspend fun deliverInjections(round: Int): List<String> {
+		val pending = _state.value.queued.filter { it.insert && it.insertable }
+		if (pending.isEmpty()) return emptyList()
+		val delivered = mutableListOf<String>()
+		for (entry in pending) {
+			val parent = _state.value.messages.lastOrNull()?.id
+			val entity = MessageEntity(
+				id = UUID.randomUUID().toString(),
+				conversationId = conversationId,
+				parentId = parent,
+				role = "user",
+				content = entry.text,
+				createdAt = System.currentTimeMillis(),
+				injected = true,
+			)
+			val written = withContext(NonCancellable) {
+				runCatching { repository.appendMessage(entity, parent) }
+			}
+			if (written.isFailure) {
+				Diag.w("turn", "injection persist failed round=$round", written.exceptionOrNull())
+				continue
+			}
+			_state.update { state ->
+				state.copy(
+					messages = state.messages + entity.toUi(),
+					queued = state.queued.filterNot { it.id == entry.id },
+				)
+			}
+			delivered += entry.text
+		}
+		if (delivered.isNotEmpty()) Diag.i("turn", "injected round=$round count=${delivered.size}")
+		return delivered
+	}
+
+	/**
+	 * Deliver what is left in the queue once a turn has closed.
+	 *
+	 * An insertion that found no later round is an ordinary queued message now
+	 * (the turn it belonged to is over), so it is sent after the turn rather than
+	 * silently dropped. A failed turn holds the queue: sending it would repeat the
+	 * same failure and write a user row each time; the strip keeps it and the
+	 * user decides when to retry.
+	 */
+	private fun flushQueueAfterTurn() {
+		val state = _state.value
+		if (state.queued.isEmpty()) return
+		if (state.queued.any { it.insert }) {
+			_state.update { it.copy(queued = afterTurn(it.queued)) }
+		}
+		if (state.error != null) {
+			Diag.i("turn", "queue held after failure size=${_state.value.queued.size}")
+			return
+		}
+		sendNextQueued()
 	}
 
 	/**
@@ -4396,7 +4619,7 @@ class ChatViewModel(
 		// through the call's arguments: the model repeating its own answer
 		// would bill it twice and could truncate it.
 		val scratch = TurnScratch().apply {
-			lastUserMessage = _state.value.messages.lastOrNull { it.fromUser }?.plainText.orEmpty()
+			lastUserMessage = _state.value.messages.lastOrNull { it.isTurnRoot }?.plainText.orEmpty()
 		}
 		// A text-only retry keeps the tool definitions on a real provider so
 		// the request prefix still matches the context cache; a transient
@@ -4521,6 +4744,10 @@ class ChatViewModel(
 					temperature = card?.temperature,
 					topP = card?.topP,
 					maxTokens = card?.maxTokens,
+					// Only a later round can receive one; the hook persists each
+					// line before returning it, so the record and the request
+					// cannot disagree.
+					beforeRound = EngineBeforeRound { round -> deliverInjections(round) },
 				),
 			).collect { event ->
 				when (event) {
@@ -5333,7 +5560,7 @@ class ChatViewModel(
 			if (!tool.reversible) {
 				turnIrreversible = true
 			} else if (!turnSnapshotReady) {
-				val anchor = turnAnchorId ?: _state.value.messages.lastOrNull { it.fromUser }?.id
+				val anchor = turnAnchorId ?: _state.value.messages.lastOrNull { it.isTurnRoot }?.id
 				val entity = conversation
 				val captured = anchor != null && entity != null &&
 					runCatching { repository.captureStartCheckpoint(entity, anchor) }
@@ -7023,6 +7250,7 @@ private fun MessageEntity.toUi(
 		id = id,
 		parentId = parentId,
 		fromUser = roleFromWire(role) == Role.User,
+		injected = injected,
 		// Stored row metadata, not display state: the wire-history builder uses
 		// it to decide which user messages carry a time hint.
 		createdAt = createdAt,

@@ -54,6 +54,17 @@ class ChatEngine(
 		var callsUsed = 0
 
 		for (round in 1..turn.maxRounds) {
+			// A later round only exists because the previous one asked for tools,
+			// so this is the one moment where a message the user typed while the
+			// turn was running can join the conversation before the model reads
+			// it. The host persists each line before returning it: a text the
+			// model saw and the record does not contain is exactly the
+			// disagreement this hook exists to prevent.
+			if (round > 1) {
+				turn.beforeRound?.messages(round)?.forEach { text ->
+					if (text.isNotBlank()) history += ChatMessage(Role.User, text)
+				}
+			}
 			val request = ChatRequest(
 				model = turn.model,
 				messages = history,
@@ -392,7 +403,33 @@ data class EngineTurn(
 	val reasoningEffort: String? = null,
 	val userId: String? = null,
 	val suppressToolCalls: Boolean = false,
+	/**
+	 * What the user sent while this turn was running, to add before the next
+	 * round's request.
+	 *
+	 * Called at the start of every round after the first -- after a tool group
+	 * ran, before that round's [ChatRequest] is built. The host is responsible
+	 * for persisting each returned line *before* returning it; this loop only
+	 * appends it to the request history. Null when the host has no queue.
+	 *
+	 * It is a hook rather than a prebuilt message list because the decision is
+	 * made at the boundary: an insertion that arrives after the final answer has
+	 * started to stream can no longer be delivered inside this turn, and the
+	 * host must be able to say so by returning nothing.
+	 */
+	val beforeRound: EngineBeforeRound? = null,
 )
+
+/**
+ * The host's queue of in-turn messages, drained at each round boundary.
+ *
+ * The suspend signature is deliberate: the host writes the row to the database
+ * in this call. Returning first and persisting later would let a crash leave a
+ * model that read a line the transcript does not contain.
+ */
+fun interface EngineBeforeRound {
+	suspend fun messages(round: Int): List<String>
+}
 
 data class EngineToolCall(
 	val index: Int,

@@ -176,6 +176,27 @@ class TurnSummaryTest {
 	}
 
 	@Test
+	fun `an in-turn insertion does not start a new turn`() {
+		val turns = turnSummariesOf(
+			listOf(
+				user("u1"),
+				assistant("a1", UsageUi(promptTokens = 10, completionTokens = 5)),
+				tool("t1"),
+				ChatMessageUi(id = "u2", fromUser = true, injected = true, plainText = "wait"),
+				assistant("a2", UsageUi(promptTokens = 20, completionTokens = 6)),
+			),
+		)
+
+		// One turn, from the root user message to the final answer. A footer
+		// placed at the insertion would split the turn into two and drop the
+		// first round's usage from both totals.
+		assertEquals(setOf("a2"), turns.keys)
+		assertEquals(0, turns["a2"]!!.start)
+		assertEquals(4, turns["a2"]!!.end)
+		assertEquals(30, turns["a2"]!!.usage!!.promptTokens)
+	}
+
+	@Test
 	fun `two turns get two independent footers`() {
 		val turns = turnSummariesOf(
 			listOf(

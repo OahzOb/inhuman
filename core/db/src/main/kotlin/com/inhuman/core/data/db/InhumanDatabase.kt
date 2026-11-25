@@ -373,7 +373,7 @@ interface MessageDao {
 	@Query(
 		"""
 		SELECT id, conversationId, parentId, selectedChildId, createdAt,
-		       role, toolCallsJson, toolCallId, mutated
+		       role, toolCallsJson, toolCallId, mutated, injected
 		FROM messages WHERE conversationId = :conversationId
 		""",
 	)
@@ -709,7 +709,7 @@ interface SavedPromptDao {
 	// the app crashed on launch with "Looks like you've changed schema but
 	// forgot to update the version number" instead of quietly losing
 	// conversations.
-	version = 25,
+	version = 26,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -1322,6 +1322,23 @@ abstract class InhumanDatabase : RoomDatabase() {
 		}
 
 		/**
+		 * 25 -> 26: the "sent while the turn was running" marker on a user row.
+		 *
+		 * Additive and false by default, which is the only safe meaning: a
+		 * transcript written before this release contains no insertions, so
+		 * every existing user row stays a turn root and every rewind gate keeps
+		 * working. Turn grouping reads the flag; the wire does not -- the row is
+		 * a user message either way.
+		 */
+		val MIGRATION_25_26 = object : Migration(25, 26) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"ALTER TABLE messages ADD COLUMN injected INTEGER NOT NULL DEFAULT 0",
+				)
+			}
+		}
+
+		/**
 		 * Every migration, in order.
 		 *
 		 * A builder must not copy this list. `:core:data` uses
@@ -1354,6 +1371,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 			MIGRATION_22_23,
 			MIGRATION_23_24,
 			MIGRATION_24_25,
+			MIGRATION_25_26,
 		)
 
 		/**
@@ -1492,6 +1510,8 @@ data class MessageTurnRow(
 	val toolCallsJson: String?,
 	val toolCallId: String?,
 	val mutated: Boolean,
+	/** See [MessageEntity.injected]; a turn root is `role == "user" && !injected`. */
+	val injected: Boolean = false,
 )
 
 /**

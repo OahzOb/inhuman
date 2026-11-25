@@ -22,7 +22,10 @@ over.
   changes tools, and nothing in a message, a tool result or a model response can
   add one.
 - A change applies to the **next** turn. The sheet is disabled while a reply is
-  streaming, because the request being built has already been sent.
+  streaming, because the request being built has already been sent. A message
+  the user writes during that turn (queued or inserted, `docs/06-agent-loop-ui.md`)
+  is not a tool change: it cannot alter this turn's set, and it does not touch the
+  sheet.
 - The assistant is the ceiling. A conversation can choose from tools the
   assistant has, or tools the conversation already had; it cannot invent a tool
   the assistant never offered.

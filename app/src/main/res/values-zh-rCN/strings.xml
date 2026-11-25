@@ -1056,6 +1056,17 @@
 	<string name="chat_add_key_hint">添加 API 密钥后开始</string>
 	<string name="chat_stop">停止</string>
 	<string name="chat_send">发送</string>
+	<string name="chat_send_after_turn">结束后发送</string>
+	<string name="chat_insert_short">插入</string>
+	<string name="chat_you_injected">你 · 工作期间插入</string>
+	<string name="chat_queue_state_after">结束后发送</string>
+	<string name="chat_queue_state_insert">将插入本轮</string>
+	<string name="chat_queue_state_held">未发送</string>
+	<string name="chat_queue_insert_action">插入</string>
+	<string name="chat_queue_send_action">发送</string>
+	<string name="chat_queue_cancel">取消排队消息</string>
+	<string name="chat_queue_image_only">（图片）</string>
+	<string name="chat_queue_full">当前回复期间最多可等待 %1$d 条消息，请先取消一条。</string>
 	<string name="chat_compact_none_title">还没有可压缩的内容</string>
 	<string name="chat_compact_title">压缩上下文？</string>
 	<string name="chat_compact_needs">压缩至少需要三个完整回合：最近两个回合保留原文，较早的内容会变成摘要。</string>

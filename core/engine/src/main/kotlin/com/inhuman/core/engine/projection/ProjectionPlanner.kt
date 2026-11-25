@@ -76,7 +76,10 @@ fun planProjection(
 	}
 
 	val minKeep = policy.minKeepTurns.coerceAtLeast(1)
-	val userStarts = messages.indices.filter { messages[it].fromUser && it >= currentFirst }
+	// Fold boundaries are turn boundaries; an in-turn insertion is not one.
+	val userStarts = messages.indices.filter {
+		messages[it].fromUser && !messages[it].injected && it >= currentFirst
+	}
 	// Fewer complete turns than the floor: the plan may not fold one, because
 	// keeping fewer turns than the floor is not a legal projection.
 	if (userStarts.size < minKeep) {
@@ -151,7 +154,8 @@ fun planProjection(
 		firstSentIndex = firstSent,
 		throughMessageId = messages.getOrNull(boundary)?.id,
 		omittedMessages = firstSent - currentFirst,
-		omittedTurns = messages.subList(currentFirst, firstSent).count { it.fromUser },
+		omittedTurns = messages.subList(currentFirst, firstSent)
+			.count { it.fromUser && !it.injected },
 		estimatedTokens = clampToInt(totalAfter),
 		estimatedPayloadTokens = clampToInt(payloadAfter),
 		foldNeeded = true,

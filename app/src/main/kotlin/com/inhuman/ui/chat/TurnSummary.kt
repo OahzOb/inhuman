@@ -96,7 +96,9 @@ internal fun turnSummariesOf(messages: List<ChatMessageUi>): Map<String, TurnSum
 	}
 
 	messages.forEachIndexed { index, message ->
-		if (message.fromUser && index > start) close(index)
+		// An in-turn insertion is a user message but not a new turn: closing
+		// here would draw one turn as two and hang the footer off the insertion.
+		if (message.isTurnRoot && index > start) close(index)
 	}
 	close(messages.size)
 	return out

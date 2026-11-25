@@ -35,7 +35,10 @@ internal fun planContextCompaction(
 ): CompactionPlan? {
 	if (messages.isEmpty()) return null
 	val keep = keepTurns.coerceAtLeast(1)
-	val userIndices = messages.indices.filter { messages[it].fromUser }
+	// Turn roots only: an in-turn insertion belongs to the turn around it, and a
+	// boundary drawn at one would split a turn whose start checkpoint is keyed
+	// by the message before it.
+	val userIndices = messages.indices.filter { messages[it].isTurnRoot }
 	if (userIndices.size <= keep) return null
 
 	// The first turn that stays verbatim. The boundary is the message just
@@ -46,7 +49,7 @@ internal fun planContextCompaction(
 
 	val boundary = messages[boundaryIndex]
 	val omitted = messages.subList(0, boundaryIndex + 1)
-	val omittedTurns = omitted.count { it.fromUser }
+	val omittedTurns = omitted.count { it.isTurnRoot }
 	if (omittedTurns == 0) return null
 
 	val chars = omitted.sumOf { message ->
@@ -107,7 +110,7 @@ internal fun compactionTranscript(
  * than pretending to understand them.
  */
 internal fun demoCompactionSummary(messages: List<ChatMessageUi>): String {
-	val userMessages = messages.filter { it.fromUser }
+	val userMessages = messages.filter { it.isTurnRoot }
 	val files = messages
 		.flatMap { it.changedFiles }
 		.map { it.path }

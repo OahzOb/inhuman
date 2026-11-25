@@ -150,6 +150,12 @@ Confirmed by `README.md:17-29` and by the code:
   or an unfinished tool call, adds no second user message, and reuses the
   original start checkpoint. Text that was still streaming at the kill was never
   persisted and does not come back ([06-agent-loop-ui.md](06-agent-loop-ui.md)).
+- A message can be written while a turn is running. The composer stays enabled;
+  send **queues** it for the next turn, or -- when this turn still has a model
+  call coming -- **inserts** it before that call. The inserted row is a real
+  user message marked in the transcript and is not a new turn, and neither
+  delivery changes this turn's tools or approvals
+  ([06-agent-loop-ui.md](06-agent-loop-ui.md), [07-gotchas.md](07-gotchas.md) A29).
 - Concurrency is bounded, not tuned: one turn per conversation, two turns per
   process (the third is refused rather than queued), and one tool at a time
   inside a turn. Subagents are not implemented, so their ceiling is zero

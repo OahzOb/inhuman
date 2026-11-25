@@ -113,6 +113,22 @@ class ContextCompactionTest {
 	}
 
 	@Test
+	fun `an in-turn insertion is not a turn to keep`() {
+		// Two real turns plus one insertion inside the second. Keeping two
+		// turns must find nothing older to fold; counting the insertion as a
+		// third turn would offer a compaction whose boundary splits turn two.
+		val messages = listOf(
+			user("u1"),
+			assistant("a1"),
+			user("u2"),
+			ChatMessageUi(id = "i2", fromUser = true, injected = true, plainText = "wait"),
+			assistant("a2"),
+		)
+
+		assertNull(planContextCompaction(messages, keepTurns = 2))
+	}
+
+	@Test
 	fun `a blank summary blames reasoning only when the budget ran out there`() {
 		// The case that was reported: a model thought through the whole
 		// `max_tokens` budget and stopped before writing the summary.

@@ -17,7 +17,7 @@ than implementation; the old feasibility studies are archived under
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
 | `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the per-tool media backends (image/video/speech/transcription/decision)**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)**, **`download_url` (app-proxied file download into the workspace)**, and the user-set `SshLimits` ceilings |
-| `docs/04-data-persistence.md` | Room schema v25, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup, and the continuous-session cost ledger |
+| `docs/04-data-persistence.md` | Room schema v26, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup, and the continuous-session cost ledger |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the file and document tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, continuous-session projection and read-only record recall, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
@@ -568,6 +568,18 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   taken from `hasStartCheckpoint` for the original user message, so the gate
   must not capture the post-interruption workspace over it. Persistence is per
   round: text still streaming at a kill is gone, and the banner says so.
+- **A message sent while a turn is running is a real user row and not a turn
+  root.** `messages.injected` (schema v26) marks it; `EngineTurn.beforeRound`
+  appends it after a complete tool group, before the next request, and the host
+  persists it *before* returning from the hook — a line the model read that the
+  transcript lacks is the bug that ordering prevents. Turn grouping, the jump
+  list, `lastUser`/Rewind, compaction boundaries and `continueInterruptedTurn`
+  must all use "turn root" (`fromUser && !injected`); one insertion otherwise
+  moves the Rewind start point and orphans the start checkpoint keyed by the
+  root. The wire needs no adapter special case: a user message after the tool
+  messages is legal in all four formats. The queue strip is memory-only, like
+  the composer draft, and a failed turn holds it rather than retrying the same
+  error once per queued message. See `docs/07-gotchas.md` A29.
 - **The final-answer retry keeps tools but suppresses calls.** The **Answer
   again** choice in Rewind rewrites final text from existing results; keeping the
   definitions preserves the cache prefix, while a transient system instruction

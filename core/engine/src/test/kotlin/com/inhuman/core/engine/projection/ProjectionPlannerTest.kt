@@ -278,6 +278,38 @@ class ProjectionPlannerTest {
 		assertEquals(121, estimateTokens(listOf(message), overheadTokens = null, ratio = Double.NaN, policy = policy))
 	}
 
+	@Test
+	fun `an in-turn insertion is not a turn start`() {
+		// Two ordinary turns, then a third whose user row is followed by an
+		// insertion before the answer. The insertion is a user row but it starts
+		// no turn: a fold boundary drawn at it would split a turn whose start
+		// checkpoint is keyed by the message before it.
+		val messages = buildList {
+			add(message("u0", fromUser = true, chars = 1_000))
+			add(message("a0", fromUser = false, chars = 1_000))
+			add(message("u1", fromUser = true, chars = 1_000))
+			add(message("a1", fromUser = false, chars = 1_000))
+			add(message("u2", fromUser = true, chars = 1_000))
+			add(message("i2", fromUser = true, chars = 100, injected = true))
+			add(message("a2", fromUser = false, chars = 1_000))
+			add(message("u3", fromUser = true, chars = 1_000))
+			add(message("a3", fromUser = false, chars = 1_000))
+			add(message("u4", fromUser = true, chars = 1_000))
+			add(message("a4", fromUser = false, chars = 1_000))
+			add(message("u5", fromUser = true, chars = 1_000))
+			add(message("a5", fromUser = false, chars = 1_000))
+		}
+		val plan = plan(messages, window = smallWindow, maxOutput = maxOutput)
+
+		assertTrue(plan.foldNeeded)
+		// The two kept turns start at u4, and the boundary ends the previous
+		// turn at a3 -- not at the inserted user row.
+		assertEquals(9, plan.firstSentIndex)
+		assertEquals("a3", plan.throughMessageId)
+		assertEquals(4, plan.omittedTurns)
+		assertFalse(messages[plan.firstSentIndex - 1].injected)
+	}
+
 	private fun plan(
 		messages: List<ProjectionMessage>,
 		briefBoundaryId: String? = null,
@@ -322,11 +354,13 @@ class ProjectionPlannerTest {
 		isToolResult: Boolean = false,
 		chars: Int = 0,
 		hasImages: Boolean = false,
+		injected: Boolean = false,
 	): ProjectionMessage = ProjectionMessage(
 		id = id,
 		fromUser = fromUser,
 		isToolResult = isToolResult,
 		chars = chars,
 		hasImages = hasImages,
+		injected = injected,
 	)
 }

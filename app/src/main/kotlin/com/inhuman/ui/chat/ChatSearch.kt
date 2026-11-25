@@ -62,10 +62,11 @@ internal fun searchConversation(
 	}
 }
 
-/** The user messages of [messages], in transcript order. */
+/** The turn roots of [messages], in transcript order. */
 internal fun userTurnsOf(messages: List<ChatMessageUi>): List<UserTurn> =
 	messages.mapIndexedNotNull { index, message ->
-		if (!message.fromUser) return@mapIndexedNotNull null
+		// A message inserted in the middle of a turn is not a turn to jump to.
+		if (!message.isTurnRoot) return@mapIndexedNotNull null
 		UserTurn(
 			messageIndex = index,
 			messageId = message.id,
