@@ -683,14 +683,29 @@ workspace holds any speech file. Both come from `SpeechCache` reading the
 marker, where a stored flag would keep claiming the audio is free.
 
 Playback is in-process through a `WorkspaceAudioPlayer` over the
-DocumentsProvider descriptor. The chat screen owns one player and one
+DocumentsProvider descriptor. Before a player sees a file, the player reads its
+WAV header and compares it with the real file: a streamed response writes
+`0xFFFFFFFF`, or a zero, into `RIFF` and `data`, and those sizes are recomputed
+in `Wav` (`core/ai/…/speech/Wav.kt`) -- a zeroed `data` size with a payload
+behind it means "read to the end", not "empty". When the header disagrees with
+the payload, the audio is copied behind a canonical header into the app cache
+and that copy is what plays; the workspace file is left byte-for-byte as it was
+saved, because it is the cache of a paid request and re-tapping it must not bill
+again. The same rewrite runs at synthesis time, so a new file is canonical
+before it is written. A header whose format fields were never filled in is not
+guessed at: it is reported as unplayable rather than repaired into a fabrication.
+If playback still fails, `AudioDiagnostics` runs one probe and records what the
+retriever, the extractor, the decoder list and a muted `AudioTrack` each saw
+(`10-diagnostics.md`); the opaque `what=-38` from `MediaPlayer` alone does not
+say which layer refused.
+
+The chat screen owns one player and one
 `MediaSession`, plus a `MediaStyle` notification, so Pause/Resume/Stop work from
 the app's mini bar, the notification and the lock screen; both are released when
 the screen leaves. The one-row mini bar above the composer shows the transport
 controls as icons, the caption currently being read, and a seekable progress
 row with `current / total`. One ticker publishes the position to the row, the
-session and the notification:
-the metadata carries the duration, the playback state carries the position, and
+session and the notification:the metadata carries the duration, the playback state carries the position, and
 the notification's second line is the **caption currently being read**. The
 caption timeline is `SpeechCaptions`, which splits the projected reply into
 sentence-sized pieces and gives each a share of the known duration proportional

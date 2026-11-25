@@ -80,6 +80,7 @@ supported path.
 | Search | request (`api=search`, count, query length), response status and bytes, result count, HTTP failure body |
 | Fetch | request (URL length), response status and bytes, title and content lengths, HTTP failure body |
 | Models | `/models` request base, response status/bytes/duration, failure; picker cache hit, background refresh, 20s call timeout and 25s dialog timeout |
+| Audio | reply read-aloud: the file's WAV header facts (the declared and real sizes, format tag, channels, rate, bits) and whether a canonical header had to be built for playback. On a playback failure one probe per layer follows: retriever duration/mime, extractor track count with its mime/rate/channels/bits, whether a decoder exists for that format, and a muted `AudioTrack` write result. No audio content. |
 | Updates | check (current and remote version code, newer flag), download requested/verified (version, bytes), install requested; log upload (bytes, saved file name). No server URL or credential is written. |
 | Tools | run (name, normalised path, argument bytes), done (ok, result bytes, duration), error text (first 240 chars), unknown tool, unparsable arguments, skipped call |
 | Transfer | conversation bundle export (message and attachment counts, bytes), conversation bundle import (message and copied-attachment counts, failure category), workspace zip import (files/bytes and failure category); never message text, attachment names or file content |

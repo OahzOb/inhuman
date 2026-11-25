@@ -1,5 +1,6 @@
 package com.inhuman.core.ai.provider.deepseek
 
+import com.inhuman.core.ai.speech.Wav
 import com.inhuman.core.common.diag.Diag
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -233,19 +234,15 @@ class DeepSeekSpeechApi(
 		 * [wavDataComplete] accepts the unknown length -- but a player that
 		 * trusts the header can reject the file. Patching the two size fields is
 		 * a copy of the header, not a re-encode.
+		 *
+		 * The rule lives in [Wav.canonicalize]: it also drops the chunks that
+		 * follow the payload, clamps a size that overstates the file, and treats
+		 * a zeroed `data` size with a payload behind it as "to the end" rather
+		 * than "empty". Those shapes are what a streamed response actually
+		 * contains; a zero size used to survive this function untouched and
+		 * reached the player as a file with no samples.
 		 */
-		internal fun normalizeWav(bytes: ByteArray): ByteArray {
-			val data = dataChunk(bytes) ?: return bytes
-			val declared = data.second
-			if (declared >= 0) return bytes
-			val body = data.first
-			val dataBytes = bytes.size - body
-			if (dataBytes <= 0) return bytes
-			val normalized = bytes.copyOf()
-			writeLeInt(normalized, body - 4, dataBytes)
-			writeLeInt(normalized, 4, normalized.size - 8)
-			return normalized
-		}
+		internal fun normalizeWav(bytes: ByteArray): ByteArray = Wav.canonicalize(bytes) ?: bytes
 
 		private val JSON = "application/json; charset=utf-8".toMediaType()
 		private val WAV = "audio/wav".toMediaType()
@@ -382,13 +379,6 @@ class DeepSeekSpeechApi(
 				((bytes[offset + 1].toInt() and 0xff) shl 8) or
 				((bytes[offset + 2].toInt() and 0xff) shl 16) or
 				((bytes[offset + 3].toInt() and 0xff) shl 24)
-		}
-
-		private fun writeLeInt(bytes: ByteArray, offset: Int, value: Int) {
-			if (offset < 0 || offset + 4 > bytes.size) return
-			for (index in 0..3) {
-				bytes[offset + index] = ((value ushr (8 * index)) and 0xff).toByte()
-			}
 		}
 
 		/**
