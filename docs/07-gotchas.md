@@ -428,6 +428,20 @@ Five rules keep the automatic projection from becoming a second transcript:
   download through the paid search/fetch key: that would make a free operation
   depend on a configured bill.
 
+### A28. The update URL's relative join is a string join, and mirror bases need it
+
+`resolveUpdateUrl` joins a manifest's relative APK URL onto the configured base
+with plain string concatenation. `URI.resolve` was the obvious implementation
+and is wrong here: Java's resolver treats a repeated slash inside a path as
+redundant, so the mirror base `https://gh-proxy.com/https://github.com/...`
+turned its inner `https://` into `https:/github.com/...`. One mirror happened to
+accept that collapsed form, which is exactly the kind of accidental success that
+makes a later mirror look broken. The release script writes a bare file name;
+a root-relative path is combined with the base's scheme and authority. Do not
+"simplify" this back to `URI.resolve`, and keep the built-in preset test
+(`built-in update presets are valid HTTPS endpoints on the latest release`)
+asserting that a mirror preset resolves to its own release directory.
+
 ---
 
 ## B. Defects that were found here — and where each one now stands

@@ -102,4 +102,26 @@ class UpdatesTest {
 		assertFalse(isAllowedCleartextUrl("http://example.com"))
 		assertFalse(isAllowedCleartextUrl("ftp://192.168.1.50"))
 	}
+
+	@Test
+	fun `built-in update presets are valid HTTPS endpoints on the latest release`() {
+		assertEquals(3, BUILT_IN_UPDATE_URLS.size)
+		// A duplicate preset would be a dead chip: one tap writes the same
+		// address another chip already wrote.
+		assertEquals(BUILT_IN_UPDATE_URLS.size, BUILT_IN_UPDATE_URLS.toSet().size)
+		for (url in BUILT_IN_UPDATE_URLS) {
+			// Choosing a preset must always produce a value the field accepts;
+			// otherwise the chip fills in a URL the next check refuses.
+			assertEquals(url, normalizeServerUrl(url))
+			assertTrue(url, url.startsWith("https://"))
+			assertTrue(url, url.endsWith("/releases/latest/download"))
+			// The manifest and the APK it names live in the same release, so a
+			// release upload only has to place both assets next to each other.
+			assertTrue(updateManifestUrl(url).endsWith("/latest/download/update.json"))
+			assertEquals(
+				"$url/inhuman-0.0.0-0.apk",
+				resolveUpdateUrl(url, "inhuman-0.0.0-0.apk"),
+			)
+		}
+	}
 }

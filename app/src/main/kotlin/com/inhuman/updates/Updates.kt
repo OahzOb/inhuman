@@ -49,6 +49,29 @@ fun normalizeServerUrl(raw: String): String? {
 
 fun updateManifestUrl(base: String): String = "$base/update.json"
 
+/**
+ * Release endpoints the settings screen offers as one-tap presets.
+ *
+ * The project publishes its own releases on GitHub, and the stable asset URL
+ * `releases/latest/download` always resolves to the newest release, so a
+ * phone's configured address never has to change between versions. Direct
+ * GitHub asset downloads are unreliable from mainland China (measured at
+ * ~13 KB/s with connection resets), while the two mirrors fetch the same
+ * assets from the same release; they are listed after the canonical host in
+ * measured speed order. The mirrors are third parties, which is why they are
+ * a fallback and not the only address: the APK's signature and SHA-256 are
+ * still verified, so a mirror cannot change what gets installed.
+ *
+ * These are presets in the settings UI, not hidden network calls: choosing one
+ * only fills the same server-address field the user could type, and the field
+ * remains visible and editable.
+ */
+val BUILT_IN_UPDATE_URLS: List<String> = listOf(
+	"https://github.com/OahzOb/inhuman/releases/latest/download",
+	"https://gh-proxy.com/https://github.com/OahzOb/inhuman/releases/latest/download",
+	"https://ghfast.top/https://github.com/OahzOb/inhuman/releases/latest/download",
+)
+
 fun logUploadUrl(base: String): String = "$base/log"
 
 /**
@@ -100,12 +123,30 @@ fun parseUpdateInfo(text: String, baseUrl: String): UpdateInfo? {
 
 /** Resolve an absolute or relative APK URL against the manifest base. */
 fun resolveUpdateUrl(baseUrl: String, raw: String): String? {
-	val absolute = runCatching { URI(raw.trim()) }.getOrNull()
-	val uri = if (absolute?.scheme != null) {
+	val text = raw.trim()
+	if (text.isEmpty()) return null
+	val absolute = runCatching { URI(text) }.getOrNull()
+	val uri = if (absolute != null && absolute.scheme != null) {
 		absolute
 	} else {
-		runCatching { URI("${baseUrl.trimEnd('/')}/").resolve(raw.trim()) }.getOrNull()
-			?: return null
+		// A manual join rather than `URI.resolve`: resolution treats a repeated
+		// slash in a path as redundant and collapses it, so the mirror base
+		// `https://gh-proxy.com/https://github.com/...` turned its inner
+		// `https://` into `https:/` and named a URL the mirror only accepted by
+		// accident. The release script writes a plain file name, so the join is
+		// the whole rule; a path from the host root is also supported.
+		val base = baseUrl.trim()
+		val joined = when {
+			// Not produced by the release script; refused rather than guessed.
+			text.startsWith("//") -> return null
+			text.startsWith("/") -> {
+				val host = runCatching { URI(base) }.getOrNull()
+				if (host?.scheme.isNullOrBlank() || host.rawAuthority.isNullOrBlank()) return null
+				"${host.scheme}://${host.rawAuthority}$text"
+			}
+			else -> base.trimEnd('/') + "/" + text
+		}
+		runCatching { URI(joined) }.getOrNull() ?: return null
 	}
 	val scheme = uri.scheme?.lowercase() ?: return null
 	if (scheme != "http" && scheme != "https") return null

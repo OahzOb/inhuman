@@ -350,7 +350,7 @@
 	<string name="settings_third_party_missing">这个构建里缺少许可文件。</string>
 	<string name="settings_section_local">09 / 本地</string>
 	<string name="settings_local_title">更新与日志</string>
-	<string name="settings_local_summary">在局域网或 Tailscale 内检查更新、上传日志</string>
+	<string name="settings_local_summary">在局域网、Tailscale 或发布服务器上检查更新、上传日志</string>
 	<string name="settings_section_display">10 / 显示</string>
 	<string name="settings_display_title">布局</string>
 	<string name="settings_layout_auto">自动：跟随当前窗口</string>
@@ -465,9 +465,13 @@
 	<string name="settings_clear_log_title">清除诊断日志？</string>
 	<string name="settings_clear_log_body">已有的记录会被删除。如果要报告问题，请先分享日志。</string>
 	<string name="settings_share_subject">inhuman 诊断</string>
-	<string name="settings_local_body">两个操作共用这个服务器地址。支持局域网或 Tailscale 地址；HTTP 只允许私有、局域网或 Tailscale 主机，Tailscale 会加密传输。</string>
+	<string name="settings_local_body">两个操作共用这个服务器地址。内置地址指向公开发布源：通过 HTTPS 提供更新，但没有 /log 端点，上传日志或对话需要局域网或 Tailscale 服务器。</string>
 	<string name="settings_local_url">服务器地址</string>
 	<string name="settings_local_url_hint">http://192.168.1.50:8787</string>
+	<string name="settings_update_presets">内置地址（同一个 release；国内镜像通常更快）</string>
+	<string name="settings_update_preset_github">GitHub</string>
+	<string name="settings_update_preset_mirror">gh-proxy.com</string>
+	<string name="settings_update_preset_mirror_alt">ghfast.top</string>
 	<string name="settings_local_invalid">请输入带主机的 http(s) 地址；HTTP 只允许私有、局域网或 Tailscale 地址。</string>
 	<string name="settings_update_current">已安装：%1$s（%2$s）</string>
 	<string name="settings_update_check">检查更新</string>

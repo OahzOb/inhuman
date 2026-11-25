@@ -366,7 +366,7 @@
 	<string name="settings_third_party_missing">The notices file is missing from this build.</string>
 	<string name="settings_section_local">09 / Local</string>
 	<string name="settings_local_title">Updates and logs</string>
-	<string name="settings_local_summary">Check for updates and upload a log over LAN or Tailscale</string>
+	<string name="settings_local_summary">Check for updates and upload a log over LAN, Tailscale or a release server</string>
 	<string name="settings_section_display">10 / Display</string>
 	<string name="settings_display_title">Layout</string>
 	<string name="settings_layout_auto">Auto: follow this window</string>
@@ -484,9 +484,13 @@
 	<string name="settings_clear_log_title">Clear the diagnostic log?</string>
 	<string name="settings_clear_log_body">The record of what happened will be deleted. Share it first if you are about to report a problem.</string>
 	<string name="settings_share_subject">inhuman diagnostics</string>
-	<string name="settings_local_body">Both actions use this one server. A LAN or Tailscale address is expected; HTTP is accepted only for private, LAN and Tailscale hosts, and Tailscale encrypts the connection.</string>
+	<string name="settings_local_body">Both actions use this one server. The built-in addresses point at the public release feed: they serve updates over HTTPS but have no /log endpoint, so log and conversation uploads need a LAN or Tailscale server.</string>
 	<string name="settings_local_url">Server URL</string>
 	<string name="settings_local_url_hint">http://192.168.1.50:8787</string>
+	<string name="settings_update_presets">Built-in addresses (same release; the mirrors are usually faster from mainland China)</string>
+	<string name="settings_update_preset_github">GitHub</string>
+	<string name="settings_update_preset_mirror">gh-proxy.com</string>
+	<string name="settings_update_preset_mirror_alt">ghfast.top</string>
 	<string name="settings_local_invalid">Enter an http(s) URL with a host. HTTP is only allowed on a private, LAN or Tailscale address.</string>
 	<string name="settings_update_current">Installed: %1$s (%2$s)</string>
 	<string name="settings_update_check">Check for updates</string>

@@ -541,6 +541,11 @@ The app can install an update, upload a diagnostic log, and upload one
 conversation over a LAN or Tailscale link. All use one base URL, set in
 **Settings → 09 Local**; nothing is checked or uploaded until you tap a button,
 and the conversation upload additionally has a preview/confirmation dialog.
+The same section offers three built-in addresses for this project's own GitHub
+Releases (`releases/latest/download` — the canonical host plus two mirrors), so
+an update check needs no typed URL. They serve updates over HTTPS only: they
+have no `/log` endpoint, so log and conversation uploads still need a
+LAN/Tailscale server.
 
 ```powershell
 # Bump versionCode/versionName in app/build.gradle first: Android refuses a

@@ -341,6 +341,14 @@ no cable is attached. It serves `dist/` (the APK and `update.json`) and accepts
 two POSTs: `/log` → `logs/`, `/conversation` → `logs/conversations/`. No
 authentication, no accounts: LAN or Tailscale only, never a public port.
 
+The app also ships one-tap presets for the public GitHub Releases feed
+(`Updates.BUILT_IN_UPDATE_URLS`: `releases/latest/download` on GitHub plus two
+mirrors, rendered as chips in `LocalNetworkSection`). They fill the same server
+address and serve updates only — the POST endpoints need a server. Note that
+the manifest's relative APK URL is joined to the base by **string
+concatenation**, not `URI.resolve`, because Java's resolver collapses the
+mirror base's inner `https://`; see `docs/07-gotchas.md` A28.
+
 ```powershell
 # The interpreter is not interchangeable. Windows firewall has inbound allow
 # rules for C:\python314\python.exe and none for the conda interpreter that

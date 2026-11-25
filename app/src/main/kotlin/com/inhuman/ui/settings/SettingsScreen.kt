@@ -100,6 +100,7 @@ import com.inhuman.core.ai.provider.KnownProvider
 import com.inhuman.core.ai.provider.ProviderCatalog
 import com.inhuman.core.ai.provider.ProviderFactory
 import com.inhuman.diagnostics.AppDiagnostics
+import com.inhuman.updates.BUILT_IN_UPDATE_URLS
 import com.inhuman.updates.UpdateInfo
 import com.inhuman.core.ai.oauth.OAuthProtocol
 import com.inhuman.ui.chat.ProviderDraft
@@ -2716,6 +2717,18 @@ internal fun SettingsFold(
 	}
 }
 
+/**
+ * The chip word for a built-in update address.
+ *
+ * Keyed by host rather than by list position, so reordering the presets cannot
+ * pair a chip with the wrong address.
+ */
+private fun updatePresetLabel(url: String): Int = when {
+	url.startsWith("https://github.com/") -> R.string.settings_update_preset_github
+	url.contains("gh-proxy.com") -> R.string.settings_update_preset_mirror
+	else -> R.string.settings_update_preset_mirror_alt
+}
+
 @Composable
 private fun LocalNetworkSection(
 	serverUrl: String,
@@ -2763,6 +2776,23 @@ private fun LocalNetworkSection(
 			singleLine = true,
 			modifier = Modifier.fillMaxWidth(),
 		)
+		// One tap instead of typing a 70+ character URL. Choosing a chip is
+		// exactly "set this server address": it writes the same field the user
+		// could type, and the field stays visible and editable afterwards.
+		Text(
+			text = stringResource(R.string.settings_update_presets),
+			style = MaterialTheme.typography.labelSmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		FlowRowCompat {
+			BUILT_IN_UPDATE_URLS.forEach { url ->
+				FilterChip(
+					selected = serverUrl.trimEnd('/') == url,
+					onClick = { onServerUrlChange(url) },
+					label = { Text(stringResource(updatePresetLabel(url))) },
+				)
+			}
+		}
 		Text(
 			text = stringResource(
 				R.string.settings_update_current,
