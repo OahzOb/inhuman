@@ -72,6 +72,14 @@ be built and why; they are not a description of current behaviour.
 | --- | --- |
 | [proposals/continuous-session.md](proposals/continuous-session.md) | A continuous-session mode, on by default for new conversations: the record is never deleted, the request projection becomes a rolling session brief plus recent turns, and the model can read the full record through a read-only recall tool |
 | [proposals/deepseek-app-apis.md](proposals/deepseek-app-apis.md) | A triage of DeepSeek's 2026-11-13 application-API suite: the standalone ASR/TTS and OCR APIs were adopted in 0.13.0 as paid app-proxied backends (see `03-ai-provider.md`); the server-side web tools, the Files API and the safety check are refused because they change the capability boundary |
+| [proposals/in-turn-user-message.md](proposals/in-turn-user-message.md) | Two ways to deliver a message the user sends while the agent is working: queue it and send it after the current turn (small, recommended first), or splice it into the current turn before the next model call (needs schema v26, changes to five turn-walk assumptions, and per-provider live verification) |
+| [proposals/user-cloud-sync.md](proposals/user-cloud-sync.md) | Let the user bring their own cloud storage: phase 1 mirrors the existing encrypted backup into a user-picked SAF folder that the user's own sync client uploads; phase 2 is conversation-level two-way sync with stable ids, tombstones and explicit conflict copies |
+| [proposals/rp-authoring-assistant.md](proposals/rp-authoring-assistant.md) | An assistant *template* that writes character-card and scene JSON into the workspace, plus JSON import in the card/scene editors; explicitly not a general personal assistant — cross-conversation memory stays deferred |
+
+The last three proposals were assessed on 2026-11-25. `in-turn-user-message.md`
+has been decided (queue **and** insert-before-next-call, both in one delivery) and
+is the first one being implemented; the other two still wait on product decisions.
+Each records its own open questions and suggested order.
 
 The role-play proposal (`proposals/roleplay.md`) was implemented on 2026-11-25
 (single character, single scene; no multi-character turns, world books or card
