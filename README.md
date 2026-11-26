@@ -518,6 +518,14 @@ If the keystore does not exist yet, generate it once. Back it up somewhere other
 than this checkout: losing it does not mean "generate another one", it means no
 future build can update an installed release.
 
+**0.27.0 is the first release signed with this keystore.** Every earlier build —
+including the published 0.26.0 APK — was signed with the Android debug key, so
+it cannot update in place to 0.27.0 (and 0.27.0 cannot update it either). The
+first move to the production key therefore needs, once: export a backup in
+Settings → 06 / 备份, uninstall the old app, install 0.27.0, import the backup.
+From 0.27.0 onward the keystore above is the signing identity; keep it, or future
+releases will force the same migration again.
+
 ```powershell
 $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 New-Item -ItemType Directory -Force keystore | Out-Null
