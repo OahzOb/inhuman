@@ -445,7 +445,8 @@ fun ConversationsScreen(
 	pendingDelete?.let { conversation ->
 		val fileCount = state.deletePreviewCounts[conversation.id]
 		val permanent = conversation.workspaceId in state.permanentWorkspaceIds
-		val workspaceName = state.workspaceNames[conversation.workspaceId] ?: "the workspace"
+		val workspaceName = state.workspaceNames[conversation.workspaceId]
+			?: stringResource(R.string.home_the_workspace)
 
 		// One meaning of "close", used by all three ways out.
 		//

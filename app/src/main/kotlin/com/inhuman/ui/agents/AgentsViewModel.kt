@@ -343,10 +343,11 @@ class AgentsViewModel(
 		// broken even after a prompt had been imported. Start with a usable
 		// name; it stays editable like any other field.
 		val existingNames = _state.value.agents.map { it.name }.toSet()
-		var name = "New assistant"
+		val baseName = context.getString(R.string.agents_default_name)
+		var name = baseName
 		var suffix = 2
 		while (name in existingNames) {
-			name = "New assistant $suffix"
+			name = "$baseName $suffix"
 			suffix += 1
 		}
 		_state.update {
@@ -463,7 +464,8 @@ class AgentsViewModel(
 			_state.update {
 				it.copy(
 					cardExport = CardExportDraft(
-						assistantName = draft.name.trim().ifBlank { "character" },
+						assistantName = draft.name.trim()
+							.ifBlank { context.getString(R.string.roleplay_character_fallback) },
 						cardJson = json,
 						workspaces = workspaces,
 						selectedWorkspaceId = workspaces.firstOrNull()?.id,

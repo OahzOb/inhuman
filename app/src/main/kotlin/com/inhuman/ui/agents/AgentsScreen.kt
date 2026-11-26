@@ -478,11 +478,14 @@ private fun AgentEditor(
 	var promptStatus by remember { mutableStateOf<String?>(null) }
 	var pendingPromptDelete by remember { mutableStateOf<String?>(null) }
 
+	// The fallback name is resolved here because the result callback is not a
+	// composition and cannot call `stringResource`.
+	val importFallbackName = stringResource(R.string.agents_import_fallback_name)
 	val promptImporter = rememberLauncherForActivityResult(
 		ActivityResultContracts.OpenDocument(),
 	) { uri ->
 		if (uri != null) {
-			val name = queryPromptName(context, uri) ?: "imported"
+			val name = queryPromptName(context, uri) ?: importFallbackName
 			scope.launch {
 				importError = null
 				importStatus = null

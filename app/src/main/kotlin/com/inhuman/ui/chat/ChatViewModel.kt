@@ -6493,7 +6493,7 @@ class ChatViewModel(
 		"ssh_download" -> "Download ${
 			stringArg(args, "host") ?: "a remote host"
 		}:${stringArg(args, "remotePath") ?: "a file"} to " +
-			"${stringArg(args, "localPath") ?: "the workspace"}?"
+			"${stringArg(args, "localPath") ?: context.getString(R.string.home_the_workspace)}?"
 
 		else -> "Run ${call.displayName}?"
 	}

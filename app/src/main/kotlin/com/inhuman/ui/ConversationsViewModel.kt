@@ -1226,7 +1226,7 @@ class ConversationsViewModel(
 					error = if (deleted == targets.size) {
 						null
 					} else {
-						"Deleted $deleted of ${targets.size} conversations. The rest could not be removed."
+						context.getString(R.string.home_bulk_delete_partial, deleted, targets.size)
 					},
 				)
 			}

@@ -319,7 +319,7 @@ class FilesViewModel(
 				workspaceId = id,
 				entries = entries.orEmpty(),
 				truncated = truncated,
-				error = if (entries == null) "cannot list that directory" else null,
+				error = if (entries == null) context.getString(R.string.files_error_cannot_list) else null,
 				usedBytes = usage.bytes,
 				totalBytes = ws.limits.maxTotalBytes,
 				fileCount = usage.files,
@@ -679,17 +679,24 @@ class FilesViewModel(
 		onProgress: (Long) -> Unit,
 	): Result<DownloadSave> = withContext(Dispatchers.IO) {
 		val ws = workspace()
-			?: return@withContext Result.failure(IOException("This workspace no longer exists."))
+			?: return@withContext Result.failure(
+				IOException(context.getString(R.string.files_download_workspace_missing)),
+			)
 		val transfer = WorkspaceTransfer(ws)
 		val free = (ws.limits.maxTotalBytes - ws.usage().bytes).coerceAtLeast(0)
 		if (free <= 0) {
-			return@withContext Result.failure(IOException("The workspace is full."))
+			return@withContext Result.failure(
+				IOException(context.getString(R.string.files_download_workspace_full)),
+			)
 		}
 		if (contentLength != null && contentLength > free) {
 			return@withContext Result.failure(
 				IOException(
-					"The download is ${formatBytes(contentLength)}, but the workspace has only " +
-						"${formatBytes(free)} free. Choose a folder instead, or make room.",
+					context.getString(
+						R.string.files_download_not_enough_space,
+						formatBytes(contentLength),
+						formatBytes(free),
+					),
 				),
 			)
 		}
@@ -713,7 +720,7 @@ class FilesViewModel(
 	 * @return null on success, or a message to show.
 	 */
 	suspend fun exportFile(relativePath: String, open: () -> java.io.OutputStream): String? {
-		val ws = workspace() ?: return "workspace not found"
+		val ws = workspace() ?: return context.getString(R.string.files_error_workspace_missing)
 		val outcome = withContext(Dispatchers.IO) {
 			WorkspaceTransfer(ws).export(relativePath) { open() }
 		}
@@ -731,7 +738,9 @@ class FilesViewModel(
 	}
 
 	fun suggestedName(relativePath: String): String =
-		relativePath.substringAfterLast('/').ifBlank { "file" }
+		relativePath.substringAfterLast('/').ifBlank {
+			context.getString(R.string.files_suggested_name_fallback)
+		}
 
 	private fun mimeTypeOf(file: File): String {
 		if (file.isDirectory) return "vnd.android.document/directory"

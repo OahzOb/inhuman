@@ -229,16 +229,19 @@ fun FilesScreen(
 	// Import. ACTION_OPEN_DOCUMENT rather than GET_CONTENT: the former gives a
 	// durable, persistable grant and a real filename, and this copies the stream
 	// immediately anyway, so durability costs nothing and the name matters.
+	// The fallback name is resolved here because the result callback is not a
+	// composition and cannot call `stringResource`.
+	val importFallbackName = stringResource(R.string.files_import_fallback_name)
 	val importer = rememberLauncherForActivityResult(
 		ActivityResultContracts.OpenDocument(),
 	) { uri ->
 		if (uri != null) {
 			// Read the display name while the grant is definitely alive; doing
 			// it inside the async import can race a revoked permission.
-			val name = queryDisplayName(context, uri) ?: "imported"
+			val name = queryDisplayName(context, uri) ?: importFallbackName
 			viewModel.importFile(name) {
 				context.contentResolver.openInputStream(uri)
-					?: error("could not open the selected file")
+					?: error(context.getString(R.string.files_error_open_selected))
 			}
 		}
 	}
