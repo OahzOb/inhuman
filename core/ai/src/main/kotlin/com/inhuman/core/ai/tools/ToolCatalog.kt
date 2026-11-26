@@ -143,6 +143,22 @@ object ToolCatalog {
 		 */
 		val gatedByDownload: Boolean = false,
 		/**
+		 * Whether this tool exists only once its backend is configured.
+		 *
+		 * The media tools are the case: image, video, speech, transcription and
+		 * decision each point at a backend the user configures one capability at
+		 * a time (the assistant provider, a chosen profile, or a direct key and
+		 * endpoint). While a capability cannot be resolved there is no key and no
+		 * endpoint for the call, so the row is *absent* from every picker rather
+		 * than offered and inert -- the same rule [gatedBySsh] and
+		 * [gatedByBilibili] follow. Unlike those it is a configuration gate, not a
+		 * capability switch, so the gap report keeps naming it as "needs
+		 * configuration": the user can fix it in Settings, and the model should be
+		 * able to say so. See [mediaConfigGatedNames] and `visible`'s
+		 * [mediaConfigured].
+		 */
+		val gatedByMediaConfig: Boolean = false,
+		/**
 		 * Whether this tool only works while a Bilibili account is linked.
 		 *
 		 * The host hides it while the login is absent: a row that cannot run is
@@ -302,6 +318,7 @@ object ToolCatalog {
 		Entry(
 			"decide",
 			"Classify or score a state with a typed decision model",
+			gatedByMediaConfig = true,
 			mutates = false,
 			paid = true,
 		),
@@ -315,6 +332,7 @@ object ToolCatalog {
 		Entry(
 			"transcribe",
 			"Transcribe an audio file from the workspace",
+			gatedByMediaConfig = true,
 			mutates = false,
 			paid = true,
 			workspaceBound = true,
@@ -393,6 +411,7 @@ object ToolCatalog {
 		Entry(
 			"generate_image",
 			"Generate an image and save it in the workspace",
+			gatedByMediaConfig = true,
 			mutates = true,
 			paid = true,
 			workspaceBound = true,
@@ -400,6 +419,7 @@ object ToolCatalog {
 		Entry(
 			"generate_video",
 			"Start an async video generation task",
+			gatedByMediaConfig = true,
 			mutates = true,
 			paid = true,
 			workspaceBound = true,
@@ -407,12 +427,14 @@ object ToolCatalog {
 		Entry(
 			"video_status",
 			"Check a video task and save it when finished",
+			gatedByMediaConfig = true,
 			mutates = true,
 			workspaceBound = true,
 		),
 		Entry(
 			"speak",
 			"Convert text to an audio file in the workspace",
+			gatedByMediaConfig = true,
 			mutates = true,
 			paid = true,
 			workspaceBound = true,
@@ -473,6 +495,10 @@ object ToolCatalog {
 	 * that has not implemented the capability does not offer a row that would
 	 * do nothing there.
 	 */
+	/** The catalogue names whose availability depends on a media backend. */
+	val mediaConfigGatedNames: Set<String> =
+		all.filter { it.gatedByMediaConfig }.mapTo(linkedSetOf()) { it.name }
+
 	fun visible(
 		includeSsh: Boolean,
 		includeWorkspaceBound: Boolean = true,
@@ -512,6 +538,18 @@ object ToolCatalog {
 		 * caller without an executor from offering a row it cannot run.
 		 */
 		includePdfVision: Boolean = false,
+		/**
+		 * The media tools whose backend resolves for this caller, or `null`
+		 * when the caller is not a picker.
+		 *
+		 * `null` keeps every media row, which is what the gap report wants: it
+		 * reports a tool whose selection includes it as `NeedsConfiguration`, and
+		 * that is the one place the model may name a tool the user has not set
+		 * up. Every picker passes the real set (see `mediaConfigGatedNames`),
+		 * so an unconfigured capability is absent from the list instead of
+		 * being a checkbox that does nothing.
+		 */
+		mediaConfigured: Set<String>? = null,
 	): List<Entry> =
 		all.filter { entry ->
 			(includeSsh || !(entry.remote || entry.gatedBySsh)) &&
@@ -521,7 +559,9 @@ object ToolCatalog {
 				(includeBilibili || !entry.gatedByBilibili) &&
 				(includeBilibiliLogin || !entry.bilibiliLoginRequired) &&
 				(includeDownload || !entry.gatedByDownload) &&
-				(includePdfVision || entry.name != PDF_VISION_TOOL)
+				(includePdfVision || entry.name != PDF_VISION_TOOL) &&
+				(mediaConfigured == null || !entry.gatedByMediaConfig ||
+					entry.name in mediaConfigured)
 		}
 
 	/**

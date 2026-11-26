@@ -36,6 +36,15 @@ over.
   is unchanged.
 - Narrowing is immediate (next turn) and needs no confirmation.
 
+One more gate sits beside these: **a media tool is absent from the sheet until
+its backend resolves** (`docs/03-ai-provider.md`, "Media backends"). It is a
+configuration gate, not a capability one -- the stored names are kept, so
+configuring the backend later restores a selection without re-picking -- and the
+same filter applies to the assistant editor's tool list and the approval tables,
+so no list offers a row that would do nothing. `unavailable_tools` is the
+deliberate exception: it still names an unconfigured media tool as needing
+configuration, because the model may tell the user how to fix it.
+
 The last point matters more than it looks. The alternative -- a prompt on every
 tool change -- is friction the user has already said they do not want, and the
 sheet plus Apply is already a deliberate action. The security property preserved

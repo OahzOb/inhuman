@@ -625,6 +625,7 @@ fun ChatScreen(
 	val bilibiliLoggedIn by fieldOf(viewModel.state, false) { it.bilibiliLoggedIn }
 	val agentTools by fieldOf(viewModel.state, null) { it.agentTools }
 	val conversationTools by fieldOf(viewModel.state, null) { it.conversationTools }
+	val configuredMediaTools by fieldOf(viewModel.state, null) { it.configuredMediaTools }
 	val toolsKnown by fieldOf(viewModel.state, false) { it.toolsKnown }
 	val workspaceInstructionsPinned by fieldOf(viewModel.state, false) {
 		it.workspaceInstructionsPinned
@@ -635,6 +636,7 @@ fun ChatScreen(
 	val toolPlan = remember(
 		agentTools,
 		conversationTools,
+		configuredMediaTools,
 		sshToolEnabled,
 		suggestionsEnabled,
 		bilibiliEnabled,
@@ -645,6 +647,7 @@ fun ChatScreen(
 			sshEnabled = sshToolEnabled,
 			agentTools = agentTools,
 			conversationTools = conversationTools,
+			mediaConfigured = configuredMediaTools,
 			workspaceToolsEnabled = AppCapabilities.workspaceOk,
 			suggestionsEnabled = suggestionsEnabled,
 			bilibiliEnabled = bilibiliEnabled,

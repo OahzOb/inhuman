@@ -650,6 +650,25 @@ configured independently under **Settings → 02 / Web & media**:
   Qwen Token Plan-compatible; DeepSeek is selected through its profile kind, not
   through a URL.
 
+**An unresolvable capability takes its tool off every list.** The question
+`mediaBackend`/`speechBackend` answer is asked once more, without building a
+client, by `MediaToolConfig.isConfigured` (`app/.../ui/chat/MediaTools.kt`): a
+mode with a key but no endpoint, a provider kind that cannot serve the
+capability, a missing key, and a workspace-unavailable file tool all count as
+"not configured". `mediaConfiguredToolNames` turns that answer into the
+catalogue names a picker may offer (`decide`, `transcribe`, `generate_image`,
+`generate_video`, `video_status`, `speak`), and
+`ToolCatalog.visible(mediaConfigured = ...)` drops the rest -- absent, not
+greyed, which is what `docs/13-product.md` promises. The set is resolved per
+context: the conversation sheet uses the conversation's provider, model and
+workspace; the assistant editor uses the assistant being edited; the global
+approval table asks "could any assistant run this?". A **null** set keeps every
+media row, and that is what `unavailable_tools` passes: a tool whose selection
+includes it is reported as "needs configuration", because that is the one actor
+the user can act on. `ToolCatalogMediaConfigTest` and `MediaAvailabilityTest`
+pin both halves -- the mismatch hides a working tool or offers an inert one, and
+neither shows up as a failure anywhere else.
+
 **Speech and transcription have two service families.** The DeepSeek profile
 kind advertises `Speech` as well as `Chat`, so `Assistant` mode on a DeepSeek
 profile and `Provider` mode on a DeepSeek profile resolve those two tools to

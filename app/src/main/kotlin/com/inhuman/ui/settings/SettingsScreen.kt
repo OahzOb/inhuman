@@ -1336,6 +1336,7 @@ fun SettingsScreen(
 					bilibiliEnabled = state.bilibiliEnabled,
 					bilibiliLoggedIn = state.bilibiliLoggedIn,
 					downloadEnabled = state.downloadEnabled,
+					mediaConfigured = state.mediaConfiguredTools,
 					onRuleChange = viewModel::setApprovalRule,
 				)
 			}
@@ -3278,6 +3279,7 @@ private fun ApprovalRulesSection(
 	bilibiliEnabled: Boolean,
 	bilibiliLoggedIn: Boolean,
 	downloadEnabled: Boolean,
+	mediaConfigured: Set<String>?,
 	onRuleChange: (String, ToolPolicy) -> Unit,
 ) {
 	Column(
@@ -3309,6 +3311,7 @@ private fun ApprovalRulesSection(
 			includeBilibiliLogin = bilibiliLoggedIn,
 			includeDownload = downloadEnabled,
 			includePdfVision = true,
+			mediaConfigured = mediaConfigured,
 		)) {
 			val current = rules[entry.name] ?: ToolPolicy.Free
 			ApprovalRuleRow(

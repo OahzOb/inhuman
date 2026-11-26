@@ -1650,20 +1650,6 @@ alters a capability, a policy or the persisted schema.
 Recorded so the next session starts from the truth rather than from the audit
 list. Each of these is a real gap, not a style opinion.
 
-- **The media tools are listed in every picker even when their backend cannot
-  run them** (`AgentsScreen`, the conversation tool sheet, the Settings approval
-  table). `docs/13-product.md` says a tool whose backend is unsupported or
-  unconfigured "does not appear in the list", and `ChatViewModel.buildTools`
-  already omits it from the *request* — so the pickers offer a row that, when
-  ticked, does nothing and says nothing. This was left open deliberately:
-  availability is resolved per assistant (its provider profile, that profile's
-  key, and the per-tool `MediaToolConfig` mode), so the fix is to extract
-  `ChatViewModel.mediaBackend`'s resolution into a pure predicate every picker
-  can ask, then add a catalogue gate. A cheap global guess would hide tools that
-  do work, which is worse than the current over-listing — `docs/08` §1.2.1's
-  "absent, not greyed" rule is about *switched-off capabilities*, and this is a
-  *configuration* gate, so it needs its own reasoning rather than a copy of
-  `includeSsh`.
 - **The transcript's per-publish scan has no memo.** `turnSummariesOf`,
   `userTurnsOf` and `isInterruptedTurn` now run on a background dispatcher, and
   the Markdown pre-parse collection was moved off the main thread in this pass,
@@ -1684,6 +1670,62 @@ list. Each of these is a real gap, not a style opinion.
 - **The workbench dialog's disabled rows do not say why**, while the tool sheet
   and the rewind picker both do — one shared disabled-reason parameter would fix
   it.
+
+### B46. Every picker listed media tools whose backend could not run — **FIXED**
+
+`docs/13-product.md` promised that a media tool whose backend is unsupported or
+unconfigured "does not appear in the list", and `ChatViewModel.buildTools`
+already omitted it from the *request*; the assistant editor, the conversation
+tool sheet and the Settings approval table still offered it. Ticking such a row
+changed nothing, and the empty result looked like a broken tool rather than an
+unconfigured one.
+
+The gate has three pieces, deliberately separated so the two questions cannot
+collapse:
+
+- **`MediaToolConfig.isConfigured`** (`app/.../ui/chat/MediaTools.kt`) asks the
+  same question `mediaBackend`/`speechBackend` answer without building a client:
+  a key with no endpoint, a provider kind that cannot serve the capability, an
+  unresolved profile and plain HTTP all count as not configured, and the four
+  file-writing tools additionally require a workspace (the same condition
+  `buildTools` uses before registering them). `mediaConfiguredToolNames` maps
+  that per-capability answer to the six catalogue names.
+- **`ToolCatalog.Entry.gatedByMediaConfig`** marks `decide`, `transcribe`,
+  `generate_image`, `generate_video`, `video_status` and `speak`, and
+  `visible(mediaConfigured = ...)` drops the gated rows not in the set. A null
+  set keeps them all.
+- **The three pickers pass a real set** — resolved per context: the sheet uses
+  the conversation's provider, model and workspace (`ChatUiState.configuredMediaTools`),
+  the editor uses the assistant being edited, the global approval table asks
+  "could any assistant run this?".
+
+Two decisions worth keeping:
+
+- **The gap report passes `null` on purpose.** `unavailable_tools` keeps its
+  universe (`ToolCatalog.visible` without the media set), so a media tool the
+  user selected but has not configured is still reported as
+  `NeedsConfiguration` — it is the one place the model may name an unusable tool,
+  because the user can fix it in Settings. Folding the media gate into
+  `unavailable_tools`' universe would make the app unable to say why the tool
+  vanished, and reusing `gatedBySsh`'s "switched off, never named" rule here
+  would be wrong: this is a configuration gate, not a capability switch.
+- **A hidden media name survives in storage.** Hiding the row does not rewrite
+  the conversation's tool list (`mergeConversationTools` keeps names the sheet
+  cannot show, exactly as SSH and download names survive their switches), so
+  configuring the backend later restores the selection without re-picking.
+  `ConversationToolsTest` pins both the absence and the survival.
+
+**Verified by build and the unit suites** (`ToolCatalogMediaConfigTest`,
+`MediaAvailabilityTest`, three new `ConversationToolsTest` cases) **and on the
+phone AVD for the absence half**: `tools/verify-media-gate.ps1` installs a
+clean build, opens the default assistant's editor, scrolls its tool list and
+asserts none of the six names appears while `read_file` renders — the exact
+state the product promise describes for a fresh install. The positive half is
+**not** device-driven: this emulator's Gboard is in Chinese mode and converts
+`:` `/` `.` to full-width characters, so the media dialog's https URL cannot be
+typed, and the provider-key route did not complete either (the same
+input-injection class as D13). `MediaAvailabilityTest` pins each resolution
+branch instead, including DeepSeek serving speech but not image.
 
 ## C. Comments that contradict the code
 

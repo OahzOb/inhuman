@@ -675,6 +675,19 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   is never reported -- otherwise the tool is the "greyed row" §1.2.1 refuses, in
   text form, and a prompt injection learns the name it wanted. It reports only
   what the user can fix from here: the conversation selection or a missing key.
+- **A media tool's absence is a configuration gate, not a capability switch.**
+  `decide`, `transcribe`, `generate_image`, `generate_video`, `video_status` and
+  `speak` are `gatedByMediaConfig`: while `MediaToolConfig.isConfigured` cannot
+  resolve a key and an endpoint for the relevant provider (and, for the four
+  file-writing tools, a workspace), `ToolCatalog.visible(mediaConfigured = ...)`
+  drops them from every picker -- absent, not greyed (`docs/13-product.md`,
+  `docs/07-gotchas.md` B46). Do not fold this into `gatedBySsh`: the user fixes
+  it in Settings, so `unavailable_tools` passes `null` and still reports it as
+  "needs configuration", and a hidden name must survive in storage so
+  configuring the backend restores the selection. The predicate exists once
+  (`app/.../ui/chat/MediaTools.kt`) because a picker and the request builder
+  disagreeing either hides a working tool or offers an inert one, and neither
+  shows up as a failure.
 - **`ssh_probe` is a fixed script, not a second exec.** It accepts connection
   details only; do not add a command, path or argument that the model can vary.
   The moment it can run model-supplied input it is `ssh_exec` with a better name.

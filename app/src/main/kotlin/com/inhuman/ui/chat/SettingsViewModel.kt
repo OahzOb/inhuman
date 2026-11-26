@@ -14,6 +14,7 @@ import com.inhuman.core.ai.bilibili.BilibiliCredentials
 import com.inhuman.core.ai.bilibili.BilibiliQr
 import com.inhuman.core.ai.bilibili.BilibiliQrState
 import com.inhuman.ui.bilibili.BiliQrRenderer
+import com.inhuman.AppCapabilities
 import com.inhuman.core.ai.capability.ProviderCapabilities
 import com.inhuman.core.ai.model.ModelCapabilities
 import com.inhuman.core.common.diag.Diag
@@ -173,6 +174,15 @@ data class SettingsUiState(
 	val mediaDraft: MediaToolDraft? = null,
 	val mediaStatus: String? = null,
 	val mediaStatusIsError: Boolean = false,
+	/**
+	 * Media tool names whose backend resolves for *some* assistant, or
+	 * null before the first resolution.
+	 *
+	 * The approval table is global, so the question it asks is "could any
+	 * assistant run this?"; a rule for a tool nothing can run would be a
+	 * row that cannot take effect (`docs/07` B46).
+	 */
+	val mediaConfiguredTools: Set<String>? = null,
 	/** Reply read-aloud settings; the same SecureStore keys the chat reads. */
 	val autoReadReplies: Boolean = false,
 	val speechVoice: String = "",
@@ -491,6 +501,7 @@ class SettingsViewModel(
 		viewModelScope.launch {
 			agents.observeProviders().collect { list ->
 				_state.value = _state.value.copy(providers = list)
+				refreshMediaConfiguredTools()
 			}
 		}
 		loadRules()
@@ -1968,6 +1979,41 @@ class SettingsViewModel(
 		_state.value = _state.value.copy(mediaDraft = draft.copy(apiKeyInput = value, error = null))
 	}
 
+	/**
+	 * Recompute which media tools the approval table may list.
+	 *
+	 * "Configured for some assistant" is the right question here: the table
+	 * is global, and a rule is meaningful when at least one assistant could
+	 * make the call. A failed read keeps the previous answer.
+	 */
+	private fun refreshMediaConfiguredTools() {
+		val providers = _state.value.providers
+		viewModelScope.launch {
+			val tools = runCatching {
+				mediaConfiguredToolNames(
+					configFor = { MediaToolStore.load(secure, it) },
+					workspaceAvailable = AppCapabilities.workspaceOk,
+					assistantFacts = { capability ->
+						providers.firstOrNull { provider ->
+							ProviderCapabilities.supports(provider.kind, capability.providerCapability) &&
+								agents.hasKey(provider.id)
+						}?.let { provider ->
+							MediaProviderFacts(provider.kind, true, provider.baseUrl)
+						}
+					},
+					profileFacts = { id ->
+						providers.firstOrNull { it.id == id }?.let { provider ->
+							MediaProviderFacts(provider.kind, agents.hasKey(provider.id), provider.baseUrl)
+						}
+					},
+				)
+			}.onFailure {
+				Diag.w("media", "availability read failed", it)
+			}.getOrNull() ?: return@launch
+			_state.value = _state.value.copy(mediaConfiguredTools = tools)
+		}
+	}
+
 	fun saveMedia() {
 		val draft = _state.value.mediaDraft ?: return
 		val existing = MediaToolStore.load(secure, draft.capability)
@@ -2027,6 +2073,8 @@ class SettingsViewModel(
 			mediaStatus = context.getString(R.string.settings_media_saved),
 			mediaStatusIsError = false,
 		)
+		// The approval table may now offer a tool it was hiding.
+		refreshMediaConfiguredTools()
 	}
 
 	/**

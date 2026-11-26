@@ -43,6 +43,17 @@ internal fun conversationToolPlan(
 	 * user to remember it.
 	 */
 	downloadEnabled: Boolean = false,
+	/**
+	 * Media tool names whose backend resolves for this conversation, or
+	 * null to keep every media row.
+	 *
+	 * The sheet passes the resolved set, so a capability the user has not
+	 * configured is absent instead of a checkbox that does nothing
+	 * (`docs/13-product.md`). Null only happens before the first
+	 * resolution, and hiding a configured tool for a frame would be worse
+	 * than briefly showing all of them.
+	 */
+	mediaConfigured: Set<String>? = null,
 ): ConversationToolPlan {
 	val allNonRemote = ToolCatalog.all
 		.filterNot { it.remote }
@@ -65,6 +76,7 @@ internal fun conversationToolPlan(
 		includeBilibiliLogin = bilibiliLoggedIn,
 		includeDownload = downloadEnabled,
 		includePdfVision = true,
+		mediaConfigured = mediaConfigured,
 	)
 		.filter { it.name in ceiling || it.name in current }
 

@@ -210,6 +210,17 @@ data class ChatUiState(
 	val conversationTools: List<String>? = null,
 	/** The assistant's selection, the ceiling the conversation sheet may offer. */
 	val agentTools: List<String>? = null,
+	/**
+	 * Media tool names whose backend resolves for this conversation, or null
+	 * before the first resolution.
+	 *
+	 * The conversation tool sheet offers only these: a capability whose
+	 * backend is not configured is absent rather than a checkbox that does
+	 * nothing (`docs/13-product.md`). Null means "not resolved yet", which the
+	 * sheet treats as "do not filter", so the frame before the first publish
+	 * cannot hide a tool that works.
+	 */
+	val configuredMediaTools: Set<String>? = null,
 	/** The conversation row has loaded; the tool sheet is disabled before that. */
 	val toolsKnown: Boolean = false,
 	/**

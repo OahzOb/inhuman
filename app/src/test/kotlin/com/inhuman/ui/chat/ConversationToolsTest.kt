@@ -243,4 +243,51 @@ class ConversationToolsTest {
 		)
 		assertTrue("an explicit selection stays selected", "download_url" in selected.selected)
 	}
+
+	@Test
+	fun `an unconfigured media tool is absent from the sheet, not greyed`() {
+		val hidden = conversationToolPlan(
+			sshEnabled = false,
+			agentTools = null,
+			conversationTools = null,
+			mediaConfigured = emptySet(),
+		)
+		for (name in ToolCatalog.mediaConfigGatedNames) {
+			assertFalse(name, name in names(hidden))
+		}
+		// Non-media rows are untouched by the gate.
+		assertTrue("read_file" in names(hidden))
+	}
+
+	@Test
+	fun `a configured media tool is offered and selectable`() {
+		val plan = conversationToolPlan(
+			sshEnabled = false,
+			agentTools = listOf("generate_image"),
+			conversationTools = listOf("generate_image"),
+			mediaConfigured = setOf("generate_image"),
+		)
+		assertTrue("generate_image" in names(plan))
+		assertTrue("generate_image" in plan.selected)
+	}
+
+	@Test
+	fun `a stored media selection survives while its backend is unconfigured`() {
+		// The sheet cannot show the row, but applying it must not forget the
+		// name: configuring the backend later restores the selection without
+		// asking the user to remember it (the same rule SSH and download
+		// follow when their switches are off).
+		val plan = conversationToolPlan(
+			sshEnabled = false,
+			agentTools = listOf("generate_image"),
+			conversationTools = listOf("generate_image"),
+			mediaConfigured = emptySet(),
+		)
+		val merged = mergeConversationTools(
+			current = listOf("generate_image"),
+			available = plan.available,
+			checked = emptySet(),
+		)
+		assertTrue("generate_image" in merged)
+	}
 }

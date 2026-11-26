@@ -13,7 +13,11 @@ import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.SavedPromptEntity
 import com.inhuman.core.data.db.ToolsColumn
+import com.inhuman.AppCapabilities
 import com.inhuman.core.data.secret.SecureStore
+import com.inhuman.ui.chat.MediaProviderFacts
+import com.inhuman.ui.chat.MediaToolStore
+import com.inhuman.ui.chat.mediaConfiguredToolNames
 import com.inhuman.core.engine.roleplay.RoleplayCard
 import com.inhuman.core.engine.roleplay.RoleplayCodec
 import com.inhuman.core.files.SessionWorkspace
@@ -43,6 +47,14 @@ data class AgentsUiState(
 	val downloadEnabled: Boolean = false,
 	/** Whether the optional Bilibili login is linked (`bili_transcript` needs it). */
 	val bilibiliLoggedIn: Boolean = false,
+	/**
+	 * Media tool names whose backend resolves for the assistant being edited.
+	 *
+	 * Null before the first resolution, which the tool list treats as "do not
+	 * filter". Absent rather than greyed is the rule (`docs/07` B46): a
+	 * capability whose backend cannot resolve is a row that does nothing.
+	 */
+	val mediaConfiguredTools: Set<String>? = null,
 	val editing: AgentDraft? = null,
 	/**
 	 * A save or delete that failed, for the dismissible row in the list and
@@ -213,6 +225,41 @@ class AgentsViewModel(
 				) != null,
 			)
 		}
+		// A key or media backend added in Settings is picked up the next
+		// time the editor opens.
+		_state.value.editing?.providerId?.let { refreshMediaConfiguredTools(it) }
+	}
+
+	/**
+	 * Recompute which media tools the editor may offer for [providerId].
+	 *
+	 * The same predicate the request builder uses, so the list and the wire
+	 * cannot disagree. A failed read keeps the previous answer rather than
+	 * hiding configured tools; the list only has to be right, not instant.
+	 */
+	private fun refreshMediaConfiguredTools(providerId: String) {
+		viewModelScope.launch {
+			val tools = runCatching {
+				val assistantProfile = repository.provider(providerId)
+				mediaConfiguredToolNames(
+					configFor = { MediaToolStore.load(secure, it) },
+					workspaceAvailable = AppCapabilities.workspaceOk,
+					assistantFacts = {
+						assistantProfile?.let { profile ->
+							MediaProviderFacts(profile.kind, repository.hasKey(profile.id), profile.baseUrl)
+						}
+					},
+					profileFacts = { id ->
+						repository.provider(id)?.let { profile ->
+							MediaProviderFacts(profile.kind, repository.hasKey(profile.id), profile.baseUrl)
+						}
+					},
+				)
+			}.onFailure {
+				Diag.w("media", "availability read failed provider=${Diag.shortId(providerId)}", it)
+			}.getOrNull() ?: return@launch
+			_state.update { it.copy(mediaConfiguredTools = tools) }
+		}
 	}
 
 	/**
@@ -296,6 +343,7 @@ class AgentsViewModel(
 			draft.copy(providerId = providerId, model = null, reasoningEffort = null)
 		}
 		loadModels(providerId)
+		refreshMediaConfiguredTools(providerId)
 	}
 
 	fun edit(agent: AgentEntity) {
@@ -335,6 +383,7 @@ class AgentsViewModel(
 			updateDraft { it.copy(rules = rules) }
 		}
 		loadModels(agent.providerId)
+		refreshMediaConfiguredTools(agent.providerId)
 	}
 
 	fun create() {
@@ -372,6 +421,7 @@ class AgentsViewModel(
 				),
 			)
 		}
+		refreshMediaConfiguredTools(agent.providerId)
 	}
 
 	fun closeEditor() = _state.update { it.copy(editing = null, cardExport = null) }

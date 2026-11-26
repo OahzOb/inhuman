@@ -2,6 +2,7 @@ package com.inhuman.ui.chat
 
 import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.ai.capability.ProviderCapability
+import com.inhuman.core.ai.capability.ProviderCapabilities
 import com.inhuman.core.ai.model.ModelCapability
 import com.inhuman.core.ai.provider.qwen.QwenTokenPlanClient
 import com.inhuman.core.data.secret.SecureStore
@@ -186,3 +187,95 @@ data class MediaToolDraft(
 	val showModelPicker: Boolean = false,
 	val error: String? = null,
 )
+
+/**
+ * What one provider profile contributes to media availability.
+ *
+ * The resolver needs exactly three facts and nothing else: whether the kind
+ * offers the capability, whether a key is stored, and (for the assistant's own
+ * provider) the base URL. Passing them in makes the check testable without a
+ * database or a Keystore, and keeps the "is this usable?" question separate
+ * from "build the client" which stays in `ChatViewModel`.
+ */
+data class MediaProviderFacts(
+	val kind: String,
+	val hasKey: Boolean,
+	val baseUrl: String?,
+)
+
+/** The catalogue names one media capability serves. */
+val MediaCapability.toolNames: List<String>
+	get() = when (this) {
+		MediaCapability.Image -> listOf("generate_image")
+		MediaCapability.Video -> listOf("generate_video", "video_status")
+		MediaCapability.Speech -> listOf("speak")
+		MediaCapability.Transcription -> listOf("transcribe")
+		MediaCapability.Decision -> listOf("decide")
+	}
+
+/**
+ * Whether this capability's tools write a file and so need a workspace.
+ *
+ * Decision classifies text and returns text; the other four save audio, video
+ * or an image, which is also why `ChatViewModel.buildTools` registers them only
+ * when a workspace exists. The pickers must apply the same rule, or they offer
+ * a row the request will not carry.
+ */
+val MediaCapability.needsWorkspace: Boolean
+	get() = this != MediaCapability.Decision
+
+/**
+ * Whether a capability's backend can actually be resolved, without building a
+ * client.
+ *
+ * The conditions mirror `ChatViewModel.mediaBackend`/`speechBackend` exactly --
+ * a mode that cannot produce both a key and an endpoint is not configured --
+ * and exist as one function because the pickers must ask the same question the
+ * builder answers. Two copies of this test would drift, and the failure mode is
+ * silent in both directions: a tool offered and unusable, or a working tool
+ * hidden.
+ */
+suspend fun MediaToolConfig.isConfigured(
+	capability: MediaCapability,
+	assistant: MediaProviderFacts?,
+	profile: suspend (String) -> MediaProviderFacts?,
+): Boolean = when (mode) {
+	MediaMode.Assistant ->
+		assistant != null &&
+			ProviderCapabilities.supports(assistant.kind, capability.providerCapability) &&
+			assistant.hasKey &&
+			assistant.baseUrl != null
+
+	MediaMode.Provider -> profile(providerId)?.let { facts ->
+		ProviderCapabilities.supports(facts.kind, capability.providerCapability) && facts.hasKey
+	} == true
+
+	MediaMode.Direct -> apiKey.isNotBlank() && baseUrl.startsWith("https://")
+}
+
+/**
+ * The media tool names a picker may offer.
+ *
+ * @param assistantFacts the provider the assistant is bound to, per capability
+ *   (Settings asks the question for "any provider", which is a different fact
+ *   for each capability); null when no such provider resolves.
+ * @param profileFacts the explicitly chosen media provider profile, if any.
+ * @param workspaceAvailable false hides the four tools that save a file, which
+ *   is the same condition `buildTools` uses before registering them.
+ */
+suspend fun mediaConfiguredToolNames(
+	configFor: (MediaCapability) -> MediaToolConfig,
+	workspaceAvailable: Boolean,
+	assistantFacts: (MediaCapability) -> MediaProviderFacts?,
+	profileFacts: suspend (String) -> MediaProviderFacts?,
+): Set<String> {
+	val names = linkedSetOf<String>()
+	for (capability in MediaCapability.entries) {
+		if (capability.needsWorkspace && !workspaceAvailable) continue
+		val config = configFor(capability)
+		if (config.isConfigured(capability, assistantFacts(capability), profileFacts)) {
+			names += capability.toolNames
+		}
+	}
+	return names
+}

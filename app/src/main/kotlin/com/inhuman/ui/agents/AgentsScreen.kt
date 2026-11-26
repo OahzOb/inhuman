@@ -248,6 +248,7 @@ fun AgentsScreen(
 			bilibiliEnabled = state.bilibiliEnabled,
 			bilibiliLoggedIn = state.bilibiliLoggedIn,
 			downloadEnabled = state.downloadEnabled,
+			mediaConfiguredTools = state.mediaConfiguredTools,
 			savedPrompts = state.savedPrompts,
 			effortLevels = { viewModel.effortLevelsFor(it) },
 			onChange = viewModel::updateDraft,
@@ -423,6 +424,8 @@ private fun AgentEditor(
 	bilibiliEnabled: Boolean,
 	bilibiliLoggedIn: Boolean,
 	downloadEnabled: Boolean,
+	/** Null means "not resolved yet"; the tool list then does not filter. */
+	mediaConfiguredTools: Set<String>?,
 	savedPrompts: List<SavedPromptEntity>,
 	effortLevels: (String?) -> List<String>,
 	onChange: ((AgentDraft) -> AgentDraft) -> Unit,
@@ -448,6 +451,7 @@ private fun AgentEditor(
 		includeBilibiliLogin = bilibiliLoggedIn,
 		includeDownload = downloadEnabled,
 		includePdfVision = true,
+		mediaConfigured = mediaConfiguredTools,
 	)
 	val availableNames = availableTools.mapTo(mutableSetOf()) { it.name }
 	val selectedCount = draft.tools?.count { it in availableNames } ?: availableTools.size
@@ -936,6 +940,7 @@ private fun AgentEditor(
 			bilibiliEnabled = bilibiliEnabled,
 			bilibiliLoggedIn = bilibiliLoggedIn,
 			downloadEnabled = downloadEnabled,
+			mediaConfiguredTools = mediaConfiguredTools,
 			onSelect = onRuleChange,
 		)
 
@@ -1210,6 +1215,7 @@ private fun AgentEditor(
 			bilibiliEnabled = bilibiliEnabled,
 			bilibiliLoggedIn = bilibiliLoggedIn,
 			downloadEnabled = downloadEnabled,
+			mediaConfiguredTools = mediaConfiguredTools,
 			modelLabel = draft.model?.let { id ->
 				models.firstOrNull { it.id == id }?.displayName?.takeIf { it.isNotBlank() } ?: id
 			} ?: stringResource(R.string.agents_provider_default),
@@ -1315,6 +1321,7 @@ private fun PromptPreview(
 	bilibiliEnabled: Boolean,
 	bilibiliLoggedIn: Boolean,
 	downloadEnabled: Boolean,
+	mediaConfiguredTools: Set<String>?,
 	modelLabel: String,
 	onDismiss: () -> Unit,
 ) {
@@ -1328,6 +1335,7 @@ private fun PromptPreview(
 		includeBilibiliLogin = bilibiliLoggedIn,
 		includeDownload = downloadEnabled,
 		includePdfVision = true,
+		mediaConfigured = mediaConfiguredTools,
 	)
 	val visibleNames = visibleTools.mapTo(mutableSetOf()) { it.name }
 	val on = visibleNames.filter { ToolCatalog.permits(selected, it) }
@@ -1517,6 +1525,7 @@ private fun AssistantRulesSection(
 	bilibiliEnabled: Boolean,
 	bilibiliLoggedIn: Boolean,
 	downloadEnabled: Boolean,
+	mediaConfiguredTools: Set<String>?,
 	onSelect: (String, ToolPolicy) -> Unit,
 ) {
 	Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
@@ -1536,6 +1545,7 @@ private fun AssistantRulesSection(
 			includeBilibiliLogin = bilibiliLoggedIn,
 			includeDownload = downloadEnabled,
 			includePdfVision = true,
+			mediaConfigured = mediaConfiguredTools,
 		)) {
 			val current = rules[entry.name] ?: ToolPolicy.Free
 			Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {

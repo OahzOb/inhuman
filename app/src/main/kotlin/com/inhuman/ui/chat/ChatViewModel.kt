@@ -763,11 +763,38 @@ class ChatViewModel(
 			}
 		}
 
+		// Which paid media tools this conversation can actually run.
+		// Resolved here because this path already runs on reload, on a
+		// provider switch and on a configuration refresh, and it is where
+		// the provider facts are current. A failed read keeps the previous
+		// answer rather than hiding tools that may work.
+		val mediaTools = runCatching {
+			mediaConfiguredToolNames(
+				configFor = { MediaToolStore.load(secure, it) },
+				workspaceAvailable = workspaceToolsEnabled(),
+				assistantFacts = {
+					MediaProviderFacts(
+						kind = providerKind.orEmpty(),
+						hasKey = agents.hasKey(providerId),
+						baseUrl = providerBaseUrl,
+					)
+				},
+				profileFacts = { id ->
+					agents.provider(id)?.let { profile ->
+						MediaProviderFacts(profile.kind, agents.hasKey(profile.id), profile.baseUrl)
+					}
+				},
+			)
+		}.onFailure {
+			Diag.w("media", "availability read failed", it)
+		}.getOrNull()
+
 		_state.update {
 			it.copy(
 				reasoningEffort = reasoningEffort,
 				thinking = thinking,
 				context = contextOf(it.messages),
+				configuredMediaTools = mediaTools ?: it.configuredMediaTools,
 			)
 		}
 		Diag.d(
