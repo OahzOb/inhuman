@@ -248,12 +248,25 @@ fun WorkspaceDetailScreen(
 				horizontalArrangement = Arrangement.spacedBy(12.dp),
 			) {
 				Text(
-					text = pluralStringResource(
-						R.plurals.workspace_usage,
-						state.usage.files,
-						state.usage.files,
-						formatBytes(state.usage.bytes),
-					),
+					text = if (state.maxFiles > 0) {
+						// The ceilings belong beside the numbers: "12 files" is
+						// not an answer to "how much room is left", and Files
+						// shows the same pair in its header.
+						stringResource(
+							R.string.workspace_usage_limits,
+							state.usage.files,
+							state.maxFiles,
+							formatBytes(state.usage.bytes),
+							formatBytes(state.maxBytes),
+						)
+					} else {
+						pluralStringResource(
+							R.plurals.workspace_usage,
+							state.usage.files,
+							state.usage.files,
+							formatBytes(state.usage.bytes),
+						)
+					},
 					style = MaterialTheme.typography.bodyMedium,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					modifier = Modifier.weight(1f),

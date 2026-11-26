@@ -6,6 +6,13 @@
 	<!-- Shared actions. -->
 	<string name="common_cancel">Cancel</string>
 	<string name="common_delete">Delete</string>
+	<string name="common_rename">Rename</string>
+	<string name="common_edit">Edit</string>
+	<string name="agents_row_actions">Assistant actions</string>
+	<string name="home_rename_failed">Could not rename the conversation: %1$s</string>
+	<string name="files_truncated_notice">Only the first %1$d entries are shown; the folder has more.</string>
+	<string name="workspace_usage_limits">%1$d / %2$d files · %3$s / %4$s</string>
+	<string name="agents_go_settings">Open Settings</string>
 	<string name="common_dismiss">Dismiss</string>
 	<string name="common_save">Save</string>
 	<string name="common_name">Name</string>

@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Search
@@ -124,6 +125,10 @@ fun ConversationsScreen(
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
+	// Rename from the list: the chat menu had it, the list did not, so
+	// changing a title meant loading the whole transcript.
+	var pendingRename by remember { mutableStateOf<ConversationEntity?>(null) }
+	var renameTitle by remember { mutableStateOf("") }
 	var showCreateSheet by remember { mutableStateOf(false) }
 	var showBulkDelete by remember { mutableStateOf(false) }
 	// A bundle import creates a conversation the user did not configure; when
@@ -245,6 +250,7 @@ fun ConversationsScreen(
 						ConversationPanel(
 							conversations = state.conversations,
 							workspaceNames = state.workspaceNames,
+							agentNames = state.agentNames,
 							speechReady = state.speechReadyConversations,
 							searchQuery = state.searchQuery,
 							searchResults = state.searchResults,
@@ -265,6 +271,7 @@ fun ConversationsScreen(
 							onOpen = onOpenConversation,
 							onTogglePin = viewModel::setPinned,
 							onRequestDelete = { pendingDelete = it },
+							onRename = { pendingRename = it; renameTitle = it.title },
 							onCreate = { showCreateSheet = true },
 							onOpenWorkspaces = onOpenWorkspaces,
 							onOpenAssistants = onOpenAgents,
@@ -280,6 +287,7 @@ fun ConversationsScreen(
 				else -> ConversationPanel(
 					conversations = state.conversations,
 					workspaceNames = state.workspaceNames,
+					agentNames = state.agentNames,
 					speechReady = state.speechReadyConversations,
 					searchQuery = state.searchQuery,
 					searchResults = state.searchResults,
@@ -300,6 +308,7 @@ fun ConversationsScreen(
 					onOpen = onOpenConversation,
 					onTogglePin = viewModel::setPinned,
 					onRequestDelete = { pendingDelete = it },
+					onRename = { pendingRename = it; renameTitle = it.title },
 					onCreate = { showCreateSheet = true },
 					onOpenWorkspaces = onOpenWorkspaces,
 					onOpenAssistants = onOpenAgents,
@@ -362,6 +371,38 @@ fun ConversationsScreen(
 
 	// Deleting a multi-selection asks once, naming how many threads go and what
 	// happens to their workspaces. Permanent workspace files are not touched.
+	if (pendingRename != null) {
+		AlertDialog(
+			onDismissRequest = { pendingRename = null },
+			title = { Text(stringResource(R.string.chat_rename)) },
+			text = {
+				OutlinedTextField(
+					value = renameTitle,
+					onValueChange = { renameTitle = it },
+					modifier = Modifier.fillMaxWidth(),
+					singleLine = true,
+					label = { Text(stringResource(R.string.common_name)) },
+				)
+			},
+			confirmButton = {
+				TextButton(
+					onClick = {
+						val title = renameTitle.trim()
+						if (title.isNotEmpty()) viewModel.rename(pendingRename!!, title)
+						pendingRename = null
+					},
+				) { Text(stringResource(R.string.common_rename)) }
+			},
+			dismissButton = {
+				TextButton(onClick = { pendingRename = null }) {
+					Text(stringResource(R.string.common_cancel))
+				}
+			},
+			containerColor = MaterialTheme.colorScheme.surface,
+			titleContentColor = MaterialTheme.colorScheme.onSurface,
+			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
 	if (showBulkDelete) {
 		val count = state.selectedIds.size
 		AlertDialog(
@@ -1103,9 +1144,11 @@ private fun ConversationPanel(
 	onSearchChange: (String) -> Unit,
 	onClearSearch: () -> Unit,
 	onOpenSearchHit: (ConversationSearchHit) -> Unit,
+	agentNames: Map<String, String>,
 	onOpen: (String) -> Unit,
 	onTogglePin: (ConversationEntity, Boolean) -> Unit,
 	onRequestDelete: (ConversationEntity) -> Unit,
+	onRename: (ConversationEntity) -> Unit,
 	onCreate: () -> Unit,
 	onOpenWorkspaces: () -> Unit,
 	onOpenAssistants: () -> Unit,
@@ -1238,6 +1281,7 @@ private fun ConversationPanel(
 				ConversationList(
 					conversations = conversations,
 					workspaceNames = workspaceNames,
+					agentNames = agentNames,
 					speechReady = speechReady,
 					selecting = true,
 					selectedIds = selectedIds,
@@ -1246,6 +1290,7 @@ private fun ConversationPanel(
 					onBeginSelection = onBeginSelection,
 					onTogglePin = onTogglePin,
 					onRequestDelete = onRequestDelete,
+					onRename = onRename,
 				)
 			} else {
 				Spacer(Modifier.height(8.dp))
@@ -1307,6 +1352,7 @@ private fun ConversationPanel(
 					else -> ConversationList(
 						conversations = conversations,
 						workspaceNames = workspaceNames,
+						agentNames = agentNames,
 						speechReady = speechReady,
 						selecting = false,
 						selectedIds = emptySet(),
@@ -1315,6 +1361,7 @@ private fun ConversationPanel(
 						onBeginSelection = onBeginSelection,
 						onTogglePin = onTogglePin,
 						onRequestDelete = onRequestDelete,
+						onRename = onRename,
 					)
 				}
 			}
@@ -1408,6 +1455,7 @@ private fun SearchResultRow(
 private fun ConversationList(
 	conversations: List<ConversationEntity>,
 	workspaceNames: Map<String, String>,
+	agentNames: Map<String, String>,
 	speechReady: Set<String>,
 	selecting: Boolean,
 	selectedIds: Set<String>,
@@ -1416,6 +1464,7 @@ private fun ConversationList(
 	onBeginSelection: (String?) -> Unit,
 	onTogglePin: (ConversationEntity, Boolean) -> Unit,
 	onRequestDelete: (ConversationEntity) -> Unit,
+	onRename: (ConversationEntity) -> Unit,
 ) {
 	// One clock reading for the whole list, re-read once a minute. Read per row
 	// it would be the same number computed N times and still frozen.
@@ -1431,6 +1480,7 @@ private fun ConversationList(
 				index = index,
 				conversation = conversation,
 				workspace = workspaceNames[conversation.workspaceId],
+				agentName = agentNames[conversation.agentId],
 				hasSpeech = conversation.id in speechReady,
 				now = now,
 				selecting = selecting,
@@ -1439,6 +1489,7 @@ private fun ConversationList(
 				onToggleSelection = { onToggleSelection(conversation.id) },
 				onBeginSelection = { onBeginSelection(conversation.id) },
 				onTogglePin = { onTogglePin(conversation, !conversation.pinned) },
+				onRename = { onRename(conversation) },
 				onDelete = { onRequestDelete(conversation) },
 			)
 			Hairline()
@@ -1451,6 +1502,7 @@ private fun ConversationRow(
 	index: Int,
 	conversation: ConversationEntity,
 	workspace: String?,
+	agentName: String?,
 	hasSpeech: Boolean,
 	now: Long,
 	selecting: Boolean,
@@ -1459,6 +1511,7 @@ private fun ConversationRow(
 	onToggleSelection: () -> Unit,
 	onBeginSelection: () -> Unit,
 	onTogglePin: () -> Unit,
+	onRename: () -> Unit,
 	onDelete: () -> Unit,
 ) {
 	var menu by remember { mutableStateOf(false) }
@@ -1542,6 +1595,12 @@ private fun ConversationRow(
 						append("  ·  ")
 						append(workspace)
 					}
+					// Which assistant, so a conversation can be recognised without
+					// opening it; the name is redundant when it already is the title.
+					if (!agentName.isNullOrBlank() && agentName != conversation.title) {
+						append("  ·  ")
+						append(agentName)
+					}
 				},
 				style = MaterialTheme.typography.labelSmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1572,6 +1631,14 @@ private fun ConversationRow(
 						onClick = {
 							menu = false
 							onTogglePin()
+						},
+					)
+					DropdownMenuItem(
+						text = { Text(stringResource(R.string.chat_rename)) },
+						leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
+						onClick = {
+							menu = false
+							onRename()
 						},
 					)
 					DropdownMenuItem(

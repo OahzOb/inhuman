@@ -1598,6 +1598,53 @@ down. Both are now `widthIn(min = …)`: the column still starts at its designed
 width and grows with the text instead of cutting it. Part of the same
 large-font matrix row `WindowFrameTest` classifies.
 
+### B44. The list screens had drifted from the shell's own rules — **FIXED**
+
+Five smaller inconsistencies, each verified against the files that already
+had the correct shape:
+
+- **`ConversationsUiState.agentNames` was maintained and never read.**
+  `ConversationsViewModel` builds the map on every list emission and its own
+  doc comment says "so a row can say which assistant it belongs to", but no
+  row read it — two conversations with different models were
+  indistinguishable on the home screen. The row's meta line now shows the
+  assistant name when it adds information (it is hidden when it duplicates
+  the title).
+- **The home list could not rename.** Pin and delete were in the row menu;
+  rename existed only inside the chat screen, so changing a title meant
+  loading the whole transcript. The row menu now has Rename (a dialog with the
+  current title, `ConversationsViewModel.rename`, failures reported through
+  the same error row as delete), and `docs/13-product.md`'s "pin, rename,
+  delete" line is finally true of the list it describes.
+- **The assistant row's trailing control was a one-tap Delete.** Files and the
+  home list both keep a destructive action in a menu — Files' comment says
+  "a destructive action one tap away from the row that opens a file is a
+  mis-tap waiting to happen" — and the assistant row was the exception. It is
+  an overflow menu now, with Edit beside Delete.
+- **The assistants and workspaces screens ignored
+  `prefersFabForPrimaryAction()`.** They floated a Create FAB on every window,
+  including 640×360 landscape and 1024dp tablets where the home screen puts
+  Create in the header and `Layout`'s own comment explains that a floating
+  button over a short list covers a row. Both screens now follow the same
+  rule: FAB on a compact-width window, header action elsewhere.
+- **A folder over `maxListEntries` said nothing, and the workspace detail's
+  usage line had no ceilings.** The user's browser truncated at 500 entries
+  silently while the agent's `list_files` discloses its own truncation — the
+  same "a partial result must not look complete" rule A25 states for
+  archives. Files now counts before capping and renders
+  `files_truncated_notice`; the workspace detail shows `N / max files ·
+  X / max bytes`, the pair Files' header already shows.
+
+Also in this pass: the assistant editor's "no provider configured" sentence
+pointed at Settings with no way to get there (the dialog has no navigation),
+so it gained an **Open Settings** button wired through `MainActivity`'s
+existing `showSettings` state.
+
+**Verified by build and the unit suite.** Every item here is a composition or
+string choice; the list screens were not device-driven in this pass (the
+emulator's input injection was broken — see B41), and none of the five changes
+alters a capability, a policy or the persisted schema.
+
 ## C. Comments that contradict the code
 
 By this repository's standard, the comment is the bug. These were all verified.

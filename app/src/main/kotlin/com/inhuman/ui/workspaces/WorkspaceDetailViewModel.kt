@@ -27,6 +27,9 @@ data class WorkspaceDetailUiState(
 	val workspace: WorkspaceEntity? = null,
 	val conversations: List<ConversationEntity> = emptyList(),
 	val usage: SessionWorkspace.Usage = SessionWorkspace.Usage(0, 0),
+		/** The shared workspace ceilings, so the usage line can show them. */
+		val maxBytes: Long = 0,
+		val maxFiles: Int = 0,
 	/** Absolute app-private directory; shown to the user, never sent to the model. */
 	val absolutePath: String = "",
 	val choosingAgent: List<AgentEntity>? = null,
@@ -58,15 +61,24 @@ class WorkspaceDetailViewModel(
 				repository.observeWorkspaceConversations(workspaceId),
 			) { workspace, conversations -> workspace to conversations }
 				.collect { (workspace, conversations) ->
-					val usage = withContext(Dispatchers.IO) {
-						runCatching { repository.workspace(workspaceId).usage() }
-							.getOrDefault(SessionWorkspace.Usage(0, 0))
+					// One session object carries both the usage walk and the
+					// ceilings, so the detail line can show "12 files" and what
+					// "12" is out of without a second lookup.
+					val session = withContext(Dispatchers.IO) {
+						runCatching { repository.workspace(workspaceId) }.getOrNull()
 					}
+					val usage = session?.let { ws ->
+						withContext(Dispatchers.IO) {
+							runCatching { ws.usage() }.getOrDefault(SessionWorkspace.Usage(0, 0))
+						}
+					} ?: SessionWorkspace.Usage(0, 0)
 					_state.update {
 						it.copy(
 							workspace = workspace,
 							conversations = conversations,
 							usage = usage,
+							maxBytes = session?.let { it.limits.maxTotalBytes } ?: 0L,
+							maxFiles = session?.let { it.limits.maxFileCount } ?: 0,
 							absolutePath = repository.workspacePath(workspaceId),
 							loading = false,
 						)
@@ -77,11 +89,21 @@ class WorkspaceDetailViewModel(
 
 	fun refreshUsage() {
 		viewModelScope.launch {
-			val usage = withContext(Dispatchers.IO) {
-				runCatching { repository.workspace(workspaceId).usage() }
-					.getOrDefault(SessionWorkspace.Usage(0, 0))
+			val session = withContext(Dispatchers.IO) {
+				runCatching { repository.workspace(workspaceId) }.getOrNull()
 			}
-			_state.update { it.copy(usage = usage) }
+			val usage = session?.let { ws ->
+				withContext(Dispatchers.IO) {
+					runCatching { ws.usage() }.getOrDefault(SessionWorkspace.Usage(0, 0))
+				}
+			} ?: SessionWorkspace.Usage(0, 0)
+			_state.update {
+				it.copy(
+					usage = usage,
+					maxBytes = session?.let { it.limits.maxTotalBytes } ?: 0L,
+					maxFiles = session?.let { it.limits.maxFileCount } ?: 0,
+				)
+			}
 		}
 	}
 

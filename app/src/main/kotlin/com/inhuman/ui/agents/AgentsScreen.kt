@@ -28,6 +28,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Checkbox
 import com.inhuman.AppCapabilities
@@ -47,6 +49,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -80,6 +84,7 @@ import com.inhuman.core.design.Eyebrow
 import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.core.design.prefersFabForPrimaryAction
 import com.inhuman.core.engine.roleplay.RoleplayCard
 import com.inhuman.core.engine.roleplay.RoleplayCodec
 import com.inhuman.core.engine.roleplay.RoleplayPrompt
@@ -117,6 +122,7 @@ private data class ImportedPrompt(val name: String, val text: String)
 fun AgentsScreen(
 	viewModel: AgentsViewModel,
 	onBack: () -> Unit,
+	onOpenSettings: () -> Unit,
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	var pendingDelete by remember { mutableStateOf<AgentEntity?>(null) }
@@ -130,6 +136,16 @@ fun AgentsScreen(
 					navigationIcon = {
 						WorkbenchBackButton(onClick = onBack)
 					},
+					// Create follows the same rule as the home list: a FAB
+					// only on a genuinely narrow window, a header action
+					// where a floating button would hover over a row.
+					actions = {
+						if (!prefersFabForPrimaryAction()) {
+							TextButton(onClick = viewModel::create) {
+								Text(stringResource(R.string.agents_new))
+							}
+						}
+					},
 					colors = TopAppBarDefaults.topAppBarColors(
 						containerColor = MaterialTheme.colorScheme.background,
 						titleContentColor = MaterialTheme.colorScheme.onBackground,
@@ -140,13 +156,15 @@ fun AgentsScreen(
 			}
 		},
 		floatingActionButton = {
-			FloatingActionButton(
-				onClick = viewModel::create,
-				containerColor = MaterialTheme.colorScheme.primary,
-				contentColor = MaterialTheme.colorScheme.onPrimary,
-				shape = MaterialTheme.shapes.medium,
-			) {
-				Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.agents_new))
+			if (prefersFabForPrimaryAction()) {
+				FloatingActionButton(
+					onClick = viewModel::create,
+					containerColor = MaterialTheme.colorScheme.primary,
+					contentColor = MaterialTheme.colorScheme.onPrimary,
+					shape = MaterialTheme.shapes.medium,
+				) {
+					Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.agents_new))
+				}
 			}
 		},
 		containerColor = MaterialTheme.colorScheme.background,
@@ -241,6 +259,7 @@ fun AgentsScreen(
 			onSave = viewModel::save,
 			onDismiss = viewModel::closeEditor,
 			onExportCard = viewModel::openCardExport,
+			onOpenSettings = onOpenSettings,
 			error = state.error,
 			onClearError = viewModel::clearError,
 		)
@@ -309,14 +328,46 @@ private fun AgentRow(
 						.padding(horizontal = 6.dp, vertical = 3.dp),
 				)
 			}
-			onDelete?.let {
-				IconButton(onClick = it) {
+			// A destructive action one tap from the row is a mis-tap
+			// waiting to happen -- the home list and Files both keep
+			// Delete in a menu, and this row now does too. Edit is in
+			// the menu as well, so the affordance is not a one-item
+			// menu whose only entry destroys something.
+			var menu by remember { mutableStateOf(false) }
+			Box {
+				IconButton(onClick = { menu = true }) {
 					Icon(
-						Icons.Filled.Delete,
-						contentDescription = stringResource(R.string.common_delete),
+						Icons.Filled.MoreVert,
+						contentDescription = stringResource(R.string.agents_row_actions),
 						tint = MaterialTheme.colorScheme.onSurfaceVariant,
-						modifier = Modifier.size(17.dp),
+						modifier = Modifier.size(18.dp),
 					)
+				}
+				DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+					DropdownMenuItem(
+						text = { Text(stringResource(R.string.common_edit)) },
+						leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
+						onClick = {
+							menu = false
+							onEdit()
+						},
+					)
+					onDelete?.let { delete ->
+						DropdownMenuItem(
+							text = { Text(stringResource(R.string.common_delete)) },
+							leadingIcon = {
+								Icon(
+									Icons.Filled.Delete,
+									contentDescription = null,
+									tint = MaterialTheme.colorScheme.error,
+								)
+							},
+							onClick = {
+								menu = false
+								delete()
+							},
+						)
+					}
 				}
 			}
 		}
@@ -383,6 +434,7 @@ private fun AgentEditor(
 	onSave: () -> Unit,
 	onDismiss: () -> Unit,
 	onExportCard: (RoleplayCard) -> Unit,
+	onOpenSettings: () -> Unit,
 	error: String? = null,
 	onClearError: () -> Unit = {},
 ) {
@@ -755,6 +807,11 @@ private fun AgentEditor(
 				style = MaterialTheme.typography.bodyMedium,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
+			// A dead end is not an answer: the sentence pointed at
+			// Settings with no way to get there from inside a dialog.
+			TextButton(onClick = onOpenSettings) {
+				Text(stringResource(R.string.agents_go_settings))
+			}
 		} else {
 			FlowRowCompat {
 				providers.forEach { provider ->

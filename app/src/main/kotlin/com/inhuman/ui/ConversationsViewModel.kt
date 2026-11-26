@@ -1126,6 +1126,38 @@ class ConversationsViewModel(
 		viewModelScope.launch { repository.setPinned(conversation.id, pinned) }
 	}
 
+	/**
+	 * Rename a conversation from the home list.
+	 *
+	 * The chat menu has always had this; the list did not, so changing a title
+	 * meant loading the whole transcript to reach a rename dialog. The
+	 * repository call is the same one that path makes, which is why a temporary
+	 * workspace's display name stays in step with its conversation.
+	 *
+	 * A failed rename reports through the same error row the delete and the
+	 * create use; a title edit that silently did nothing would look like a
+	 * typo on the user's part.
+	 */
+	fun rename(conversation: ConversationEntity, title: String) {
+		val trimmed = title.trim()
+		if (trimmed.isEmpty()) return
+		Diag.i("conv", "rename id=${Diag.shortId(conversation.id)} chars=${trimmed.length}")
+		viewModelScope.launch {
+			runCatching { repository.rename(conversation.id, trimmed) }
+				.onFailure { failure ->
+					Diag.w("conv", "rename failed id=${Diag.shortId(conversation.id)}", failure)
+					_state.update {
+						it.copy(
+							error = context.getString(
+								R.string.home_rename_failed,
+								failure.message ?: failure::class.simpleName ?: "unknown error",
+							),
+						)
+					}
+				}
+		}
+	}
+
 	fun beginSelection(id: String? = null) {
 		_state.update { current ->
 			current.copy(

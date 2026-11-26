@@ -583,6 +583,17 @@ fun FilesScreen(
 							},
 						)
 					}
+					// A capped listing says so; the row is the disclosure.
+					if (state.truncated) {
+						item(key = "truncated") {
+							Text(
+								text = stringResource(R.string.files_truncated_notice, state.entries.size),
+								style = MaterialTheme.typography.labelSmall,
+								color = MaterialTheme.colorScheme.onSurfaceVariant,
+								modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
+							)
+						}
+					}
 				}
 			}
 		}

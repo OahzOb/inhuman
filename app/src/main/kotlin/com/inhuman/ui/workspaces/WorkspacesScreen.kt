@@ -54,6 +54,7 @@ import com.inhuman.core.design.Layout
 import com.inhuman.core.design.Eyebrow
 import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.core.design.prefersFabForPrimaryAction
 import com.inhuman.ui.common.WorkbenchBackButton
 import java.text.DateFormat
 import java.util.Date
@@ -160,8 +161,20 @@ fun WorkspacesScreen(
 							) {
 								Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.workspaces_delete_selected))
 							}
-						} else if (state.workspaces.isNotEmpty()) {
-							TextButton(onClick = { viewModel.beginSelection() }) { Text(stringResource(R.string.workspaces_select)) }
+						} else {
+							// Same rule as the home list and the assistants screen: a FAB
+							// only on a genuinely narrow window, a header action elsewhere.
+							if (!prefersFabForPrimaryAction()) {
+								TextButton(
+									onClick = {
+										newName = defaultName
+										showCreate = true
+									},
+								) { Text(stringResource(R.string.workspaces_new)) }
+							}
+							if (state.workspaces.isNotEmpty()) {
+								TextButton(onClick = { viewModel.beginSelection() }) { Text(stringResource(R.string.workspaces_select)) }
+							}
 						}
 					},
 					colors = TopAppBarDefaults.topAppBarColors(
@@ -175,7 +188,7 @@ fun WorkspacesScreen(
 			}
 		},
 		floatingActionButton = {
-			if (!state.selecting) {
+			if (!state.selecting && prefersFabForPrimaryAction()) {
 				FloatingActionButton(
 					onClick = {
 						newName = defaultName

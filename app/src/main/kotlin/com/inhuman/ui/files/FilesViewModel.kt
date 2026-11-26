@@ -72,6 +72,8 @@ data class FilesUiState(
 	/** The durable workspace id, used to build a writable document URI. */
 	val workspaceId: String? = null,
 	val entries: List<FileEntryUi> = emptyList(),
+	/** True when the folder held more rows than the list cap allows. */
+	val truncated: Boolean = false,
 	val loading: Boolean = true,
 	/** Bytes used and the ceiling, for the header. */
 	val usedBytes: Long = 0,
@@ -274,7 +276,13 @@ class FilesViewModel(
 					}
 				}.orEmpty()
 
-				val entries = if (dir == null || !dir.isDirectory) {
+				// Counted before the cap, because a folder with more entries
+				// than the limit has to say so: the agent's `list_files`
+				// already discloses its truncation, and a browser that
+				// quietly stops at 500 makes a partial listing look complete
+				// (the same rule A25 applies to untrusted archives).
+				val limit = ws.limits.maxListEntries
+				val listed = if (dir == null || !dir.isDirectory) {
 					Diag.w(
 						"files",
 						"list failed path=${path.ifBlank { "/" }} dir=${dir != null}",
@@ -283,8 +291,9 @@ class FilesViewModel(
 				} else {
 					dir.listFiles().orEmpty()
 						.sortedWith(compareByDescending<File> { it.isDirectory }.thenBy { it.name.lowercase() })
-						.take(ws.limits.maxListEntries)
-						.map { f ->
+				}
+				val truncated = (listed?.size ?: 0) > limit
+				val entries = listed?.take(limit)?.map { f ->
 							val relative = ws.relativize(f)
 							FileEntryUi(
 								name = f.name,
@@ -296,10 +305,10 @@ class FilesViewModel(
 								rule = rules[relative] ?: ToolPolicy.Free,
 							)
 						}
-				}
-				entries to ws.usage()
+				(entries to ws.usage()) to truncated
 			}
-			val (entries, usage) = result
+			val (entriesWithUsage, truncated) = result
+			val (entries, usage) = entriesWithUsage
 			// The user may have navigated while the walk ran; applying this
 			// result now would show one folder's rows under another folder's
 			// header, so the later refresh owns the state.
@@ -309,6 +318,7 @@ class FilesViewModel(
 				loading = false,
 				workspaceId = id,
 				entries = entries.orEmpty(),
+				truncated = truncated,
 				error = if (entries == null) "cannot list that directory" else null,
 				usedBytes = usage.bytes,
 				totalBytes = ws.limits.maxTotalBytes,

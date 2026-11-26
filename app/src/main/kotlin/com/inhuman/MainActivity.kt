@@ -457,7 +457,11 @@ private fun InhumanRoot(
 				}
 			}
 			val vm: AgentsViewModel = viewModel(factory = factory)
-			AgentsScreen(viewModel = vm, onBack = { showAgents = false })
+			AgentsScreen(
+				viewModel = vm,
+				onBack = { showAgents = false },
+				onOpenSettings = { showSettings = true },
+			)
 		}
 
 		showFiles && filesWorkspaceId != null -> {
