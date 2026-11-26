@@ -95,7 +95,14 @@ import com.inhuman.ui.common.PaidToolsNotice
 import com.inhuman.ui.common.RemoteBadge
 import com.inhuman.ui.common.RemoteToolsNotice
 import com.inhuman.ui.common.RewindBadge
+import com.inhuman.ui.common.ToolGroupMasterRow
+import com.inhuman.ui.common.ToolGroupPolicyRow
+import com.inhuman.ui.common.ToolPolicyChoiceRow
+import com.inhuman.ui.common.groupPolicy
+import com.inhuman.ui.common.groupSelection
+import com.inhuman.ui.common.groupToggle
 import com.inhuman.ui.common.toolBlurb
+import com.inhuman.ui.common.toolGroups
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -466,6 +473,13 @@ private fun AgentEditor(
 	// showing them doubles the length of the section to answer a question most
 	// people do not have.
 	var showToolHelp by rememberSaveable { mutableStateOf(false) }
+	// One family open at a time, on each of the editor's two long lists. The
+	// editor used to print both lists flat -- forty tool rows and forty rule
+	// rows -- which made the screen where capability is decided the longest
+	// scroll in the app. The summary rows answer the common question ("is any
+	// of this on?"), and the individual names are one tap away.
+	var expandedRuleFamily by rememberSaveable { mutableStateOf("") }
+	var expandedToolFamily by rememberSaveable { mutableStateOf("") }
 
 	val context = LocalContext.current
 	val scope = rememberCoroutineScope()
@@ -941,6 +955,10 @@ private fun AgentEditor(
 			bilibiliLoggedIn = bilibiliLoggedIn,
 			downloadEnabled = downloadEnabled,
 			mediaConfiguredTools = mediaConfiguredTools,
+			expandedFamily = expandedRuleFamily,
+			onToggleExpanded = { name ->
+				expandedRuleFamily = if (expandedRuleFamily == name) "" else name
+			},
 			onSelect = onRuleChange,
 		)
 
@@ -1032,106 +1050,43 @@ private fun AgentEditor(
 			RemoteToolsNotice(modifier = Modifier.padding(bottom = 4.dp))
 		}
 
-		availableTools.forEach { tool ->
-			val on = ToolCatalog.permits(draft.tools, tool.name)
-			Row(
-				modifier = Modifier
-					.fillMaxWidth()
-					// `toggleable` rather than `clickable`, and that is not
-					// cosmetic.
-					//
-					// With a bare click plus `Checkbox(onCheckedChange = null)`
-					// the box is drawn but is not a node: no state for a screen
-					// reader to announce and nothing for `uiautomator` to read,
-					// so the row said nothing about being a checkbox or about
-					// whether it was on. Tapping worked and nothing else did.
-					.toggleable(
-						value = on,
-						role = Role.Checkbox,
-						onValueChange = {
-							// Toggling from "everything" has to mean something.
-							// It becomes the list of tools that was on screen,
-							// so the next tap turns one thing off rather than
-							// silently turning everything else off -- and so it
-							// does not silently switch on the remote tools that
-							// `null` deliberately refuses. See
-							// `ToolCatalog.everythingExplicit`.
+		// Grouped, with one master control per family. The flat list this
+		// replaces printed every available name at once; the family rows answer
+		// "is any of this on?" without scrolling, and the individual names are
+		// one tap below. Turning a family on here is still the explicit choice
+		// the catalogue's opt-in and remote rules require -- it names every
+		// member, including `ssh_exec` in the SSH exec/write family, which is
+		// why that family is separate from the read-only one.
+		toolGroups(availableTools).forEach { group ->
+			val names = group.entries.map { it.name }
+			val familyExpanded = expandedToolFamily == group.family.name
+			ToolGroupMasterRow(
+				family = group.family,
+				entries = group.entries,
+				selection = groupSelection(draft.tools, names),
+				expanded = familyExpanded,
+				onToggleAll = { on ->
+					onChange {
+						it.copy(
+							tools = groupToggle(it.tools, names, on, includeSuggestions = suggestionsEnabled),
+						)
+					}
+				},
+				onToggleExpanded = {
+					expandedToolFamily = if (familyExpanded) "" else group.family.name
+				},
+			)
+			if (familyExpanded) {
+				group.entries.forEach { tool ->
+					AgentToolRow(
+						tool = tool,
+						on = ToolCatalog.permits(draft.tools, tool.name),
+						showToolHelp = showToolHelp,
+						onToggle = { on ->
 							val current = draft.tools ?: ToolCatalog.everythingExplicit(suggestionsEnabled)
-							val next = if (on) current - tool.name else current + tool.name
+							val next = if (on) current + tool.name else current - tool.name
 							onChange { it.copy(tools = next) }
 						},
-					)
-					.padding(vertical = 2.dp),
-				verticalAlignment = Alignment.CenterVertically,
-				horizontalArrangement = Arrangement.spacedBy(8.dp),
-			) {
-				// Merely drawn: the row owns the interaction, because two
-				// toggles for one value is one too many.
-				Checkbox(checked = on, onCheckedChange = null)
-
-				// The write marker, as ink rather than as a word.
-				//
-				// It used to say "changes files" on every mutating row -- five
-				// repetitions of the same three words down one side of the list,
-				// which is a lot of text to say one thing. A dot carries it in a
-				// fraction of the space, and the colour does the work the
-				// repetition was doing.
-				//
-				// Colour alone is not the whole signal, so the two groups also
-				// differ in word: the writes say "writes", which is one word
-				// rather than three.
-				Box(
-					modifier = Modifier
-						.size(5.dp)
-						.background(
-							if (tool.mutates) {
-								MaterialTheme.colorScheme.tertiary
-							} else {
-								MaterialTheme.colorScheme.outlineVariant
-							},
-							CircleShape,
-						),
-				)
-
-				Column(modifier = Modifier.weight(1f)) {
-					Row(
-						verticalAlignment = Alignment.CenterVertically,
-						horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
-					) {
-						Text(
-							text = tool.name,
-							style = MaterialTheme.typography.bodyMedium,
-							fontFamily = FontFamily.Monospace,
-							color = MaterialTheme.colorScheme.onSurface,
-						)
-						// Beside the name, not in the right-hand column: this is
-						// the one warning that has to survive a glance down the
-						// list. The trailing column is for "writes".
-						if (tool.paid) PaidBadge()
-						if (tool.remote) RemoteBadge()
-						if (tool.mutates) RewindBadge(canRewind = tool.reversible)
-					}
-					// The description is opt-in.
-					//
-					// Eleven blurbs double the length of this section, and the
-					// names are what a choice is made from -- someone who wants
-					// to know what `append_file` does can ask, and someone who
-					// does not should not scroll past ten answers to a question
-					// they did not have.
-					if (showToolHelp) {
-						Text(
-							text = toolBlurb(tool),
-							style = MaterialTheme.typography.labelLarge,
-							color = MaterialTheme.colorScheme.onSurfaceVariant,
-						)
-					}
-				}
-
-				if (tool.mutates) {
-					Text(
-						text = stringResource(R.string.agents_writes),
-						style = MaterialTheme.typography.labelLarge,
-						color = MaterialTheme.colorScheme.tertiary,
 					)
 				}
 			}
@@ -1500,6 +1455,100 @@ private fun SectionLabel(text: String) {
 }
 
 /**
+ * One tool row inside an expanded family.
+ *
+ * Extracted from the section body when the list gained families: the row is
+ * unchanged, but it is now drawn only while its family is open, so the
+ * forty-row wall is a handful of summary rows plus whichever family the user
+ * opened.
+ *
+ * `toggleable` rather than `clickable`, and that is not cosmetic. With a bare
+ * click plus `Checkbox(onCheckedChange = null)` the box is drawn but is not a
+ * node: no state for a screen reader to announce and nothing for
+ * `uiautomator` to read. Tapping worked and nothing else did.
+ */
+@Composable
+private fun AgentToolRow(
+	tool: ToolCatalog.Entry,
+	on: Boolean,
+	showToolHelp: Boolean,
+	onToggle: (Boolean) -> Unit,
+) {
+	Row(
+		modifier = Modifier
+			.fillMaxWidth()
+			.toggleable(
+				value = on,
+				role = Role.Checkbox,
+				onValueChange = onToggle,
+			)
+			.padding(vertical = 2.dp),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(8.dp),
+	) {
+		// Merely drawn: the row owns the interaction, because two toggles for
+		// one value is one too many.
+		Checkbox(checked = on, onCheckedChange = null)
+
+		// The write marker, as ink rather than as a word. It used to say
+		// "changes files" on every mutating row -- five repetitions of the same
+		// three words down one side of the list -- which is a lot of text to
+		// say one thing. A dot carries it in a fraction of the space, and the
+		// colour does the work the repetition was doing.
+		Box(
+			modifier = Modifier
+				.size(5.dp)
+				.background(
+					if (tool.mutates) {
+						MaterialTheme.colorScheme.tertiary
+					} else {
+						MaterialTheme.colorScheme.outlineVariant
+					},
+					CircleShape,
+				),
+		)
+
+		Column(modifier = Modifier.weight(1f)) {
+			Row(
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
+			) {
+				Text(
+					text = tool.name,
+					style = MaterialTheme.typography.bodyMedium,
+					fontFamily = FontFamily.Monospace,
+					color = MaterialTheme.colorScheme.onSurface,
+				)
+				// Beside the name, not in the right-hand column: this is the one
+				// warning that has to survive a glance down the list. The
+				// trailing column is for "writes".
+				if (tool.paid) PaidBadge()
+				if (tool.remote) RemoteBadge()
+				if (tool.mutates) RewindBadge(canRewind = tool.reversible)
+			}
+			// The description is opt-in. The blurbs are the only part not
+			// needed to make a choice, so showing them doubles the length of
+			// the section to answer a question most people do not have.
+			if (showToolHelp) {
+				Text(
+					text = toolBlurb(tool),
+					style = MaterialTheme.typography.labelLarge,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+		}
+
+		if (tool.mutates) {
+			Text(
+				text = stringResource(R.string.agents_writes),
+				style = MaterialTheme.typography.labelLarge,
+				color = MaterialTheme.colorScheme.tertiary,
+			)
+		}
+	}
+}
+
+/**
  * What this assistant may do without asking.
  *
  * ## Why this lives here and not in a separate rules screen
@@ -1526,8 +1575,22 @@ private fun AssistantRulesSection(
 	bilibiliLoggedIn: Boolean,
 	downloadEnabled: Boolean,
 	mediaConfiguredTools: Set<String>?,
+	/** The family currently open, by name; only one at a time. */
+	expandedFamily: String,
+	onToggleExpanded: (String) -> Unit,
 	onSelect: (String, ToolPolicy) -> Unit,
 ) {
+	val visible = ToolCatalog.visible(
+		sshToolEnabled,
+		includeWorkspaceBound = AppCapabilities.workspaceOk,
+		includeSandbox = AppCapabilities.sandboxOk == true,
+		includeSuggestions = suggestionsEnabled,
+		includeBilibili = bilibiliEnabled,
+		includeBilibiliLogin = bilibiliLoggedIn,
+		includeDownload = downloadEnabled,
+		includePdfVision = true,
+		mediaConfigured = mediaConfiguredTools,
+	)
 	Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
 		SectionLabel(stringResource(R.string.agents_rules_title))
 		Text(
@@ -1536,53 +1599,50 @@ private fun AssistantRulesSection(
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 
-		for (entry in ToolCatalog.visible(
-			sshToolEnabled,
-			includeWorkspaceBound = AppCapabilities.workspaceOk,
-			includeSandbox = AppCapabilities.sandboxOk == true,
-			includeSuggestions = suggestionsEnabled,
-			includeBilibili = bilibiliEnabled,
-			includeBilibiliLogin = bilibiliLoggedIn,
-			includeDownload = downloadEnabled,
-			includePdfVision = true,
-			mediaConfigured = mediaConfiguredTools,
-		)) {
-			val current = rules[entry.name] ?: ToolPolicy.Free
-			Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-				Row(
-					horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
-					verticalAlignment = Alignment.CenterVertically,
-				) {
-					Text(
-						text = entry.name,
-						style = MaterialTheme.typography.bodyMedium,
-						color = MaterialTheme.colorScheme.onSurface,
-					)
-					if (entry.paid) PaidBadge()
-					if (entry.remote) RemoteBadge()
-					if (entry.mutates) RewindBadge(canRewind = entry.reversible)
-				}
-				Row(horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
-					for (option in ToolPolicy.entries) {
-						ChoiceChip(
-							label = option.shortLabel(),
-							selected = option == current,
-							onClick = { onSelect(entry.name, option) },
+		// One row per family. The individual tool rows are one tap below, and a
+		// family whose members share a policy answers for all of them: the
+		// screen used to print a four-chip row for every tool in the catalogue,
+		// which is where most of the "too many switches" came from.
+		toolGroups(visible).forEach { group ->
+			val names = group.entries.map { it.name }
+			val familyExpanded = expandedFamily == group.family.name
+			ToolGroupPolicyRow(
+				family = group.family,
+				entries = group.entries,
+				policy = groupPolicy(rules, names),
+				customised = names.count { (rules[it] ?: ToolPolicy.Free) != ToolPolicy.Free },
+				assistant = true,
+				expanded = familyExpanded,
+				onSelect = { policy -> names.forEach { onSelect(it, policy) } },
+				onToggleExpanded = { onToggleExpanded(group.family.name) },
+			)
+			if (familyExpanded) {
+				group.entries.forEach { entry ->
+					val current = rules[entry.name] ?: ToolPolicy.Free
+					Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+						Row(
+							horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
+							verticalAlignment = Alignment.CenterVertically,
+						) {
+							Text(
+								text = entry.name,
+								style = MaterialTheme.typography.bodyMedium,
+								color = MaterialTheme.colorScheme.onSurface,
+							)
+							if (entry.paid) PaidBadge()
+							if (entry.remote) RemoteBadge()
+							if (entry.mutates) RewindBadge(canRewind = entry.reversible)
+						}
+						ToolPolicyChoiceRow(
+							policy = current,
+							assistant = true,
+							onSelect = { option -> onSelect(entry.name, option) },
 						)
 					}
 				}
 			}
 		}
 	}
-}
-
-/** One word per policy, for a row that already has ten of these. */
-@Composable
-private fun ToolPolicy.shortLabel(): String = when (this) {
-	ToolPolicy.Free -> stringResource(R.string.agents_policy_follow)
-	ToolPolicy.Ask -> stringResource(R.string.agents_policy_ask)
-	ToolPolicy.Deny -> stringResource(R.string.agents_policy_refuse)
-	ToolPolicy.Blind -> stringResource(R.string.agents_policy_hide)
 }
 
 @Composable

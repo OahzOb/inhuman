@@ -88,41 +88,6 @@ internal fun conversationToolPlan(
 }
 
 /**
- * The families the sheet groups its rows into, in display order.
- *
- * The catalogue order is deliberate (reads, writes, then the external and
- * remote families), but thirty flat rows turned the one screen where the
- * user decides what the agent may do into an undifferentiated list. The
- * families come from the catalogue's own flags, so a new tool lands in the
- * right group without a second table to maintain.
- */
-internal enum class ToolFamily { Read, Write, External, Media, Remote, Other }
-
-internal fun toolFamilyOf(entry: ToolCatalog.Entry): ToolFamily = when {
-	entry.remote || entry.gatedBySsh -> ToolFamily.Remote
-	entry.gatedByMediaConfig -> ToolFamily.Media
-	entry.gatedByBilibili || entry.gatedByDownload ||
-		entry.name == "web_search" || entry.name == "web_fetch" -> ToolFamily.External
-	entry.workspaceBound -> if (entry.mutates) ToolFamily.Write else ToolFamily.Read
-	else -> ToolFamily.Other
-}
-
-internal data class ConversationToolGroup(
-	val family: ToolFamily,
-	val entries: List<ToolCatalog.Entry>,
-)
-
-/** The rows grouped by family in display order, empty groups omitted. */
-internal fun conversationToolGroups(
-	entries: List<ToolCatalog.Entry>,
-): List<ConversationToolGroup> =
-	ToolFamily.entries.mapNotNull { family ->
-		entries.filter { toolFamilyOf(it) == family }
-			.takeIf { it.isNotEmpty() }
-			?.let { ConversationToolGroup(family, it) }
-	}
-
-/**
  * Turn the sheet's checkboxes into the stored list.
  *
  * Names the sheet cannot show -- a remote tool while SSH is off -- are carried

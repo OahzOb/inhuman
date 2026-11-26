@@ -29,8 +29,12 @@ over.
 - The assistant is the ceiling. A conversation can choose from tools the
   assistant has, or tools the conversation already had; it cannot invent a tool
   the assistant never offered.
-- Remote tools never arrive through "all". Each one is selected explicitly, and
-  the existing once-per-conversation SSH consent still applies.
+- Remote tools never arrive through "all". Each family is selected explicitly, and
+  the SSH families are two: read-only (`ssh_hosts`, `ssh_probe`, `ssh_list`,
+  `ssh_read_file`, `ssh_download`) and exec/write (`ssh_exec`, `ssh_upload`,
+  `ssh_write_file`) have separate master controls, so choosing the reading half
+  cannot grant a shell. The existing once-per-conversation SSH consent still
+  applies, and adding the exec/write family to a read-only grant resets it.
 - Widening is an explicit user action in the sheet. This is not a new approval
   layer: there is no per-call or per-change modal, and the ordinary tool policy
   is unchanged.
@@ -83,12 +87,15 @@ its assistant never had.
 
 ## The read-only SSH profile
 
-The same mechanism is what makes a no-exec SSH profile possible. Select
-`ssh_probe`, `ssh_list`, `ssh_read_file` and `ssh_download`, leave `ssh_exec`,
-`ssh_upload` and `ssh_write_file` unchecked, and the model can inspect a host,
-find a file, read a small text file or its tail, or copy one file into the
-workspace without a shell on the remote machine. The tools are registered
-independently; `ssh_download` does not require `ssh_exec`.
+The same mechanism is what makes a no-exec SSH profile possible. Select the SSH
+**read-only** family (`ssh_hosts`, `ssh_probe`, `ssh_list`, `ssh_read_file`,
+`ssh_download`) and leave the **exec/write** family (`ssh_exec`, `ssh_upload`,
+`ssh_write_file`) off, and the model can inspect a host, find a file, read a
+small text file or its tail, or copy one file into the workspace without a shell
+on the remote machine. The two families are separate master controls on every
+surface, so the read-only grant is one gesture and the dangerous half cannot
+arrive on the way. The tools are registered independently; `ssh_download` does
+not require `ssh_exec`.
 
 `ssh_probe` runs one fixed read-only script (OS, load, disk, failed units, ports,
 containers); it accepts no command. `ssh_list` is one SFTP `ls`, not `find`: no
@@ -106,16 +113,21 @@ reset it.
 
 ## UI
 
-Chat overflow menu -> **Conversation tools**. A scrollable list of the available
-entries with the same badges as the assistant editor (`PAID`, `REMOTE`, and
-`REWIND` / `NO REWIND`), a one-line description, and a checkbox. The footer says
-that changes apply from the next turn, and warns when a selected tool is remote
-or irreversible. Apply writes the selection; Cancel closes without changing
-anything. The row is disabled while a turn is streaming.
+Chat overflow menu -> **Conversation tools**. A scrollable list of **families**:
+one row per family with a tri-state master checkbox, the count of its selected
+members, aggregate `PAID`/`REMOTE` badges, and a disclosure arrow. All-on, all-off
+and mixed are distinct states; tapping a mixed family turns the missing members
+on rather than discarding the rest, and tapping an all-on family turns it off.
+The individual tool rows -- name, badges, one-line description, checkbox -- are
+one tap below their family, and only one family is open at a time. The footer
+says that changes apply from the next turn, and warns when a selected tool is
+remote or irreversible. Apply writes the selection; Cancel closes without
+changing anything. The row is disabled while a turn is streaming.
 
-Removing a tool is just unchecking it and applying. Adding a tool the conversation
-did not have is the same gesture; the warning is the disclosure, not a second
-dialog.
+The families come from the catalogue's own flags (`app/.../ui/common/ToolGroups.kt`),
+and SSH is two of them: read-only and exec/write. Removing a tool is unchecking it
+(and applying); adding one is the same gesture. The warning is the disclosure, not
+a second dialog.
 
 ## Storage
 
@@ -130,6 +142,11 @@ list that replaces it must refuse them too; the picker used to write
 `names - "ssh_exec"`, which put the other six remote names into the saved
 selection, and `ToolCatalog.permits` reads a remote name in a selection as
 consent. One unticked box would have granted six SSH tools that nobody chose.
+
+A family master control is the same rule as ticking its members: it writes their
+names into the stored list, and a family containing opt-in tools (read_pdf_vision,
+read_scanned, Bilibili, SSH, download_url) only gains them through that explicit
+gesture. Nothing about a family control makes `null` mean remote tools.
 
 Hidden remote tools (SSH switched off while the conversation still names one) are
 preserved through an edit rather than dropped, because a switch-off is not a
@@ -149,6 +166,10 @@ per turn, not for the lifetime of the conversation.
 - `ConversationToolsTest` (JVM): the ceiling with `null` and explicit assistant
   selections; preserving a removed tool; hidden remote names; catalogue order;
   merge on apply.
+- `ToolGroupsTest` (JVM): the family partition; the SSH read/write split derived
+  from `reversible`; a mixed family turning on rather than discarding; a family
+  toggle writing names explicitly so `null` still refuses remote and opt-in
+  tools; and a family rule writing every member while `Free` removes the row.
 - `ToolCatalogTest` / `ToolCatalogVisibilityTest` already pin the remote
   explicit-only rule and the hidden-when-disabled rule; `ToolCatalogTest` also
   pins that the list an assistant edit materialises contains **no remote name**

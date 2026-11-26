@@ -78,7 +78,12 @@ Two consequences bind every future change, and neither is negotiable:
   `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`),
   off by default, enabled globally, selected explicitly on the assistant or the
   conversation, and granted for that conversation's current SSH capability set.
-  Adding `ssh_exec`, `ssh_upload` or `ssh_write_file` asks again rather than
+  The pickers split SSH into two families with separate master controls —
+  **read-only** (`ssh_hosts`, `ssh_probe`, `ssh_list`, `ssh_read_file`,
+  `ssh_download`) and **exec/write** (`ssh_exec`, `ssh_upload`,
+  `ssh_write_file`) — so choosing one never implies the other; that split is
+  what keeps the read-only profile a single gesture. Adding
+  `ssh_exec`, `ssh_upload` or `ssh_write_file` asks again rather than
   inheriting a narrower read-only grant.** When SSH is on, the agent
   can inspect a host, read files, write small text files, transfer files, and —
   only if `ssh_exec` is selected — run commands on a remote machine. The app
@@ -645,6 +650,18 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   to an existing grant resets `sshAllowed`; adding `ssh_probe`, `ssh_list` or
   `ssh_read_file`, and removing any tool, does not. Changing the conversation's
   host selection does not touch it: the list is information.
+- **Tool families are a presentation of the selection, not a second permission
+  system.** The assistant editor, the conversation sheet and both approval-rule
+  editors group the catalogue by family and give each family one master control
+  (`app/.../ui/common/ToolGroups.kt`, `ToolGroupRows.kt`). A family switch writes
+  the same per-tool names (or the same per-tool rules) that ticking every member
+  would, so `ToolCatalog.permits`, `PolicySet` and the approval audit see the
+  ordinary representation and no new schema or rule kind exists. Two
+  consequences are load-bearing: the SSH family is split into `SshRead` and
+  `SshWrite` so the read-only grant can never be the way `ssh_exec` arrives, and
+  a family switch is an explicit gesture naming its members -- it is not `null`
+  ("all"), which still refuses every remote and opt-in tool. Changing the family
+  layout is a UI change; changing who may widen a selection is not.
 - **URL download consent is a capability grant, and one validator serves both
   download paths.** `download_url` is gated four ways: the Settings switch
   (`SecureStore.KEY_DOWNLOAD_TOOL_ENABLED`, default off), the catalogue's

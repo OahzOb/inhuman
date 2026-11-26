@@ -64,7 +64,8 @@ SSH 工具不在会话目录里执行。远端的一台机器不是副本，删�
 
 - Settings 的全局开关默认关；关着时每个 SSH 工具都不出现在任何工具列表、助手
   规则、全局审批表或 home 的 tools 摘要里，也不进入请求的 tool schemas；打开后
-  助手仍须显式选中要用的每一个 SSH 工具；
+  助手仍须显式选中 SSH 族。三个选择面（助手编辑器、对话工具面板、两个规则编辑器）
+  都把 SSH 拆成**只读**和**执行/写入**两族，只读族不会顺带打开执行/写入；
 - 每个会话第一次调用时，弹专用对话框，显示 host/user/第一个操作（命令，或传输的
   两端路径），要求勾选"可能造成不可逆损坏"，才允许；允许后写
   `conversations.sshAllowed`，覆盖该会话的所有 SSH 工具；
@@ -257,6 +258,13 @@ path_policy(conversationId TEXT, relPath TEXT, policy TEXT NOT NULL,
 - **三处编辑器**：全局规则在设置页，按助手的规则在 Agents 的编辑对话框，按路径的
   规则在文件浏览器每一行的锁按钮上。三者写的是同一套表，界面上显示的就是工具调用
   会取到的值。
+- **规则按工具族收拢**（`app/.../ui/common/ToolGroups.kt` + `ToolGroupRows.kt`）：
+  全局页和助手编辑器默认只显示每个族一行（四档 chips + "已收紧 N 项"），单工具的
+  四档行在展开该族后出现。族上的选择是一次**批量写**：它对族内每个工具分别写一条
+  普通规则（`Free` 仍是删除该行），所以 `PolicySet`、审计和裁决看到的与逐个点按
+  完全相同，不新增规则种类，也不新增 schema。三个选择面（助手工具清单、对话工具
+  面板、规则编辑）共用同一套族定义，族名不会在"选择它"和"它为它设规则"的界面之间
+  漂移。SSH 在这套分组里是**只读**与**执行/写入**两族。
 - **`Blind` 真的隐藏**：`FileTools.all` 接受 `hidden` 判定，`ChatViewModel.buildTools`
   从已解析的 `PolicySet` 供给它；`ListFilesBlindTest` 把"名字也不出现"写成断言。
 - **SSH 的第一道门是能力授权**（schema 8→9 的 `conversations.sshAllowed`），

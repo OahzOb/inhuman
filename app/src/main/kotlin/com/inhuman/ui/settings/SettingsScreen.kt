@@ -77,6 +77,9 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.AppCapabilities
 import com.inhuman.ui.common.formatBytes
+import com.inhuman.ui.common.ToolGroupPolicyRow
+import com.inhuman.ui.common.groupPolicy
+import com.inhuman.ui.common.toolGroups
 import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.tools.ToolCatalog
@@ -1351,6 +1354,7 @@ fun SettingsScreen(
 					downloadEnabled = state.downloadEnabled,
 					mediaConfigured = state.mediaConfiguredTools,
 					onRuleChange = viewModel::setApprovalRule,
+					onRulesChange = viewModel::setApprovalRules,
 				)
 			}
 
@@ -3305,7 +3309,23 @@ private fun ApprovalRulesSection(
 	downloadEnabled: Boolean,
 	mediaConfigured: Set<String>?,
 	onRuleChange: (String, ToolPolicy) -> Unit,
+	onRulesChange: (List<String>, ToolPolicy) -> Unit,
 ) {
+	// One family open at a time, same as the assistant editor. What is visible
+	// by default is the answer to "does anything here ask first?" -- the full
+	// catalogue is one tap below its family row instead of forty rows of chips.
+	var expandedFamily by rememberSaveable { mutableStateOf("") }
+	val visible = ToolCatalog.visible(
+		sshToolEnabled,
+		includeWorkspaceBound = AppCapabilities.workspaceOk,
+		includeSandbox = AppCapabilities.sandboxOk == true,
+		includeSuggestions = suggestionsEnabled,
+		includeBilibili = bilibiliEnabled,
+		includeBilibiliLogin = bilibiliLoggedIn,
+		includeDownload = downloadEnabled,
+		includePdfVision = true,
+		mediaConfigured = mediaConfigured,
+	)
 	Column(
 		modifier = Modifier
 			.widthIn(max = Layout.ReadableMeasure)
@@ -3326,27 +3346,35 @@ private fun ApprovalRulesSection(
 			RemoteToolsNotice(modifier = Modifier.padding(bottom = 2.dp))
 		}
 
-		for (entry in ToolCatalog.visible(
-			sshToolEnabled,
-			includeWorkspaceBound = AppCapabilities.workspaceOk,
-			includeSandbox = AppCapabilities.sandboxOk == true,
-			includeSuggestions = suggestionsEnabled,
-			includeBilibili = bilibiliEnabled,
-			includeBilibiliLogin = bilibiliLoggedIn,
-			includeDownload = downloadEnabled,
-			includePdfVision = true,
-			mediaConfigured = mediaConfigured,
-		)) {
-			val current = rules[entry.name] ?: ToolPolicy.Free
-			ApprovalRuleRow(
-				name = entry.name,
-				blurb = toolBlurb(entry),
-				changesFiles = entry.mutates,
-				paid = entry.paid,
-				remote = entry.remote,
-				policy = current,
-				onSelect = { onRuleChange(entry.name, it) },
+		toolGroups(visible).forEach { group ->
+			val names = group.entries.map { it.name }
+			val familyExpanded = expandedFamily == group.family.name
+			ToolGroupPolicyRow(
+				family = group.family,
+				entries = group.entries,
+				policy = groupPolicy(rules, names),
+				customised = names.count { (rules[it] ?: ToolPolicy.Free) != ToolPolicy.Free },
+				assistant = false,
+				expanded = familyExpanded,
+				onSelect = { policy -> onRulesChange(names, policy) },
+				onToggleExpanded = {
+					expandedFamily = if (familyExpanded) "" else group.family.name
+				},
 			)
+			if (familyExpanded) {
+				group.entries.forEach { entry ->
+					val current = rules[entry.name] ?: ToolPolicy.Free
+					ApprovalRuleRow(
+						name = entry.name,
+						blurb = toolBlurb(entry),
+						changesFiles = entry.mutates,
+						paid = entry.paid,
+						remote = entry.remote,
+						policy = current,
+						onSelect = { onRuleChange(entry.name, it) },
+					)
+				}
+			}
 		}
 	}
 }

@@ -1064,6 +1064,27 @@ class SettingsViewModel(
 		}
 	}
 
+	/**
+	 * Set the same rule on every tool in one family.
+	 *
+	 * The family row is a shorthand, not a second kind of rule: it writes one
+	 * ordinary per-tool rule per member, so `PolicySet` and the audit trail see
+	 * exactly what they would have seen if each row had been tapped. Reading
+	 * once at the end keeps the chips from redrawing the same map seven times.
+	 */
+	fun setApprovalRules(toolNames: List<String>, policy: ToolPolicy) {
+		if (toolNames.isEmpty()) return
+		viewModelScope.launch {
+			for (name in toolNames) {
+				runCatching { repository.policies().setGlobalRule(name, policy) }
+					.onFailure {
+						Diag.w("policy", "global rule write failed tool=$name policy=$policy", it)
+					}
+			}
+			loadRules()
+		}
+	}
+
 	fun setToolRoundLimit(rounds: Int) {
 		val limit = rounds.coerceIn(
 			ChatViewModel.MIN_TOOL_ROUNDS,

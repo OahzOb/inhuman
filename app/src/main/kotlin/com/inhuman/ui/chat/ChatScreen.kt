@@ -176,7 +176,11 @@ import com.inhuman.ui.common.FlowRowCompat
 import com.inhuman.ui.common.PaidBadge
 import com.inhuman.ui.common.RemoteBadge
 import com.inhuman.ui.common.RewindBadge
+import com.inhuman.ui.common.ToolGroupMasterRow
+import com.inhuman.ui.common.groupSelection
+import com.inhuman.ui.common.groupToggle
 import com.inhuman.ui.common.toolBlurb
+import com.inhuman.ui.common.toolGroups
 import com.inhuman.ui.common.openWorkspaceFile
 import com.inhuman.ui.common.WorkspaceAudioPlayer
 import com.inhuman.ui.common.exportFileName
@@ -6510,18 +6514,6 @@ private fun SshHostsDialog(
 	)
 }
 
-@Composable
-private fun toolFamilyTitle(family: ToolFamily): String = stringResource(
-	when (family) {
-		ToolFamily.Read -> R.string.chat_tools_group_read
-		ToolFamily.Write -> R.string.chat_tools_group_write
-		ToolFamily.External -> R.string.chat_tools_group_external
-		ToolFamily.Media -> R.string.chat_tools_group_media
-		ToolFamily.Remote -> R.string.chat_tools_group_remote
-		ToolFamily.Other -> R.string.chat_tools_group_other
-	},
-)
-
 /** One checkbox row of the conversation tool sheet. */
 @Composable
 private fun ConversationToolRow(
@@ -6574,6 +6566,10 @@ private fun ConversationToolsDialog(
 	onDismiss: () -> Unit,
 ) {
 	var checked by remember(selected) { mutableStateOf(selected) }
+	// One family open at a time. The sheet's job is to answer "what may the
+	// agent do" at a glance; six open families is the flat list this grouping
+	// exists to replace.
+	var expandedFamily by rememberSaveable { mutableStateOf("") }
 	val remoteSelected = available.any { it.name in checked && it.remote }
 	val irreversibleSelected = available.any { it.name in checked && it.mutates && !it.reversible }
 	// Adding command, upload or remote-write access resets the conversation's
@@ -6605,21 +6601,31 @@ private fun ConversationToolsDialog(
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
 				}
-				conversationToolGroups(available).forEach { group ->
-					Text(
-						text = toolFamilyTitle(group.family),
-						style = MaterialTheme.typography.labelMedium,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
-						modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
+				toolGroups(available).forEach { group ->
+					val names = group.entries.map { it.name }
+					val familyExpanded = expandedFamily == group.family.name
+					ToolGroupMasterRow(
+						family = group.family,
+						entries = group.entries,
+						selection = groupSelection(checked, names),
+						expanded = familyExpanded,
+						onToggleAll = { on ->
+							checked = groupToggle(checked, names, on)
+						},
+						onToggleExpanded = {
+							expandedFamily = if (familyExpanded) "" else group.family.name
+						},
 					)
-					group.entries.forEach { entry ->
-						ConversationToolRow(
-							entry = entry,
-							checked = entry.name in checked,
-							onToggle = { on ->
-								checked = if (on) checked + entry.name else checked - entry.name
-							},
-						)
+					if (familyExpanded) {
+						group.entries.forEach { entry ->
+							ConversationToolRow(
+								entry = entry,
+								checked = entry.name in checked,
+								onToggle = { on ->
+									checked = if (on) checked + entry.name else checked - entry.name
+								},
+							)
+						}
 					}
 				}
 				if (resetsSshGrant) {

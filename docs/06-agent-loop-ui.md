@@ -1521,12 +1521,29 @@ still tells the user, and any prompt built from the label, that remote execution
 exists. When enabled they reappear and remain opt-in; "All" still excludes them
 (`ToolCatalog.visible`).
 
-Toggling any row while in the `null` state first converts the selection to the
-explicit ten-name list, so the next tap turns one thing off rather than leaving
-"everything" ambiguous (`:476-483`). New assistants get the explicit ten-name
-list, never `null` (`AgentRepository.kt:85-98`) — `null` means "everything
-forever", which is right for an assistant saved before the choice existed and
-wrong as a default.
+The picker draws **families**, not a flat list (`app/.../ui/common/ToolGroups.kt`).
+Each family row carries a tri-state master checkbox, a count and aggregate
+`PAID`/`REMOTE` badges, and all-on / all-off / mixed are distinct: tapping a mixed
+family turns the missing members on instead of discarding the rest, and tapping an
+all-on family turns it off. The individual rows are one tap below the family, and
+only one family is open at a time. A family control is an **explicit** selection:
+it writes the same names a per-tool tick would, so it does not make `null` mean
+remote or opt-in tools. SSH has two families — read-only
+(`ssh_hosts`/`ssh_probe`/`ssh_list`/`ssh_read_file`/`ssh_download`) and exec/write
+(`ssh_exec`/`ssh_upload`/`ssh_write_file`) — because those two halves are the same
+capability at very different risk, and one switch for both would let a remote shell
+ride on a choice about a snapshot (`docs/08-port-philosophy.md` §1.2.1).
+`ToolGroupPolicyRow` gives the same treatment to the assistant's per-tool approval
+rules and to Settings → **Before a tool runs**: one family row of four chips, with
+"已收紧 N 项" when the members differ, and per-tool rows on expansion.
+
+Toggling any row — or any family master — while in the `null` state first
+converts the selection to the explicit list of everything that was on screen
+(`ToolCatalog.everythingExplicit`, which still omits every remote and opt-in
+tool), so the next tap turns one thing off rather than leaving "everything"
+ambiguous. New assistants get an explicit list, never `null`
+(`AgentRepository.kt:85-98`) — `null` means "everything forever", which is right
+for an assistant saved before the choice existed and wrong as a default.
 
 `ToolCatalog.permits` additionally requires membership in the catalogue, so a
 stale or renamed name can never pass (`ToolCatalog.kt:89-92`).

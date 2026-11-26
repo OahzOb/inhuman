@@ -1,6 +1,9 @@
 package com.inhuman.ui.chat
 
 import com.inhuman.core.ai.tools.ToolCatalog
+import com.inhuman.ui.common.ToolFamily
+import com.inhuman.ui.common.toolFamilyOf
+import com.inhuman.ui.common.toolGroups
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -299,7 +302,7 @@ class ConversationToolsTest {
 			conversationTools = null,
 			mediaConfigured = ToolCatalog.mediaConfigGatedNames,
 		)
-		val groups = conversationToolGroups(plan.available)
+		val groups = toolGroups(plan.available)
 		val flat = groups.flatMap { group -> group.entries.map { it.name } }
 		assertEquals(
 			"grouping is a partition of the offered rows",
@@ -311,9 +314,12 @@ class ConversationToolsTest {
 		val byName = { name: String -> ToolCatalog.all.first { it.name == name } }
 		assertEquals(ToolFamily.Read, toolFamilyOf(byName("read_file")))
 		assertEquals(ToolFamily.Write, toolFamilyOf(byName("write_file")))
-		assertEquals(ToolFamily.Remote, toolFamilyOf(byName("ssh_exec")))
-		assertEquals(ToolFamily.External, toolFamilyOf(byName("web_search")))
-		assertEquals(ToolFamily.External, toolFamilyOf(byName("download_url")))
+		assertEquals(ToolFamily.SshRead, toolFamilyOf(byName("ssh_list")))
+		assertEquals(ToolFamily.SshRead, toolFamilyOf(byName("ssh_hosts")))
+		assertEquals(ToolFamily.SshWrite, toolFamilyOf(byName("ssh_exec")))
+		assertEquals(ToolFamily.Web, toolFamilyOf(byName("web_search")))
+		assertEquals(ToolFamily.Download, toolFamilyOf(byName("download_url")))
+		assertEquals(ToolFamily.Bilibili, toolFamilyOf(byName("bili_search")))
 		assertEquals(ToolFamily.Media, toolFamilyOf(byName("generate_image")))
 		assertEquals(ToolFamily.Other, toolFamilyOf(byName("unavailable_tools")))
 	}
