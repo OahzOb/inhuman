@@ -1093,7 +1093,13 @@ fun ChatScreen(
 		showApprovalHistory || showCapabilityDetails ||
 		turnWireMessages != null || showToolsDialog || showTurnPicker ||
 			showSaveWorkspaceDialog || showExportDialog || showSshHostsDialog ||
-			showBundleExportResult || showSceneDialog
+			showBundleExportResult || showSceneDialog ||
+			// The media, upload, speech and retention dialogs live in this
+			// screen too; leaving one out let Back close the conversation
+			// while its dialog was still on top.
+			showUploadDialog || showGenerateImage || showDecision || showVideo ||
+			showContextDetail ||
+			speechDraft != null || speechConsentFor != null || pendingRetention != null
 	LaunchedEffect(anyDialogOpen) { onDialogVisibilityChange(anyDialogOpen) }
 
 	// Re-read the key and demo setting whenever this screen appears. The view
@@ -4891,7 +4897,14 @@ private fun MessageBubble(
 				text = message.plainText.ifBlank { "(empty)" },
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
-				fontFamily = FontFamily.Monospace,
+				// Prose results (a search snippet, an article) read better in the
+				// body font; JSON and indented output keep monospace, where the
+				// alignment is the point. See `toolResultIsMachinery`.
+				fontFamily = if (toolResultIsMachinery(message.plainText)) {
+					FontFamily.Monospace
+				} else {
+					null
+				},
 			)
 		}
 		return

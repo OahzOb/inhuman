@@ -1808,6 +1808,29 @@ including the turn-map key order. The existing `TurnSummaryTest`,
 `InterruptedTurnTest` and `ChatUiStateTest` still pass unchanged, so the
 extraction did not move any behaviour.
 
+### B51. Three small drifts from the project's own rules — **FIXED**
+
+- **Tool results were drawn in monospace even when they were prose.** A
+  `web_search` snippet or a `web_fetch` article is the largest body-text area on
+  a tool-heavy turn, and `AGENTS.md` says mono is for metadata. The wire
+  inspector already rendered long text in sans, so the result row was the
+  exception. `toolResultIsMachinery` now decides: JSON (parsed, not
+  pattern-matched — `[see the notes]` is a sentence) and indented output keep
+  monospace because alignment is the point; everything else uses the body font.
+  `ToolResultTextTest` pins the boundary.
+- **`anyDialogOpen` did not cover every modal.** That flag is what
+  `MainActivity`'s BackHandler reads to decide whether Back belongs to a dialog,
+  so a missing dialog is a correctness hole in the one place Back behaviour is
+  decided — the media, upload, speech and retention dialogs were absent. They
+  are covered now, with a comment saying why every new dialog must be added.
+- **The context gauge's "faint" caveat was 0.9 alpha against 1.0**, which no
+  screen can distinguish; 0.6 is the first step that reads as an aside. The
+  comment claimed the branch existed for a reason the value did not deliver.
+
+**Verified by build and the unit suite** (403 tests); the two visual changes are
+opacity and font selection on existing rows, and the third is a boolean
+expression, so no device drive was needed.
+
 ## C. Comments that contradict the code
 
 By this repository's standard, the comment is the bug. These were all verified.

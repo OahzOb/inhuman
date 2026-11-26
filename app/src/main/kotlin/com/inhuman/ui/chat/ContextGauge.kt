@@ -273,8 +273,10 @@ private fun Detail(text: String, faint: Boolean = false) {
 		style = MaterialTheme.typography.labelMedium,
 		// `faint` used to pick the same colour on both branches, so the one
 		// line that exists to say "this is a caveat" read like every other.
+		// 0.9 was still indistinguishable from 1.0 on any screen; 0.6 is the
+		// smallest step that reads as an aside rather than as body text.
 		color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
-			alpha = if (faint) 0.9f else 1f,
+			alpha = if (faint) 0.6f else 1f,
 		),
 	)
 }
