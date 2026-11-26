@@ -1733,3 +1733,20 @@ staying as history.
     phone may be deployable and inspectable but not drivable.
 11. **Screenshots cannot see inside a stream** — ~700ms per dump against a ~3.6s
     demo reply. Extract the invariant and test it instead.
+12. **The `dsh_tablet` AVD does not start on this machine's current GPU setup**
+    (2026-11-26): the emulator logs `Critical: Failed to load opengl32sw`,
+    falls back to system OpenGL, and then opens a crash dialog, leaving a
+    qemu process at ~176 MB with no adb device. `inhuman_phone` starts with
+    `-gpu swiftshader_indirect -no-window`, which is what the tablet-ratio
+    checks in `tools/verify-tablet-shell.ps1` now use on a resized phone AVD
+    — `wm size 2560x1600` + `wm density 320` is 1280×800dp, the ratio
+    AGENTS.md allows as a supplement, not the two-device-profile substitute.
+13. **`adb shell input text` can stop landing while the UI still reports a
+    focused field and a shown IME.** Seen on 2026-11-26 in the phone AVD after
+    a long driven session: `dumpsys input_method` said `mInputShown=true`, the
+    composer's `EditText` was `focused="true"`, and neither `input text` nor
+    hardware keyevents changed its value — while the same command had worked
+    earlier in the same session for the same app. Nothing in the app changed;
+    a fresh emulator boot cleared it. When a drive stops typing mid-session,
+    check the injection layer before reading the app's code (B41's composer
+    check was blocked by exactly this).
