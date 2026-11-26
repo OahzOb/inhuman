@@ -1113,6 +1113,11 @@
 	<string name="chat_menu_files">Files &amp; export</string>
 	<string name="chat_menu_inspect">Inspect &amp; settings</string>
 	<string name="chat_menu_conversation">Conversation</string>
+	<string name="chat_workbench_tab_all">All</string>
+	<string name="chat_workbench_workspace_permanent">Permanent workspace</string>
+	<string name="chat_workbench_workspace_temporary">Temporary workspace</string>
+	<string name="chat_workbench_mode_continuous">Continuous</string>
+	<string name="chat_workbench_mode_classic">Classic</string>
 	<string name="chat_change_model">Change model</string>
 	<string name="chat_add_key_hint">Add an API key to start</string>
 	<string name="chat_stop">Stop</string>

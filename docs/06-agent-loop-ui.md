@@ -611,10 +611,17 @@ inert at seven other sites; all now constrain first and fill second, and the
 
 ### Finding and moving inside a conversation
 
-The app bar carries **search** and **new conversation**; Files and Provider keys
-moved into the overflow menu so a phone bar stays at three actions. The turn
-index is a strip above the transcript rather than an overlay: a chip pinned to
-the top-right would sit on the first user bubble.
+The app bar carries **search**, **Files** (direct access to the conversation's
+workspace browser), **new conversation** (`+`) and **More** (`⋮`). On a
+compact-width window with large text (`usesHeaderOverflow`), search and new
+conversation fold into the top of the **More** workbench dialog so the bar stays
+at two icons and the conversation title and model line remain readable. The
+**More** button opens `ChatWorkbenchDialog` (a `WideDialog` rather than an inline
+`DropdownMenu`), showing a workspace/session-mode metadata summary, section
+filter chips (**All**, **Conversation**, **Inspect & settings**, **Files &
+export**, **Media**), and the grouped actions (`01 / Conversation` first,
+`04 / Media` last). The turn index is a strip above the transcript rather than
+an overlay: a chip pinned to the top-right would sit on the first user bubble.
 
 - **Export** lives in the same overflow: one conversation as Markdown (a dialog
   chooses whether tool calls and results are included), a **conversation bundle**

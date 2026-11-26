@@ -85,8 +85,8 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
@@ -1075,7 +1075,7 @@ fun ChatScreen(
 	// Reported upward so the app's single Back handler knows a dialog is up.
 	// Both this and the approval gate are transient questions that Back should
 	// answer by dismissing, not by navigating away from.
-	val anyDialogOpen = searchOpen || showModelPicker || pendingApproval != null ||
+	val anyDialogOpen = showChatMenu || searchOpen || showModelPicker || pendingApproval != null ||
 		pendingSshConsent != null || pendingDownloadConsent != null ||
 		rollbackTarget != null || showRewindDialog ||
 		showCompactPreview || showCompactionSummary ||
@@ -1402,511 +1402,55 @@ fun ChatScreen(
 						}
 					},
 					actions = {
-						IconButton(
-							onClick = {
-								if (searchOpen) closeSearch() else searchOpen = true
-							},
-						) {
-							Icon(
-								Icons.Outlined.Search,
-								contentDescription = stringResource(
-									if (searchOpen) R.string.chat_search_close else R.string.chat_search,
-								),
-								modifier = Modifier.size(20.dp),
-							)
-						}
-						IconButton(
-							onClick = {
-								if (!creatingConversation) {
-									creatingConversation = true
-									viewModel.createNewConversation { id ->
-										creatingConversation = false
-										if (id != null) onOpenConversation(id)
-									}
-								}
-							},
-							enabled = !creatingConversation,
-						) {
-							Icon(
-								Icons.Outlined.Add,
-								contentDescription = stringResource(R.string.chat_new_conversation),
-								modifier = Modifier.size(20.dp),
-							)
-						}
-						Box {
-							IconButton(onClick = { showChatMenu = true }) {
+						val collapseHeaderActions = currentWindowFrame().usesHeaderOverflow
+						if (!collapseHeaderActions) {
+							IconButton(
+								onClick = {
+									if (searchOpen) closeSearch() else searchOpen = true
+								},
+							) {
 								Icon(
-									imageVector = Icons.Filled.MoreVert,
-									contentDescription = stringResource(R.string.chat_more),
+									Icons.Outlined.Search,
+									contentDescription = stringResource(
+										if (searchOpen) R.string.chat_search_close else R.string.chat_search,
+									),
 									modifier = Modifier.size(20.dp),
 								)
 							}
-							DropdownMenu(
-								expanded = showChatMenu,
-								onDismissRequest = { showChatMenu = false },
+						}
+						IconButton(onClick = onOpenFiles) {
+							Icon(
+								Icons.Outlined.FolderOpen,
+								contentDescription = stringResource(R.string.files_title),
+								modifier = Modifier.size(20.dp),
+							)
+						}
+						if (!collapseHeaderActions) {
+							IconButton(
+								onClick = {
+									if (!creatingConversation) {
+										creatingConversation = true
+										viewModel.createNewConversation { id ->
+											creatingConversation = false
+											if (id != null) onOpenConversation(id)
+										}
+									}
+								},
+								enabled = !creatingConversation,
 							) {
-								MenuSectionLabel(stringResource(R.string.chat_menu_media))
-								DropdownMenuItem(
-									text = { PaidMenuLabel(stringResource(R.string.chat_transcribe_audio_file)) },
-									leadingIcon = {
-										Icon(
-											Icons.Outlined.PlayArrow,
-											contentDescription = null,
-											modifier = Modifier.size(18.dp),
-										)
-									},
-									onClick = {
-										showChatMenu = false
-										audioImporter.launch(arrayOf("audio/*"))
-									},
+								Icon(
+									Icons.Outlined.Add,
+									contentDescription = stringResource(R.string.chat_new_conversation),
+									modifier = Modifier.size(20.dp),
 								)
-								DropdownMenuItem(
-									text = { PaidMenuLabel(stringResource(R.string.chat_text_to_speech)) },
-									leadingIcon = {
-										Icon(
-											Icons.Outlined.PlayArrow,
-											contentDescription = null,
-											modifier = Modifier.size(18.dp),
-										)
-									},
-									onClick = {
-										showChatMenu = false
-										speechDraft = ""
-									},
-								)
-								DropdownMenuItem(
-									text = { PaidMenuLabel(stringResource(R.string.chat_generate_video)) },
-									leadingIcon = {
-										Icon(
-											Icons.Outlined.PlayArrow,
-											contentDescription = null,
-											modifier = Modifier.size(18.dp),
-										)
-									},
-									onClick = {
-										showChatMenu = false
-										showVideo = true
-									},
-								)
-								DropdownMenuItem(
-									text = { PaidMenuLabel(stringResource(R.string.chat_decision)) },
-									leadingIcon = {
-										Icon(
-											Icons.Outlined.DataObject,
-											contentDescription = null,
-											modifier = Modifier.size(18.dp),
-										)
-									},
-									onClick = {
-										showChatMenu = false
-										showDecision = true
-									},
-								)
-								DropdownMenuItem(
-									text = { PaidMenuLabel(stringResource(R.string.chat_generate_image)) },
-									leadingIcon = {
-										Icon(
-											Icons.Outlined.Image,
-											contentDescription = null,
-											modifier = Modifier.size(18.dp),
-										)
-									},
-									onClick = {
-										showChatMenu = false
-										showGenerateImage = true
-									},
-								)
-								HorizontalDivider()
-								MenuSectionLabel(stringResource(R.string.chat_menu_files))
-								DropdownMenuItem(
-									text = { Text(stringResource(R.string.files_title)) },
-									leadingIcon = {
-										Icon(
-											Icons.Outlined.FolderOpen,
-											contentDescription = null,
-											modifier = Modifier.size(18.dp),
-										)
-									},
-									onClick = {
-										showChatMenu = false
-										onOpenFiles()
-									},
-								)
-								DropdownMenuItem(
-									text = { Text(stringResource(R.string.export_chat)) },
-									enabled = !isStreaming && !exporting,
-									onClick = {
-										showChatMenu = false
-										exportIncludeTools = true
-										showExportDialog = true
-									},
-								)
-								DropdownMenuItem(
-									text = {
-										Column {
-											Text(stringResource(R.string.chat_export_bundle))
-											Text(
-												text = stringResource(R.string.chat_export_bundle_detail),
-												style = MaterialTheme.typography.bodySmall,
-												color = MaterialTheme.colorScheme.onSurfaceVariant,
-											)
-										}
-									},
-									enabled = !isStreaming && !exporting,
-									onClick = {
-										showChatMenu = false
-										bundleExporter.launch(
-											exportFileName(displayTitle, "inhuman.zip"),
-										)
-									},
-								)
-								DropdownMenuItem(
-									text = {
-										Column {
-											Text(stringResource(R.string.chat_upload_conversation))
-											Text(
-												text = stringResource(
-													R.string.chat_upload_conversation_detail,
-												),
-												style = MaterialTheme.typography.bodySmall,
-												color = MaterialTheme.colorScheme.onSurfaceVariant,
-											)
-										}
-									},
-									enabled = !isStreaming && !exporting && !uploadBusy,
-									onClick = {
-										showChatMenu = false
-										uploadTarget = viewModel.conversationUploadTarget()
-										// Tool results can carry file/document text,
-										// so the upload defaults to the narrower
-										// body; the checkbox is an explicit opt-in.
-										uploadIncludeTools = false
-										uploadError = null
-										showUploadDialog = true
-									},
-								)
-								DropdownMenuItem(
-									text = {
-										Column {
-											Text(stringResource(R.string.export_workspace_zip))
-											Text(
-												text = stringResource(R.string.export_workspace_zip_detail),
-												style = MaterialTheme.typography.bodySmall,
-												color = MaterialTheme.colorScheme.onSurfaceVariant,
-											)
-										}
-									},
-									enabled = !isStreaming && !exporting,
-									onClick = {
-										showChatMenu = false
-										workspaceExporter.launch(
-											exportFileName(
-												workspaceName.ifBlank { displayTitle },
-												"zip",
-											),
-										)
-									},
-								)
-								HorizontalDivider()
-								MenuSectionLabel(stringResource(R.string.chat_menu_inspect))
-								DropdownMenuItem(
-									text = { Text(stringResource(R.string.chat_provider_keys)) },
-									leadingIcon = {
-										Icon(
-											Icons.Outlined.Key,
-											contentDescription = null,
-											modifier = Modifier.size(18.dp),
-										)
-									},
-									onClick = {
-										showChatMenu = false
-										onOpenSettings()
-									},
-								)
-								DropdownMenuItem(
-									text = {
-										Column {
-											Text(stringResource(R.string.chat_preview_next))
-											Text(
-												text = stringResource(R.string.chat_preview_next_detail),
-												style = MaterialTheme.typography.bodySmall,
-												color = MaterialTheme.colorScheme.onSurfaceVariant,
-											)
-										}
-									},
-									onClick = {
-										showChatMenu = false
-										viewModel.previewNextRequest()
-									},
-								)
-								DropdownMenuItem(
-									text = {
-										Column {
-											Text(stringResource(R.string.chat_session_memory))
-											Text(
-												text = stringResource(R.string.chat_session_memory_detail),
-												style = MaterialTheme.typography.bodySmall,
-												color = MaterialTheme.colorScheme.onSurfaceVariant,
-											)
-										}
-									},
-									onClick = {
-										showChatMenu = false
-										showSessionMemory = true
-									},
-								)
-								DropdownMenuItem(
-									text = {
-										Column {
-											Text(stringResource(R.string.chat_inspect_last))
-											Text(
-												text = if (wire == null) {
-													stringResource(R.string.chat_no_request)
-												} else {
-													stringResource(R.string.chat_inspect_detail)
-												},
-												style = MaterialTheme.typography.bodySmall,
-												color = MaterialTheme.colorScheme.onSurfaceVariant,
-											)
-										}
-									},
-									enabled = wire != null,
-									onClick = {
-										showChatMenu = false
-										showWireDialog = true
-									},
-								)
-								DropdownMenuItem(
-									text = {
-										Column {
-											Text(stringResource(R.string.chat_snapshots))
-											Text(
-												text = pluralStringResource(
-													R.plurals.chat_snapshot_menu,
-													snapshotStats.turns,
-													snapshotStats.turns,
-													formatBytes(snapshotStats.bytes),
-												),
-												style = MaterialTheme.typography.bodySmall,
-												color = MaterialTheme.colorScheme.onSurfaceVariant,
-											)
-										}
-									},
-									onClick = {
-										showChatMenu = false
-										showSnapshotDialog = true
-									},
-								)
-								DropdownMenuItem(
-									text = { Text(stringResource(R.string.chat_approval_history)) },
-									leadingIcon = {
-										Icon(
-											Icons.Outlined.History,
-											contentDescription = null,
-											modifier = Modifier.size(18.dp),
-										)
-									},
-									onClick = {
-										showChatMenu = false
-										showApprovalHistory = true
-									},
-								)
-								HorizontalDivider()
-								MenuSectionLabel(stringResource(R.string.chat_menu_conversation))
-								DropdownMenuItem(
-									text = {
-										Column {
-											Text(stringResource(R.string.chat_tool_rounds))
-											Text(
-												text = stringResource(
-													R.string.chat_rounds_before_stop,
-													toolRoundLimit,
-												),
-												style = MaterialTheme.typography.bodySmall,
-												color = MaterialTheme.colorScheme.onSurfaceVariant,
-											)
-										}
-									},
-									onClick = {
-										showChatMenu = false
-										showToolLimitDialog = true
-									},
-								)
-								DropdownMenuItem(
-									text = {
-										Column {
-											Text(stringResource(R.string.chat_tools_title))
-											Text(
-												text = stringResource(
-													R.string.chat_tools_summary,
-													toolPlan.selected.size,
-													toolPlan.available.size,
-												),
-												style = MaterialTheme.typography.bodySmall,
-												color = MaterialTheme.colorScheme.onSurfaceVariant,
-											)
-										}
-									},
-									enabled = toolsKnown && !isStreaming,
-									onClick = {
-										showChatMenu = false
-										showToolsDialog = true
-									},
-								)
-								if (roleplayCharacter || roleplayScene != null) {
-									DropdownMenuItem(
-										text = {
-											Column {
-												Text(stringResource(R.string.scene_settings))
-												Text(
-													text = stringResource(R.string.scene_settings_detail),
-													style = MaterialTheme.typography.bodySmall,
-													color = MaterialTheme.colorScheme.onSurfaceVariant,
-												)
-											}
-										},
-										enabled = !isStreaming,
-										onClick = {
-											showChatMenu = false
-											showSceneDialog = true
-										},
-									)
-								}
-								if (isContinuous) {
-									DropdownMenuItem(
-										text = {
-											Column {
-												Text(stringResource(R.string.chat_continuous_stop))
-												Text(
-													text = stringResource(R.string.chat_continuous_stop_detail),
-													style = MaterialTheme.typography.bodySmall,
-													color = MaterialTheme.colorScheme.onSurfaceVariant,
-												)
-											}
-										},
-										enabled = !isMaintaining && !maintenancePreparing,
-										onClick = {
-											showChatMenu = false
-											showStopMaintainingConfirm = true
-										},
-									)
-								} else {
-									DropdownMenuItem(
-										text = {
-											Column {
-												Text(stringResource(R.string.chat_continuous_enable))
-												Text(
-													text = stringResource(R.string.chat_continuous_enable_detail),
-													style = MaterialTheme.typography.bodySmall,
-													color = MaterialTheme.colorScheme.onSurfaceVariant,
-												)
-											}
-										},
-										enabled = !isStreaming,
-										onClick = {
-											showChatMenu = false
-											showEnableContinuousConfirm = true
-										},
-									)
-								}
-								DropdownMenuItem(
-									text = {
-										Column {
-											Text(
-												if (workspaceInstructionsPinned) {
-													stringResource(
-														R.string.chat_workspace_instructions_pinned,
-														workspaceInstructionsChars,
-													)
-												} else {
-													stringResource(R.string.chat_workspace_instructions_unpinned)
-												},
-											)
-											if (workspaceInstructionsPinned) {
-												Text(
-													text = stringResource(
-														R.string.chat_workspace_instructions_reload_detail,
-													),
-													style = MaterialTheme.typography.bodySmall,
-													color = MaterialTheme.colorScheme.onSurfaceVariant,
-												)
-											}
-										}
-									},
-									// A status line, not an action: the state is what
-									// explains why editing the file no longer changes
-									// this conversation.
-									enabled = false,
-									onClick = {},
-								)
-								DropdownMenuItem(
-									text = { Text(stringResource(R.string.chat_workspace_instructions_reload)) },
-									enabled = toolsKnown && !isStreaming,
-									onClick = {
-										showChatMenu = false
-										viewModel.reloadWorkspaceInstructions()
-									},
-								)
-								DropdownMenuItem(
-									text = { Text(stringResource(R.string.chat_rename)) },
-									onClick = {
-										showChatMenu = false
-										renameInput = displayTitle
-										showRenameDialog = true
-									},
-								)
-								if (!workspaceIsPermanent) {
-									DropdownMenuItem(
-										text = {
-											Column {
-												Text(stringResource(R.string.chat_save_workspace))
-												Text(
-													text = stringResource(R.string.chat_save_workspace_detail),
-													style = MaterialTheme.typography.bodySmall,
-													color = MaterialTheme.colorScheme.onSurfaceVariant,
-												)
-											}
-										},
-										onClick = {
-											showChatMenu = false
-											workspaceNameInput = workspaceName.ifBlank { displayTitle }
-											showSaveWorkspaceDialog = true
-										},
-									)
-								}
-								if (sshToolEnabled) {
-									// Which machines this conversation may reach. User-only,
-									// next turn -- the same rule as the tool selection.
-									DropdownMenuItem(
-										text = { Text(stringResource(R.string.chat_ssh_hosts)) },
-										enabled = !isStreaming,
-										onClick = {
-											showChatMenu = false
-											showSshHostsDialog = true
-										},
-									)
-									DropdownMenuItem(
-										text = { Text(stringResource(R.string.chat_revoke_ssh)) },
-										enabled = sshAllowed,
-										onClick = {
-											showChatMenu = false
-											viewModel.revokeSshAccess()
-										},
-									)
-								}
-								if (downloadEnabled) {
-									// The capability grant is per conversation, so the
-									// way out lives where the grant does: this menu.
-									DropdownMenuItem(
-										text = { Text(stringResource(R.string.chat_revoke_download)) },
-										enabled = downloadAllowed,
-										onClick = {
-											showChatMenu = false
-											viewModel.revokeDownloadAccess()
-										},
-									)
-								}
 							}
+						}
+						IconButton(onClick = { showChatMenu = true }) {
+							Icon(
+								imageVector = Icons.Filled.MoreVert,
+								contentDescription = stringResource(R.string.chat_more),
+								modifier = Modifier.size(20.dp),
+							)
 						}
 					},
 					colors = TopAppBarDefaults.topAppBarColors(
@@ -2607,6 +2151,171 @@ fun ChatScreen(
 			workspaceId = workspaceId,
 			onGenerate = { prompt, size -> viewModel.generateImage(prompt, size) },
 			onDismiss = { showGenerateImage = false },
+		)
+	}
+
+	if (showChatMenu) {
+		ChatWorkbenchDialog(
+			title = displayTitle,
+			workspaceName = workspaceName.ifBlank { displayTitle },
+			workspaceIsPermanent = workspaceIsPermanent,
+			isContinuous = isContinuous,
+			isStreaming = isStreaming,
+			isMaintaining = isMaintaining,
+			maintenancePreparing = maintenancePreparing,
+			exporting = exporting,
+			uploadBusy = uploadBusy,
+			toolsKnown = toolsKnown,
+			selectedToolCount = toolPlan.selected.size,
+			availableToolCount = toolPlan.available.size,
+			toolRoundLimit = toolRoundLimit,
+			roleplayActive = roleplayCharacter || roleplayScene != null,
+			workspaceInstructionsPinned = workspaceInstructionsPinned,
+			workspaceInstructionsChars = workspaceInstructionsChars,
+			hasWire = wire != null,
+			snapshotStats = snapshotStats,
+			sshToolEnabled = sshToolEnabled,
+			sshAllowed = sshAllowed,
+			downloadEnabled = downloadEnabled,
+			downloadAllowed = downloadAllowed,
+			showHeaderOverflowActions = currentWindowFrame().usesHeaderOverflow,
+			creatingConversation = creatingConversation,
+			onDismiss = { showChatMenu = false },
+			onOpenSearch = {
+				showChatMenu = false
+				searchOpen = true
+			},
+			onNewConversation = {
+				showChatMenu = false
+				if (!creatingConversation) {
+					creatingConversation = true
+					viewModel.createNewConversation { id ->
+						creatingConversation = false
+						if (id != null) onOpenConversation(id)
+					}
+				}
+			},
+			onOpenTools = {
+				showChatMenu = false
+				showToolsDialog = true
+			},
+			onOpenToolRounds = {
+				showChatMenu = false
+				showToolLimitDialog = true
+			},
+			onOpenSceneSettings = {
+				showChatMenu = false
+				showSceneDialog = true
+			},
+			onStopContinuous = {
+				showChatMenu = false
+				showStopMaintainingConfirm = true
+			},
+			onEnableContinuous = {
+				showChatMenu = false
+				showEnableContinuousConfirm = true
+			},
+			onReloadWorkspaceInstructions = {
+				showChatMenu = false
+				viewModel.reloadWorkspaceInstructions()
+			},
+			onRenameConversation = {
+				showChatMenu = false
+				renameInput = displayTitle
+				showRenameDialog = true
+			},
+			onSaveWorkspacePermanent = {
+				showChatMenu = false
+				workspaceNameInput = workspaceName.ifBlank { displayTitle }
+				showSaveWorkspaceDialog = true
+			},
+			onOpenSshHosts = {
+				showChatMenu = false
+				showSshHostsDialog = true
+			},
+			onRevokeSsh = {
+				showChatMenu = false
+				viewModel.revokeSshAccess()
+			},
+			onRevokeDownload = {
+				showChatMenu = false
+				viewModel.revokeDownloadAccess()
+			},
+			onOpenSessionMemory = {
+				showChatMenu = false
+				showSessionMemory = true
+			},
+			onOpenSnapshots = {
+				showChatMenu = false
+				showSnapshotDialog = true
+			},
+			onPreviewNextRequest = {
+				showChatMenu = false
+				viewModel.previewNextRequest()
+			},
+			onInspectLastRequest = {
+				showChatMenu = false
+				showWireDialog = true
+			},
+			onOpenApprovalHistory = {
+				showChatMenu = false
+				showApprovalHistory = true
+			},
+			onOpenProviderKeys = {
+				showChatMenu = false
+				onOpenSettings()
+			},
+			onOpenFiles = {
+				showChatMenu = false
+				onOpenFiles()
+			},
+			onExportChat = {
+				showChatMenu = false
+				exportIncludeTools = true
+				showExportDialog = true
+			},
+			onExportBundle = {
+				showChatMenu = false
+				bundleExporter.launch(
+					exportFileName(displayTitle, "inhuman.zip"),
+				)
+			},
+			onUploadConversation = {
+				showChatMenu = false
+				uploadTarget = viewModel.conversationUploadTarget()
+				uploadIncludeTools = false
+				uploadError = null
+				showUploadDialog = true
+			},
+			onExportWorkspaceZip = {
+				showChatMenu = false
+				workspaceExporter.launch(
+					exportFileName(
+						workspaceName.ifBlank { displayTitle },
+						"zip",
+					),
+				)
+			},
+			onGenerateImage = {
+				showChatMenu = false
+				showGenerateImage = true
+			},
+			onGenerateVideo = {
+				showChatMenu = false
+				showVideo = true
+			},
+			onTextToSpeech = {
+				showChatMenu = false
+				speechDraft = ""
+			},
+			onTranscribeAudio = {
+				showChatMenu = false
+				audioImporter.launch(arrayOf("audio/*"))
+			},
+			onDecision = {
+				showChatMenu = false
+				showDecision = true
+			},
 		)
 	}
 
@@ -4372,24 +4081,468 @@ private fun BranchSwitcher(
  * Settings. The tool list's notice cannot travel into a dropdown, so the badge
  * sits on the entry itself, which is the point of choice.
  */
+internal enum class ChatMenuTab {
+	All,
+	Conversation,
+	Inspect,
+	Files,
+	Media,
+	;
+
+	fun shows(section: ChatMenuTab): Boolean = this == All || this == section
+}
+
+/**
+ * Structured workbench sheet for the conversation's controls, inspection tools,
+ * file exports and paid media actions.
+ *
+ * Replaces the 21-item inline `DropdownMenu` that previously overflowed three
+ * screen heights on a phone and placed the five paid media test dialogs above
+ * the conversation's own tools, memory and checkpoints.
+ */
 @Composable
-private fun PaidMenuLabel(text: String) {
-	Row(verticalAlignment = Alignment.CenterVertically) {
-		Text(text)
-		Spacer(Modifier.width(8.dp))
-		PaidBadge()
+private fun ChatWorkbenchDialog(
+	title: String,
+	workspaceName: String,
+	workspaceIsPermanent: Boolean,
+	isContinuous: Boolean,
+	isStreaming: Boolean,
+	isMaintaining: Boolean,
+	maintenancePreparing: Boolean,
+	exporting: Boolean,
+	uploadBusy: Boolean,
+	toolsKnown: Boolean,
+	selectedToolCount: Int,
+	availableToolCount: Int,
+	toolRoundLimit: Int,
+	roleplayActive: Boolean,
+	workspaceInstructionsPinned: Boolean,
+	workspaceInstructionsChars: Int,
+	hasWire: Boolean,
+	snapshotStats: SnapshotStats,
+	sshToolEnabled: Boolean,
+	sshAllowed: Boolean,
+	downloadEnabled: Boolean,
+	downloadAllowed: Boolean,
+	showHeaderOverflowActions: Boolean,
+	creatingConversation: Boolean,
+	onDismiss: () -> Unit,
+	onOpenSearch: () -> Unit,
+	onNewConversation: () -> Unit,
+	onOpenTools: () -> Unit,
+	onOpenToolRounds: () -> Unit,
+	onOpenSceneSettings: () -> Unit,
+	onStopContinuous: () -> Unit,
+	onEnableContinuous: () -> Unit,
+	onReloadWorkspaceInstructions: () -> Unit,
+	onRenameConversation: () -> Unit,
+	onSaveWorkspacePermanent: () -> Unit,
+	onOpenSshHosts: () -> Unit,
+	onRevokeSsh: () -> Unit,
+	onRevokeDownload: () -> Unit,
+	onOpenSessionMemory: () -> Unit,
+	onOpenSnapshots: () -> Unit,
+	onPreviewNextRequest: () -> Unit,
+	onInspectLastRequest: () -> Unit,
+	onOpenApprovalHistory: () -> Unit,
+	onOpenProviderKeys: () -> Unit,
+	onOpenFiles: () -> Unit,
+	onExportChat: () -> Unit,
+	onExportBundle: () -> Unit,
+	onUploadConversation: () -> Unit,
+	onExportWorkspaceZip: () -> Unit,
+	onGenerateImage: () -> Unit,
+	onGenerateVideo: () -> Unit,
+	onTextToSpeech: () -> Unit,
+	onTranscribeAudio: () -> Unit,
+	onDecision: () -> Unit,
+) {
+	var selectedTab by rememberSaveable { mutableStateOf(ChatMenuTab.All) }
+	WideDialog(
+		onDismissRequest = onDismiss,
+		title = title,
+		dismissLabel = stringResource(R.string.chat_close),
+		maxBodyHeight = 480.dp,
+	) {
+		Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+			Row(
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.spacedBy(6.dp),
+			) {
+				StatusDot(MaterialTheme.colorScheme.primary, size = 5.dp)
+				Text(
+					text = buildString {
+						append(workspaceName)
+						append(" · ")
+						append(
+							stringResource(
+								if (workspaceIsPermanent) {
+									R.string.chat_workbench_workspace_permanent
+								} else {
+									R.string.chat_workbench_workspace_temporary
+								},
+							),
+						)
+						append(" · ")
+						append(
+							stringResource(
+								if (isContinuous) {
+									R.string.chat_workbench_mode_continuous
+								} else {
+									R.string.chat_workbench_mode_classic
+								},
+							),
+						)
+					},
+					style = MaterialTheme.typography.labelSmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					maxLines = 2,
+					overflow = TextOverflow.Ellipsis,
+				)
+			}
+
+			if (showHeaderOverflowActions) {
+				FlowRowCompat {
+					OutlinedButton(
+						onClick = onOpenSearch,
+						shape = MaterialTheme.shapes.small,
+					) {
+						Icon(
+							Icons.Outlined.Search,
+							contentDescription = null,
+							modifier = Modifier.size(16.dp),
+						)
+						Spacer(Modifier.width(6.dp))
+						Text(stringResource(R.string.chat_search))
+					}
+					OutlinedButton(
+						onClick = onNewConversation,
+						enabled = !creatingConversation,
+						shape = MaterialTheme.shapes.small,
+					) {
+						Icon(
+							Icons.Outlined.Add,
+							contentDescription = null,
+							modifier = Modifier.size(16.dp),
+						)
+						Spacer(Modifier.width(6.dp))
+						Text(stringResource(R.string.chat_new_conversation))
+					}
+				}
+			}
+
+			FlowRowCompat {
+				FilterChip(
+					selected = selectedTab == ChatMenuTab.All,
+					onClick = { selectedTab = ChatMenuTab.All },
+					label = { Text(stringResource(R.string.chat_workbench_tab_all)) },
+				)
+				FilterChip(
+					selected = selectedTab == ChatMenuTab.Conversation,
+					onClick = { selectedTab = ChatMenuTab.Conversation },
+					label = { Text(stringResource(R.string.chat_menu_conversation)) },
+				)
+				FilterChip(
+					selected = selectedTab == ChatMenuTab.Inspect,
+					onClick = { selectedTab = ChatMenuTab.Inspect },
+					label = { Text(stringResource(R.string.chat_menu_inspect)) },
+				)
+				FilterChip(
+					selected = selectedTab == ChatMenuTab.Files,
+					onClick = { selectedTab = ChatMenuTab.Files },
+					label = { Text(stringResource(R.string.chat_menu_files)) },
+				)
+				FilterChip(
+					selected = selectedTab == ChatMenuTab.Media,
+					onClick = { selectedTab = ChatMenuTab.Media },
+					label = { Text(stringResource(R.string.chat_menu_media)) },
+				)
+			}
+
+			if (selectedTab.shows(ChatMenuTab.Conversation)) {
+				ChatWorkbenchSectionHeading("01 / " + stringResource(R.string.chat_menu_conversation))
+				ChatWorkbenchRow(
+					title = stringResource(R.string.chat_tools_title),
+					detail = stringResource(
+						R.string.chat_tools_summary,
+						selectedToolCount,
+						availableToolCount,
+					),
+					enabled = toolsKnown && !isStreaming,
+					onClick = onOpenTools,
+				)
+				ChatWorkbenchRow(
+					title = stringResource(R.string.chat_tool_rounds),
+					detail = stringResource(
+						R.string.chat_rounds_before_stop,
+						toolRoundLimit,
+					),
+					onClick = onOpenToolRounds,
+				)
+				if (roleplayActive) {
+					ChatWorkbenchRow(
+						title = stringResource(R.string.scene_settings),
+						detail = stringResource(R.string.scene_settings_detail),
+						enabled = !isStreaming,
+						onClick = onOpenSceneSettings,
+					)
+				}
+				if (isContinuous) {
+					ChatWorkbenchRow(
+						title = stringResource(R.string.chat_continuous_stop),
+						detail = stringResource(R.string.chat_continuous_stop_detail),
+						enabled = !isMaintaining && !maintenancePreparing,
+						onClick = onStopContinuous,
+					)
+				} else {
+					ChatWorkbenchRow(
+						title = stringResource(R.string.chat_continuous_enable),
+						detail = stringResource(R.string.chat_continuous_enable_detail),
+						enabled = !isStreaming,
+						onClick = onEnableContinuous,
+					)
+				}
+				ChatWorkbenchRow(
+					title = stringResource(R.string.chat_workspace_instructions_reload),
+					detail = if (workspaceInstructionsPinned) {
+						stringResource(
+							R.string.chat_workspace_instructions_pinned,
+							workspaceInstructionsChars,
+						) + "\n" + stringResource(R.string.chat_workspace_instructions_reload_detail)
+					} else {
+						stringResource(R.string.chat_workspace_instructions_unpinned)
+					},
+					enabled = toolsKnown && !isStreaming,
+					onClick = onReloadWorkspaceInstructions,
+				)
+				ChatWorkbenchRow(
+					title = stringResource(R.string.chat_rename),
+					onClick = onRenameConversation,
+				)
+				if (!workspaceIsPermanent) {
+					ChatWorkbenchRow(
+						title = stringResource(R.string.chat_save_workspace),
+						detail = stringResource(R.string.chat_save_workspace_detail),
+						onClick = onSaveWorkspacePermanent,
+					)
+				}
+				if (sshToolEnabled) {
+					ChatWorkbenchRow(
+						title = stringResource(R.string.chat_ssh_hosts),
+						enabled = !isStreaming,
+						onClick = onOpenSshHosts,
+					)
+					ChatWorkbenchRow(
+						title = stringResource(R.string.chat_revoke_ssh),
+						enabled = sshAllowed,
+						onClick = onRevokeSsh,
+					)
+				}
+				if (downloadEnabled) {
+					ChatWorkbenchRow(
+						title = stringResource(R.string.chat_revoke_download),
+						enabled = downloadAllowed,
+						onClick = onRevokeDownload,
+					)
+				}
+			}
+
+			if (selectedTab.shows(ChatMenuTab.Inspect)) {
+				ChatWorkbenchSectionHeading("02 / " + stringResource(R.string.chat_menu_inspect))
+				ChatWorkbenchRow(
+					title = stringResource(R.string.chat_session_memory),
+					detail = stringResource(R.string.chat_session_memory_detail),
+					onClick = onOpenSessionMemory,
+				)
+				ChatWorkbenchRow(
+					title = stringResource(R.string.chat_snapshots),
+					detail = pluralStringResource(
+						R.plurals.chat_snapshot_menu,
+						snapshotStats.turns,
+						snapshotStats.turns,
+						formatBytes(snapshotStats.bytes),
+					),
+					onClick = onOpenSnapshots,
+				)
+				ChatWorkbenchRow(
+					title = stringResource(R.string.chat_preview_next),
+					detail = stringResource(R.string.chat_preview_next_detail),
+					onClick = onPreviewNextRequest,
+				)
+				ChatWorkbenchRow(
+					title = stringResource(R.string.chat_inspect_last),
+					detail = if (!hasWire) {
+						stringResource(R.string.chat_no_request)
+					} else {
+						stringResource(R.string.chat_inspect_detail)
+					},
+					enabled = hasWire,
+					onClick = onInspectLastRequest,
+				)
+				ChatWorkbenchRow(
+					title = stringResource(R.string.chat_approval_history),
+					leadingIcon = Icons.Outlined.History,
+					onClick = onOpenApprovalHistory,
+				)
+				ChatWorkbenchRow(
+					title = stringResource(R.string.chat_provider_keys),
+					leadingIcon = Icons.Outlined.Key,
+					onClick = onOpenProviderKeys,
+				)
+			}
+
+			if (selectedTab.shows(ChatMenuTab.Files)) {
+				ChatWorkbenchSectionHeading("03 / " + stringResource(R.string.chat_menu_files))
+				ChatWorkbenchRow(
+					title = stringResource(R.string.files_title),
+					leadingIcon = Icons.Outlined.FolderOpen,
+					onClick = onOpenFiles,
+				)
+				ChatWorkbenchRow(
+					title = stringResource(R.string.export_chat),
+					enabled = !isStreaming && !exporting,
+					onClick = onExportChat,
+				)
+				ChatWorkbenchRow(
+					title = stringResource(R.string.chat_export_bundle),
+					detail = stringResource(R.string.chat_export_bundle_detail),
+					enabled = !isStreaming && !exporting,
+					onClick = onExportBundle,
+				)
+				ChatWorkbenchRow(
+					title = stringResource(R.string.chat_upload_conversation),
+					detail = stringResource(R.string.chat_upload_conversation_detail),
+					enabled = !isStreaming && !exporting && !uploadBusy,
+					onClick = onUploadConversation,
+				)
+				ChatWorkbenchRow(
+					title = stringResource(R.string.export_workspace_zip),
+					detail = stringResource(R.string.export_workspace_zip_detail),
+					enabled = !isStreaming && !exporting,
+					onClick = onExportWorkspaceZip,
+				)
+			}
+
+			if (selectedTab.shows(ChatMenuTab.Media)) {
+				ChatWorkbenchSectionHeading("04 / " + stringResource(R.string.chat_menu_media))
+				ChatWorkbenchRow(
+					title = stringResource(R.string.chat_generate_image),
+					leadingIcon = Icons.Outlined.Image,
+					paid = true,
+					onClick = onGenerateImage,
+				)
+				ChatWorkbenchRow(
+					title = stringResource(R.string.chat_generate_video),
+					leadingIcon = Icons.Outlined.PlayArrow,
+					paid = true,
+					onClick = onGenerateVideo,
+				)
+				ChatWorkbenchRow(
+					title = stringResource(R.string.chat_text_to_speech),
+					leadingIcon = Icons.Outlined.PlayArrow,
+					paid = true,
+					onClick = onTextToSpeech,
+				)
+				ChatWorkbenchRow(
+					title = stringResource(R.string.chat_transcribe_audio_file),
+					leadingIcon = Icons.Outlined.PlayArrow,
+					paid = true,
+					onClick = onTranscribeAudio,
+				)
+				ChatWorkbenchRow(
+					title = stringResource(R.string.chat_decision),
+					leadingIcon = Icons.Outlined.DataObject,
+					paid = true,
+					onClick = onDecision,
+				)
+			}
+		}
 	}
 }
 
-/** A quiet group heading inside the chat overflow menu. */
 @Composable
-private fun MenuSectionLabel(text: String) {
-	Text(
-		text = text.uppercase(),
-		style = MaterialTheme.typography.labelSmall,
-		color = MaterialTheme.colorScheme.onSurfaceVariant,
-		modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp),
-	)
+private fun ChatWorkbenchSectionHeading(code: String) {
+	Column(
+		modifier = Modifier
+			.fillMaxWidth()
+			.padding(top = 6.dp),
+		verticalArrangement = Arrangement.spacedBy(4.dp),
+	) {
+		Eyebrow(code)
+		Hairline()
+	}
+}
+
+@Composable
+private fun ChatWorkbenchRow(
+	title: String,
+	onClick: () -> Unit,
+	detail: String? = null,
+	leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+	paid: Boolean = false,
+	enabled: Boolean = true,
+) {
+	val titleColor = if (enabled) {
+		MaterialTheme.colorScheme.onSurface
+	} else {
+		MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+	}
+	val detailColor = if (enabled) {
+		MaterialTheme.colorScheme.onSurfaceVariant
+	} else {
+		MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+	}
+	Column(modifier = Modifier.fillMaxWidth()) {
+		Row(
+			modifier = Modifier
+				.fillMaxWidth()
+				.clickable(enabled = enabled, onClick = onClick)
+				.padding(vertical = 10.dp),
+			verticalAlignment = Alignment.CenterVertically,
+			horizontalArrangement = Arrangement.spacedBy(10.dp),
+		) {
+			if (leadingIcon != null) {
+				Icon(
+					imageVector = leadingIcon,
+					contentDescription = null,
+					tint = detailColor,
+					modifier = Modifier.size(18.dp),
+				)
+			}
+			Column(
+				modifier = Modifier.weight(1f),
+				verticalArrangement = Arrangement.spacedBy(2.dp),
+			) {
+				Row(
+					verticalAlignment = Alignment.CenterVertically,
+					horizontalArrangement = Arrangement.spacedBy(8.dp),
+				) {
+					Text(
+						text = title,
+						style = MaterialTheme.typography.titleMedium,
+						color = titleColor,
+					)
+					if (paid) {
+						PaidBadge()
+					}
+				}
+				if (!detail.isNullOrBlank()) {
+					Text(
+						text = detail,
+						style = MaterialTheme.typography.bodySmall,
+						color = detailColor,
+					)
+				}
+			}
+			Icon(
+				imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+				contentDescription = null,
+				tint = detailColor,
+				modifier = Modifier.size(18.dp),
+			)
+		}
+		Hairline()
+	}
 }
 
 /** The compact billing line above a manual media dialog's fields. */
