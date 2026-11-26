@@ -514,7 +514,21 @@ keyAlias=inhuman
 keyPassword=…
 ```
 
-Then:
+If the keystore does not exist yet, generate it once. Back it up somewhere other
+than this checkout: losing it does not mean "generate another one", it means no
+future build can update an installed release.
+
+```powershell
+$env:JAVA_HOME = 'C:\android-toolchain\jdk17'
+New-Item -ItemType Directory -Force keystore | Out-Null
+& "$env:JAVA_HOME\bin\keytool.exe" -genkeypair -v `
+  -keystore keystore\inhuman-release.jks -storetype PKCS12 `
+  -alias inhuman -keyalg RSA -keysize 4096 -validity 10950 `
+  -dname "CN=inhuman, O=inhuman, C=CN"
+```
+
+With a PKCS12 keystore the key password must equal the store password, so
+`keyPassword` repeats `storePassword`. Then:
 
 ```powershell
 .\gradlew.bat :app:assembleRelease
@@ -523,7 +537,8 @@ Then:
 
 If the properties file is absent, the release build falls back to the debug
 signing key so a fresh clone can still build; that build cannot update a
-production signing identity. The release version is `0.9.2` / versionCode 48.
+production signing identity. The current version is `versionCode`/`versionName`
+in `app/build.gradle`.
 `lintVital` is skipped in this offline environment (`checkReleaseBuilds =
 false`); run lint separately when the network is available.
 
