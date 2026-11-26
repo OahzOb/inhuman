@@ -597,6 +597,21 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   path the user did not grant. It reports structure only, never file prose.
   The format text is generated from the serializers and `RoleplayLimits`
   (`RoleplaySpecTest` pins the match). See `docs/07-gotchas.md` A30.
+- **A scene can start from workspace files, and that source shares the tool's
+  validator.** `NewSceneDialog` offers assistant cards or a permanent workspace
+  folder (`rp/<story>/card.json` + optional `scene.json`), browsed and read by
+  `RoleplayStoryLoader`; it calls the same `RoleplayValidator`/`RoleplayCodec`
+  as `rp_validate`, so the dialog and the tool cannot disagree. The card JSON is
+  copied into `rpSnapshotJson` verbatim; a card file's optional `name` is the
+  scene title and `{{char}}` (then the assistant name, then the folder name).
+  A folder-built conversation keeps that permanent workspace, while its tools
+  remain the explicit empty list; `scene.json` is a creation template and
+  Scene-settings edits never write back. The assistant editor's **Export to
+  workspace…** writes `rp/<folder>/card.json` through `WorkspaceTransfer`,
+  refuses to overwrite, writes the assistant's name into the card when it had
+  none (so the file is self-contained), and is the migration path for legacy
+  cards. Do not move the folder rules into the Android layer: the engine loader
+  is the one place both callers read them.
 - **The final-answer retry keeps tools but suppresses calls.** The **Answer
   again** choice in Rewind rewrites final text from existing results; keeping the
   definitions preserves the cache prefix, while a transient system instruction

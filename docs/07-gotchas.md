@@ -499,6 +499,32 @@ undone:
   non-scene: the auto-title rule renamed it after the first message and the
   persona reload refused it. `{}` decodes as an empty `RoleplayScene` and keeps
   the conversation a scene.
+- **The folder source and the tool share one validator.** `RoleplayStoryLoader`
+  (`core/engine/.../roleplay/RoleplayStory.kt`) is what `NewSceneDialog` uses
+  when it starts from `rp/<story>/card.json`; it calls the same
+  `RoleplayValidator` and `RoleplayCodec` as `rp_validate`, so a folder the
+  assistant checked is accepted by the dialog and both print the same
+  field-level reason. `card.json` is required and `scene.json` is optional; a
+  malformed/over-limit file is an invalid story, never silently "no card", and
+  the card JSON is copied into the snapshot **verbatim**. Only permanent
+  workspaces are offered: a temporary workspace dies with its owner and would
+  take the story files with it. A scene created this way keeps the workspace,
+  while its tools are still the explicit empty list.
+- **A card file may carry its own `name`; a folder scene uses it.** The
+  assistant-sourced path keeps the assistant name, but a card that is not owned
+  by an assistant needs to name its character: display name is card `name`,
+  then the chosen assistant's name, then the folder name. `RoleplaySpec`
+  publishes the optional field and its limit like every other card field.
+- **A scene file is a creation template, not a live document.** `scene.json` is
+  read once when the conversation is created; **Scene settings** edits the
+  conversation's copy and never writes back, because two writable sources for
+  one story would immediately disagree. The card export is the migration path
+  for legacy assistant cards: it writes `rp/<folder>/card.json` through
+  `WorkspaceTransfer`, refuses to overwrite an existing file, and is a copy —
+  later edits to either side do not propagate. An assistant card has no `name`
+  field, so the export writes the assistant's name into the file; otherwise a
+  scene started from that file would fall back to whichever assistant happened
+  to be chosen and its title could change for an unrelated reason.
 - **Once a snapshot exists, never fall back to the live row.** A cleared
   assistant card must not silently resurrect through the fallback; the scene's
   persona is the snapshot until the user hits **Reload card and assistant

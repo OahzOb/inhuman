@@ -75,7 +75,7 @@ should be built and why; they are not a description of current behaviour.
 | [proposals/deepseek-app-apis.md](proposals/deepseek-app-apis.md) | A triage of DeepSeek's 2026-11-13 application-API suite: the standalone ASR/TTS and OCR APIs were adopted in 0.13.0 as paid app-proxied backends (see `03-ai-provider.md`); the server-side web tools, the Files API and the safety check are refused because they change the capability boundary |
 | [proposals/in-turn-user-message.md](proposals/in-turn-user-message.md) | **Implemented 2026-11-25**: a message written while a turn runs is queued for the next turn, or inserted before the current turn's next model call (schema v26, `messages.injected`); kept as the design and decision record |
 | [proposals/user-cloud-sync.md](proposals/user-cloud-sync.md) | Let the user bring their own cloud storage: phase 1 mirrors the existing encrypted backup into a user-picked SAF folder that the user's own sync client uploads; phase 2 is conversation-level two-way sync with stable ids, tombstones and explicit conflict copies |
-| [proposals/rp-authoring-assistant.md](proposals/rp-authoring-assistant.md) | RP materials as workspace files plus two authoring tools: `rp_format` / `rp_validate` (Phase 0, implemented: frozen scene persona and the helpers), and a folder-based scene-creation flow with legacy card migration (Phase 1, not implemented) |
+| [proposals/rp-authoring-assistant.md](proposals/rp-authoring-assistant.md) | RP materials as workspace files plus two authoring tools: `rp_format` / `rp_validate` (Phase 0) and the folder-based scene-creation flow with the legacy-card export (Phase 1) — both implemented; the remaining multi-character/worldbook work is not part of this proposal |
 
 The role-play proposal (`proposals/roleplay.md`) was implemented on 2026-11-25
 (single character, single scene; no multi-character turns, world books or card
@@ -216,8 +216,8 @@ repository root; `…/` stands for `src/main/kotlin/com/inhuman/`.
 | Which tools exist; the static catalogue | `core/ai/…/tools/ToolCatalog.kt` |
 | Role-play card, scene, codec and limits | `core/engine/…/roleplay/Roleplay.kt` |
 | Role-play system prompt, rules, story-brief prompt, start line | `core/engine/…/roleplay/RoleplayPrompt.kt` |
-| Role-play card editor; new-scene flow; scene settings | `app/…/ui/agents/RoleplayCardEditor.kt`, `app/…/ui/NewSceneDialog.kt`, `app/…/ui/chat/ChatScreen.kt`, `app/…/ui/chat/ChatViewModel.kt` |
-| Role-play persona snapshot; authoring format and validator tools | `core/engine/…/roleplay/Roleplay.kt` (`RoleplaySnapshot`), `RoleplaySpec.kt`, `RoleplayValidation.kt`, `RoleplayTools.kt`; `conversations.rpSnapshotJson`; `app/…/ui/chat/RoleplayToolsPlan.kt`, `ChatViewModel.pinRoleplaySnapshot` |
+| Role-play card editor; new-scene flow (assistant card or workspace folder); scene settings; card export | `app/…/ui/agents/RoleplayCardEditor.kt`, `app/…/ui/NewSceneDialog.kt`, `app/…/ui/chat/ChatScreen.kt`, `app/…/ui/chat/ChatViewModel.kt`, `app/…/ui/ConversationsViewModel.kt`, `app/…/ui/agents/AgentsViewModel.kt` |
+| Role-play persona snapshot; authoring format, story-folder loader and validator tools | `core/engine/…/roleplay/Roleplay.kt` (`RoleplaySnapshot`, card `name`), `RoleplaySpec.kt`, `RoleplayValidation.kt`, `RoleplayStory.kt`, `RoleplayTools.kt`; `conversations.rpSnapshotJson`; `app/…/ui/chat/RoleplayToolsPlan.kt`, `ChatViewModel.pinRoleplaySnapshot` |
 | Messages written while a turn runs: queue, insertion, turn roots | `app/…/ui/chat/TurnQueue.kt`, `app/…/ui/chat/ChatViewModel.kt`, `app/…/ui/chat/ChatScreen.kt`; `core/engine/…/ChatEngine.kt` (`EngineTurn.beforeRound`) |
 | File tools' behaviour | `core/files/…/tools/FileTools.kt` |
 | Quotas and guarded reads/writes/lists | `core/files/…/WorkspaceTool.kt`, `WorkspaceLimits.kt` |

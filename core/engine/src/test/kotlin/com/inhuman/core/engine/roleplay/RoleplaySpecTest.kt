@@ -31,6 +31,7 @@ class RoleplaySpecTest {
 	@Test
 	fun `text limits in the description are the enforced limits`() {
 		val cardLimits = RoleplaySpec.cardFields.associate { it.jsonName to it.limit }
+		assertEquals(RoleplayLimits.NAME_MAX, cardLimits["name"])
 		assertEquals(RoleplayLimits.DESCRIPTION_MAX, cardLimits["description"])
 		assertEquals(RoleplayLimits.PERSONALITY_MAX, cardLimits["personality"])
 		assertEquals(RoleplayLimits.SCENARIO_MAX, cardLimits["scenario"])

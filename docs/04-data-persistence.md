@@ -139,8 +139,10 @@ assistant or starts a scene.
   author note, and optional `temperature` / `topP` / `maxTokens`. It lives on
   the assistant because an assistant is already "persona + model + tools +
   approvals", and a card is that row with character content attached; a second
-  table would immediately raise which row owns the model. The name is the
-  assistant's, not a card field. `RoleplayCodec` decodes it; a blank or
+  table would immediately raise which row owns the model. For a card stored on
+  an assistant the name is the assistant's, not a card field; a card **file**
+  may carry its own optional `name`, which a scene started from a folder uses
+  for its title and `{{char}}`. `RoleplayCodec` decodes it; a blank or
   malformed value reads as "no card" rather than breaking the assistant, and
   `""` is the value that turns the feature off. The fields are capped (16 KiB
   total, per-field limits) because the card is prepended to every request in
@@ -199,8 +201,11 @@ request projection reads the snapshot instead of the live assistant row, so
 editing a character card or an assistant prompt does not rewrite a story
 already in progress; the scene-settings dialog's **Reload card and assistant
 prompt** replaces it deliberately. The card is kept as JSON text inside the
-snapshot so an unknown field from a newer release survives the copy. Prompt
-content, not capability: no tool or approval reads the column.
+snapshot so an unknown field from a newer release survives the copy. A scene
+created from a workspace folder stores the card file's JSON **verbatim** and
+uses the card's optional `name` (then the chosen assistant's name, then the
+folder name) as the display name. Prompt content, not capability: no tool or
+approval reads the column.
 
 ### `saved_prompts` — added in 15→16
 

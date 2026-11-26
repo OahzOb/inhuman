@@ -2,6 +2,7 @@ package com.inhuman.ui.agents
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inhuman.R
 import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.common.diag.Diag
@@ -15,11 +16,15 @@ import com.inhuman.core.data.db.ToolsColumn
 import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.core.engine.roleplay.RoleplayCard
 import com.inhuman.core.engine.roleplay.RoleplayCodec
+import com.inhuman.core.files.SessionWorkspace
+import com.inhuman.core.files.WorkspaceTransfer
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class AgentsUiState(
 	val agents: List<AgentEntity> = emptyList(),
@@ -39,8 +44,33 @@ data class AgentsUiState(
 	/** Whether the optional Bilibili login is linked (`bili_transcript` needs it). */
 	val bilibiliLoggedIn: Boolean = false,
 	val editing: AgentDraft? = null,
+	/** Non-null while the "export card to workspace" dialog is open. */
+	val cardExport: CardExportDraft? = null,
 	/** The user's saved system prompts, newest first. */
 	val savedPrompts: List<SavedPromptEntity> = emptyList(),
+)
+
+/** A permanent workspace offered as an export destination. */
+data class CardExportWorkspace(val id: String, val name: String)
+
+/**
+ * The "export this assistant's card to a workspace file" dialog.
+ *
+ * The card JSON is captured when the dialog opens, so the dialog exports
+ * exactly the card the user was looking at -- including edits made in the card
+ * editor and not yet saved, because the export action is offered from inside
+ * that editor.
+ */
+data class CardExportDraft(
+	val assistantName: String,
+	val cardJson: String,
+	val workspaces: List<CardExportWorkspace> = emptyList(),
+	val selectedWorkspaceId: String? = null,
+	val folderName: String = "",
+	val busy: Boolean = false,
+	val error: String? = null,
+	/** Workspace-relative path once the write succeeded. */
+	val savedPath: String? = null,
 )
 
 /**
@@ -337,7 +367,7 @@ class AgentsViewModel(
 		}
 	}
 
-	fun closeEditor() = _state.update { it.copy(editing = null) }
+	fun closeEditor() = _state.update { it.copy(editing = null, cardExport = null) }
 
 	fun updateDraft(transform: (AgentDraft) -> AgentDraft) {
 		_state.update { s -> s.editing?.let { s.copy(editing = transform(it)) } ?: s }
@@ -377,6 +407,151 @@ class AgentsViewModel(
 		}
 	}
 
+	/**
+	 * Open the export dialog for the card currently shown in the editor.
+	 *
+	 * [card] is passed in rather than read from the draft because the card
+	 * editor edits a local copy until Save; exporting must write the words the
+	 * user is looking at, not the last saved version.
+	 */
+	fun openCardExport(card: RoleplayCard) {
+		val draft = _state.value.editing ?: return
+		// An assistant-sourced card has no `name` field -- the assistant's name
+		// plays that role. The exported file is not owned by an assistant any
+		// more, so it gets the name written into it; otherwise a scene started
+		// from the file would fall back to whichever assistant happened to be
+		// chosen and its title could change with an unrelated setting.
+		val exported = if (card.name.isBlank()) {
+			card.copy(name = draft.name.trim())
+		} else {
+			card
+		}
+		val json = RoleplayCodec.encodeCard(exported)
+		if (json.isBlank()) return
+		viewModelScope.launch {
+			val workspaces = runCatching { conversations.workspaces() }
+				.onFailure { Diag.w("agent", "export workspace list read failed", it) }
+				.getOrDefault(emptyList())
+				.filter { it.isPermanent }
+				.map { CardExportWorkspace(it.id, it.name) }
+			_state.update {
+				it.copy(
+					cardExport = CardExportDraft(
+						assistantName = draft.name.trim().ifBlank { "character" },
+						cardJson = json,
+						workspaces = workspaces,
+						selectedWorkspaceId = workspaces.firstOrNull()?.id,
+						folderName = exportFolderName(draft.name),
+					),
+				)
+			}
+		}
+	}
+
+	fun updateCardExport(transform: (CardExportDraft) -> CardExportDraft) {
+		_state.update { current ->
+			current.cardExport?.let { current.copy(cardExport = transform(it)) } ?: current
+		}
+	}
+
+	fun closeCardExport() {
+		if (_state.value.cardExport?.busy == true) return
+		_state.update { it.copy(cardExport = null) }
+	}
+
+	/**
+	 * Write the captured card to `rp/<folder>/card.json` in a permanent
+	 * workspace.
+	 *
+	 * The write goes through [WorkspaceTransfer] rather than a bare
+	 * `File.writeText`: quota, per-file ceiling and the path fence are the same
+	 * rules the user's own imports obey, and the workspace must already exist.
+	 * An existing `card.json` is refused instead of overwritten -- an export
+	 * from a different assistant must not silently replace a character file.
+	 */
+	fun exportCard() {
+		val export = _state.value.cardExport ?: return
+		if (export.busy || export.savedPath != null) return
+		val workspaceId = export.selectedWorkspaceId
+		if (workspaceId == null) {
+			updateCardExport {
+				it.copy(error = context.getString(R.string.roleplay_export_no_workspaces))
+			}
+			return
+		}
+		val folder = exportFolderName(export.folderName)
+		if (!isValidExportFolder(folder)) {
+			updateCardExport {
+				it.copy(error = context.getString(R.string.roleplay_export_name_invalid))
+			}
+			return
+		}
+		updateCardExport { it.copy(busy = true, error = null) }
+		viewModelScope.launch {
+			val result = withContext(Dispatchers.IO) {
+				runCatching {
+					val workspace = conversations.workspace(workspaceId)
+					val path = "${EXPORT_ROOT.trim('/')}/$folder/card.json"
+					when (val resolved = workspace.resolve(path)) {
+						is SessionWorkspace.Resolution.Rejected -> error(resolved.reason)
+						is SessionWorkspace.Resolution.Ok ->
+							if (resolved.file.exists()) {
+								error(context.getString(R.string.roleplay_export_exists))
+							}
+					}
+					val outcome = WorkspaceTransfer(workspace).import(
+						destinationPath = path,
+						maxBytes = null,
+					) { export.cardJson.byteInputStream() }
+					when (outcome) {
+						is WorkspaceTransfer.Outcome.Ok -> outcome.relativePath
+						is WorkspaceTransfer.Outcome.Failed -> error(outcome.reason)
+					}
+				}
+			}
+			_state.update { current ->
+				val dialog = current.cardExport ?: return@update current
+				result.fold(
+					onSuccess = {
+						current.copy(
+							cardExport = dialog.copy(busy = false, savedPath = it, error = null),
+						)
+					},
+					onFailure = { failure ->
+						current.copy(
+							cardExport = dialog.copy(
+								busy = false,
+								error = context.getString(
+									R.string.roleplay_export_failed,
+									failure.message ?: "unknown error",
+								),
+							),
+						)
+					},
+				)
+			}
+			result.onSuccess { path ->
+				Diag.i("agent", "card exported to=$path chars=${export.cardJson.length}")
+			}
+		}
+	}
+
+	/**
+	 * A folder name that cannot escape the export root.
+	 *
+	 * Characters that are path separators or awkward in a filename become `-`;
+	 * leading dots are stripped so the result cannot be `.` or `..` (and a
+	 * hidden file is not what "export my character" means).
+	 */
+	private fun exportFolderName(raw: String): String = raw.trim()
+		.replace(EXPORT_UNSAFE, "-")
+		.trim()
+		.trim('.', ' ', '-')
+		.take(80)
+
+	private fun isValidExportFolder(folder: String): Boolean =
+		folder.isNotBlank() && folder != "." && folder != ".." && '/' !in folder && '\\' !in folder
+
 	/** Set one rule in the draft; nothing is written until [save]. */
 	fun setDraftRule(toolName: String, policy: ToolPolicy) {
 		updateDraft { draft ->
@@ -406,5 +581,13 @@ class AgentsViewModel(
 		if (id == null) return context.getString(com.inhuman.R.string.agents_provider_default)
 		val m = _state.value.models.firstOrNull { it.id == id }
 		return m?.displayName?.takeIf { it.isNotBlank() } ?: id
+	}
+
+	private companion object {
+		/** Story folders live under this root, the same convention `rp_format` publishes. */
+		const val EXPORT_ROOT = "rp"
+
+		/** Path separators and characters that make a file name awkward. */
+		val EXPORT_UNSAFE = Regex("[\\\\/:*?\"<>|]")
 	}
 }

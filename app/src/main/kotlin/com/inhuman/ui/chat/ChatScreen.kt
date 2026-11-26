@@ -6502,6 +6502,7 @@ private fun SceneField(
 @Composable
 private fun roleplayFieldName(field: RoleplayField): String = stringResource(
 	when (field) {
+		RoleplayField.Name -> R.string.roleplay_field_name
 		RoleplayField.World -> R.string.roleplay_field_world
 		RoleplayField.Premise -> R.string.roleplay_field_premise
 		RoleplayField.UserPersona -> R.string.roleplay_field_user_persona

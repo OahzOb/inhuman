@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /**
- * One role-play character, stored as JSON on the assistant that plays it.
+ * One role-play character, stored as JSON on an assistant or in a story folder.
  *
  * The card is **content, not capability**: every field is text that ends up in
  * the system message. Nothing here can add a tool, change an approval, grant
@@ -12,6 +12,12 @@ import kotlinx.serialization.json.Json
  * card imported from someone else is third-party text with the same trust
  * level as a pasted system prompt -- it can describe a character, not grant
  * anything.
+ *
+ * A card on an assistant is the character that assistant plays, and its name is
+ * the assistant's; a card in a workspace file (`rp/<story>/card.json`) is not
+ * owned by an assistant, so it can carry its own [name]. Both are read by the
+ * same codec, and a scene freezes whichever it used into
+ * [RoleplaySnapshot.card].
  *
  * The greeting is part of the card rather than the conversation because it is
  * reusable: every scene started with this character opens with the same line.
@@ -23,6 +29,17 @@ import kotlinx.serialization.json.Json
  */
 @Serializable
 data class RoleplayCard(
+	/**
+	 * The character's display name.
+	 *
+	 * Empty for a card stored on an assistant: the assistant's name is the
+	 * character's name there, and a second field would let the two disagree.
+	 * A card **file** is not owned by an assistant, so it can name itself; a
+	 * scene started from a folder uses this name (falling back to the chosen
+	 * assistant's name, and then the folder name) for its title and for
+	 * `{{char}}`.
+	 */
+	val name: String = "",
 	/** Identity, appearance, background. */
 	val description: String = "",
 	/** Character, motivation, manner of speaking. */
@@ -47,9 +64,10 @@ data class RoleplayCard(
 ) {
 	/** True when nothing at all is set, i.e. the card is not worth storing. */
 	val isBlank: Boolean
-		get() = description.isBlank() && personality.isBlank() && scenario.isBlank() &&
-			greeting.isBlank() && exampleDialogue.isBlank() && boundaries.isBlank() &&
-			authorNote.isBlank() && temperature == null && topP == null && maxTokens == null
+		get() = name.isBlank() && description.isBlank() && personality.isBlank() &&
+			scenario.isBlank() && greeting.isBlank() && exampleDialogue.isBlank() &&
+			boundaries.isBlank() && authorNote.isBlank() &&
+			temperature == null && topP == null && maxTokens == null
 }
 
 /**
@@ -102,7 +120,10 @@ data class RoleplayScene(
 data class RoleplaySnapshot(
 	/** The assistant's system prompt at the moment the scene was created. */
 	val systemPrompt: String = "",
-	/** The assistant's display name, which the card sections use to name the character. */
+	/**
+	 * The display name chosen at creation: the card's own `name`, else the
+	 * assistant's name, else (for a folder-sourced scene) the folder name.
+	 */
 	val characterName: String = "",
 	/** The character card JSON, verbatim; empty when the assistant had no card. */
 	val card: String = "",
@@ -174,6 +195,7 @@ object RoleplayCodec {
 
 /** A card or scene field, so the UI can name the one that is too long. */
 enum class RoleplayField {
+	Name,
 	Description,
 	Personality,
 	Scenario,
@@ -232,6 +254,7 @@ object RoleplayLimits {
 	const val MAX_SCENE_CHARS = 10 * 1024
 
 	const val DESCRIPTION_MAX = 4 * 1024
+	const val NAME_MAX = 120
 	const val PERSONALITY_MAX = 2 * 1024
 	const val SCENARIO_MAX = 1 * 1024
 	const val GREETING_MAX = 2 * 1024
@@ -252,9 +275,9 @@ object RoleplayLimits {
 	const val MAX_TOKENS_MAX = 16_384
 
 	fun cardChars(card: RoleplayCard): Int =
-		card.description.length + card.personality.length + card.scenario.length +
-			card.greeting.length + card.exampleDialogue.length + card.boundaries.length +
-			card.authorNote.length
+		card.name.length + card.description.length + card.personality.length +
+			card.scenario.length + card.greeting.length + card.exampleDialogue.length +
+			card.boundaries.length + card.authorNote.length
 
 	fun sceneChars(scene: RoleplayScene): Int =
 		scene.world.length + scene.premise.length + scene.userPersona.length +
@@ -263,6 +286,7 @@ object RoleplayLimits {
 	/** Every limit the card breaks, in field order, total last. */
 	fun cardErrors(card: RoleplayCard): List<RoleplayLimitError> {
 		val errors = mutableListOf<RoleplayLimitError>()
+		check(errors, RoleplayField.Name, card.name, NAME_MAX)
 		check(errors, RoleplayField.Description, card.description, DESCRIPTION_MAX)
 		check(errors, RoleplayField.Personality, card.personality, PERSONALITY_MAX)
 		check(errors, RoleplayField.Scenario, card.scenario, SCENARIO_MAX)

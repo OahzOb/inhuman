@@ -218,7 +218,16 @@ fun AgentsScreen(
 			onDeletePrompt = viewModel::deletePrompt,
 			onSave = viewModel::save,
 			onDismiss = viewModel::closeEditor,
+			onExportCard = viewModel::openCardExport,
 		)
+		state.cardExport?.let { export ->
+			CardExportDialog(
+				draft = export,
+				onChange = viewModel::updateCardExport,
+				onExport = viewModel::exportCard,
+				onDismiss = viewModel::closeCardExport,
+			)
+		}
 	}
 
 	pendingDelete?.let { agent ->
@@ -349,6 +358,7 @@ private fun AgentEditor(
 	onDeletePrompt: (String) -> Unit,
 	onSave: () -> Unit,
 	onDismiss: () -> Unit,
+	onExportCard: (RoleplayCard) -> Unit,
 ) {
 	val levels = effortLevels(draft.model)
 	val availableTools = ToolCatalog.visible(
@@ -1114,6 +1124,7 @@ private fun AgentEditor(
 				showCardEditor = false
 			},
 			onDismiss = { showCardEditor = false },
+			onExport = onExportCard,
 		)
 	}
 

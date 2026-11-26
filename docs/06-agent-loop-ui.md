@@ -1229,29 +1229,56 @@ that opens `RoleplayCardEditor` (`app/.../ui/agents/RoleplayCardEditor.kt`): the
 seven prose fields plus optional temperature / top-p / reply-token limits. A card
 alone is enough to save an assistant — the card is the character, the system
 prompt is supplementary. The home screen's Create sheet has **New role-play
-scene** (`NewSceneDialog`), which lists only assistants whose card decodes,
-takes the five scene fields, and creates a conversation through the ordinary
-repository path with three extra values: the title is the character's name, the
-tool selection is the explicit empty list, and the greeting is written as the
-only root **assistant** message. The same dialog is not edited after creation;
-the chat menu's **Scene settings** (`SceneSettingsDialog`) is, and it writes
-`conversations.sceneJson` through `ChatViewModel.setScene` without bumping
-`updatedAt` or touching the transcript. A scene whose fields are all blank is
-stored as `{}` rather than `""`: the empty string keeps meaning "ordinary
-conversation", and otherwise a blank scene lost its scene-ness — it was renamed
-after the first message and the persona snapshot could not be reloaded.
+scene** (`NewSceneDialog`), which offers two sources:
+
+- **Assistant card** (the original flow): the list holds only assistants whose
+  card decodes; the five scene fields are typed here; the title is the
+  assistant's name. The same dialog is not edited after creation; the chat
+  menu's **Scene settings** (`SceneSettingsDialog`) is, and it writes
+  `conversations.sceneJson` through `ChatViewModel.setScene` without bumping
+  `updatedAt` or touching the transcript.
+- **Workspace files** (`SceneSource.Materials`): the character is
+  `rp/<story>/card.json` in a **permanent** workspace, with an optional
+  `scene.json` beside it. The dialog browses folders (`RoleplayStoryLoader`)
+  and validates the chosen folder with the same `RoleplayValidator` the
+  `rp_validate` tool uses, so a folder the assistant checked with the tool is
+  accepted here and a refusal prints the same field-level reason. An assistant
+  is still chosen, because the model/provider/tool ceiling is copied onto the
+  conversation from one; its name is the fallback when the card has none. The
+  conversation **keeps that permanent workspace**, so giving it file tools later
+  reaches the same story tree; its tools start as the explicit empty list. The
+  scene file is a creation template only: after creation the conversation owns
+  its scene copy, and **Scene settings** edits do not write back to the file.
+
+A scene whose fields are all blank is stored as `{}` rather than `""`: the
+empty string keeps meaning "ordinary conversation", and otherwise a blank scene
+lost its scene-ness — it was renamed after the first message and the persona
+snapshot could not be reloaded.
+
+The card file may carry an optional `name`; a scene started from a folder uses
+it for the title and `{{char}}`, falling back to the assistant name and then the
+folder name. The assistant editor's card dialog has **Export to workspace…**,
+which writes the current card (including unsaved edits) to
+`rp/<folder>/card.json` in a chosen permanent workspace. Because an
+assistant-sourced card has no `name`, the export writes the assistant's name
+into it, so the file is self-contained. The export is a copy, refuses to
+overwrite an existing `card.json`, and is the migration path for legacy
+assistant cards — the editor stays as the way to author inside the app.
 
 **The persona is pinned.** A scene is born with a snapshot
 (`conversations.rpSnapshotJson`, schema v27) of the assistant prompt, display
-name and card, written in the same transaction as the conversation. The request
-projection reads the snapshot instead of the live assistant, so editing a card
-or an assistant prompt cannot rewrite a story already in progress — a card edit
-in scene 3 must not change what was said in scenes 1 and 2. A scene created
-before the column existed pins on its first turn (empty means "not pinned yet";
-a malformed value is treated the same way and repaired). The scene-settings
-dialog's **Reload card and assistant prompt** replaces the snapshot
-deliberately, exactly like the `AGENTS.md` reload: one cold request, because it
-rebuilds the system prefix.
+name and card, written in the same transaction as the conversation. For the
+workspace source the card in the snapshot is the **file's JSON verbatim**, so
+unknown fields survive the copy; the display name is the card's `name`, then the
+chosen assistant's, then the folder name. The request projection reads the
+snapshot instead of the live assistant, so editing a card or an assistant prompt
+cannot rewrite a story already in progress — a card edit in scene 3 must not
+change what was said in scenes 1 and 2, and editing `card.json` later must not
+change an already-started story either. A scene created before the column
+existed pins on its first turn (empty means "not pinned yet"; a malformed value
+is treated the same way and repaired). The scene-settings dialog's **Reload
+card and assistant prompt** replaces the snapshot deliberately, exactly like the
+`AGENTS.md` reload: one cold request, because it rebuilds the system prefix.
 
 **Authoring helpers.** `rp_format` returns the published card/scene format (field
 names, text limits, folder convention, a valid example); `rp_validate` checks a

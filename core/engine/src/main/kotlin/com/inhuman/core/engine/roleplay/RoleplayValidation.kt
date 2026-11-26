@@ -224,6 +224,7 @@ object RoleplayValidator {
 		val set = setFields(
 			RoleplaySpec.cardFields,
 			listOf(
+				card.name,
 				card.description,
 				card.personality,
 				card.scenario,
@@ -265,6 +266,7 @@ object RoleplayValidator {
 
 	/** The JSON name of a limit error's field, for the report. */
 	private fun fieldName(field: RoleplayField): String = when (field) {
+		RoleplayField.Name -> "name"
 		RoleplayField.Description -> "description"
 		RoleplayField.Personality -> "personality"
 		RoleplayField.Scenario -> "scenario"

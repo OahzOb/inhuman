@@ -3,9 +3,11 @@ package com.inhuman.ui.agents
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -65,6 +67,11 @@ internal fun RoleplayCardEditor(
 	onSave: (RoleplayCard) -> Unit,
 	onRemove: () -> Unit,
 	onDismiss: () -> Unit,
+	/**
+	 * Export the card currently shown (including unsaved edits) to a workspace
+	 * file; null hides the action.
+	 */
+	onExport: ((RoleplayCard) -> Unit)? = null,
 ) {
 	var edited by remember { mutableStateOf(card) }
 	var temperatureText by remember { mutableStateOf(card.temperature?.toString().orEmpty()) }
@@ -239,14 +246,26 @@ internal fun RoleplayCardEditor(
 			modifier = Modifier.fillMaxWidth(),
 		)
 
-		if (!card.isBlank) {
+		if (!proposed.isBlank) {
 			HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-			Row(modifier = Modifier.fillMaxWidth()) {
-				TextButton(onClick = { confirmingRemove = true }) {
-					Text(
-						text = stringResource(R.string.roleplay_remove),
-						color = MaterialTheme.colorScheme.error,
-					)
+			Row(
+				modifier = Modifier.fillMaxWidth(),
+				horizontalArrangement = Arrangement.SpaceBetween,
+			) {
+				if (onExport != null) {
+					TextButton(onClick = { onExport(proposed) }) {
+						Text(stringResource(R.string.roleplay_export_action))
+					}
+				} else {
+					Spacer(Modifier)
+				}
+				if (!card.isBlank) {
+					TextButton(onClick = { confirmingRemove = true }) {
+						Text(
+							text = stringResource(R.string.roleplay_remove),
+							color = MaterialTheme.colorScheme.error,
+						)
+					}
 				}
 			}
 		}
@@ -371,4 +390,88 @@ private fun parseIntInput(text: String, range: IntRange): NumberInput<Int> {
 	if (trimmed.isEmpty()) return NumberInput(value = null, invalid = false)
 	val parsed = trimmed.toIntOrNull()
 	return NumberInput(parsed, invalid = parsed == null || parsed !in range)
+}
+
+/**
+ * The export dialog opened from the card editor.
+ *
+ * The card is already captured in [CardExportDraft]; this dialog only chooses a
+ * destination and shows the result. The failure text is shown in place, so a
+ * retry does not need the user to reopen the editor.
+ */
+@Composable
+internal fun CardExportDialog(
+	draft: CardExportDraft,
+	onChange: ((CardExportDraft) -> CardExportDraft) -> Unit,
+	onExport: () -> Unit,
+	onDismiss: () -> Unit,
+) {
+	WideDialog(
+		onDismissRequest = onDismiss,
+		title = stringResource(R.string.roleplay_export_title),
+		confirmLabel = stringResource(R.string.roleplay_export_confirm),
+		onConfirm = onExport,
+		confirmEnabled = draft.workspaces.isNotEmpty() &&
+			!draft.busy &&
+			draft.savedPath == null,
+		dismissLabel = stringResource(R.string.common_done),
+		maxBodyHeight = 360.dp,
+	) {
+		Text(
+			text = stringResource(R.string.roleplay_export_intro),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		if (draft.workspaces.isEmpty()) {
+			Text(
+				text = stringResource(R.string.roleplay_export_no_workspaces),
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.error,
+			)
+		} else {
+			Text(
+				text = stringResource(R.string.roleplay_export_workspace),
+				style = MaterialTheme.typography.labelLarge,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			draft.workspaces.forEach { workspace ->
+				FilterChip(
+					selected = workspace.id == draft.selectedWorkspaceId,
+					onClick = {
+						onChange { it.copy(selectedWorkspaceId = workspace.id, error = null) }
+					},
+					modifier = Modifier.fillMaxWidth(),
+					label = {
+						Text(
+							text = workspace.name,
+							maxLines = 1,
+							overflow = TextOverflow.Ellipsis,
+						)
+					},
+				)
+			}
+			OutlinedTextField(
+				value = draft.folderName,
+				onValueChange = { value -> onChange { it.copy(folderName = value, error = null) } },
+				label = { Text(stringResource(R.string.roleplay_export_folder)) },
+				singleLine = true,
+				supportingText = { Text(stringResource(R.string.roleplay_export_hint)) },
+				modifier = Modifier.fillMaxWidth(),
+			)
+		}
+		draft.savedPath?.let { path ->
+			Text(
+				text = stringResource(R.string.roleplay_export_done, path),
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.primary,
+			)
+		}
+		draft.error?.let { message ->
+			Text(
+				text = message,
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.error,
+			)
+		}
+	}
 }

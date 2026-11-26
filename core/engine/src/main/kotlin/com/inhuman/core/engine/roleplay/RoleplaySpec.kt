@@ -37,6 +37,11 @@ object RoleplaySpec {
 
 	val cardFields: List<Field> = listOf(
 		Field(
+			"name",
+			"the character's display name; optional for a file, which is what a scene started from a folder is titled with",
+			limit = RoleplayLimits.NAME_MAX,
+		),
+		Field(
 			"description",
 			"identity, appearance and background",
 			limit = RoleplayLimits.DESCRIPTION_MAX,
@@ -106,6 +111,7 @@ object RoleplaySpec {
 
 	val exampleCard: String = """
 		{
+		  "name": "The Archivist",
 		  "description": "Archivist of a library that floods every spring; dry humour, exact memory.",
 		  "personality": "Patient and pedantic, kind underneath.",
 		  "scenario": "A reading room under a city that floods.",
@@ -145,7 +151,9 @@ object RoleplaySpec {
 		appendLine("CARD — rp/<story>/card.json (one character)")
 		appendLine(
 			"All fields are optional strings, but at least one must be non-empty: " +
-				"a card with nothing set is read as 'not a card'.",
+				"a card with nothing set is read as 'not a card'. A card file should " +
+				"normally set \"name\": a scene started from a folder uses it for the " +
+				"title and for {{char}}; without one the chosen assistant's name is used.",
 		)
 		cardFields.forEach { field -> appendField(this, field) }
 		appendLine("  total card text: ≤ ${RoleplayLimits.MAX_CARD_CHARS} characters")

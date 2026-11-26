@@ -564,6 +564,11 @@ fun ConversationsScreen(
 			onDraftChange = viewModel::updateScene,
 			onStart = { viewModel.startScene(onOpenConversation) },
 			onDismiss = viewModel::cancelScene,
+			onSourceChange = viewModel::setSceneSource,
+			onSelectWorkspace = viewModel::selectSceneWorkspace,
+			onEnterFolder = viewModel::enterSceneFolder,
+			onFolderUp = viewModel::sceneFolderUp,
+			onUseFolder = viewModel::useSceneFolder,
 		)
 	}
 }

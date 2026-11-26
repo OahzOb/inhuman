@@ -438,6 +438,13 @@ Phase 1 的投影稳定，否则多角色的上下文形状会返工。
    只随工作区文件能力出现；`rp_validate` 需要 `read_file`/`list_files`，纯场景保持空工具集。
    这是"工作区文件当 RP 资料源"的第一步：Phase 1（选工作区文件夹 → 校验 → 创建场景，
    不再依赖 `agents.rpJson`）尚未实现，见 `docs/proposals/rp-authoring-assistant.md`。
+11. **2026-11-26：工作区资料建场景 + 旧卡导出（Phase 1 已实现）。** `NewSceneDialog` 增加
+   「工作区资料」来源：只列永久工作区，逐级浏览 `rp/<story>/card.json`（可选 `scene.json`），
+   用 `RoleplayStoryLoader` 读、用与 `rp_validate` 相同的校验器检查；卡 JSON 原样冻结进
+   `rpSnapshotJson`，对话绑定该永久工作区，工具仍为显式空列表。卡新增可选 `name` 字段，
+   依次取卡名 → 助手名 → 文件夹名作场景标题与 `{{char}}`。`RoleplayCardEditor` 增加
+   「导出到工作区…」，把当前卡写到 `rp/<folder>/card.json`，不覆盖已有文件。`scene.json`
+   只是创建模板，场景设定编辑不回写文件。
 
 ---
 

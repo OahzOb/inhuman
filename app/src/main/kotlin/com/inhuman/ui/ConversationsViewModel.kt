@@ -22,6 +22,12 @@ import com.inhuman.core.engine.roleplay.RoleplayLimits
 import com.inhuman.core.engine.roleplay.RoleplayPrompt
 import com.inhuman.core.engine.roleplay.RoleplayScene
 import com.inhuman.core.engine.roleplay.RoleplaySnapshot
+import com.inhuman.core.engine.roleplay.RoleplayStory
+import com.inhuman.core.engine.roleplay.RoleplayStoryLoader
+import com.inhuman.core.engine.roleplay.RoleplayValidator
+import com.inhuman.core.engine.roleplay.StoryFolder
+import com.inhuman.core.engine.roleplay.StoryListing
+import com.inhuman.core.engine.roleplay.StoryOutcome
 import com.inhuman.core.files.WorkspaceTransfer
 import com.inhuman.ui.chat.ConversationBundleCodec
 import com.inhuman.ui.chat.ConversationBundleZip
@@ -118,9 +124,10 @@ data class ConversationsUiState(
  *
  * The decoded card is kept beside the assistant row so the picker can show a
  * description and the create path can render the greeting without decoding the
- * same JSON twice. The name is the assistant's, not a field on the card: a card
- * does not name its character, and the name the user typed in the assistant
- * editor is the one the transcript will be titled with.
+ * same JSON twice. In this source the name is the assistant's, not a field on
+ * the card: a card stored on an assistant is not owned by an assistant editor,
+ * and the name the user typed there is the one the transcript will be titled
+ * with. (A card *file* can name itself; that is the materials source.)
  */
 data class SceneCharacter(
 	val agent: AgentEntity,
@@ -143,6 +150,23 @@ data class SceneCharacter(
 }
 
 /**
+ * Where a new scene's character comes from.
+ *
+ * [Assistant] is the original shape: the card lives on the assistant and the
+ * assistant is the character. [Materials] is the workspace-files shape: the
+ * card is `rp/<story>/card.json` in a permanent workspace, and the assistant is
+ * only the model/tools configuration copied onto the new conversation. Both
+ * create the same kind of conversation and freeze the same kind of snapshot.
+ */
+enum class SceneSource { Assistant, Materials }
+
+/** A permanent workspace offered as role-play material storage. */
+data class SceneWorkspaceChoice(
+	val id: String,
+	val name: String,
+)
+
+/**
  * What the open "new role-play scene" dialog is holding.
  *
  * A draft rather than a [RoleplayScene]: every scene field is optional, and the
@@ -153,6 +177,32 @@ data class SceneCharacter(
 data class SceneDraft(
 	val characters: List<SceneCharacter> = emptyList(),
 	val selectedAgentId: String? = null,
+	/**
+	 * Every assistant, for the materials source.
+	 *
+	 * The workspace source does not take its card from an assistant, but it
+	 * still needs one for provider/model/tools -- and as the fallback name when
+	 * the card file has no `name` field. Unlike [characters] this list is not
+	 * filtered to decodable cards.
+	 */
+	val assistants: List<AgentEntity> = emptyList(),
+	/** Where the character comes from; see [SceneSource]. */
+	val source: SceneSource = SceneSource.Assistant,
+	/** Permanent workspaces, read when the dialog opens. */
+	val workspaces: List<SceneWorkspaceChoice> = emptyList(),
+	val selectedWorkspaceId: String? = null,
+	/** Workspace-relative folder currently being browsed ("" is the root). */
+	val browsePath: String = "",
+	val folders: List<StoryFolder> = emptyList(),
+	val foldersTruncated: Boolean = false,
+	/** Whether [browsePath] itself directly contains a `card.json`. */
+	val folderHasCard: Boolean = false,
+	/** The validated story the materials source will start, once chosen. */
+	val story: RoleplayStory? = null,
+	val storyIssues: List<RoleplayValidator.Issue> = emptyList(),
+	/** A folder-level failure (missing/unreadable), distinct from file issues. */
+	val storyError: String? = null,
+	val storyLoading: Boolean = false,
 	val world: String = "",
 	val premise: String = "",
 	val userPersona: String = "",
@@ -182,11 +232,32 @@ data class SceneDraft(
 	val selectedCharacter: SceneCharacter?
 		get() = characters.firstOrNull { it.agent.id == selectedAgentId }
 
+	/** The assistant that supplies provider/model/tools (and the fallback name). */
+	val selectedAssistant: AgentEntity?
+		get() = assistants.firstOrNull { it.id == selectedAgentId }
+
+	val selectedWorkspace: SceneWorkspaceChoice?
+		get() = workspaces.firstOrNull { it.id == selectedWorkspaceId }
+
+	/**
+	 * The story's character name: the card's own name, then the chosen
+	 * assistant's name, then the folder name. Never blank for a loaded story,
+	 * because a folder with no usable name would make an unnamed title.
+	 */
+	fun storyCharacterName(): String {
+		val loaded = story ?: return ""
+		return loaded.card.name.trim()
+			.ifBlank { selectedAssistant?.name?.trim().orEmpty() }
+			.ifBlank { loaded.folder.substringAfterLast('/') }
+	}
+
 	/**
 	 * The scene these fields describe.
 	 *
 	 * Trimmed because the renderer trims every field anyway; storing the
 	 * whitespace would only make the character count disagree with the prompt.
+	 * In the materials source the scene comes from `scene.json` instead, so this
+	 * is only read in the assistant source.
 	 */
 	fun toScene(): RoleplayScene = RoleplayScene(
 		world = world.trim(),
@@ -200,11 +271,25 @@ data class SceneDraft(
 	val sceneErrors: List<RoleplayLimitError> get() = RoleplayLimits.sceneErrors(toScene())
 
 	/**
-	 * Whether Start can be tapped: someone to play, no over-long field, and no
-	 * create already running.
+	 * Whether Start can be tapped.
+	 *
+	 * Both sources need a story and a model configuration; the assistant source
+	 * takes its card from the assistant, while the materials source needs a
+	 * folder that loaded cleanly (warnings are fine).
 	 */
 	val canStart: Boolean
-		get() = !loading && !creating && selectedCharacter != null && sceneErrors.isEmpty()
+		get() = !loading && !creating && when (source) {
+			SceneSource.Assistant ->
+				selectedCharacter != null && sceneErrors.isEmpty()
+
+			SceneSource.Materials ->
+				!storyLoading &&
+					selectedAssistant != null &&
+					story != null &&
+					storyError == null &&
+					storyIssues.none { !it.warning } &&
+					sceneErrors.isEmpty()
+		}
 }
 
 class ConversationsViewModel(
@@ -385,28 +470,252 @@ class ConversationsViewModel(
 		if (_state.value.sceneDialog != null) return
 		_state.update { it.copy(sceneDialog = SceneDraft()) }
 		viewModelScope.launch {
-			val characters = runCatching { agents.all() }
+			val available = runCatching { agents.all() }
 				.onFailure { Diag.w("scene", "character list read failed", it) }
 				.getOrDefault(emptyList())
-				.mapNotNull { agent ->
-					val card = RoleplayCodec.decodeCard(agent.rpJson)
-						?: return@mapNotNull null
-					SceneCharacter(agent, card)
-				}
+			val characters = available.mapNotNull { agent ->
+				val card = RoleplayCodec.decodeCard(agent.rpJson)
+					?: return@mapNotNull null
+				SceneCharacter(agent, card)
+			}
+			// Only permanent workspaces: a temporary one belongs to a single
+			// conversation and would be deleted with it, taking the story files
+			// a new scene just read.
+			val workspaces = runCatching { repository.workspaces() }
+				.onFailure { Diag.w("scene", "workspace list read failed", it) }
+				.getOrDefault(emptyList())
+				.filter { it.isPermanent }
+				.map { SceneWorkspaceChoice(it.id, it.name) }
 			_state.update { current ->
 				// Closed while the read ran: do not resurrect the dialog.
 				val draft = current.sceneDialog ?: return@update current
 				current.copy(
 					sceneDialog = draft.copy(
 						characters = characters,
+						assistants = available,
+						workspaces = workspaces,
 						// The first character is the default, because a picker
 						// with exactly one row should not also require a tap to
-						// select it.
+						// select it. The assistant list does the same for the
+						// materials source.
 						selectedAgentId = draft.selectedAgentId
-							?: characters.firstOrNull()?.agent?.id,
+							?: characters.firstOrNull()?.agent?.id
+							?: available.firstOrNull()?.id,
+						selectedWorkspaceId = draft.selectedWorkspaceId
+							?: workspaces.firstOrNull()?.id,
 						loading = false,
 					),
 				)
+			}
+			// The user can switch to the materials source while this read is in
+			// flight; that click found no workspace to list, and the update above
+			// is the first moment there is one. Without this second attempt the
+			// folder list would stay empty until the source was toggled again.
+			val after = _state.value.sceneDialog
+			if (after?.source == SceneSource.Materials &&
+				after.selectedWorkspaceId != null &&
+				after.folders.isEmpty() &&
+				!after.storyLoading
+			) {
+				refreshSceneFolders()
+			}
+		}
+	}
+
+	/**
+	 * Switch the scene source, keeping the assistant choice where it still
+	 * exists and choosing that source's default otherwise.
+	 */
+	fun setSceneSource(source: SceneSource) {
+		val draft = _state.value.sceneDialog ?: return
+		if (draft.source == source) return
+		val candidates = when (source) {
+			SceneSource.Assistant -> draft.characters.map { it.agent.id }
+			SceneSource.Materials -> draft.assistants.map { it.id }
+		}
+		_state.update { current ->
+			current.sceneDialog?.let {
+				current.copy(
+					sceneDialog = it.copy(
+						source = source,
+						selectedAgentId = it.selectedAgentId?.takeIf { id -> id in candidates }
+							?: candidates.firstOrNull(),
+					),
+				)
+			} ?: current
+		}
+		if (source == SceneSource.Materials) refreshSceneFolders()
+	}
+
+	/** Choose the permanent workspace the story folder lives in. */
+	fun selectSceneWorkspace(workspaceId: String) {
+		val draft = _state.value.sceneDialog ?: return
+		if (draft.selectedWorkspaceId == workspaceId && draft.browsePath.isEmpty()) return
+		_state.update { current ->
+			current.sceneDialog?.let {
+				current.copy(
+					sceneDialog = it.copy(
+						selectedWorkspaceId = workspaceId,
+						browsePath = "",
+						folders = emptyList(),
+						folderHasCard = false,
+						story = null,
+						storyIssues = emptyList(),
+						storyError = null,
+					),
+				)
+			} ?: current
+		}
+		refreshSceneFolders()
+	}
+
+	/** Enter one folder in the materials browser. */
+	fun enterSceneFolder(path: String) {
+		_state.update { current ->
+			current.sceneDialog?.let {
+				current.copy(
+					sceneDialog = it.copy(
+						browsePath = path,
+						folders = emptyList(),
+						folderHasCard = false,
+						story = null,
+						storyIssues = emptyList(),
+						storyError = null,
+					),
+				)
+			} ?: current
+		}
+		refreshSceneFolders()
+	}
+
+	/** Go one level up in the materials browser. */
+	fun sceneFolderUp() {
+		val draft = _state.value.sceneDialog ?: return
+		if (draft.browsePath.isEmpty()) return
+		enterSceneFolder(draft.browsePath.substringBeforeLast('/', ""))
+	}
+
+	/**
+	 * Read the folder currently being browsed as a story.
+	 *
+	 * Kept as an explicit action rather than validating on every folder change:
+	 * browsing through a tree of unrelated folders should not print card errors
+	 * for each one. The button is only offered where `card.json` exists.
+	 */
+	fun useSceneFolder() {
+		val draft = _state.value.sceneDialog ?: return
+		val workspaceId = draft.selectedWorkspaceId ?: return
+		val path = draft.browsePath
+		if (path.isEmpty() || !draft.folderHasCard) return
+		_state.update { current ->
+			current.sceneDialog?.let {
+				current.copy(
+					sceneDialog = it.copy(storyLoading = true, storyError = null, storyIssues = emptyList()),
+				)
+			} ?: current
+		}
+		viewModelScope.launch {
+			val outcome = withContext(Dispatchers.IO) {
+				runCatching {
+					RoleplayStoryLoader.load(repository.workspace(workspaceId), path)
+				}.getOrElse { failure ->
+					StoryOutcome.Failed(failure.message ?: "could not read the folder")
+				}
+			}
+			_state.update { current ->
+				val d = current.sceneDialog ?: return@update current
+				// The user may have navigated elsewhere while the read ran.
+				if (d.selectedWorkspaceId != workspaceId || d.browsePath != path) {
+					return@update current
+				}
+				val next = when (outcome) {
+					is StoryOutcome.Ok -> d.copy(
+						story = outcome.story,
+						storyIssues = outcome.story.warnings,
+						storyError = null,
+						storyLoading = false,
+					)
+
+					is StoryOutcome.Invalid -> d.copy(
+						story = null,
+						storyIssues = outcome.issues,
+						storyError = null,
+						storyLoading = false,
+					)
+
+					is StoryOutcome.Failed -> d.copy(
+						story = null,
+						storyIssues = emptyList(),
+						storyError = outcome.reason,
+						storyLoading = false,
+					)
+				}
+				current.copy(sceneDialog = next)
+			}
+		}
+	}
+
+	/**
+	 * List the folders under the draft's current path.
+	 *
+	 * A folder read is filesystem work and happens off the main thread; the
+	 * generation check after it returns keeps a slow listing for a folder the
+	 * user already left from replacing the current one.
+	 */
+	private fun refreshSceneFolders() {
+		val draft = _state.value.sceneDialog ?: return
+		if (draft.source != SceneSource.Materials) return
+		val workspaceId = draft.selectedWorkspaceId ?: return
+		val path = draft.browsePath
+		Diag.d("scene", "folders read workspace=${Diag.shortId(workspaceId)} path='$path'")
+		_state.update { current ->
+			current.sceneDialog?.let {
+				current.copy(sceneDialog = it.copy(storyLoading = true, storyError = null))
+			} ?: current
+		}
+		viewModelScope.launch {
+			val listing = withContext(Dispatchers.IO) {
+				runCatching {
+					RoleplayStoryLoader.list(repository.workspace(workspaceId), path)
+				}.getOrElse { failure ->
+					StoryListing.Failed(failure.message ?: "could not list the folder")
+				}
+			}
+			if (listing is StoryListing.Ok) {
+				Diag.d(
+					"scene",
+					"folders listed path='${listing.path}' entries=${listing.entries.size} " +
+						"hasCard=${listing.hasCardHere} truncated=${listing.truncated}",
+				)
+			} else if (listing is StoryListing.Failed) {
+				Diag.w("scene", "folders failed: ${listing.reason}")
+			}
+			_state.update { current ->
+				val d = current.sceneDialog ?: return@update current
+				if (d.source != SceneSource.Materials ||
+					d.selectedWorkspaceId != workspaceId ||
+					d.browsePath != path
+				) {
+					return@update current
+				}
+				val next = when (listing) {
+					is StoryListing.Ok -> d.copy(
+						folders = listing.entries,
+						foldersTruncated = listing.truncated,
+						folderHasCard = listing.hasCardHere,
+						storyLoading = false,
+						storyError = null,
+					)
+
+					is StoryListing.Failed -> d.copy(
+						folders = emptyList(),
+						foldersTruncated = false,
+						folderHasCard = false,
+						storyLoading = false,
+						storyError = listing.reason,
+					)
+				}
+				current.copy(sceneDialog = next)
 			}
 		}
 	}
@@ -453,12 +762,45 @@ class ConversationsViewModel(
 	fun startScene(onCreated: (String) -> Unit) {
 		val draft = _state.value.sceneDialog ?: return
 		if (!draft.canStart) return
-		val character = draft.selectedCharacter ?: return
-		val scene = draft.toScene()
+		// One create path for both sources. The differences are exactly what a
+		// scene freezes: which card, which scene, which name, and -- for the
+		// workspace source -- which permanent workspace the story files live in.
+		val assistant: AgentEntity
+		val card: RoleplayCard
+		val cardJson: String
+		val scene: RoleplayScene
+		val characterName: String
+		val workspaceId: String?
+		when (draft.source) {
+			SceneSource.Assistant -> {
+				val character = draft.selectedCharacter ?: return
+				assistant = character.agent
+				card = character.card
+				// The raw JSON, not a re-encoded card: an unknown field written
+				// by a newer release survives into the snapshot.
+				cardJson = character.agent.rpJson
+				scene = draft.toScene()
+				characterName = character.name
+				workspaceId = null
+			}
+
+			SceneSource.Materials -> {
+				val agent = draft.selectedAssistant ?: return
+				val story = draft.story ?: return
+				// Warnings (unknown fields) are fine; blocking issues are not.
+				if (draft.storyIssues.any { !it.warning }) return
+				assistant = agent
+				card = story.card
+				cardJson = story.cardJson
+				scene = story.scene ?: RoleplayScene()
+				characterName = draft.storyCharacterName()
+				workspaceId = draft.selectedWorkspaceId ?: return
+			}
+		}
 		Diag.i(
 			"scene",
-			"create character=${Diag.shortId(character.agent.id)} " +
-				"chars=${RoleplayLimits.sceneChars(scene)}",
+			"create source=${draft.source} assistant=${Diag.shortId(assistant.id)} " +
+				"workspace=${Diag.shortId(workspaceId)} chars=${RoleplayLimits.sceneChars(scene)}",
 		)
 		_state.update { current ->
 			current.sceneDialog?.let {
@@ -473,24 +815,25 @@ class ConversationsViewModel(
 			// character on its first turn.
 			val persona = RoleplayCodec.encodeSnapshot(
 				RoleplaySnapshot(
-					systemPrompt = character.agent.systemPrompt,
-					characterName = character.name,
-					card = character.agent.rpJson,
+					systemPrompt = assistant.systemPrompt,
+					characterName = characterName.ifBlank { assistant.name },
+					card = cardJson,
 				),
 			)
 			val result = runCatching {
 				repository.create(
-					title = character.name.ifBlank { context.getString(R.string.scene_title) },
-					agent = character.agent,
-					// Null is a new temporary workspace, exactly as the ordinary
-					// "New conversation" choice means it: a scene is one story and
-					// its files go with it when the conversation is deleted.
-					workspaceId = null,
+					title = characterName.ifBlank { context.getString(R.string.scene_title) },
+					agent = assistant,
+					// Assistant source: null is a new temporary workspace, exactly
+					// as the ordinary "New conversation" choice means it. Materials
+					// source: the permanent workspace holding the story files, so
+					// the agent can later be given file tools over the same tree.
+					workspaceId = workspaceId,
 					sessionMode = newConversationSessionMode(),
 					tools = emptyList(),
 					sceneJson = RoleplayCodec.encodeScene(scene).ifEmpty { "{}" },
 					rpSnapshotJson = persona,
-					greeting = RoleplayPrompt.greeting(character.card, character.name)
+					greeting = RoleplayPrompt.greeting(card, characterName.ifBlank { assistant.name })
 						.takeIf { it.isNotBlank() },
 				)
 			}
@@ -499,14 +842,16 @@ class ConversationsViewModel(
 					"scene",
 					"created id=${Diag.shortId(conversation.id)} " +
 						"agent=${Diag.shortId(conversation.agentId)} " +
-						"workspace=${Diag.shortId(conversation.workspaceId)}",
+						"workspace=${Diag.shortId(conversation.workspaceId)} " +
+						"snapshotChars=${persona.length}",
 				)
 				_state.update { it.copy(sceneDialog = null) }
 				onCreated(conversation.id)
 			}.onFailure { failure ->
 				Diag.w(
 					"scene",
-					"create failed character=${Diag.shortId(character.agent.id)}",
+					"create failed assistant=${Diag.shortId(assistant.id)} " +
+						"workspace=${Diag.shortId(workspaceId)}",
 					failure,
 				)
 				val message = context.getString(
