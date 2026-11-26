@@ -26,6 +26,14 @@
 	<string name="agents_import_fallback_name">导入的提示词</string>
 	<string name="roleplay_character_fallback">角色</string>
 	<string name="model_picker_provider_streaming">请先停止回复，再切换服务商。</string>
+	<string name="chat_tools_ssh_reset_note">加入 ssh_exec、ssh_upload 或 ssh_write_file 后，这个对话在下一次 SSH 调用前会重新请求授权。</string>
+	<string name="chat_tools_group_read">读取</string>
+	<string name="chat_tools_group_write">写入</string>
+	<string name="chat_tools_group_external">联网</string>
+	<string name="chat_tools_group_media">媒体</string>
+	<string name="chat_tools_group_remote">远程</string>
+	<string name="chat_tools_group_other">其他</string>
+	<string name="chat_workbench_busy">回复、会话整理或导出进行中：灰色的操作会在结束后可用。</string>
 	<string name="settings_saved_host_port_range">端口需在 1–65535 之间。</string>
 	<string name="settings_media_paid_note">这个后端按调用计费。是否先询问由你的审批规则决定。</string>
 	<string name="scene_materials_hint_extra">场景会在这个永久工作区里运行，并且默认不启用任何工具——之后可以在对话菜单里打开工具。</string>

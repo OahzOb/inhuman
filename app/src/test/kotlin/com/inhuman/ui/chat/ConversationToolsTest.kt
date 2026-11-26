@@ -290,4 +290,31 @@ class ConversationToolsTest {
 		)
 		assertTrue("generate_image" in merged)
 	}
+
+	@Test
+	fun `the sheet groups its rows by family without dropping or repeating any`() {
+		val plan = conversationToolPlan(
+			sshEnabled = true,
+			agentTools = null,
+			conversationTools = null,
+			mediaConfigured = ToolCatalog.mediaConfigGatedNames,
+		)
+		val groups = conversationToolGroups(plan.available)
+		val flat = groups.flatMap { group -> group.entries.map { it.name } }
+		assertEquals(
+			"grouping is a partition of the offered rows",
+			plan.available.map { it.name }.sorted(),
+			flat.sorted(),
+		)
+		// Families render in their declared order, and each row is in one.
+		assertEquals(groups.map { it.family }, groups.map { it.family }.sortedBy { it.ordinal })
+		val byName = { name: String -> ToolCatalog.all.first { it.name == name } }
+		assertEquals(ToolFamily.Read, toolFamilyOf(byName("read_file")))
+		assertEquals(ToolFamily.Write, toolFamilyOf(byName("write_file")))
+		assertEquals(ToolFamily.Remote, toolFamilyOf(byName("ssh_exec")))
+		assertEquals(ToolFamily.External, toolFamilyOf(byName("web_search")))
+		assertEquals(ToolFamily.External, toolFamilyOf(byName("download_url")))
+		assertEquals(ToolFamily.Media, toolFamilyOf(byName("generate_image")))
+		assertEquals(ToolFamily.Other, toolFamilyOf(byName("unavailable_tools")))
+	}
 }

@@ -4226,6 +4226,17 @@ private fun ChatWorkbenchDialog(
 				)
 			}
 
+			// Several actions below are greyed while a turn, maintenance or an
+			// export runs; one sentence answers "why?" for all of them, the same
+			// way the tool sheet explains its disabled Apply.
+			if (isStreaming || isMaintaining || maintenancePreparing || exporting) {
+				Text(
+					text = stringResource(R.string.chat_workbench_busy),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.error,
+				)
+			}
+
 			if (showHeaderOverflowActions) {
 				FlowRowCompat {
 					OutlinedButton(
@@ -6438,6 +6449,61 @@ private fun SshHostsDialog(
 }
 
 @Composable
+private fun toolFamilyTitle(family: ToolFamily): String = stringResource(
+	when (family) {
+		ToolFamily.Read -> R.string.chat_tools_group_read
+		ToolFamily.Write -> R.string.chat_tools_group_write
+		ToolFamily.External -> R.string.chat_tools_group_external
+		ToolFamily.Media -> R.string.chat_tools_group_media
+		ToolFamily.Remote -> R.string.chat_tools_group_remote
+		ToolFamily.Other -> R.string.chat_tools_group_other
+	},
+)
+
+/** One checkbox row of the conversation tool sheet. */
+@Composable
+private fun ConversationToolRow(
+	entry: ToolCatalog.Entry,
+	checked: Boolean,
+	onToggle: (Boolean) -> Unit,
+) {
+	Row(
+		modifier = Modifier
+			.fillMaxWidth()
+			.clickable { onToggle(!checked) }
+			.padding(vertical = 5.dp),
+		verticalAlignment = Alignment.Top,
+	) {
+		Checkbox(checked = checked, onCheckedChange = onToggle)
+		Column(
+			modifier = Modifier
+				.weight(1f)
+				.padding(start = 2.dp, top = 1.dp),
+		) {
+			Row(
+				horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				Text(
+					text = entry.name,
+					style = MaterialTheme.typography.labelLarge,
+					fontFamily = FontFamily.Monospace,
+					color = MaterialTheme.colorScheme.tertiary,
+				)
+				if (entry.paid) PaidBadge()
+				if (entry.remote) RemoteBadge()
+				if (entry.mutates) RewindBadge(canRewind = entry.reversible)
+			}
+			Text(
+				text = toolBlurb(entry),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+	}
+}
+
+@Composable
 private fun ConversationToolsDialog(
 	available: List<ToolCatalog.Entry>,
 	selected: Set<String>,
@@ -6448,6 +6514,11 @@ private fun ConversationToolsDialog(
 	var checked by remember(selected) { mutableStateOf(selected) }
 	val remoteSelected = available.any { it.name in checked && it.remote }
 	val irreversibleSelected = available.any { it.name in checked && it.mutates && !it.reversible }
+	// Adding command, upload or remote-write access resets the conversation's
+	// SSH grant and asks again. The reset is correct and load-bearing; what was
+	// missing is saying so where the box is ticked, not only in the Settings
+	// paragraph.
+	val resetsSshGrant = widensDangerousSsh(selected.toList(), checked.toList())
 
 	AlertDialog(
 		onDismissRequest = onDismiss,
@@ -6472,49 +6543,30 @@ private fun ConversationToolsDialog(
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
 				}
-				available.forEach { entry ->
-					val isChecked = entry.name in checked
-					Row(
-						modifier = Modifier
-							.fillMaxWidth()
-							.clickable {
-								checked = if (isChecked) checked - entry.name else checked + entry.name
-							}
-							.padding(vertical = 5.dp),
-						verticalAlignment = Alignment.Top,
-					) {
-						Checkbox(
-							checked = isChecked,
-							onCheckedChange = { on ->
+				conversationToolGroups(available).forEach { group ->
+					Text(
+						text = toolFamilyTitle(group.family),
+						style = MaterialTheme.typography.labelMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
+					)
+					group.entries.forEach { entry ->
+						ConversationToolRow(
+							entry = entry,
+							checked = entry.name in checked,
+							onToggle = { on ->
 								checked = if (on) checked + entry.name else checked - entry.name
 							},
 						)
-						Column(
-							modifier = Modifier
-								.weight(1f)
-								.padding(start = 2.dp, top = 1.dp),
-						) {
-							Row(
-								horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
-								verticalAlignment = Alignment.CenterVertically,
-							) {
-								Text(
-									text = entry.name,
-									style = MaterialTheme.typography.labelLarge,
-									fontFamily = FontFamily.Monospace,
-									color = MaterialTheme.colorScheme.tertiary,
-								)
-								if (entry.paid) PaidBadge()
-								if (entry.remote) RemoteBadge()
-								if (entry.mutates) RewindBadge(canRewind = entry.reversible)
-							}
-							Text(
-								text = toolBlurb(entry),
-								style = MaterialTheme.typography.bodySmall,
-								color = MaterialTheme.colorScheme.onSurfaceVariant,
-							)
-						}
 					}
+				}
+				if (resetsSshGrant) {
+					Spacer(Modifier.height(6.dp))
+					Text(
+						text = stringResource(R.string.chat_tools_ssh_reset_note),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.error,
+					)
 				}
 				if (remoteSelected) {
 					Spacer(Modifier.height(6.dp))

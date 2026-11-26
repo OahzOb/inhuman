@@ -26,6 +26,14 @@
 	<string name="agents_import_fallback_name">imported prompt</string>
 	<string name="roleplay_character_fallback">character</string>
 	<string name="model_picker_provider_streaming">Stop the reply before changing the provider.</string>
+	<string name="chat_tools_ssh_reset_note">Adding ssh_exec, ssh_upload or ssh_write_file makes this conversation ask for SSH access again before its next SSH call.</string>
+	<string name="chat_tools_group_read">Read</string>
+	<string name="chat_tools_group_write">Write</string>
+	<string name="chat_tools_group_external">External</string>
+	<string name="chat_tools_group_media">Media</string>
+	<string name="chat_tools_group_remote">Remote</string>
+	<string name="chat_tools_group_other">Other</string>
+	<string name="chat_workbench_busy">A reply, session maintenance or an export is running; greyed actions become available when it finishes.</string>
 	<string name="settings_saved_host_port_range">Use a port between 1 and 65535.</string>
 	<string name="settings_media_paid_note">This backend bills per call. Whether it asks first is set by your approval rules.</string>
 	<string name="scene_materials_hint_extra">The scene then runs in this permanent workspace, and starts with no tools — open the conversation\'s tool sheet to add them later.</string>
