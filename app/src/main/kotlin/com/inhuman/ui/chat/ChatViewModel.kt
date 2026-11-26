@@ -6028,6 +6028,29 @@ class ChatViewModel(
 			QwenSpeechBackend(QwenTokenPlanClient(key, baseUrl), model)
 		}
 
+	/**
+	 * Bytes for one attachment preview, or null when it cannot be read.
+	 *
+	 * The transcript stores attachment paths, never bitmaps (ChatUiState), so a
+	 * preview is decoded on demand -- from the workspace, through `resolve`
+	 * (the only step that turns a path into a File), and refused above
+	 * [MAX_ATTACHMENT_PREVIEW_BYTES] rather than read. The decode and the
+	 * sample-size arithmetic live in `AttachmentPreview.kt`.
+	 */
+	suspend fun attachmentPreviewBytes(relativePath: String): ByteArray? {
+		val entity = conversation ?: return null
+		return withContext(Dispatchers.IO) {
+			val workspace = runCatching { repository.workspace(entity) }.getOrNull()
+				?: return@withContext null
+			val file = (workspace.resolve(relativePath) as? SessionWorkspace.Resolution.Ok)?.file
+				?: return@withContext null
+			if (!file.isFile || file.length() > MAX_ATTACHMENT_PREVIEW_BYTES) {
+				return@withContext null
+			}
+			runCatching { file.readBytes() }.getOrNull()
+		}
+	}
+
 	private fun mediaUnavailable(): Nothing =
 		error(context.getString(R.string.chat_error_media_not_configured))
 

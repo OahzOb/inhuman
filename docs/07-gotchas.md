@@ -1656,9 +1656,7 @@ list. Each of these is a real gap, not a style opinion.
   but the scan still repeats per publish. B11's note stands: a sound memo means
   maintaining the index in the view model's append/update paths, with tests for
   the older-row rewrite case — its own change.
-- **A message with image attachments shows `📎 name` and no thumbnail.** The
-  bytes are deliberately not in state; a thumbnail needs a bounded,
-  identity-keyed decode, which is a small feature rather than a fix.
+
 
 ### B46. Every picker listed media tools whose backend could not run — **FIXED**
 
@@ -1764,6 +1762,37 @@ this emulator's input injection failing again (taps and dumps work, typed text
 does not land — D13): the keyword lists are resources and the predicate is
 tested, so what remains unverified is only that the field wires the query
 through, which is one line above the predicate.
+
+### B49. A message's picture was drawn as its file name — **FIXED**
+
+A user message with an image attachment rendered as `📎 photo.jpg`, on the
+screen where the transcript is the record of what was said. The bytes were
+deliberately never in `ChatUiState` (paths only), and the previous pass left the
+thumbnail as "a small feature": that feature is now here, with the two decisions
+that can go silently wrong extracted and tested.
+
+- **Which attachments are images** — `isImageAttachment(mimeType, name)`: the
+  reported MIME first, the extension as fallback, so a camera file with
+  `application/octet-stream` still previews and `notes.txt` never tries to
+  decode as a picture. An unreadable or non-image attachment keeps the chip it
+  had before.
+- **How large the decode may be** — `previewInSampleSize` returns a power of two
+  (never zero, the value `BitmapFactory` rejects as a crash) that brings a photo
+  under 384px on its long side, and `decodeAttachmentPreview` reads bounds first
+  so a 4000px photo never allocates full size inside a `LazyColumn` item. The
+  loader (`ChatViewModel.attachmentPreviewBytes`) goes through
+  `SessionWorkspace.resolve` — the only path-to-File step — and refuses above
+  8 MiB rather than reading a camera raw into the transcript.
+
+The decode is a `LaunchedEffect` keyed by the attachment path, so a row that
+scrolls out and back re-runs it at most once per composition instance, and the
+bitmap lives in the row, not in state.
+
+**Verified by build and the unit suite** (`AttachmentPreviewTest` pins the
+classification and the sample arithmetic). The device half is not driven: an
+image attachment can only be produced through the attach picker or the camera,
+and this emulator's synthetic input is broken (D13) — so the rendering is
+unverified on a device, which is recorded rather than implied.
 
 ## C. Comments that contradict the code
 

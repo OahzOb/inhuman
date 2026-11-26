@@ -57,6 +57,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -1880,6 +1883,7 @@ fun ChatScreen(
 							onSelectBranch = { parentId, childId ->
 								if (parentId != null) viewModel.selectBranch(parentId, childId)
 							},
+							onLoadAttachmentPreview = viewModel::attachmentPreviewBytes,
 						)
 					}
 				}
@@ -4763,6 +4767,47 @@ private fun toolResultSummary(
 /** What the speaker control on one reply is doing. */
 private enum class ReplySpeechState { Idle, Preparing, Playing, Paused }
 
+/**
+ * One attachment: a thumbnail when it is an image the platform can read,
+ * otherwise the file-name chip.
+ *
+ * The decode is a side effect keyed by path, so a row that scrolls out and
+ * back re-runs it at most once per composition instance; the bytes are
+ * bounded by the loader and the sample size keeps a 4000px photo from
+ * becoming a 64 MiB allocation inside a `LazyColumn` item.
+ */
+@Composable
+private fun AttachmentPreview(
+	attachment: PendingAttachment,
+	onLoadBytes: suspend (String) -> ByteArray?,
+) {
+	val isImage = isImageAttachment(attachment.mimeType, attachment.displayName)
+	var decoded by remember(attachment.relativePath) {
+		mutableStateOf<ImageBitmap?>(null)
+	}
+	LaunchedEffect(attachment.relativePath, isImage) {
+		if (!isImage || decoded != null) return@LaunchedEffect
+		decoded = onLoadBytes(attachment.relativePath)?.let { decodeAttachmentPreview(it) }
+	}
+	val bitmap = decoded
+	if (bitmap != null) {
+		Image(
+			bitmap = bitmap,
+			contentDescription = attachment.displayName,
+			contentScale = ContentScale.Crop,
+			modifier = Modifier
+				.size(ATTACHMENT_PREVIEW_DP.dp)
+				.clip(MaterialTheme.shapes.small),
+		)
+	} else {
+		Text(
+			text = "📎 ${attachment.displayName}",
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.onSurface,
+		)
+	}
+}
+
 @Composable
 private fun MessageBubble(
 	message: ChatMessageUi,
@@ -4783,6 +4828,8 @@ private fun MessageBubble(
 	onSpeakReply: () -> Unit,
 	onUseSuggestion: (String) -> Unit,
 	onSelectBranch: (String?, String) -> Unit,
+	/** Reads one attachment's bytes for its thumbnail; bounded by the caller. */
+	onLoadAttachmentPreview: suspend (String) -> ByteArray?,
 ) {
 	val alignment = if (message.fromUser) Alignment.End else Alignment.Start
 	val context = LocalContext.current
@@ -5077,15 +5124,17 @@ private fun MessageBubble(
 					}
 				}
 
-				// Attachment names, so a message that was mostly a picture does
-				// not look like it had no content.
+				// A picture the user sent should look like the picture, not like
+				// its file name. Non-images and unreadable files keep the chip
+				// that was the only rendering before this.
 				if (message.attachments.isNotEmpty()) {
-					message.attachments.forEach { attachment ->
-						Text(
-							text = "📎 ${attachment.displayName}",
-							style = MaterialTheme.typography.labelLarge,
-							color = MaterialTheme.colorScheme.onSurface,
-						)
+					Row(horizontalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
+						message.attachments.forEach { attachment ->
+							AttachmentPreview(
+								attachment = attachment,
+								onLoadBytes = onLoadAttachmentPreview,
+							)
+						}
 					}
 				}
 
