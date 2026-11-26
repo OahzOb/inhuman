@@ -80,6 +80,12 @@ fun ModelPickerDialog(
 	effectiveModel: String?,
 	currentEffort: String?,
 	currentThinking: Boolean,
+	/**
+	 * True while a turn streams: switching provider is refused then, so
+	 * the chips say that instead of looking dead. The refusal used to be
+	 * written to the error row behind this dialog, where nobody saw it.
+	 */
+	streaming: Boolean,
 	onDismiss: () -> Unit,
 ) {
 	var models by remember { mutableStateOf<List<RemoteModel>>(emptyList()) }
@@ -230,6 +236,7 @@ fun ModelPickerDialog(
 							val hasKey = chat.hasProviderKey(provider.id)
 							FilterChip(
 								selected = currentProviderId == provider.id,
+								enabled = !streaming,
 								onClick = { chat.setProvider(provider.id) },
 								label = {
 									Text(
@@ -245,9 +252,17 @@ fun ModelPickerDialog(
 						}
 					}
 					Text(
-						text = stringResource(R.string.model_picker_provider_hint),
+						text = if (streaming) {
+							stringResource(R.string.model_picker_provider_streaming)
+						} else {
+							stringResource(R.string.model_picker_provider_hint)
+						},
 						style = MaterialTheme.typography.labelLarge,
-						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						color = if (streaming) {
+							MaterialTheme.colorScheme.error
+						} else {
+							MaterialTheme.colorScheme.onSurfaceVariant
+						},
 					)
 					HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 				}

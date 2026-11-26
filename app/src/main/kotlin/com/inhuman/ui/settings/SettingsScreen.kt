@@ -95,6 +95,7 @@ import com.inhuman.core.design.StatusDot
 import com.inhuman.core.design.WideDialog
 import com.inhuman.core.design.WorkbenchSwitch
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.ui.common.PaidBadge
 import com.inhuman.core.design.dialogBodyMaxHeight
 import com.inhuman.ui.backup.BACKUP_REMINDER_PERIODS
 import com.inhuman.core.ai.provider.KnownProvider
@@ -2014,7 +2015,15 @@ private fun MediaBackendRow(title: String, summary: String, onClick: () -> Unit)
 			modifier = Modifier.weight(1f),
 			verticalArrangement = Arrangement.spacedBy(2.dp),
 		) {
-			Text(text = title, style = MaterialTheme.typography.titleSmall)
+			Row(
+				verticalAlignment = Alignment.CenterVertically,
+				horizontalArrangement = Arrangement.spacedBy(6.dp),
+			) {
+				Text(text = title, style = MaterialTheme.typography.titleSmall)
+				// Choosing the backend is choosing the bill: the chat-menu
+				// dialogs for the same tools already carry this badge.
+				PaidBadge()
+			}
 			Text(
 				text = summary,
 				style = MaterialTheme.typography.bodySmall,
@@ -2107,6 +2116,11 @@ private fun SshHostDialog(
 	var fingerprint by remember(initial) { mutableStateOf(initial?.hostKeyFingerprint.orEmpty()) }
 	var error by remember { mutableStateOf<String?>(null) }
 	val errorText = stringResource(R.string.settings_saved_host_error)
+	// A typed port outside 1..65535 used to be silently coerced on
+	// save (99999 became 65535, 0 became 1), so the stored value
+	// disagreed with the field and the dialog closed anyway.
+	val portInvalid = port.isNotBlank() &&
+		(port.toIntOrNull()?.let { it in 1..65535 } != true)
 
 	AlertDialog(
 		onDismissRequest = onDismiss,
@@ -2156,6 +2170,12 @@ private fun SshHostDialog(
 					onValueChange = { port = it.filter(Char::isDigit); error = null },
 					label = { Text(stringResource(R.string.settings_saved_host_port)) },
 					singleLine = true,
+					isError = error != null && portInvalid,
+					supportingText = if (error != null && portInvalid) {
+						{ Text(stringResource(R.string.settings_saved_host_port_range)) }
+					} else {
+						null
+					},
 					keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
 					modifier = Modifier.fillMaxWidth(),
 				)
@@ -2179,7 +2199,7 @@ private fun SshHostDialog(
 		confirmButton = {
 			TextButton(
 				onClick = {
-					if (host.isBlank() || username.isBlank()) {
+					if (host.isBlank() || username.isBlank() || portInvalid) {
 						error = errorText
 					} else {
 						onSave(
@@ -2497,6 +2517,21 @@ private fun ProviderEditorDialog(
 					.verticalScroll(rememberScrollState()),
 				verticalArrangement = Arrangement.spacedBy(8.dp),
 			) {
+				// First, not last: this form scrolls, and the error used to
+				// sit under the manual-models field eight controls down -- so
+				// pressing Save looked like nothing happened. SshHostDialog
+				// carries the same note for the same fix.
+				draft.status?.let { status ->
+					Text(
+						text = status,
+						style = MaterialTheme.typography.bodySmall,
+						color = if (draft.statusIsError) {
+							MaterialTheme.colorScheme.error
+						} else {
+							MaterialTheme.colorScheme.primary
+						},
+					)
+				}
 				OutlinedTextField(
 					value = draft.name,
 					onValueChange = { value -> onUpdate { it.copy(name = value) } },
@@ -2701,17 +2736,6 @@ private fun ProviderEditorDialog(
 							Text(stringResource(R.string.settings_fallback_models_support))
 						},
 						minLines = 2,
-					)
-				}
-				draft.status?.let { status ->
-					Text(
-						text = status,
-						style = MaterialTheme.typography.bodySmall,
-						color = if (draft.statusIsError) {
-							MaterialTheme.colorScheme.error
-						} else {
-							MaterialTheme.colorScheme.primary
-						},
 					)
 				}
 				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

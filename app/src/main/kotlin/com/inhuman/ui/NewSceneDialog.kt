@@ -227,6 +227,15 @@ private fun ColumnScope.MaterialsSource(
 		style = MaterialTheme.typography.bodySmall,
 		color = MaterialTheme.colorScheme.onSurfaceVariant,
 	)
+	// Two consequences the folder choice decides, both easy to
+	// discover the wrong way round after the scene exists: the
+	// conversation keeps this permanent workspace, and it starts
+	// with no tools.
+	Text(
+		text = stringResource(R.string.scene_materials_hint_extra),
+		style = MaterialTheme.typography.bodySmall,
+		color = MaterialTheme.colorScheme.onSurfaceVariant,
+	)
 	if (draft.workspaces.isEmpty()) {
 		Text(
 			text = stringResource(R.string.scene_materials_no_workspaces),

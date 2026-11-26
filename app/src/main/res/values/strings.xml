@@ -25,6 +25,10 @@
 	<string name="agents_default_name">New assistant</string>
 	<string name="agents_import_fallback_name">imported prompt</string>
 	<string name="roleplay_character_fallback">character</string>
+	<string name="model_picker_provider_streaming">Stop the reply before changing the provider.</string>
+	<string name="settings_saved_host_port_range">Use a port between 1 and 65535.</string>
+	<string name="settings_media_paid_note">This backend bills per call. Whether it asks first is set by your approval rules.</string>
+	<string name="scene_materials_hint_extra">The scene then runs in this permanent workspace, and starts with no tools — open the conversation\'s tool sheet to add them later.</string>
 	<string name="common_dismiss">Dismiss</string>
 	<string name="common_save">Save</string>
 	<string name="common_name">Name</string>

@@ -2058,6 +2058,7 @@ fun ChatScreen(
 			effectiveModel = resolvedModel,
 			currentEffort = reasoningEffort,
 			currentThinking = thinking,
+			streaming = isStreaming,
 			onDismiss = { showModelPicker = false },
 		)
 	}
