@@ -1191,6 +1191,9 @@ private fun AgentEditor(
 			},
 			onDismiss = { showCardEditor = false },
 			onExport = onExportCard,
+			// Imported cards may use the `{{char}}` placeholder; the assistant's
+			// own name is the value this card's scenes will use.
+			characterName = draft.name,
 		)
 	}
 

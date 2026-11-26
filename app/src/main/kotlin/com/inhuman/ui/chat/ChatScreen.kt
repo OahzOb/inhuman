@@ -1735,6 +1735,11 @@ fun ChatScreen(
 			// wrap its 900dp child, and a Column places a wrap-content child at
 			// the start, so on a 1280dp tablet the transcript sat against the
 			// left edge while the composer below it was centred.
+			//
+			// A scene's replies are painted by `RoleplayText` instead of the
+			// Markdown renderer. The flag is a property of the conversation, so
+			// it is read once here rather than per row.
+			val roleplayActive = roleplayCharacter || roleplayScene != null
 			Box(
 				modifier = Modifier.weight(1f).fillMaxWidth(),
 				contentAlignment = Alignment.TopCenter,
@@ -1850,6 +1855,7 @@ fun ChatScreen(
 							hideError = error != null && message.error == error,
 							isLatestAssistant = isLastAssistant,
 							isStreaming = isStreaming,
+							roleplay = roleplayActive,
 							showRewind = showRewind,
 							turnUsage = turn?.usage,
 							isTurnEnd = turn?.complete == true,
@@ -4826,6 +4832,8 @@ private fun MessageBubble(
 	hideError: Boolean = false,
 	isLatestAssistant: Boolean,
 	isStreaming: Boolean,
+	/** The conversation is a role-play scene, so the reply is painted as a scene. */
+	roleplay: Boolean,
 	showRewind: Boolean,
 	turnUsage: UsageUi?,
 	isTurnEnd: Boolean,
@@ -5099,6 +5107,16 @@ private fun MessageBubble(
 								text = text,
 								style = MaterialTheme.typography.bodyLarge,
 								color = MaterialTheme.colorScheme.onSurface,
+							)
+						} else if (roleplay && !RoleplayTypography.hasMarkdownBlocks(text)) {
+							// A scene, not a document: narration, speech and
+							// action get the hierarchy the reply is written in
+							// (`RoleplayText`). A reply that actually uses
+							// Markdown block constructs falls through to the
+							// normal renderer below.
+							RoleplayText(
+								text = text,
+								isStreaming = message.isStreaming,
 							)
 						} else {
 							MarkdownText(

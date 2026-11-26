@@ -576,6 +576,41 @@ Diagnostics → **Third-party notices**.
 Mermaid is deliberately out for weight: it needs a JavaScript engine in a
 WebView, and a WebView per diagram destroys scroll performance.
 
+### Role-play replies: `RoleplayText`
+
+A conversation with a character card (a role-play scene, or an assistant that
+has a card) does not paint the answer with `MarkdownText`. Its text goes through
+`RoleplayText` (`app/.../ui/chat/RoleplayText.kt`), which gives the reply the
+hierarchy a scene is written in: narration is secondary text, quoted speech is
+the normal reading colour, parenthetical or `*...*` actions are secondary and
+italic, `**...**` is bold, and a paragraph containing only `---`/`***` is a
+hairline scene break.
+
+Two rules are load-bearing:
+
+- **Display-only.** The parser and the renderer never rewrite the message: the
+  stored text, the request, the export, the search index and the copy buffer all
+  keep the raw reply; the Source toggle still shows it verbatim. The only
+  characters not painted are the markup delimiters `*` and `**` -- every Markdown
+  renderer hides those too -- and the scene-break marker line. This is the same
+  principle as the unclosed-fence repair above.
+- **It does not depend on the model obeying a format instruction.** The parser
+  recognises the conventions models already write in role-play (`"..."`,
+  `“...”`, `「...」`, `（...）`, `*...*`, `**...**`, `---`) and falls back to
+  `MarkdownText` when the reply actually uses block Markdown (fences, tables,
+  headings, quotes, dash lists). A reply with no conventions at all is simply
+  one paragraph of narration -- it is never mangled into looking structured.
+
+The parser is a pure object (`RoleplayTypography`) with a total, linear scan: an
+unclosed quote is speech while the reply is streaming and plain text once it is
+finished, an unclosed `*` is always literal, and every prefix round-trips to
+itself. The composable re-parses each snapshot rather than building a second
+incremental renderer: there is no AST and a reply is a few kilobytes, so this is
+cheaper than the Markdown path and the live view never has to jump from plain to
+styled at the end. `RoleplayTypographyTest` pins the conventions, the
+unclosed/streaming cases, the display-only round-trip and the Markdown fallback;
+the result was checked on 1280x800, 360x640 and 360x640 at 1.5x font.
+
 ## The chat screen
 
 `app/src/main/kotlin/com/inhuman/ui/chat/ChatScreen.kt`.

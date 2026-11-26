@@ -602,6 +602,38 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   path the user did not grant. It reports structure only, never file prose.
   The format text is generated from the serializers and `RoleplayLimits`
   (`RoleplaySpecTest` pins the match). See `docs/07-gotchas.md` A30.
+- **A role-play reply is painted, not rewritten.** In a scene (a conversation
+  whose assistant has a card, or a scene with a snapshot) assistant text goes
+  through `RoleplayText` (`app/.../ui/chat/RoleplayText.kt`) instead of the
+  Markdown renderer: narration is secondary, quoted speech is the reading
+  colour, parenthetical/`*...*` actions are secondary italic, `**...**` is bold,
+  and a `---` paragraph is a hairline. This is **display-only** and does not
+  depend on the model obeying a format instruction: `RoleplayTypography` is a
+  total linear scan that recognises the conventions models already write
+  (`"..."`, `“...”`, `「...」`, `（...）`, `*...*`, `**...**`, `---`) and hides
+  only the markup delimiters at paint time. Never persist the transformed text,
+  never put it in the request, never use it for export, search or copy -- the
+  stored reply, Source view and copy buffer stay raw. Block Markdown (fences,
+  tables, headings, quotes, dash lists) falls back to `MarkdownText`, and an
+  unclosed marker must stay literal (open quotes/parentheses are styled only
+  while streaming). `RoleplayTypographyTest` pins the conventions, the
+  streaming/unclosed cases, the raw round-trip and the fallback.
+- **An imported character card is untrusted text, never a runtime.**
+  `RoleplayCardImport` (`core/engine/.../roleplay/RoleplayCardImport.kt`) reads
+  PNG (`chara` tEXt/iTXt base64), JSON (Character Card v1/v2/v3 and this app's
+  own shape) and CHARX (ZIP or JPEG+ZIP `card.json`), maps the text fields, and
+  reports everything else as **not imported**: alternate greetings, world book,
+  `system_prompt`/`post_history_instructions`, extensions (regex/HTML UI),
+  assets. HTML in mapped text is converted to plain text; script/style *content*
+  is dropped, no tag is kept for a renderer, nothing is fetched or executed, and
+  the raw file is not persisted. Over-limit fields are truncated to
+  `RoleplayLimits` and reported; the card name counts toward the same budget.
+  The import fills the card editor's draft only -- the user still has to Save --
+  and it adds no tool, approval, SSH grant or network path. Do not add URL
+  import, extension execution or HTML rendering without answering
+  `docs/proposals/rp-formatting.md` §9 (P0a is the text-only import; P1/P2 were
+  deliberately not taken). `RoleplayCardImportTest` pins the formats, the
+  cleanup, the truncation and the failure reasons.
 - **A scene can start from workspace files, and that source shares the tool's
   validator.** `NewSceneDialog` offers assistant cards or a permanent workspace
   folder (`rp/<story>/card.json` + optional `scene.json`), browsed and read by

@@ -1,11 +1,19 @@
 package com.inhuman.ui.agents
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -17,8 +25,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -28,10 +39,20 @@ import com.inhuman.core.design.Layout
 import com.inhuman.core.design.LongTextField
 import com.inhuman.core.design.LongTextFieldLabels
 import com.inhuman.core.design.WideDialog
+import com.inhuman.core.design.dialogBodyMaxHeight
 import com.inhuman.core.engine.roleplay.RoleplayCard
+import com.inhuman.core.engine.roleplay.RoleplayCardImport
+import com.inhuman.core.engine.roleplay.RoleplayCardImport.CardImportWarnings
+import com.inhuman.core.engine.roleplay.RoleplayCardImport.FailureReason
+import com.inhuman.core.engine.roleplay.RoleplayCardImport.UnsupportedPart
 import com.inhuman.core.engine.roleplay.RoleplayField
 import com.inhuman.core.engine.roleplay.RoleplayLimitError
 import com.inhuman.core.engine.roleplay.RoleplayLimits
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 
 /**
  * The character card behind one assistant.
@@ -72,12 +93,72 @@ internal fun RoleplayCardEditor(
 	 * file; null hides the action.
 	 */
 	onExport: ((RoleplayCard) -> Unit)? = null,
+	/** The assistant's name; imported `{{char}}` placeholders become this. */
+	characterName: String = "",
 ) {
 	var edited by remember { mutableStateOf(card) }
 	var temperatureText by remember { mutableStateOf(card.temperature?.toString().orEmpty()) }
 	var topPText by remember { mutableStateOf(card.topP?.toString().orEmpty()) }
 	var maxTokensText by remember { mutableStateOf(card.maxTokens?.toString().orEmpty()) }
 	var confirmingRemove by remember { mutableStateOf(false) }
+	var importingCard by remember { mutableStateOf(false) }
+	var importError by remember { mutableStateOf<Int?>(null) }
+	var importWarnings by remember { mutableStateOf<CardImportWarnings?>(null) }
+	val context = LocalContext.current
+	val coroutineScope = rememberCoroutineScope()
+
+	// Importing replaces the card's text fields, not the assistant's name or the
+	// sampling numbers: an external card has no equivalent for either. The file
+	// is read and parsed off the main thread; only the resulting card and its
+	// warning list cross back.
+	val cardPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+		if (uri == null) return@rememberLauncherForActivityResult
+		coroutineScope.launch {
+			importingCard = true
+			importError = null
+			val outcome = withContext(Dispatchers.IO) {
+				runCatching {
+					val bytes = context.contentResolver.openInputStream(uri)?.use(::readCardBytes)
+						?: throw CardFileUnreadable()
+					RoleplayCardImport.import(
+						bytes = bytes,
+						fileName = cardFileName(context, uri),
+						characterName = characterName,
+					)
+				}.getOrElse { failure ->
+					val reason = when (failure) {
+						is CardFileTooLarge -> FailureReason.TooLarge
+						else -> FailureReason.Unreadable
+					}
+					RoleplayCardImport.Result.Failure(reason, failure.message.orEmpty())
+				}
+			}
+			when (outcome) {
+				is RoleplayCardImport.Result.Success -> {
+					val imported = outcome.card
+					edited = edited.copy(
+						// `name` is metadata for a folder-owned card; an
+						// assistant-backed card's projection uses the assistant's
+						// name, so keeping it changes nothing until exported.
+						name = imported.name.ifBlank { edited.name },
+						description = imported.description,
+						personality = imported.personality,
+						scenario = imported.scenario,
+						greeting = imported.greeting,
+						exampleDialogue = imported.exampleDialogue,
+						// The source has no boundaries/author note concept; the
+						// fields are left as they were rather than cleared by an
+						// import the user has not saved yet.
+					)
+					importWarnings = outcome.warnings
+				}
+				is RoleplayCardImport.Result.Failure -> {
+					importError = failureString(outcome.reason)
+				}
+			}
+			importingCard = false
+		}
+	}
 
 	val temperature = parseDoubleInput(temperatureText, 0.0..RoleplayLimits.TEMPERATURE_MAX)
 	val topP = parseDoubleInput(topPText, 0.0..RoleplayLimits.TOP_P_MAX)
@@ -130,6 +211,38 @@ internal fun RoleplayCardEditor(
 			style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
+
+		// Import sits above the fields, not in the footer: it is how an empty
+		// card starts, and a user who came with a downloaded card should see it
+		// before typing seven fields by hand.
+		Row(
+			modifier = Modifier.fillMaxWidth(),
+			horizontalArrangement = Arrangement.SpaceBetween,
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			TextButton(
+				onClick = { cardPicker.launch(arrayOf("*/*")) },
+				enabled = !importingCard,
+			) {
+				Text(
+					text = stringResource(
+						if (importingCard) R.string.roleplay_import_reading else R.string.roleplay_import_action,
+					),
+				)
+			}
+			Text(
+				text = stringResource(R.string.roleplay_import_formats),
+				style = MaterialTheme.typography.labelLarge,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+		importError?.let { reason ->
+			Text(
+				text = stringResource(reason),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.error,
+			)
+		}
 
 		HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
@@ -301,7 +414,108 @@ internal fun RoleplayCardEditor(
 			textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 	}
+
+	importWarnings?.let { warnings ->
+		CardImportWarningsDialog(warnings = warnings, onDismiss = { importWarnings = null })
+	}
 }
+
+/**
+ * What an import could not carry over.
+ *
+ * The dialog is honest about the gap rather than hiding it: a downloaded card's
+ * HTML UI, world book and alternate greetings are not in this release, and an
+ * importer that silently dropped them would look like it had imported
+ * everything. The footer also says the original file was not kept, so "import
+ * again after the next release" is the mental model.
+ */
+@Composable
+private fun CardImportWarningsDialog(
+	warnings: CardImportWarnings,
+	onDismiss: () -> Unit,
+) {
+	AlertDialog(
+		onDismissRequest = onDismiss,
+		title = { Text(stringResource(R.string.roleplay_import_title)) },
+		text = {
+			Column(
+				modifier = Modifier
+					.heightIn(max = dialogBodyMaxHeight(360.dp))
+					.verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenCollapsed),
+			) {
+				if (warnings.cardName.isNotBlank()) {
+					Text(
+						text = stringResource(R.string.roleplay_import_name, warnings.cardName),
+						style = MaterialTheme.typography.bodySmall,
+					)
+				}
+				if (warnings.htmlStripped) {
+					Text(
+						text = stringResource(R.string.roleplay_import_html),
+						style = MaterialTheme.typography.bodySmall,
+					)
+				}
+				warnings.truncated.distinct().forEach { field ->
+					Text(
+						text = stringResource(
+							R.string.roleplay_import_truncated,
+							cardFieldLabel(field),
+						),
+						style = MaterialTheme.typography.bodySmall,
+					)
+				}
+				warnings.unsupported.forEach { (part, count) ->
+					Text(
+						text = unsupportedCardPartText(part, count),
+						style = MaterialTheme.typography.bodySmall,
+					)
+				}
+				Text(
+					text = stringResource(R.string.roleplay_import_note),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+			}
+		},
+		confirmButton = {
+			TextButton(onClick = onDismiss) {
+				Text(stringResource(R.string.common_done))
+			}
+		},
+		containerColor = MaterialTheme.colorScheme.surface,
+		titleContentColor = MaterialTheme.colorScheme.onSurface,
+		textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+	)
+}
+
+@Composable
+private fun unsupportedCardPartText(part: UnsupportedPart, count: Int): String = stringResource(
+	when (part) {
+		UnsupportedPart.AlternateGreetings -> R.string.roleplay_import_alternates
+		UnsupportedPart.GroupOnlyGreetings -> R.string.roleplay_import_group_greetings
+		UnsupportedPart.CharacterBook -> R.string.roleplay_import_book
+		UnsupportedPart.CreatorNotes -> R.string.roleplay_import_creator_notes
+		UnsupportedPart.SystemPrompt -> R.string.roleplay_import_system_prompt
+		UnsupportedPart.PostHistoryInstructions -> R.string.roleplay_import_post_history
+		UnsupportedPart.Extensions -> R.string.roleplay_import_extensions
+		UnsupportedPart.Assets -> R.string.roleplay_import_assets
+	},
+	count,
+)
+
+@Composable
+private fun cardFieldLabel(field: RoleplayField): String = stringResource(
+	when (field) {
+		RoleplayField.Name -> R.string.roleplay_field_name
+		RoleplayField.Description -> R.string.roleplay_field_description
+		RoleplayField.Personality -> R.string.roleplay_field_personality
+		RoleplayField.Scenario -> R.string.roleplay_field_scenario
+		RoleplayField.Greeting -> R.string.roleplay_field_greeting
+		RoleplayField.ExampleDialogue -> R.string.roleplay_field_example
+		else -> R.string.roleplay_field_card_total
+	},
+)
 
 /**
  * One prose field, edited in [LongTextField]'s dialog.
@@ -390,6 +604,50 @@ private fun parseIntInput(text: String, range: IntRange): NumberInput<Int> {
 	if (trimmed.isEmpty()) return NumberInput(value = null, invalid = false)
 	val parsed = trimmed.toIntOrNull()
 	return NumberInput(parsed, invalid = parsed == null || parsed !in range)
+}
+
+private class CardFileTooLarge : Exception()
+private class CardFileUnreadable : Exception()
+
+/**
+ * Read an imported card without trusting its size.
+ *
+ * `readBytes()` would allocate whatever the picker handed over; a 200 MiB video
+ * renamed `.png` should be refused before it is in memory, not after.
+ */
+private fun readCardBytes(input: InputStream): ByteArray {
+	val out = ByteArrayOutputStream()
+	val buffer = ByteArray(8 * 1024)
+	while (true) {
+		val read = input.read(buffer)
+		if (read <= 0) break
+		if (out.size() + read > RoleplayCardImport.MAX_BYTES) throw CardFileTooLarge()
+		out.write(buffer, 0, read)
+	}
+	return out.toByteArray()
+}
+
+/** The picked file's display name, used only to disambiguate by extension. */
+private fun cardFileName(context: Context, uri: Uri): String? = runCatching {
+	context.contentResolver.query(
+		uri,
+		arrayOf(OpenableColumns.DISPLAY_NAME),
+		null,
+		null,
+		null,
+	)?.use { cursor ->
+		val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+		if (column >= 0 && cursor.moveToFirst()) cursor.getString(column) else null
+	}
+}.getOrNull()?.takeIf { it.isNotBlank() }
+
+private fun failureString(reason: FailureReason): Int = when (reason) {
+	FailureReason.NotACardFile -> R.string.roleplay_import_reason_unsupported
+	FailureReason.TooLarge -> R.string.roleplay_import_reason_too_large
+	FailureReason.InvalidJson -> R.string.roleplay_import_reason_invalid_json
+	FailureReason.MissingCardData -> R.string.roleplay_import_reason_missing
+	FailureReason.EmptyCard -> R.string.roleplay_import_reason_empty
+	FailureReason.Unreadable -> R.string.roleplay_import_reason_unreadable
 }
 
 /**
