@@ -1522,4 +1522,17 @@
 	<string name="settings_web_clear_keys_confirm">删除网页工具已保存的 DeepSeek 和 Exa 密钥？重新保存密钥之前，请求会失败。</string>
 	<string name="settings_media_clear_key">删除已保存的密钥</string>
 	<string name="settings_key_cleared">已删除保存的密钥。</string>
+	<!-- 设置搜索关键词：区块内部的东西，用用户会输入的说法。 -->
+	<string name="settings_keywords_models">API 密钥 OAuth 登录 服务商 模型 端点</string>
+	<string name="settings_keywords_web">搜索 抓取 网页 密钥 付费 媒体 图片 视频 语音 朗读 音色 自动朗读 B站 弹幕 登录 扫码 转写 决策</string>
+	<string name="settings_keywords_runtime">演示模式 SSH 远程 主机 地址簿 下载 URL 沙箱 javascript 执行</string>
+	<string name="settings_keywords_limits">工具轮次 调用上限 压缩 快照 保留 回退</string>
+	<string name="settings_keywords_usage">用量 token 花费 整理 统计</string>
+	<string name="settings_keywords_backup">备份 加密 导入 导出 同步文件夹 口令 恢复 撤销</string>
+	<string name="settings_keywords_approvals">审批 规则 询问 拒绝 路径 审计</string>
+	<string name="settings_keywords_diagnostics">日志 诊断 上传 许可 记录</string>
+	<string name="settings_keywords_local">更新 服务器 局域网 Tailscale 地址 检查</string>
+	<string name="settings_keywords_display">布局 紧凑 舒适 字体 字号 显示 建议回复</string>
+	<string name="settings_keywords_language">语言 中文 英文</string>
+	<string name="settings_keywords_time">时间 提示 时区 间隔</string>
 </resources>

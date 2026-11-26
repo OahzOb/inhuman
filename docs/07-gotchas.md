@@ -1539,33 +1539,6 @@ suite; the flash itself is a rendering timing uiautomator cannot sample
 (§D11), so the pinned invariant is the cache logic: a revisit never sets
 `loading` again.**
 
-### B47. The conversation tool sheet hid a grant reset and listed thirty flat rows — **FIXED**
-
-Two gaps in the one screen where the user decides what the agent may do:
-
-- **Ticking `ssh_exec`, `ssh_upload` or `ssh_write_file` resets the
-  conversation's SSH grant**, and the sheet said nothing about it. The reset is
-  correct and load-bearing (`widensDangerousSsh`, `setConversationTools`), and
-  the Settings paragraph mentioned it — but the moment it happens is the tick,
-  so the sheet now shows the sentence there, driven by the same
-  `widensDangerousSsh(selected, checked)` predicate the view model uses.
-- **Thirty undifferentiated rows** turned the sheet into a settings panel. It
-  now groups by family — Read, Write, External, Media, Remote, Other — with a
-  heading per group. `toolFamilyOf` derives the family from the catalogue's own
-  flags (`remote`/`gatedBySsh`, `gatedByMediaConfig`, `gatedByBilibili`/
-  `gatedByDownload`, `workspaceBound` + `mutates`), so a new tool lands in the
-  right group without a second table to maintain; `conversationToolGroups`
-  keeps display order and drops empty groups, and a test asserts the grouping is
-  a partition of the offered rows (nothing dropped, nothing repeated).
-
-The workbench dialog got the matching one-line explanation: several of its rows
-are greyed while a turn, maintenance or an export runs, and the dialog now says
-so above them instead of leaving the grey unexplained (`chat_workbench_busy`).
-
-**Verified by build and the unit suite.** The grouping test pins the partition
-and the family order; the sheet's layout is the existing dialog body with
-headings added, no new surface.
-
 ### B41. A three-line draft pushed the composer's action row off a short window — **FIXED**
 
 `docs/06` carried this as the last open main-path defect: on a 640×360dp
@@ -1686,9 +1659,6 @@ list. Each of these is a real gap, not a style opinion.
 - **A message with image attachments shows `📎 name` and no thumbnail.** The
   bytes are deliberately not in state; a thumbnail needs a bounded,
   identity-keyed decode, which is a small feature rather than a fix.
-- **Settings search matches section code, title and summary only**, so
-  "音色", "B 站" or "地址簿" find nothing although they exist inside sections.
-  Needs a per-section keyword resource.
 
 ### B46. Every picker listed media tools whose backend could not run — **FIXED**
 
@@ -1745,6 +1715,55 @@ state the product promise describes for a fresh install. The positive half is
 typed, and the provider-key route did not complete either (the same
 input-injection class as D13). `MediaAvailabilityTest` pins each resolution
 branch instead, including DeepSeek serving speech but not image.
+
+### B47. The conversation tool sheet hid a grant reset and listed thirty flat rows — **FIXED**
+
+Two gaps in the one screen where the user decides what the agent may do:
+
+- **Ticking `ssh_exec`, `ssh_upload` or `ssh_write_file` resets the
+  conversation's SSH grant**, and the sheet said nothing about it. The reset is
+  correct and load-bearing (`widensDangerousSsh`, `setConversationTools`), and
+  the Settings paragraph mentioned it — but the moment it happens is the tick,
+  so the sheet now shows the sentence there, driven by the same
+  `widensDangerousSsh(selected, checked)` predicate the view model uses.
+- **Thirty undifferentiated rows** turned the sheet into a settings panel. It
+  now groups by family — Read, Write, External, Media, Remote, Other — with a
+  heading per group. `toolFamilyOf` derives the family from the catalogue's own
+  flags (`remote`/`gatedBySsh`, `gatedByMediaConfig`, `gatedByBilibili`/
+  `gatedByDownload`, `workspaceBound` + `mutates`), so a new tool lands in the
+  right group without a second table to maintain; `conversationToolGroups`
+  keeps display order and drops empty groups, and a test asserts the grouping is
+  a partition of the offered rows (nothing dropped, nothing repeated).
+
+The workbench dialog got the matching one-line explanation: several of its rows
+are greyed while a turn, maintenance or an export runs, and the dialog now says
+so above them instead of leaving the grey unexplained (`chat_workbench_busy`).
+
+**Verified by build and the unit suite.** The grouping test pins the partition
+and the family order; the sheet's layout is the existing dialog body with
+headings added, no new surface.
+
+### B48. Settings search could not find a setting by the name people use for it — **FIXED**
+
+The search matched a section's number, title and one-sentence summary. Those
+sentences cannot name every control, so "音色", "B 站", "弹幕", "地址簿",
+"javascript" and "Tailscale" all returned "no matching section" while the
+setting sat inside one — on the page whose only navigation aid is that field.
+
+Each of the twelve sections now carries a `keywords` resource (both languages)
+holding the words for what is inside it, `SettingsSectionText` gained the field,
+and the match itself moved into `settingsSectionMatches`
+(`app/.../ui/settings/SettingsSearch.kt`) so `SettingsSearchTest` can pin it
+without a composition: an empty query keeps everything, code/title/summary still
+match, a keyword matches where the prose does not (and the same word does not
+match without the keyword), unrelated words match nothing, and a query with
+surrounding whitespace still matches.
+
+**Verified by build and the unit suite.** The end-to-end drive was blocked by
+this emulator's input injection failing again (taps and dumps work, typed text
+does not land — D13): the keyword lists are resources and the predicate is
+tested, so what remains unverified is only that the field wires the query
+through, which is one line above the predicate.
 
 ## C. Comments that contradict the code
 

@@ -195,72 +195,85 @@ fun SettingsScreen(
 	// The text a section is searched by. Built once per composition because
 	// every string is localized; the list is also the answer to "did the
 	// search match anything", so the empty state does not have to guess.
-	fun matches(section: SettingsSectionText): Boolean {
-		val needle = query.trim()
-		return needle.isEmpty() ||
-			listOf(section.code, section.title, section.summary).any {
-				it.contains(needle, ignoreCase = true)
-			}
-	}
+	fun matches(section: SettingsSectionText): Boolean =
+		settingsSectionMatches(
+			query = query,
+			code = section.code,
+			title = section.title,
+			summary = section.summary,
+			keywords = section.keywords,
+		)
 	val modelsText = SettingsSectionText(
 		stringResource(R.string.settings_section_models),
 		stringResource(R.string.settings_providers_title),
 		stringResource(R.string.settings_providers_detail),
+		stringResource(R.string.settings_keywords_models),
 	)
 	val webText = SettingsSectionText(
 		stringResource(R.string.settings_section_web),
 		stringResource(R.string.settings_web_title),
 		stringResource(R.string.settings_web_summary),
+		stringResource(R.string.settings_keywords_web),
 	)
 	val runtimeText = SettingsSectionText(
 		stringResource(R.string.settings_section_runtime),
 		stringResource(R.string.settings_runtime_title),
 		stringResource(R.string.settings_runtime_summary),
+		stringResource(R.string.settings_keywords_runtime),
 	)
 	val limitsText = SettingsSectionText(
 		stringResource(R.string.settings_section_limits),
 		stringResource(R.string.settings_limits_title),
 		stringResource(R.string.settings_limits_body),
+		stringResource(R.string.settings_keywords_limits),
 	)
 	val usageText = SettingsSectionText(
 		stringResource(R.string.settings_section_usage),
 		stringResource(R.string.settings_usage_title),
 		stringResource(R.string.settings_usage_body),
+		stringResource(R.string.settings_keywords_usage),
 	)
 	val backupText = SettingsSectionText(
 		stringResource(R.string.settings_section_backup),
 		stringResource(R.string.settings_backup_title),
 		stringResource(R.string.settings_backup_summary),
+		stringResource(R.string.settings_keywords_backup),
 	)
 	val approvalsText = SettingsSectionText(
 		stringResource(R.string.settings_section_approvals),
 		stringResource(R.string.settings_approvals_title),
 		stringResource(R.string.settings_approvals_none),
+		stringResource(R.string.settings_keywords_approvals),
 	)
 	val diagnosticsText = SettingsSectionText(
 		stringResource(R.string.settings_section_diagnostics),
 		stringResource(R.string.settings_diagnostics_title),
 		stringResource(R.string.settings_diagnostics_summary),
+		stringResource(R.string.settings_keywords_diagnostics),
 	)
 	val localText = SettingsSectionText(
 		stringResource(R.string.settings_section_local),
 		stringResource(R.string.settings_local_title),
 		stringResource(R.string.settings_local_summary),
+		stringResource(R.string.settings_keywords_local),
 	)
 	val displayText = SettingsSectionText(
 		stringResource(R.string.settings_section_display),
 		stringResource(R.string.settings_display_title),
 		stringResource(R.string.settings_layout_body),
+		stringResource(R.string.settings_keywords_display),
 	)
 	val languageText = SettingsSectionText(
 		stringResource(R.string.settings_section_language),
 		stringResource(R.string.settings_language_title),
 		stringResource(R.string.settings_language_body),
+		stringResource(R.string.settings_keywords_language),
 	)
 	val timeText = SettingsSectionText(
 		stringResource(R.string.settings_section_time),
 		stringResource(R.string.settings_time_title),
 		stringResource(R.string.settings_time_body),
+		stringResource(R.string.settings_keywords_time),
 	)
 	val sectionTexts = listOf(
 		modelsText, webText, runtimeText, limitsText, usageText, backupText,
@@ -2788,6 +2801,17 @@ private data class SettingsSectionText(
 	val code: String,
 	val title: String,
 	val summary: String,
+	/**
+	 * Words for the things inside the section: the voice picker, the Bilibili
+	 * login, the address book.
+	 *
+	 * The title and summary describe a section in a sentence, and a sentence
+	 * cannot name every control. Searching for a setting by the name the user
+	 * knows it by returned "no matching section" while the setting sat inside
+	 * one; a keyword list is the cheapest honest fix, and it is localized
+	 * because the keywords are what a person types.
+	 */
+	val keywords: String = "",
 )
 
 @Composable

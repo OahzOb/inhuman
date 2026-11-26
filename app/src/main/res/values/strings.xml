@@ -1551,4 +1551,17 @@
 	<string name="settings_web_clear_keys_confirm">Delete the saved DeepSeek and Exa keys for the web tools? Requests will fail until a key is saved again.</string>
 	<string name="settings_media_clear_key">Delete saved key</string>
 	<string name="settings_key_cleared">Saved key deleted.</string>
+	<!-- Settings search keywords: the things inside a section, by the name a person uses. -->
+	<string name="settings_keywords_models">API key OAuth sign in provider model endpoint</string>
+	<string name="settings_keywords_web">search fetch web key paid media image video speech read aloud voice auto-read Bilibili danmaku login QR transcribe decision</string>
+	<string name="settings_keywords_runtime">demo mode SSH remote host address book download URL sandbox javascript execution</string>
+	<string name="settings_keywords_limits">tool rounds call limit compaction snapshot retention rewind</string>
+	<string name="settings_keywords_usage">usage token spend maintenance statistics</string>
+	<string name="settings_keywords_backup">backup encrypt import export sync folder passphrase restore undo</string>
+	<string name="settings_keywords_approvals">approval rules ask deny path audit</string>
+	<string name="settings_keywords_diagnostics">log diagnostics upload notices record</string>
+	<string name="settings_keywords_local">update server LAN Tailscale address check</string>
+	<string name="settings_keywords_display">layout compact comfortable font size display suggestions</string>
+	<string name="settings_keywords_language">language Chinese English</string>
+	<string name="settings_keywords_time">time hint timezone gap</string>
 </resources>
