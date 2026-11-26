@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -59,6 +60,9 @@ fun UsageLine(usage: UsageUi, modifier: Modifier = Modifier, prefix: String? = n
 			style = MaterialTheme.typography.labelLarge,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 			modifier = Modifier
+				// Same treatment as CollapsibleSection's header: this was ~26dp
+				// of touch for one of the most-tapped rows on the screen.
+				.minimumInteractiveComponentSize()
 				.clickable { expanded = !expanded }
 				.padding(vertical = 2.dp),
 		)

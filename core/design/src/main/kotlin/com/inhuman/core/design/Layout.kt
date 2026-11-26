@@ -223,9 +223,11 @@ object Layout {
 		/**
 		 * Inside a collapsed header, above and below its label.
 		 *
-		 * Half the 20dp Material's minimum touch target would imply, because the
-		 * row already exceeds that: a 14sp label plus this is past 40dp. Adding
-		 * the full 20dp on each side is what made a one-line summary 53dp tall.
+		 * Purely visual: the header's touch target comes from
+		 * `minimumInteractiveComponentSize`, not from this padding. The old
+		 * comment claimed "a 14sp label plus this is past 40dp" -- it is 30dp,
+		 * arithmetic nobody re-checked while the most-tapped rows on the
+		 * screen sat at under half the recommended target.
 		 */
 		val CollapsedPadding: Dp = 5.dp
 	}

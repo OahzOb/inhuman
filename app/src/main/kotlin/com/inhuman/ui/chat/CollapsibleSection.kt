@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -117,6 +118,10 @@ fun CollapsibleSection(
 		Row(
 			modifier = Modifier
 				.fillMaxWidth()
+				// The most-tapped row on the screen measured ~30dp tall against
+				// a 48dp recommendation; this supplies the missing target size
+				// without re-inflating the visual padding A17 compressed.
+				.minimumInteractiveComponentSize()
 				.clickable { expanded = !expanded }
 				.padding(
 					horizontal = 8.dp,

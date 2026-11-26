@@ -1096,6 +1096,7 @@
 	<string name="chat_pause">Pause</string>
 	<string name="chat_resume">Resume</string>
 	<string name="chat_speech_continue">Resume reading</string>
+	<string name="chat_speech_progress">Playback progress; drag to seek</string>
 	<string name="chat_speech_channel">Reply read-aloud</string>
 	<string name="chat_speech_channel_body">Playback controls for reading replies aloud.</string>
 	<string name="chat_speech_empty">There is no text to read.</string>

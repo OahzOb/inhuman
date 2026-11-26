@@ -664,7 +664,6 @@ private fun WireToolCard(tool: WireTool) {
 		if (tool.rawSchema.isNotBlank()) {
 			TextButton(
 				onClick = { showSchema = !showSchema },
-				modifier = Modifier.height(28.dp),
 			) {
 				Text(
 					stringResource(
@@ -860,7 +859,6 @@ private fun WireLongText(
 			if (isLong) {
 				TextButton(
 					onClick = { expanded = true },
-					modifier = Modifier.height(28.dp),
 				) {
 					Text(stringResource(R.string.wire_show_more), style = MaterialTheme.typography.labelSmall)
 				}
@@ -882,7 +880,6 @@ private fun WireLongText(
 				Spacer(Modifier.weight(1f))
 				TextButton(
 					onClick = { expanded = false },
-					modifier = Modifier.height(28.dp),
 				) {
 					Text(stringResource(R.string.wire_show_less), style = MaterialTheme.typography.labelSmall)
 				}

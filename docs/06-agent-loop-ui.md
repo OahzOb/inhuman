@@ -247,10 +247,16 @@ user line. The engine appends to its live history only after the host's write
 succeeds; a failed write leaves the entry queued and the turn continues without
 it.
 
-**Short-landscape caveat:** on a 640×360dp window with the soft keyboard open the
-IME consumes the remaining height and the composer is covered. That is a
-pre-existing IME limitation (typing any message in that ratio shows the same),
-not a property of the queue; it was not fixed here.
+**Short-landscape caveat, now closed:** on a 640×360dp window with the soft
+keyboard open the IME consumes the remaining height, and a six-line draft used
+to push the composer's action row below the screen edge — reachable only by
+blind tapping. The field's line cap now follows the window's height class
+(`composerMaxLines`: two lines on a Compact-height window, six everywhere
+else), so the row stays put. The cap binds only on short windows because the
+class does — a proportional cap would also have cost a line on a portrait
+phone. `ComposerMaxLinesTest` pins the matrix cells; see
+[07-gotchas.md](07-gotchas.md) B41 for what was and was not verified on a
+device.
 
 ### The approval plumbing
 

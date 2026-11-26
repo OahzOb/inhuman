@@ -1539,6 +1539,65 @@ suite; the flash itself is a rendering timing uiautomator cannot sample
 (§D11), so the pinned invariant is the cache logic: a revisit never sets
 `loading` again.**
 
+### B41. A three-line draft pushed the composer's action row off a short window — **FIXED**
+
+`docs/06` carried this as the last open main-path defect: on a 640×360dp
+landscape window with the soft keyboard up, a multi-line draft (the field was
+`maxLines = 6` with no window-derived limit) plus the 48dp action row exceeded
+what the IME left, the transcript's `weight(1f)` collapsed to zero, and send /
+stop sat below the screen edge. The composer is a one-surface layout
+(hairline-bounded field above a 48dp row, B32), so the fix belongs in the
+field's line cap, not in moving controls back beside the text.
+
+`composerMaxLines(heightClass)` in `app/.../ui/chat/ComposerLayout.kt` gives a
+Compact-height window two lines and every other window six. The rule is the
+height class rather than a fraction of the window because a proportional cap
+also binds on a 360×800dp portrait phone, where the composer has the room;
+`ComposerMaxLinesTest` asserts the whole matrix, including that 640×360 is the
+only cell that is capped.
+
+**Not device-driven, and recorded as such.** The intent was to type a
+three-line draft at 1280×720@320dpi and assert the send row's bounds, and
+`tools/verify-composer-touch.ps1` does exactly that. The emulator session used
+for it could not inject text at all: the field reports `focused="true"`,
+`dumpsys input_method` reports `mInputShown=true`, and neither
+`adb shell input text` nor hardware keyevents arrived (`input text` was
+confirmed working earlier in this same session for the file-tools message, so
+the regression is in the emulator's input layer, not in the app). The pure
+half is tested; the rendering half is the honest gap.
+
+### B42. The most-tapped rows in the transcript were under half the recommended touch target — **FIXED**
+
+Measured against Material's 48dp minimum: a collapsed section header
+(`CollapsibleSection`) was ~30dp of touch and the turn usage line (`UsageLine`)
+~26dp, both of them the rows a reader taps most. `Layout.Space.CollapsedPadding`
+is 5dp of *visual* padding and is correct as such — but the comment above it
+justified that number with arithmetic that did not hold: "a 14sp label plus
+this is past 40dp" is 30dp, and the wrong claim is what kept the row small
+(this repository's C-section standard: the comment was the bug).
+
+Both rows now call `minimumInteractiveComponentSize()`, which supplies the
+48dp target without re-inflating the visual padding A17 compressed, and the
+`Layout.kt` comment states what the padding is for. The same pass removed two
+explicit `Modifier.height(28.dp)` presses in `WireSheet` and gave the
+read-aloud progress slider a `contentDescription` (an unnamed scrub control
+reads as decoration to TalkBack).
+
+**Verified by build and the unit suite only.** Touch-target height is
+measurable in principle, but it needs a transcript with a collapsed section,
+which needs a driven message — blocked by the same emulator input failure as
+B41, so this is claimed as a framework guarantee, not as a measurement.
+
+### B43. Fixed-width text columns clipped at large font scale
+
+The turn picker's number column was a fixed `width(30.dp)` and the in-chat
+search's role column a fixed `width(84.dp)`. At 1.5× font scale a
+three-digit turn number and the word `ASSISTANT` no longer fit, so the number
+clipped and the role label wrapped onto a second line, pushing the snippet
+down. Both are now `widthIn(min = …)`: the column still starts at its designed
+width and grows with the text instead of cutting it. Part of the same
+large-font matrix row `WindowFrameTest` classifies.
+
 ## C. Comments that contradict the code
 
 By this repository's standard, the comment is the bug. These were all verified.

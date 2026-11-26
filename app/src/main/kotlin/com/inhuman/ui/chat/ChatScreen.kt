@@ -34,6 +34,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PlayArrow
@@ -1954,7 +1955,7 @@ fun ChatScreen(
 								style = MaterialTheme.typography.labelMedium,
 								fontFamily = FontFamily.Monospace,
 								color = MaterialTheme.colorScheme.onSurfaceVariant,
-								modifier = Modifier.width(30.dp),
+								modifier = Modifier.widthIn(min = 30.dp),
 							)
 							Column(modifier = Modifier.weight(1f)) {
 								Text(
@@ -3311,7 +3312,7 @@ private fun ChatSearchDialog(
 								style = MaterialTheme.typography.labelSmall,
 								fontFamily = FontFamily.Monospace,
 								color = MaterialTheme.colorScheme.onSurfaceVariant,
-								modifier = Modifier.width(84.dp),
+								modifier = Modifier.widthIn(min = 84.dp),
 							)
 							Text(
 								text = highlightSnippet(match.snippet, query),
@@ -5859,6 +5860,13 @@ private fun Composer(
 		// of starting a second turn. Compaction still disables it, because that
 		// request rewrites the projection this draft would be sent against.
 		val inputEnabled = enabled && !isCompacting
+		// A short window (a landscape phone) cannot show a six-line draft
+		// beside the keyboard: the transcript's weight(1f) collapses to zero
+		// first and the action row slides below the screen edge -- the
+		// short-landscape caveat docs/06 recorded as unfixed. The rule is the
+		// window's height class; `ComposerMaxLinesTest` pins which matrix cells
+		// it binds on, and the pure function carries the reasoning.
+		val maxFieldLines = composerMaxLines(currentWindowFrame().heightClass)
 		val fieldBorder = when {
 			!inputEnabled -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
 			fieldFocused -> MaterialTheme.colorScheme.primary
@@ -5882,7 +5890,7 @@ private fun Composer(
 						color = MaterialTheme.colorScheme.onSurface,
 					),
 					enabled = inputEnabled,
-					maxLines = 6,
+					maxLines = maxFieldLines,
 					keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
 					keyboardActions = KeyboardActions(),
 					cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
@@ -7049,6 +7057,7 @@ private fun SpeechPlayerBar(
 					// a file with no duration yet, the row stays out rather than
 					// drawing a fake 0%.
 					if (durationMs > 0) {
+						val seekDescription = stringResource(R.string.chat_speech_progress)
 						Row(
 							modifier = Modifier.fillMaxWidth(),
 							verticalAlignment = Alignment.CenterVertically,
@@ -7059,7 +7068,14 @@ private fun SpeechPlayerBar(
 								onValueChangeFinished = onScrubFinished,
 								modifier = Modifier
 									.weight(1f)
-									.height(28.dp),
+									// 28dp is the visual track; M3 already expands
+									// the thumb's own touch area past it. What was
+									// missing is the name: an unnamed scrub control
+									// reads as decoration to TalkBack.
+									.height(28.dp)
+									.semantics {
+										contentDescription = seekDescription
+									},
 							)
 							Text(
 								text = "${SpeechTime.format(positionMs)} / " +

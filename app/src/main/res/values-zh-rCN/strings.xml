@@ -1072,6 +1072,7 @@
 	<string name="chat_pause">暂停</string>
 	<string name="chat_resume">继续</string>
 	<string name="chat_speech_continue">继续朗读</string>
+	<string name="chat_speech_progress">播放进度，可拖动定位</string>
 	<string name="chat_speech_channel">回复朗读</string>
 	<string name="chat_speech_channel_body">朗读回复的播放控制。</string>
 	<string name="chat_speech_empty">没有可朗读的文字。</string>
