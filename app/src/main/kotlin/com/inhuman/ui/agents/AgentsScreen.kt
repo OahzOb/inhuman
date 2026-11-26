@@ -42,6 +42,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import com.inhuman.core.design.LongTextField
 import com.inhuman.core.design.LongTextFieldLabels
 import com.inhuman.core.design.WideDialog
+import com.inhuman.core.design.dialogBodyMaxHeight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -1234,7 +1235,7 @@ private fun PromptPreview(
 			Column(
 				modifier = Modifier
 					.fillMaxWidth()
-					.heightIn(max = 460.dp)
+					.heightIn(max = dialogBodyMaxHeight(460.dp))
 					.verticalScroll(rememberScrollState()),
 				verticalArrangement = Arrangement.spacedBy(12.dp),
 			) {

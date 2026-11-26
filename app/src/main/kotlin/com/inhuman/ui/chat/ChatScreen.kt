@@ -165,6 +165,7 @@ import com.inhuman.core.design.StatusDot
 import com.inhuman.core.design.WideDialog
 import com.inhuman.core.design.WorkbenchGrid
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.core.design.dialogBodyMaxHeight
 import com.inhuman.ui.common.formatBytes
 import com.inhuman.ui.common.highlightSnippet
 import com.inhuman.ui.common.FlowRowCompat
@@ -2596,7 +2597,7 @@ fun ChatScreen(
 				text = {
 					Column(
 						modifier = Modifier
-							.heightIn(max = 420.dp)
+							.heightIn(max = dialogBodyMaxHeight(420.dp))
 							.verticalScroll(rememberScrollState()),
 						verticalArrangement = Arrangement.spacedBy(8.dp),
 					) {
@@ -2729,7 +2730,12 @@ fun ChatScreen(
 			onDismissRequest = { showSnapshotDialog = false },
 			title = { Text(stringResource(R.string.chat_snapshots)) },
 			text = {
-				Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
+				Column(
+					modifier = Modifier
+						.heightIn(max = dialogBodyMaxHeight(420.dp))
+						.verticalScroll(rememberScrollState()),
+					verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
+				) {
 					Text(
 						if (snapshotStats.turns == 0) {
 							stringResource(R.string.chat_snapshots_empty)
@@ -2748,12 +2754,7 @@ fun ChatScreen(
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
 					if (snapshotTurns.isNotEmpty()) {
-						Column(
-							modifier = Modifier
-								.heightIn(max = 240.dp)
-								.verticalScroll(rememberScrollState()),
-							verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
-						) {
+						Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
 							snapshotTurns.forEachIndexed { index, turn ->
 								Column {
 									Text(
@@ -3351,17 +3352,18 @@ private fun RewindDialog(
 		onDismissRequest = onDismiss,
 		title = { Text(stringResource(R.string.chat_rewind)) },
 		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage)) {
+			Column(
+				modifier = Modifier
+					.heightIn(max = dialogBodyMaxHeight(420.dp))
+					.verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(Layout.Space.InMessage),
+			) {
 				Text(
 					text = stringResource(R.string.chat_rewind_picker_body),
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
-				Column(
-					modifier = Modifier
-						.heightIn(max = 420.dp)
-						.verticalScroll(rememberScrollState()),
-				) {
+				Column {
 					if (canAnswerAgain) {
 						RewindChoice(
 							title = stringResource(R.string.chat_answer_again),
@@ -3838,7 +3840,7 @@ private fun SshConsentDialog(
 			Column(
 				modifier = Modifier
 					.fillMaxWidth()
-					.heightIn(max = 460.dp)
+					.heightIn(max = dialogBodyMaxHeight(460.dp))
 					.verticalScroll(rememberScrollState()),
 				verticalArrangement = Arrangement.spacedBy(12.dp),
 			) {
@@ -3931,7 +3933,7 @@ private fun DownloadConsentDialog(
 			Column(
 				modifier = Modifier
 					.fillMaxWidth()
-					.heightIn(max = 460.dp)
+					.heightIn(max = dialogBodyMaxHeight(460.dp))
 					.verticalScroll(rememberScrollState()),
 				verticalArrangement = Arrangement.spacedBy(12.dp),
 			) {
@@ -6356,7 +6358,7 @@ private fun SshHostsDialog(
 			Column(
 				modifier = Modifier
 					.fillMaxWidth()
-					.heightIn(max = 460.dp)
+					.heightIn(max = dialogBodyMaxHeight(460.dp))
 					.verticalScroll(rememberScrollState()),
 			) {
 				Text(
@@ -6436,7 +6438,7 @@ private fun ConversationToolsDialog(
 			Column(
 				modifier = Modifier
 					.fillMaxWidth()
-					.heightIn(max = 460.dp)
+					.heightIn(max = dialogBodyMaxHeight(460.dp))
 					.verticalScroll(rememberScrollState()),
 			) {
 				Text(
@@ -6754,7 +6756,13 @@ private fun GenerateImageDialog(
 		onDismissRequest = { if (!generating) onDismiss() },
 		title = { Text(stringResource(R.string.chat_generate_image_title)) },
 		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
+			Column(
+				modifier = Modifier
+					.fillMaxWidth()
+					.heightIn(max = dialogBodyMaxHeight(420.dp))
+					.verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
+			) {
 				PaidActionNotice()
 				OutlinedTextField(
 					value = prompt,
@@ -6882,7 +6890,13 @@ private fun DecisionDialog(
 		onDismissRequest = { if (!running) onDismiss() },
 		title = { Text(stringResource(R.string.chat_decision)) },
 		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
+			Column(
+				modifier = Modifier
+					.fillMaxWidth()
+					.heightIn(max = dialogBodyMaxHeight(420.dp))
+					.verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
+			) {
 				PaidActionNotice()
 				Text(
 					stringResource(R.string.chat_decision_presets),
@@ -7096,7 +7110,13 @@ private fun SpeechReadConsentDialog(
 		onDismissRequest = onDismiss,
 		title = { Text(stringResource(R.string.chat_speak_reply_title)) },
 		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
+			Column(
+				modifier = Modifier
+					.fillMaxWidth()
+					.heightIn(max = dialogBodyMaxHeight(420.dp))
+					.verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
+			) {
 				PaidActionNotice()
 				Text(
 					text = stringResource(R.string.chat_speak_reply_first_use),
@@ -7197,7 +7217,13 @@ private fun SpeechDialog(
 		onDismissRequest = { if (!running) onDismiss() },
 		title = { Text(stringResource(R.string.chat_tts_title)) },
 		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
+			Column(
+				modifier = Modifier
+					.fillMaxWidth()
+					.heightIn(max = dialogBodyMaxHeight(420.dp))
+					.verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
+			) {
 				PaidActionNotice()
 				OutlinedTextField(
 					value = text,
@@ -7347,7 +7373,13 @@ private fun VideoDialog(
 		onDismissRequest = onDismiss,
 		title = { Text(stringResource(R.string.chat_generate_video)) },
 		text = {
-			Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
+			Column(
+				modifier = Modifier
+					.fillMaxWidth()
+					.heightIn(max = dialogBodyMaxHeight(420.dp))
+					.verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
+			) {
 				PaidActionNotice()
 				OutlinedTextField(
 					value = prompt,

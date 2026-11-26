@@ -41,6 +41,7 @@ import com.inhuman.core.ai.RemoteModel
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.ProviderProfileEntity
 import com.inhuman.core.design.WorkbenchSwitch
+import com.inhuman.core.design.dialogBodyMaxHeight
 import com.inhuman.R
 import com.inhuman.core.design.Layout
 import kotlinx.coroutines.launch
@@ -187,7 +188,7 @@ fun ModelPickerDialog(
 			Column(
 				modifier = Modifier
 					.fillMaxWidth()
-					.heightIn(max = 460.dp)
+					.heightIn(max = dialogBodyMaxHeight(460.dp))
 					.verticalScroll(rememberScrollState()),
 				verticalArrangement = Arrangement.spacedBy(12.dp),
 			) {

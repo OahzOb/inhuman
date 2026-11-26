@@ -705,7 +705,10 @@ That fixes two concrete failures found by running the matrix:
 420dp, so a form opened in a 360dp-tall landscape window still has visible
 actions. The reserve is 220dp: with 180dp the title, surface padding, content
 padding and action row together still pushed Cancel/Save below a 360dp-tall
-window edge, which a landscape screenshot showed. The Wire sheet uses
+window edge, which a landscape screenshot showed. Since B38 every
+`AlertDialog` body follows the same rule through `dialogBodyMaxHeight(cap)` in
+`core/design`, so the SSH consent's Allow — and every other dialog's action
+row — stays inside a short window too ([07-gotchas.md](07-gotchas.md) B38). The Wire sheet uses
 `isCompact` for both its field layout and its height, which is why a wide, short
 window stacks fields rather than trying to draw tablet columns.
 

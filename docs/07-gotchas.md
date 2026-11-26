@@ -1454,6 +1454,46 @@ server URL first" even though the field was filled. Every valid edit is now
 normalized and persisted; an invalid or cleared field removes the old value so
 a hidden target cannot outlive the visible one.
 
+### B38. Fixed-height dialog bodies put their own buttons off a short window — **FIXED**
+
+The `AlertDialog` family capped its bodies at fixed 380–520dp — the SSH and
+URL-download consents, the conversation tool sheet, the SSH host picker, the
+model picker, the rewind picker, the compaction summary, the snapshot list,
+the provider editor, the OAuth form, the provider picker, the host-key list,
+the agents preview, the workspace assistant picker — and the five paid-media
+dialogs (image, video, speech, decision, the speak-reply first-use notice) had
+no cap and no scroll at all. M3 lays the action row below the text slot and
+never moves it, so on a 640×360 landscape window — a required matrix ratio —
+the body plus title plus buttons exceeded the whole dialog area: the SSH
+consent's **Allow** sat below the screen edge, and the only reachable gesture,
+a tap outside, *declines* a capability question. The same defect class had
+been fixed twice before (`WideDialog`'s window-derived ceiling, the approval
+dialog's `heightDp * 0.4f` details limit) without the rest of the family
+following.
+
+The fix is one helper, `dialogBodyMaxHeight(cap)` in `core/design/Layout.kt`,
+which applies `WideDialog`'s measured 220dp reserve and 120dp floor to every
+`AlertDialog` body; each fixed literal became `dialogBodyMaxHeight(<same
+number>)`, so tall windows keep exactly the heights they had and only a short
+window gets a short, scrollable body. The rewind picker and the snapshot list
+moved their cap from an inner list to the whole text slot (fixed intro plus
+list is one scroll region), the host-key list did the same, and the media
+dialogs gained the scroll as well as the cap. The consent dialogs deliberately
+stay `AlertDialog`s: their warning-above-checkbox order was tuned on a phone,
+and a `WideDialog` move would have reordered the very text the consent exists
+to make someone read.
+
+**Verified on the phone AVD at 640×360dp** with the new
+`tools/verify-dialog-heights.ps1` (uiautomator bounds, screenshots in
+`.shots/`): the model picker's 完成, the conversation tool sheet's 应用/取消
+and the snapshot list's 取消 all sit inside the window, and each dialog's dump
+reports no node past the screen edge; the workbench itself already used the
+window-derived ceiling. The SSH and download consents cannot be driven without
+a live host or key, but their Allow row is slot-identical to the dialogs driven
+here, and the unreachable button was the fixed cap, which is gone. Driving note
+for the next script: a swipe that starts below a centered dialog lands on the
+scrim and scrolls nothing — start it from a visible row's centre.
+
 ## C. Comments that contradict the code
 
 By this repository's standard, the comment is the bug. These were all verified.

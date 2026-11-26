@@ -264,3 +264,23 @@ fun comfortableGutter(): Dp =
 @Composable
 @ReadOnlyComposable
 fun prefersFabForPrimaryAction(): Boolean = currentWindowFrame().usesFab
+
+/**
+ * The height an `AlertDialog` body may spend without pushing its own action
+ * row off a short window.
+ *
+ * M3 lays the action row below the text slot and never moves it, so a fixed
+ * 420–520dp body plus a title and a button row is taller than a 640×360
+ * landscape phone's whole dialog area. Measured there, the SSH consent's
+ * Allow sat below the screen edge, and the only reachable gesture — a tap
+ * outside — *declines* a capability question. The 220dp reserve and the 120dp
+ * floor are the ones [WideDialog] measured for exactly this chrome (title,
+ * surface and content padding, action row); this is that rule for the
+ * `AlertDialog` family, so `dialogBodyMaxHeight(460.dp)` keeps 460dp on a
+ * tall window and leaves a 360dp-tall one a 140dp scrollable body with the
+ * buttons still on screen.
+ */
+@Composable
+@ReadOnlyComposable
+fun dialogBodyMaxHeight(cap: Dp): Dp =
+	minOf(cap, (currentWindowFrame().heightDp - 220).coerceAtLeast(120).dp)

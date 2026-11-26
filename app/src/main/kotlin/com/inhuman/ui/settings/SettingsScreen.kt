@@ -95,6 +95,7 @@ import com.inhuman.core.design.StatusDot
 import com.inhuman.core.design.WideDialog
 import com.inhuman.core.design.WorkbenchSwitch
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.core.design.dialogBodyMaxHeight
 import com.inhuman.ui.backup.BACKUP_REMINDER_PERIODS
 import com.inhuman.core.ai.provider.KnownProvider
 import com.inhuman.core.ai.provider.ProviderCatalog
@@ -735,6 +736,9 @@ fun SettingsScreen(
 						title = { Text(stringResource(R.string.settings_bilibili_login_title)) },
 						text = {
 							Column(
+								modifier = Modifier
+									.heightIn(max = dialogBodyMaxHeight(320.dp))
+									.verticalScroll(rememberScrollState()),
 								horizontalAlignment = Alignment.CenterHorizontally,
 								verticalArrangement = Arrangement.spacedBy(10.dp),
 							) {
@@ -1576,18 +1580,18 @@ fun SettingsScreen(
 			onDismissRequest = { showHostKeysDialog = false },
 			title = { Text(stringResource(R.string.settings_host_keys_title)) },
 			text = {
-				Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
+				Column(
+					modifier = Modifier
+						.heightIn(max = dialogBodyMaxHeight(360.dp))
+						.verticalScroll(rememberScrollState()),
+					verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages),
+				) {
 					Text(
 						stringResource(R.string.settings_host_keys_body),
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
-					Column(
-						modifier = Modifier
-							.heightIn(max = 280.dp)
-							.verticalScroll(rememberScrollState()),
-						verticalArrangement = Arrangement.spacedBy(8.dp),
-					) {
+					Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 						state.knownHosts.forEach { host ->
 							Column {
 								Text(host.host, style = MaterialTheme.typography.labelLarge)
@@ -2110,7 +2114,7 @@ private fun SshHostDialog(
 		text = {
 			Column(
 				modifier = Modifier
-					.heightIn(max = 380.dp)
+					.heightIn(max = dialogBodyMaxHeight(380.dp))
 					.verticalScroll(rememberScrollState()),
 				verticalArrangement = Arrangement.spacedBy(8.dp),
 			) {
@@ -2213,7 +2217,7 @@ private fun ProviderPickerDialog(
 		onDismissRequest = onDismiss,
 		title = { Text(stringResource(R.string.settings_choose_provider)) },
 		text = {
-			LazyColumn(modifier = Modifier.heightIn(max = 480.dp)) {
+			LazyColumn(modifier = Modifier.heightIn(max = dialogBodyMaxHeight(480.dp))) {
 				item {
 					TextButton(
 						onClick = { onPick(null) },
@@ -2367,7 +2371,7 @@ private fun OAuthLoginDialog(
 		text = {
 			Column(
 				modifier = Modifier
-					.heightIn(max = 360.dp)
+					.heightIn(max = dialogBodyMaxHeight(360.dp))
 					.verticalScroll(rememberScrollState()),
 				verticalArrangement = Arrangement.spacedBy(8.dp),
 			) {
@@ -2489,7 +2493,7 @@ private fun ProviderEditorDialog(
 		text = {
 			Column(
 				modifier = Modifier
-					.heightIn(max = 520.dp)
+					.heightIn(max = dialogBodyMaxHeight(520.dp))
 					.verticalScroll(rememberScrollState()),
 				verticalArrangement = Arrangement.spacedBy(8.dp),
 			) {

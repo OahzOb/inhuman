@@ -62,6 +62,7 @@ import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.core.design.dialogBodyMaxHeight
 import com.inhuman.ui.common.WorkbenchBackButton
 import com.inhuman.ui.common.openWorkspaceInFiles
 import com.inhuman.ui.common.exportFileName
@@ -381,7 +382,7 @@ fun WorkspaceDetailScreen(
 			text = {
 				Column(
 					modifier = Modifier
-						.heightIn(max = 360.dp)
+						.heightIn(max = dialogBodyMaxHeight(360.dp))
 						.verticalScroll(rememberScrollState()),
 				) {
 					available.forEach { agent ->
