@@ -889,28 +889,8 @@ Still open, each re-verified in the code as of this pass:
   `RemoteModel.maxOutputTokens` (read by `DeepSeekModelsTest`) and
   `SseFrame.id`/`retryMillis` (read by `SseParserTest`). `StreamChunk.Raw` is
   never emitted — its only reference is the `when` branch that ignores it.
-- **The transcript's two derivations still walk every message on every
-  publish** — off the main thread since the derivation moved into the view
-  model (`ChatViewModel.kt:399-413`), so the cost is background CPU rather
-  than jank, but there is still no memo: every publish (at most every 40 ms,
-  `STREAM_PUBLISH_INTERVAL_MS`) re-runs `turnSummariesOf`, `userTurnsOf` and
-  `isInterruptedTurn` over the whole transcript, and the `distinctUntilChanged`
-  that follows walks it a fourth time.
 
-  Half of this is now gone: `TurnSummary` carries `start`/`end` indices instead
-  of two copied lists per turn, and `ChatScreen` slices the transcript when the
-  wire inspector opens. What remains is the scan itself — one pass, no list
-  copies except the `usages` accumulator per turn.
-
-  The memo is **not** in, deliberately. A key cheap enough to compute (size, the
-  last id, its flags and usage, a user-row count) cannot see an in-place update
-  of an *older* row, and `updateMessage` does exactly that when a stored row is
-  rewritten after a reload or a rewind. The failure mode would be a footer
-  showing the previous turn's totals, which is worse than a scan. Making it
-  sound means maintaining the index incrementally in the view model's append and
-  update paths, which is a real state machine and belongs in its own change with
-  its own tests.
-Four things that *were* on this list and are now clean, recorded because a
+Five things that *were* on this list and are now clean, recorded because a
 stale entry is how this list loses its authority (each was re-read, not assumed):
 
 - the `UsageLine` locale stragglers are gone: its `"%.1f tok/s"` and `"%.1fs"`
@@ -925,7 +905,13 @@ stale entry is how this list loses its authority (each was re-read, not assumed)
   (the shrink case re-sends the new buffer whole), so `seen` was a write-only
   copy of the reply, and every publish paid an O(n) copy for it. **Removed.** An
   earlier entry here claimed the field was load-bearing; re-reading the code
-  settled it the other way.
+  settled it the other way.- the transcript's per-publish scan is **incremental** now. The old note was
+  right that a cheap key (size, last id, a flag count) cannot see an older row
+  rewritten in place; the fix avoids keys altogether — `TranscriptIndexer`
+  compares rows by reference and only recognises the three shapes a publish can
+  take (same list, one appended row, the open turn's tail), falling back to a
+  full pass for everything else, so a future mutation path can be slower but
+  cannot be mis-derived. See B50.
 
 ### B12. Files showed a stale list after the assistant wrote a file — **FIXED**
 
@@ -1645,19 +1631,6 @@ string choice; the list screens were not device-driven in this pass (the
 emulator's input injection was broken — see B41), and none of the five changes
 alters a capability, a policy or the persisted schema.
 
-### B45. Still open after this pass, with why
-
-Recorded so the next session starts from the truth rather than from the audit
-list. Each of these is a real gap, not a style opinion.
-
-- **The transcript's per-publish scan has no memo.** `turnSummariesOf`,
-  `userTurnsOf` and `isInterruptedTurn` now run on a background dispatcher, and
-  the Markdown pre-parse collection was moved off the main thread in this pass,
-  but the scan still repeats per publish. B11's note stands: a sound memo means
-  maintaining the index in the view model's append/update paths, with tests for
-  the older-row rewrite case — its own change.
-
-
 ### B46. Every picker listed media tools whose backend could not run — **FIXED**
 
 `docs/13-product.md` promised that a media tool whose backend is unsupported or
@@ -1793,6 +1766,47 @@ classification and the sample arithmetic). The device half is not driven: an
 image attachment can only be produced through the attach picker or the camera,
 and this emulator's synthetic input is broken (D13) — so the rendering is
 unverified on a device, which is recorded rather than implied.
+
+### B50. The transcript was re-derived from scratch on every publish — **FIXED**
+
+`ChatViewModel` publishes up to every 40 ms while a reply streams, and each
+publish re-ran `turnSummariesOf`, `userTurnsOf` and `isInterruptedTurn` over the
+whole transcript (off the main thread, but O(transcript) four times a tick on a
+long conversation). B11 recorded why the obvious memo is wrong and why this
+needed its own change: a key cheap enough to compute cannot see an **older** row
+rewritten in place, which is what a reload or a rewind does, and a stale footer
+is worse than a scan.
+
+`TranscriptIndexer` (`app/.../ui/chat/TranscriptIndex.kt`) takes the opposite
+approach — no key at all. It compares the new message list against the previous
+one **by reference**, which is sound because of how the view model builds it
+(`messages + row` reuses every earlier row object; a streaming row is the last
+one). Three shapes are recognised, everything else falls back to a full pass:
+
+1. the same list instance — only the streaming flag changed, so reuse the turn
+   map and jump list and recompute the interrupted answer (O(tail));
+2. one appended row with a shared prefix — patch the open turn; when the row is
+   a turn root, rebuild the jump list (once per user message, not per tick);
+3. the same rows with a changed tail inside the open turn — recompute that one
+   turn (the per-tick case while streaming).
+
+The fallback is *every* shape the class does not positively recognise — a
+shorter list, a changed older row, a structurally equal but rebuilt list — so a
+future mutation path can only be slower, never silently mis-derived.
+`turnSummaryFor` was extracted from `turnSummariesOf` so both paths compute the
+`complete` rule with one piece of code.
+
+This closes the last item of the former B45 list, which is why B45 is absent
+from the numbering above.
+
+**Verified by build and the unit suites.** `TranscriptIndexerTest` has a
+deterministic case per shape plus a 500-step randomised edit sequence (append
+user/injected/assistant/tool rows, tail rewrites, older-row rewrites, whole-list
+rebuilds, shrinks, streaming toggles) that compares the incremental index against
+`turnSummariesOf`/`userTurnsOf`/`isInterruptedTurn` **after every step**,
+including the turn-map key order. The existing `TurnSummaryTest`,
+`InterruptedTurnTest` and `ChatUiStateTest` still pass unchanged, so the
+extraction did not move any behaviour.
 
 ## C. Comments that contradict the code
 

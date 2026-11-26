@@ -69,29 +69,7 @@ internal fun turnSummariesOf(messages: List<ChatMessageUi>): Map<String, TurnSum
 
 	fun close(endExclusive: Int) {
 		if (endExclusive <= start) return
-		var lastAssistant: ChatMessageUi? = null
-		val usages = ArrayList<UsageUi>(2)
-		for (index in start until endExclusive) {
-			val message = messages[index]
-			if (message.fromUser || message.isToolResult) continue
-			lastAssistant = message
-			message.usage?.let { usages += it }
-		}
-		val end = lastAssistant
-		if (end != null) {
-			out[end.id] = TurnSummary(
-				endId = end.id,
-				start = start,
-				end = endExclusive - 1,
-				usage = aggregateUsage(usages),
-				// Complete when the final assistant is settled *and* it is the
-				// last row: a tool result after it means the turn is still
-				// going, which is the case `isStreaming` alone got wrong.
-				complete = !end.isStreaming &&
-					!end.hasUnsettledCalls() &&
-					messages[endExclusive - 1].id == end.id,
-			)
-		}
+		turnSummaryFor(messages, start, endExclusive)?.let { out[it.endId] = it }
 		start = endExclusive
 	}
 
@@ -102,6 +80,42 @@ internal fun turnSummariesOf(messages: List<ChatMessageUi>): Map<String, TurnSum
 	}
 	close(messages.size)
 	return out
+}
+
+/**
+ * The footer data for one turn's row range, or null when the range has no
+ * assistant row.
+ *
+ * Extracted so the incremental index (`TranscriptIndex.kt`) computes exactly
+ * what a full pass would: the `complete` rule decides whether a footer is drawn
+ * at all, and two copies of that arithmetic would drift. A tool result after the
+ * final assistant means the turn is still going, which is the case
+ * `isStreaming` alone got wrong.
+ */
+internal fun turnSummaryFor(
+	messages: List<ChatMessageUi>,
+	start: Int,
+	endExclusive: Int,
+): TurnSummary? {
+	if (endExclusive <= start) return null
+	var lastAssistant: ChatMessageUi? = null
+	val usages = ArrayList<UsageUi>(2)
+	for (index in start until endExclusive) {
+		val message = messages[index]
+		if (message.fromUser || message.isToolResult) continue
+		lastAssistant = message
+		message.usage?.let { usages += it }
+	}
+	val end = lastAssistant ?: return null
+	return TurnSummary(
+		endId = end.id,
+		start = start,
+		end = endExclusive - 1,
+		usage = aggregateUsage(usages),
+		complete = !end.isStreaming &&
+			!end.hasUnsettledCalls() &&
+			messages[endExclusive - 1].id == end.id,
+	)
 }
 
 /**

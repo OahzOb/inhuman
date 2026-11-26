@@ -345,16 +345,22 @@ class ChatViewModel(
 	val state: StateFlow<ChatUiState> = _state.asStateFlow()
 
 	/**
-	 * The transcript's turn index, computed once per publish.
+	 * The transcript's turn index, kept current incrementally.
 	 *
 	 * The screen used to walk the whole message list three times on the main
 	 * thread for every streamed tick: turn summaries, user-turn jump targets and
-	 * the interrupted check. They are derived here on `Dispatchers.Default`
-	 * instead, from the same list the transcript draws, so the values cannot
-	 * describe a different transcript.
+	 * the interrupted check. That moved to `Dispatchers.Default`, and now the
+	 * derivation itself is incremental: [transcriptIndexer] recognises the three
+	 * shapes a publish can take (nothing changed, one row appended, the open
+	 * turn's tail changed) and falls back to a full pass for everything else --
+	 * an older row rewritten in place, a rebuilt list, a shorter transcript. See
+	 * `TranscriptIndex.kt` for why that fallback is what makes it sound, and
+	 * `TranscriptIndexerTest` for the equality proof against a full pass.
 	 */
 	private val _transcriptIndex = MutableStateFlow(TranscriptIndex())
 	internal val transcriptIndex: StateFlow<TranscriptIndex> = _transcriptIndex.asStateFlow()
+
+	private val transcriptIndexer = TranscriptIndexer()
 
 	/** The last actual provider body, for the read-only wire inspector. */
 	private val _wire = MutableStateFlow<WireSnapshot?>(null)
@@ -401,12 +407,10 @@ class ChatViewModel(
 			_state.map { it.messages to it.isStreaming }
 				.distinctUntilChanged()
 				.collectLatest { (messages, streaming) ->
+					// Still off the main thread: the fast paths are cheap, but a
+					// fallback pass over a long transcript must not run on it.
 					val index = withContext(Dispatchers.Default) {
-						TranscriptIndex(
-							turns = turnSummariesOf(messages),
-							userTurns = userTurnsOf(messages),
-							interrupted = isInterruptedTurn(messages, streaming),
-						)
+						transcriptIndexer.update(messages, streaming)
 					}
 					_transcriptIndex.value = index
 				}
