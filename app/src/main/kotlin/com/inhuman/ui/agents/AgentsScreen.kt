@@ -180,6 +180,27 @@ fun AgentsScreen(
 						)
 					}
 					Hairline()
+					// A save or delete that failed reports itself here; the
+					// same message also renders inside the editor while it is
+					// open, so the two surfaces cannot disagree.
+					state.error?.let { message ->
+						Row(
+							modifier = Modifier
+								.fillMaxWidth()
+								.padding(top = 10.dp),
+							verticalAlignment = Alignment.CenterVertically,
+						) {
+							Text(
+								text = message,
+								style = MaterialTheme.typography.bodySmall,
+								color = MaterialTheme.colorScheme.error,
+								modifier = Modifier.weight(1f),
+							)
+							TextButton(onClick = viewModel::clearError) {
+								Text(stringResource(R.string.common_dismiss))
+							}
+						}
+					}
 				}
 				items(state.agents, key = { it.id }) { agent ->
 					AgentRow(
@@ -220,6 +241,8 @@ fun AgentsScreen(
 			onSave = viewModel::save,
 			onDismiss = viewModel::closeEditor,
 			onExportCard = viewModel::openCardExport,
+			error = state.error,
+			onClearError = viewModel::clearError,
 		)
 		state.cardExport?.let { export ->
 			CardExportDialog(
@@ -360,6 +383,8 @@ private fun AgentEditor(
 	onSave: () -> Unit,
 	onDismiss: () -> Unit,
 	onExportCard: (RoleplayCard) -> Unit,
+	error: String? = null,
+	onClearError: () -> Unit = {},
 ) {
 	val levels = effortLevels(draft.model)
 	val availableTools = ToolCatalog.visible(
@@ -440,6 +465,25 @@ private fun AgentEditor(
 		onConfirm = onSave,
 		confirmEnabled = draft.canSave,
 	) {
+		// First, because a failed Save has to be visible without scrolling
+		// seven fields down: the message names what did not happen while the
+		// editor stays open with everything still in it.
+		error?.let { message ->
+			Row(
+				modifier = Modifier.fillMaxWidth(),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				Text(
+					text = message,
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.error,
+					modifier = Modifier.weight(1f),
+				)
+				TextButton(onClick = onClearError) {
+					Text(stringResource(R.string.common_dismiss))
+				}
+			}
+		}
 		OutlinedTextField(
 			value = draft.name,
 			onValueChange = { v -> onChange { it.copy(name = v) } },

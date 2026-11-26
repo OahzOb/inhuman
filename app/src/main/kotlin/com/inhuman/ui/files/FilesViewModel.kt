@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
@@ -172,6 +173,14 @@ class FilesViewModel(
 	private val _state = MutableStateFlow(FilesUiState())
 	val state: StateFlow<FilesUiState> = _state.asStateFlow()
 
+	/**
+	 * The last listing of each visited path, so a revisit or a resume shows the
+	 * rows it had while the disk is walked again. Refreshing used to blank the
+	 * whole screen first, which on a large workspace read as "my files are
+	 * gone" for the length of the walk.
+	 */
+	private val entryCache = mutableMapOf<String, List<FileEntryUi>>()
+
 	// No refresh in `init`.
 	//
 	// FilesScreen refreshes on every resume instead. Doing both walked the
@@ -224,7 +233,16 @@ class FilesViewModel(
 
 	fun refresh() {
 		viewModelScope.launch {
-			_state.value = _state.value.copy(loading = true, error = null)
+			// A path seen before shows its last listing while the disk is
+			// walked again; only a first visit loads into the spinner. The
+			// unconditional `loading = true` here is what made every revisit
+			// and every resume flash an empty screen first.
+			val path = _state.value.currentPath
+			entryCache[path]?.let { cached ->
+				_state.value = _state.value.copy(entries = cached, loading = false, error = null)
+			} ?: run {
+				_state.value = _state.value.copy(loading = true, error = null)
+			}
 			val ws = workspace()
 			val id = workspaceId
 			if (ws == null || id == null) {
@@ -235,7 +253,6 @@ class FilesViewModel(
 		)
 				return@launch
 			}
-			val path = _state.value.currentPath
 			// One block, one walk. `usedBytes()` and `fileCount()` each call
 			// `usage()`, which traverses the whole tree, so asking for them
 			// separately walked the workspace twice per refresh -- the cost A6
@@ -283,6 +300,11 @@ class FilesViewModel(
 				entries to ws.usage()
 			}
 			val (entries, usage) = result
+			// The user may have navigated while the walk ran; applying this
+			// result now would show one folder's rows under another folder's
+			// header, so the later refresh owns the state.
+			if (_state.value.currentPath != path) return@launch
+			entryCache[path] = entries.orEmpty()
 			_state.value = _state.value.copy(
 				loading = false,
 				workspaceId = id,
@@ -467,13 +489,24 @@ class FilesViewModel(
 		)
 		viewModelScope.launch {
 			val ws = workspace() ?: return@launch
-			withContext(Dispatchers.IO) {
+			val failed = withContext(Dispatchers.IO) {
 				val file = (ws.resolve(entry.relativePath) as? SessionWorkspace.Resolution.Ok)?.file
 				if (file == null) {
 					Diag.w("files", "delete refused by sandbox path=${entry.relativePath}")
+					true
 				} else {
-					Diag.i("files", "delete done path=${entry.relativePath} ok=${file.deleteRecursively()}")
+					val ok = file.deleteRecursively()
+					Diag.i("files", "delete done path=${entry.relativePath} ok=$ok")
+					!ok
 				}
+			}
+			// A delete that failed used to leave the row exactly where it was
+			// with nothing on screen saying why; the next refresh then read as
+			// "the delete was refused" rather than "it did not work".
+			if (failed) {
+				_state.value = _state.value.copy(
+					error = context.getString(R.string.files_delete_failed, entry.name),
+				)
 			}
 			refresh()
 		}
@@ -696,8 +729,4 @@ class FilesViewModel(
 		return android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
 			?: "application/octet-stream"
 	}
-}
-
-private inline fun <T> MutableStateFlow<T>.update(transform: (T) -> T) {
-	value = transform(value)
 }

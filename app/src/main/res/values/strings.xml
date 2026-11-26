@@ -656,6 +656,8 @@
 	<string name="agents_provider_fallback">Provider</string>
 	<string name="agents_delete_title">Delete %1$s?</string>
 	<string name="agents_delete_body">Conversations already held with it keep their own settings.</string>
+	<string name="agents_save_failed">Could not save the assistant: %1$s</string>
+	<string name="agents_delete_failed">Could not delete the assistant: %1$s</string>
 	<string name="agents_default">DEFAULT</string>
 	<string name="agents_thinking_suffix"> · thinking</string>
 	<string name="agents_effort_suffix"> (%1$s)</string>
@@ -1198,6 +1200,7 @@
 
 	<!-- Files: errors produced by the view model. -->
 	<string name="files_error_workspace_missing">Workspace not found.</string>
+	<string name="files_delete_failed">Could not delete %1$s: the file may be in use by another app.</string>
 	<string name="files_error_not_editable">That file cannot be edited.</string>
 	<string name="files_error_too_large">This file is too large for the in-app editor. Open it with another app instead.</string>
 	<string name="files_error_binary">This looks like a binary file. Open it with another app instead.</string>

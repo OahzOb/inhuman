@@ -1494,6 +1494,51 @@ here, and the unreachable button was the fixed cap, which is gone. Driving note
 for the next script: a swipe that starts below a centered dialog lands on the
 scrim and scrolls nothing — start it from a visible row's centre.
 
+### B39. Three write paths had no failure handling — a failed save could crash the app — **FIXED**
+
+`ConversationsViewModel.create`, the assistant read in its
+`startNewConversation`, and `AgentsViewModel.save`/`delete` launched
+repository writes with no `runCatching` inside a `viewModelScope`, so a Room
+or disk failure was an uncaught coroutine exception, which ends the process.
+The non-crash half was worse for the editor: the Create sheet had already
+closed, so a failed create did nothing at all with no message, and a failed
+assistant save lost the whole editing draft — prompt, tools and rules — at
+the moment the user had the most to lose. `startScene` on the same screen
+already had the right shape, and `ConversationsViewModel`'s own delete carried
+the comment "a delete that fails is a thing to report, not to crash on";
+these four paths now match their neighbours: create failures surface in the
+home screen's existing error row, the assistant editor stays open with the
+message above the name field, and the agents list gained the same dismissible
+row. `AgentsUiState` gained the `error` field for this — its old namesake in
+`CardExportDraft` was a different dialog's message, and no screen had ever
+rendered a screen-level one. **Verified by build and the unit suite; not
+device-driven** — the failure needs a fault injection the test set does not
+have, and each fix is a `runCatching` around a single call.
+
+### B40. Files blanked the whole screen on every revisit, and a failed delete said nothing — **FIXED**
+
+`refresh()` set `loading = true` unconditionally and the screen rendered
+`loading` as nothing at all, so every folder open, every back navigation and
+every resume to Files drew an empty surface for the length of the workspace
+walk before the list appeared — on the exact path where someone goes to see
+what the assistant just wrote, the first frame said "no files". There was no
+per-path memory, so even a folder seen seconds ago reloaded from white.
+
+`refresh()` now keeps a per-path listing cache: a path seen before shows its
+last rows while the walk runs, a first visit loads into a spinner instead of
+a blank, and a result that finished after the user navigated is dropped
+rather than shown under the wrong header. A delete that `deleteRecursively()`
+refused used to leave the row in place with no explanation — the next
+refresh then read as "the delete was refused" rather than "it did not work" —
+and now reports itself through the existing error line (`files_delete_failed`).
+The file's private non-atomic `MutableStateFlow.update` extension went in the
+same change: it was the only `update` in scope (the library import was absent
+entirely, not shadowed), and moving any state write off the main thread later
+would have silently lost updates to it. **Verified by build and the unit
+suite; the flash itself is a rendering timing uiautomator cannot sample
+(§D11), so the pinned invariant is the cache logic: a revisit never sets
+`loading` again.**
+
 ## C. Comments that contradict the code
 
 By this repository's standard, the comment is the bug. These were all verified.

@@ -44,6 +44,12 @@ data class AgentsUiState(
 	/** Whether the optional Bilibili login is linked (`bili_transcript` needs it). */
 	val bilibiliLoggedIn: Boolean = false,
 	val editing: AgentDraft? = null,
+	/**
+	 * A save or delete that failed, for the dismissible row in the list and
+	 * the same message above the editor's first field. `null` while nothing
+	 * failed; a successful save clears it.
+	 */
+	val error: String? = null,
 	/** Non-null while the "export card to workspace" dialog is open. */
 	val cardExport: CardExportDraft? = null,
 	/** The user's saved system prompts, newest first. */
@@ -382,7 +388,27 @@ class AgentsViewModel(
 				"tools=${draft.tools?.size ?: "all"} rules=${draft.rules.size}",
 		)
 		viewModelScope.launch {
-			repository.save(draft.toEntity(System.currentTimeMillis()))
+			// A save that fails keeps the editor open with the error in it.
+			// Closing anyway would throw away the prompt, the tool list and
+			// the rules -- the whole reason someone opened the editor -- and
+			// report nothing. Same shape as `startScene` on the home screen.
+			runCatching { repository.save(draft.toEntity(System.currentTimeMillis())) }
+				.onFailure { failure ->
+					Diag.w(
+						"agent",
+						"save failed id=${Diag.shortId(draft.id)} new=${draft.isNew}",
+						failure,
+					)
+					_state.update {
+						it.copy(
+							error = context.getString(
+								R.string.agents_save_failed,
+								failure.message ?: failure::class.simpleName ?: "unknown error",
+							),
+						)
+					}
+					return@launch
+				}
 			// Written after the assistant row exists, because `agent_approval`
 			// has no foreign key but a rule for an assistant that was never
 			// created would be invisible and impossible to remove.
@@ -402,7 +428,7 @@ class AgentsViewModel(
 						)
 					}
 			}
-			_state.update { it.copy(editing = null) }
+			_state.update { it.copy(editing = null, error = null) }
 			Diag.i("agent", "saved id=${Diag.shortId(draft.id)}")
 		}
 	}
@@ -568,9 +594,25 @@ class AgentsViewModel(
 	fun delete(agent: AgentEntity) {
 		Diag.i("agent", "delete id=${Diag.shortId(agent.id)}")
 		viewModelScope.launch {
-			repository.delete(agent)
-			Diag.i("agent", "deleted id=${Diag.shortId(agent.id)}")
+			runCatching { repository.delete(agent) }
+				.onFailure { failure ->
+					Diag.w("agent", "delete failed id=${Diag.shortId(agent.id)}", failure)
+					_state.update {
+						it.copy(
+							error = context.getString(
+								R.string.agents_delete_failed,
+								failure.message ?: failure::class.simpleName ?: "unknown error",
+							),
+						)
+					}
+				}
+				.onSuccess { Diag.i("agent", "deleted id=${Diag.shortId(agent.id)}") }
 		}
+	}
+
+	/** Clears the shared error line; the row it rendered in owns the dismissal. */
+	fun clearError() {
+		_state.update { it.copy(error = null) }
 	}
 
 	/** Effort levels for a model, as the provider reports them. */

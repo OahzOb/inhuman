@@ -637,6 +637,8 @@
 	<string name="agents_provider_fallback">服务商</string>
 	<string name="agents_delete_title">删除“%1$s”？</string>
 	<string name="agents_delete_body">已经使用它的对话会保留各自的设置。</string>
+	<string name="agents_save_failed">保存助手失败：%1$s</string>
+	<string name="agents_delete_failed">删除助手失败：%1$s</string>
 	<string name="agents_default">默认</string>
 	<string name="agents_thinking_suffix"> · 思考</string>
 	<string name="agents_effort_suffix">（%1$s）</string>
@@ -1172,6 +1174,7 @@
 
 	<!-- 文件：由 ViewModel 生成的错误。 -->
 	<string name="files_error_workspace_missing">找不到工作区。</string>
+	<string name="files_delete_failed">无法删除“%1$s”：文件可能正被其他应用占用。</string>
 	<string name="files_error_not_editable">这个文件无法编辑。</string>
 	<string name="files_error_too_large">这个文件太大，无法在应用内编辑，请用其他应用打开。</string>
 	<string name="files_error_binary">这看起来是二进制文件，请用其他应用打开。</string>

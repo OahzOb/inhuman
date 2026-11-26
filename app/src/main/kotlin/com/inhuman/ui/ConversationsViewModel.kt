@@ -418,7 +418,21 @@ class ConversationsViewModel(
 	) {
 		pendingWorkspaceId = workspaceId
 		viewModelScope.launch {
-			val available = agents.all()
+			// The assistant read failed once as an uncaught exception that
+			// ended the process; report it where the Create sheet was instead.
+			val available = runCatching { agents.all() }
+				.onFailure { failure ->
+					Diag.w("conv", "assistant list read failed", failure)
+					_state.update {
+						it.copy(
+							error = context.getString(
+								R.string.chat_new_conversation_failed,
+								failure.message ?: failure::class.simpleName ?: "unknown error",
+							),
+						)
+					}
+				}
+				.getOrNull() ?: return@launch
 			when {
 				available.isEmpty() -> {
 					// Nothing to choose from: create with no assistant rather
@@ -887,12 +901,34 @@ class ConversationsViewModel(
 			"create agent=${Diag.shortId(agent?.id)} workspace=${Diag.shortId(workspaceId)}",
 		)
 		viewModelScope.launch {
-			val conversation = repository.create(
-				title = context.getString(R.string.chat_title_fallback),
-				agent = agent,
-				workspaceId = workspaceId,
-				sessionMode = newConversationSessionMode(),
-			)
+			// A create that fails must not take the process down with it: the
+			// Create sheet has already closed, so the home screen's error row
+			// is the only place the failure can be reported. Nothing is lost
+			// here -- a conversation either exists or it does not -- but the
+			// tap that failed has to say so.
+			val conversation = runCatching {
+				repository.create(
+					title = context.getString(R.string.chat_title_fallback),
+					agent = agent,
+					workspaceId = workspaceId,
+					sessionMode = newConversationSessionMode(),
+				)
+			}.onFailure { failure ->
+				Diag.w(
+					"conv",
+					"create failed agent=${Diag.shortId(agent?.id)} " +
+						"workspace=${Diag.shortId(workspaceId)}",
+					failure,
+				)
+				_state.update {
+					it.copy(
+						error = context.getString(
+							R.string.chat_new_conversation_failed,
+							failure.message ?: failure::class.simpleName ?: "unknown error",
+						),
+					)
+				}
+			}.getOrNull() ?: return@launch
 			Diag.i(
 				"conv",
 				"created id=${Diag.shortId(conversation.id)} " +

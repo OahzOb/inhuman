@@ -451,7 +451,16 @@ fun FilesScreen(
 			contentAlignment = Alignment.TopCenter,
 		) {
 			when {
-				state.loading -> Unit
+				// Only a first visit of a path lands here now (revisits show
+				// the last listing while it reloads); a spinner rather than a
+				// blank surface, so a large workspace's first frame is not
+				// white.
+				state.loading -> Box(
+					modifier = Modifier.fillMaxSize(),
+					contentAlignment = Alignment.Center,
+				) {
+					CircularProgressIndicator(modifier = Modifier.size(32.dp))
+				}
 
 				state.entries.isEmpty() -> Box(
 					modifier = Modifier.fillMaxSize(),
