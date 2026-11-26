@@ -148,9 +148,6 @@ fun SettingsScreen(
 		viewModel.completeOAuth(callback)
 		onOAuthConsumed()
 	}
-	LaunchedEffect(startBackup) {
-		if (startBackup) onBackupStarted()
-	}
 	// The system owns the per-app locale. An empty list means the default,
 	// which InhumanApp has already set to Chinese on first launch.
 	val localeManager = context.getSystemService(LocaleManager::class.java)
@@ -173,6 +170,20 @@ fun SettingsScreen(
 	var showSpeechVoiceDialog by remember { mutableStateOf(false) }
 	var backupPassphrase by remember { mutableStateOf("") }
 	var backupPassphraseConfirm by remember { mutableStateOf("") }
+	LaunchedEffect(startBackup) {
+		if (startBackup) {
+			viewModel.refreshBackupFolder()
+			val current = viewModel.state.value
+			if (current.backupFolderUri != null && !current.backupFolderPermissionLost) {
+				backupMode = BackupMode.ExportToFolder
+				backupUri = null
+				backupPassphrase = ""
+				backupPassphraseConfirm = ""
+				showBackupPassphrase = true
+			}
+			onBackupStarted()
+		}
+	}
 	var showProviderPicker by remember { mutableStateOf(false) }
 	// Clearing both web keys at once is the one key action here that is not tied
 	// to the editor that owns a single key, so it is confirmed before it runs.
@@ -265,6 +276,19 @@ fun SettingsScreen(
 			backupPassphrase = ""
 			backupPassphraseConfirm = ""
 			showBackupPassphrase = true
+		}
+	}
+	val backupFolderLauncher = rememberLauncherForActivityResult(
+		ActivityResultContracts.OpenDocumentTree(),
+	) { uri ->
+		if (uri != null) {
+			runCatching {
+				context.contentResolver.takePersistableUriPermission(
+					uri,
+					Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+				)
+			}
+			viewModel.setBackupFolder(uri)
 		}
 	}
 	val importLauncher = rememberLauncherForActivityResult(
@@ -1083,18 +1107,99 @@ fun SettingsScreen(
 				summary = stringResource(R.string.settings_backup_summary),
 				initiallyExpanded = startBackup || query.isNotBlank(),
 				visible = matches(backupText),
+				onExpand = viewModel::refreshBackupFolder,
 			) {
 			Text(
 				text = stringResource(R.string.settings_backup_body),
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)
+			HorizontalDivider(
+				modifier = Modifier.padding(vertical = 6.dp),
+				color = MaterialTheme.colorScheme.outlineVariant,
+			)
+			Eyebrow(stringResource(R.string.settings_backup_folder_heading))
+			if (state.backupFolderUri == null) {
+				Text(
+					text = stringResource(R.string.settings_backup_folder_unset),
+					modifier = Modifier
+						.widthIn(max = Layout.ReadableMeasure)
+						.fillMaxWidth(),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				FlowRowCompat {
+					OutlinedButton(
+						onClick = { backupFolderLauncher.launch(null) },
+						enabled = !state.backupBusy,
+						shape = MaterialTheme.shapes.small,
+					) { Text(stringResource(R.string.settings_backup_choose_folder)) }
+				}
+			} else {
+				Text(
+					text = stringResource(
+						R.string.settings_backup_folder_current,
+						state.backupFolderName ?: state.backupFolderUri.orEmpty(),
+					),
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onSurface,
+				)
+				if (state.backupFolderPermissionLost) {
+					Text(
+						text = stringResource(R.string.settings_backup_folder_lost),
+						modifier = Modifier
+							.widthIn(max = Layout.ReadableMeasure)
+							.fillMaxWidth(),
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.error,
+					)
+				}
+				FlowRowCompat {
+					if (!state.backupFolderPermissionLost) {
+						Button(
+							onClick = {
+								backupMode = BackupMode.ExportToFolder
+								backupUri = null
+								backupPassphrase = ""
+								backupPassphraseConfirm = ""
+								showBackupPassphrase = true
+							},
+							enabled = !state.backupBusy,
+							shape = MaterialTheme.shapes.small,
+						) { Text(stringResource(R.string.settings_backup_to_folder)) }
+					}
+					OutlinedButton(
+						onClick = { backupFolderLauncher.launch(null) },
+						enabled = !state.backupBusy,
+						shape = MaterialTheme.shapes.small,
+					) { Text(stringResource(R.string.settings_backup_change_folder)) }
+					TextButton(
+						onClick = viewModel::clearBackupFolder,
+						enabled = !state.backupBusy,
+						shape = MaterialTheme.shapes.small,
+					) { Text(stringResource(R.string.settings_backup_clear_folder)) }
+				}
+			}
+			HorizontalDivider(
+				modifier = Modifier.padding(vertical = 6.dp),
+				color = MaterialTheme.colorScheme.outlineVariant,
+			)
 			FlowRowCompat {
 				OutlinedButton(
 					onClick = { exportLauncher.launch("inhuman-backup") },
 					enabled = !state.backupBusy,
 					shape = MaterialTheme.shapes.small,
-				) { Text(stringResource(R.string.settings_export_backup)) }
+				) {
+					Text(
+						stringResource(
+							if (state.backupFolderUri != null && !state.backupFolderPermissionLost) {
+								R.string.settings_export_backup_file
+							} else {
+								R.string.settings_export_backup
+							},
+						),
+					)
+				}
 				OutlinedButton(
 					onClick = { importLauncher.launch(arrayOf("*/*")) },
 					enabled = !state.backupBusy,
@@ -1537,10 +1642,13 @@ fun SettingsScreen(
 		)
 	}
 
-	if (showBackupPassphrase && backupMode != null && backupUri != null) {
+	if (showBackupPassphrase && backupMode != null &&
+		(backupMode == BackupMode.ExportToFolder || backupUri != null)
+	) {
 		val mode = backupMode!!
+		val isExport = mode == BackupMode.Export || mode == BackupMode.ExportToFolder
 		val canSubmit = backupPassphrase.length >= 8 &&
-			(mode == BackupMode.Import || backupPassphrase == backupPassphraseConfirm)
+			(!isExport || backupPassphrase == backupPassphraseConfirm)
 		AlertDialog(
 			onDismissRequest = {
 				showBackupPassphrase = false
@@ -1550,7 +1658,7 @@ fun SettingsScreen(
 			title = {
 				Text(
 					stringResource(
-						if (mode == BackupMode.Export) {
+						if (isExport) {
 							R.string.settings_encrypt_backup
 						} else {
 							R.string.settings_inspect_backup
@@ -1561,10 +1669,16 @@ fun SettingsScreen(
 			text = {
 				Column(verticalArrangement = Arrangement.spacedBy(Layout.Space.BetweenMessages)) {
 					Text(
-						text = if (mode == BackupMode.Export) {
-							stringResource(R.string.settings_export_passphrase_body)
-						} else {
-							stringResource(R.string.settings_import_passphrase_body)
+						text = when (mode) {
+							BackupMode.Export ->
+								stringResource(R.string.settings_export_passphrase_body)
+							BackupMode.ExportToFolder ->
+								stringResource(
+									R.string.settings_export_folder_passphrase_body,
+									state.backupFolderName ?: state.backupFolderUri.orEmpty(),
+								)
+							BackupMode.Import ->
+								stringResource(R.string.settings_import_passphrase_body)
 						},
 						style = MaterialTheme.typography.bodySmall,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1577,7 +1691,7 @@ fun SettingsScreen(
 						visualTransformation = PasswordVisualTransformation(),
 						modifier = Modifier.fillMaxWidth(),
 					)
-					if (mode == BackupMode.Export) {
+					if (isExport) {
 						OutlinedTextField(
 							value = backupPassphraseConfirm,
 							onValueChange = { backupPassphraseConfirm = it },
@@ -1594,15 +1708,28 @@ fun SettingsScreen(
 			confirmButton = {
 				Button(
 					onClick = {
-						val uri = backupUri ?: return@Button
 						val passphrase = backupPassphrase.toCharArray()
 						showBackupPassphrase = false
 						backupPassphrase = ""
 						backupPassphraseConfirm = ""
-						if (mode == BackupMode.Export) {
-							viewModel.exportBackup(uri, passphrase)
-						} else {
-							viewModel.previewImport(uri, passphrase)
+						when (mode) {
+							BackupMode.Export -> {
+								val uri = backupUri ?: run {
+									passphrase.fill('\u0000')
+									return@Button
+								}
+								viewModel.exportBackup(uri, passphrase)
+							}
+							BackupMode.ExportToFolder -> {
+								viewModel.exportBackupToFolder(passphrase)
+							}
+							BackupMode.Import -> {
+								val uri = backupUri ?: run {
+									passphrase.fill('\u0000')
+									return@Button
+								}
+								viewModel.previewImport(uri, passphrase)
+							}
 						}
 					},
 					enabled = canSubmit,
@@ -1610,7 +1737,7 @@ fun SettingsScreen(
 				) {
 					Text(
 						stringResource(
-							if (mode == BackupMode.Export) {
+							if (isExport) {
 								R.string.settings_export
 							} else {
 								R.string.settings_inspect
@@ -1868,7 +1995,7 @@ private fun SpeechVoiceDialog(
 	)
 }
 
-private enum class BackupMode { Export, Import }
+private enum class BackupMode { Export, ExportToFolder, Import }
 
 @Composable
 private fun MediaBackendRow(title: String, summary: String, onClick: () -> Unit) {

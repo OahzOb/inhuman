@@ -1,7 +1,9 @@
 package com.inhuman.ui.chat
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inhuman.R
@@ -38,6 +40,8 @@ import com.inhuman.ui.ssh.SshHostStore
 import com.inhuman.ui.ssh.SshHostSummary
 import com.inhuman.ui.ssh.toSummary
 import com.inhuman.ui.backup.BackupReminderPolicy
+import com.inhuman.ui.backup.backupArchiveFileName
+import com.inhuman.ui.backup.backupFolderDisplayName
 import com.inhuman.diagnostics.AppDiagnostics
 import com.inhuman.ui.settings.UsagePeriod
 import com.inhuman.ui.settings.UsageReport
@@ -186,6 +190,12 @@ data class SettingsUiState(
 	val backupLastExportAt: Long = 0L,
 	/** Reminder period in days; 0 is off. */
 	val backupReminderDays: Int = 30,
+	/** Remembered SAF directory tree URI for one-tap encrypted backup exports. */
+	val backupFolderUri: String? = null,
+	/** Human-readable label extracted from [backupFolderUri]. */
+	val backupFolderName: String? = null,
+	/** True when [backupFolderUri] is set but its persistable write grant is gone. */
+	val backupFolderPermissionLost: Boolean = false,
 	/** Reply from the built-in scripted source instead of DeepSeek. */
 	val demoMode: Boolean = false,
 	/** Whether the follow-up tool is available to assistants at all. */
@@ -485,6 +495,7 @@ class SettingsViewModel(
 		}
 		loadRules()
 		loadKnownHosts()
+		refreshBackupFolder()
 	}
 
 	/**
@@ -2137,9 +2148,96 @@ class SettingsViewModel(
 		_state.value = _state.value.copy(backupReminderDays = normalized)
 	}
 
+	private data class BackupFolderState(
+		val uri: String?,
+		val name: String?,
+		val permissionLost: Boolean,
+	)
+
+	private fun readBackupFolderState(): BackupFolderState {
+		val stored = secure.get(SecureStore.KEY_BACKUP_FOLDER_URI)
+			?.trim()
+			?.takeIf { it.isNotEmpty() }
+			?: return BackupFolderState(null, null, false)
+		val parsed = runCatching { Uri.parse(stored) }.getOrNull()
+			?: return BackupFolderState(null, null, false)
+		val treeId = runCatching { DocumentsContract.getTreeDocumentId(parsed) }.getOrNull()
+		val name = backupFolderDisplayName(stored, treeId) ?: stored
+		val hasWriteGrant = runCatching {
+			context.contentResolver.persistedUriPermissions.any { permission ->
+				permission.uri == parsed && permission.isWritePermission
+			}
+		}.getOrDefault(false)
+		return BackupFolderState(
+			uri = stored,
+			name = name,
+			permissionLost = !hasWriteGrant,
+		)
+	}
+
+	/** Re-check the remembered backup folder and its SAF permission grant. */
+	fun refreshBackupFolder() {
+		val folder = readBackupFolderState()
+		_state.value = _state.value.copy(
+			backupFolderUri = folder.uri,
+			backupFolderName = folder.name,
+			backupFolderPermissionLost = folder.permissionLost,
+		)
+	}
+
+	/** Remember a user-picked SAF directory tree for one-tap backups. */
+	fun setBackupFolder(uri: Uri) {
+		val previous = secure.get(SecureStore.KEY_BACKUP_FOLDER_URI)
+			?.trim()
+			?.takeIf { it.isNotEmpty() && it != uri.toString() }
+		if (previous != null) {
+			runCatching {
+				context.contentResolver.releasePersistableUriPermission(
+					Uri.parse(previous),
+					Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+				)
+			}
+		}
+		secure.put(SecureStore.KEY_BACKUP_FOLDER_URI, uri.toString())
+		val folder = readBackupFolderState()
+		_state.value = _state.value.copy(
+			backupFolderUri = folder.uri,
+			backupFolderName = folder.name,
+			backupFolderPermissionLost = folder.permissionLost,
+			backupStatus = null,
+			backupStatusIsError = false,
+		)
+	}
+
+	/** Forget the remembered SAF directory tree and release its grant. */
+	fun clearBackupFolder() {
+		val previous = secure.get(SecureStore.KEY_BACKUP_FOLDER_URI)
+			?.trim()
+			?.takeIf { it.isNotEmpty() }
+		if (previous != null) {
+			runCatching {
+				context.contentResolver.releasePersistableUriPermission(
+					Uri.parse(previous),
+					Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+				)
+			}
+		}
+		secure.remove(SecureStore.KEY_BACKUP_FOLDER_URI)
+		_state.value = _state.value.copy(
+			backupFolderUri = null,
+			backupFolderName = null,
+			backupFolderPermissionLost = false,
+			backupStatus = null,
+			backupStatusIsError = false,
+		)
+	}
+
 	/** Export the database and workspaces to a user-chosen document. */
 	fun exportBackup(uri: Uri, passphrase: CharArray) {
-		if (_state.value.backupBusy) return
+		if (_state.value.backupBusy) {
+			passphrase.fill('\u0000')
+			return
+		}
 		_state.value = _state.value.copy(
 			backupBusy = true,
 			backupStatus = null,
@@ -2168,6 +2266,77 @@ class SettingsViewModel(
 							R.string.settings_error_backup_failed,
 							failure.message ?: context.getString(R.string.settings_error_unknown),
 						)
+					},
+				),
+				backupStatusIsError = result.isFailure,
+			)
+		}
+	}
+
+	/**
+	 * Export a timestamped encrypted archive directly into the remembered SAF
+	 * folder without opening the system file chooser again.
+	 */
+	fun exportBackupToFolder(passphrase: CharArray) {
+		if (_state.value.backupBusy) {
+			passphrase.fill('\u0000')
+			return
+		}
+		val folder = readBackupFolderState()
+		val uriString = folder.uri
+		if (uriString == null || folder.permissionLost) {
+			passphrase.fill('\u0000')
+			_state.value = _state.value.copy(
+				backupFolderUri = folder.uri,
+				backupFolderName = folder.name,
+				backupFolderPermissionLost = folder.permissionLost,
+				backupStatus = context.getString(R.string.settings_error_backup_folder_permission),
+				backupStatusIsError = true,
+			)
+			return
+		}
+		val treeUri = Uri.parse(uriString)
+		val folderLabel = folder.name ?: uriString
+		_state.value = _state.value.copy(
+			backupBusy = true,
+			backupStatus = null,
+			backupNeedsRestart = false,
+		)
+		viewModelScope.launch {
+			val now = System.currentTimeMillis()
+			val targetName = backupArchiveFileName(now)
+			val result = runCatching { backup.exportToTree(treeUri, targetName, passphrase) }
+			passphrase.fill('\u0000')
+			val exportedAt = if (result.isSuccess) System.currentTimeMillis() else null
+			if (exportedAt != null) {
+				secure.put(SecureStore.KEY_BACKUP_LAST_EXPORT_AT, exportedAt.toString())
+				secure.put(SecureStore.KEY_BACKUP_SNOOZED_UNTIL, "0")
+			}
+			val updatedFolder = readBackupFolderState()
+			_state.value = _state.value.copy(
+				backupBusy = false,
+				backupLastExportAt = exportedAt ?: _state.value.backupLastExportAt,
+				backupFolderUri = updatedFolder.uri,
+				backupFolderName = updatedFolder.name,
+				backupFolderPermissionLost = updatedFolder.permissionLost,
+				backupStatus = result.fold(
+					onSuccess = { createdName ->
+						context.getString(
+							R.string.settings_status_backup_written_folder,
+							createdName,
+							folderLabel,
+						)
+					},
+					onFailure = { failure ->
+						Diag.w("backup", "folder export failed", failure)
+						if (failure is SecurityException || updatedFolder.permissionLost) {
+							context.getString(R.string.settings_error_backup_folder_permission)
+						} else {
+							context.getString(
+								R.string.settings_error_backup_failed,
+								failure.message ?: context.getString(R.string.settings_error_unknown),
+							)
+						}
 					},
 				),
 				backupStatusIsError = result.isFailure,

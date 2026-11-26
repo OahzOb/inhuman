@@ -1,8 +1,11 @@
 package com.inhuman.core.data
 
+import android.content.ContentResolver
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
+import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.InhumanDatabase
@@ -79,6 +82,43 @@ class BackupRepository(
 
 	/** Write an encrypted backup to a SAF document. */
 	suspend fun export(uri: Uri, passphrase: CharArray) = withContext(Dispatchers.IO) {
+		writeEncryptedArchive(uri, passphrase)
+	}
+
+	/**
+	 * Create a new timestamped archive inside a remembered SAF directory tree
+	 * and write an encrypted backup into it.
+	 *
+	 * The target document is created *before* `VACUUM INTO` and PBKDF2 run so a
+	 * revoked folder grant or a deleted directory fails immediately instead of
+	 * after several seconds of packaging. If packaging or writing then fails,
+	 * the empty document is removed before the failure is rethrown.
+	 *
+	 * @return the display name of the created document inside [treeUri].
+	 */
+	suspend fun exportToTree(
+		treeUri: Uri,
+		fileName: String,
+		passphrase: CharArray,
+	): String = withContext(Dispatchers.IO) {
+		val resolver = appContext.contentResolver
+		val treeDocId = try {
+			DocumentsContract.getTreeDocumentId(treeUri)
+		} catch (failure: IllegalArgumentException) {
+			throw IOException("The selected backup folder is not a valid directory.", failure)
+		}
+		val parent = DocumentsContract.buildDocumentUriUsingTree(treeUri, treeDocId)
+		val (documentUri, createdName) = createUniqueBackupDocument(resolver, parent, fileName)
+		try {
+			writeEncryptedArchive(documentUri, passphrase)
+			createdName
+		} catch (failure: Exception) {
+			runCatching { DocumentsContract.deleteDocument(resolver, documentUri) }
+			throw failure
+		}
+	}
+
+	private fun writeEncryptedArchive(uri: Uri, passphrase: CharArray) {
 		val work = File(appContext.cacheDir, "backup-${System.currentTimeMillis()}")
 		work.mkdirs()
 		try {
@@ -119,6 +159,47 @@ class BackupRepository(
 			work.deleteRecursively()
 		}
 	}
+
+	private fun createUniqueBackupDocument(
+		resolver: ContentResolver,
+		parent: Uri,
+		baseName: String,
+	): Pair<Uri, String> {
+		val cleaned = baseName.trim().ifEmpty { "inhuman-backup.ibak" }
+		val dot = cleaned.lastIndexOf('.')
+		var lastFailure: Throwable? = null
+		for (attempt in 0..50) {
+			val candidate = when {
+				attempt == 0 -> cleaned
+				dot > 0 -> cleaned.substring(0, dot) + " ($attempt)" + cleaned.substring(dot)
+				else -> "$cleaned ($attempt)"
+			}
+			val created = runCatching {
+				DocumentsContract.createDocument(
+					resolver,
+					parent,
+					"application/octet-stream",
+					candidate,
+				)
+			}.onFailure { failure ->
+				lastFailure = failure
+				if (failure is SecurityException) throw failure
+			}.getOrNull()
+			if (created != null) {
+				val actualName = queryDocumentName(resolver, created) ?: candidate
+				return created to actualName
+			}
+		}
+		throw IOException("Could not create a backup file in the selected folder.", lastFailure)
+	}
+
+	private fun queryDocumentName(resolver: ContentResolver, uri: Uri): String? =
+		runCatching {
+			resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+				val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+				if (column >= 0 && cursor.moveToFirst()) cursor.getString(column) else null
+			}
+		}.getOrNull()?.takeIf { it.isNotBlank() }
 
 	/**
 	 * Decrypt enough of a backup to show what importing it would do.

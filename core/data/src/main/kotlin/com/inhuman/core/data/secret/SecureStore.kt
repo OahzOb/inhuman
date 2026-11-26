@@ -303,6 +303,15 @@ class SecureStore(
 		const val KEY_BACKUP_SNOOZED_UNTIL = "backup.snoozed_until"
 
 		/**
+		 * Persistable SAF tree URI for one-tap encrypted backup exports.
+		 *
+		 * Not a secret and deliberately excluded from the backup archive itself:
+		 * a SAF tree grant is bound to this install and device, so a restored
+		 * device must pick its own folder.
+		 */
+		const val KEY_BACKUP_FOLDER_URI = "backup.folder_uri"
+
+		/**
 		 * Whether the SSH tool is available at all.
 		 *
 		 * Default off. This is the first of two gates: the assistant still has

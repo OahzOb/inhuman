@@ -336,8 +336,18 @@
 	<string name="settings_backup_summary">Encrypted export and import of data and workspaces</string>
 	<string name="settings_backup_body">An encrypted file of every conversation, workspace file, assistant and policy. API keys are deliberately not included.</string>
 	<string name="settings_export_backup">Export backup</string>
+	<string name="settings_export_backup_file">Export to file…</string>
 	<string name="settings_import_backup">Import backup</string>
 	<string name="settings_undo_import">Undo last import</string>
+	<string name="settings_backup_folder_heading">Sync folder</string>
+	<string name="settings_backup_folder_unset">No folder remembered. Pick a folder (such as a Syncthing, Nextcloud or cloud-drive directory) to write new encrypted backups in one tap without overwriting older files.</string>
+	<string name="settings_backup_folder_current">Folder: %1$s</string>
+	<string name="settings_backup_folder_lost">Write access to this folder was revoked by the system. Pick the folder again to continue.</string>
+	<string name="settings_backup_choose_folder">Choose backup folder</string>
+	<string name="settings_backup_change_folder">Change folder</string>
+	<string name="settings_backup_clear_folder">Forget folder</string>
+	<string name="settings_backup_to_folder">Back up to folder</string>
+	<string name="settings_export_folder_passphrase_body">Choose a passphrase of at least 8 characters. A new timestamped encrypted archive will be written to %1$s; API keys are not included. The passphrase cannot be recovered.</string>
 	<string name="settings_backup_explain">Export asks for a passphrase and writes one encrypted file. Import first shows what the file contains. The current data is replaced only after a restart, and the previous copy is kept for one Undo.</string>
 	<string name="settings_backup_reminder">Reminder</string>
 	<string name="settings_backup_never">No backup has been written yet.</string>
@@ -1235,6 +1245,8 @@
 	<string name="settings_error_connection_failed">Connection failed.</string>
 	<string name="settings_status_web_saved">Web tool keys saved. Search and fetch use the backend above; read_scanned uses the DeepSeek tools key.</string>
 	<string name="settings_status_backup_written">Backup written. Keep the passphrase: it cannot be recovered.</string>
+	<string name="settings_status_backup_written_folder">Backup written to %1$s (%2$s). Keep the passphrase: it cannot be recovered.</string>
+	<string name="settings_error_backup_folder_permission">Cannot write to the remembered backup folder: folder access was revoked or the directory is missing. Choose the folder again.</string>
 	<string name="settings_error_backup_failed">Backup failed: %1$s</string>
 	<string name="settings_error_unknown">unknown error</string>
 	<string name="settings_error_backup_read">Could not read that backup: %1$s</string>
