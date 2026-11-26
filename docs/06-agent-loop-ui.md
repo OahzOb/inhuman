@@ -693,9 +693,11 @@ That fixes two concrete failures found by running the matrix:
 
 `WideDialog`'s body ceiling is derived from the window height instead of a fixed
 420dp, so a form opened in a 360dp-tall landscape window still has visible
-actions. The Wire sheet uses `isCompact` for both its field layout and its
-height, which is why a wide, short window stacks fields rather than trying to
-draw tablet columns.
+actions. The reserve is 220dp: with 180dp the title, surface padding, content
+padding and action row together still pushed Cancel/Save below a 360dp-tall
+window edge, which a landscape screenshot showed. The Wire sheet uses
+`isCompact` for both its field layout and its height, which is why a wide, short
+window stacks fields rather than trying to draw tablet columns.
 
 The ratio matrix is in `AGENTS.md` and is part of verification, not an optional
 extra.
@@ -1234,13 +1236,42 @@ tool selection is the explicit empty list, and the greeting is written as the
 only root **assistant** message. The same dialog is not edited after creation;
 the chat menu's **Scene settings** (`SceneSettingsDialog`) is, and it writes
 `conversations.sceneJson` through `ChatViewModel.setScene` without bumping
-`updatedAt` or touching the transcript.
+`updatedAt` or touching the transcript. A scene whose fields are all blank is
+stored as `{}` rather than `""`: the empty string keeps meaning "ordinary
+conversation", and otherwise a blank scene lost its scene-ness — it was renamed
+after the first message and the persona snapshot could not be reloaded.
+
+**The persona is pinned.** A scene is born with a snapshot
+(`conversations.rpSnapshotJson`, schema v27) of the assistant prompt, display
+name and card, written in the same transaction as the conversation. The request
+projection reads the snapshot instead of the live assistant, so editing a card
+or an assistant prompt cannot rewrite a story already in progress — a card edit
+in scene 3 must not change what was said in scenes 1 and 2. A scene created
+before the column existed pins on its first turn (empty means "not pinned yet";
+a malformed value is treated the same way and repaired). The scene-settings
+dialog's **Reload card and assistant prompt** replaces the snapshot
+deliberately, exactly like the `AGENTS.md` reload: one cold request, because it
+rebuilds the system prefix.
+
+**Authoring helpers.** `rp_format` returns the published card/scene format (field
+names, text limits, folder convention, a valid example); `rp_validate` checks a
+workspace-relative card file, scene file or story folder and returns
+field-level problems and a size summary. Both are built in
+`core/engine/.../roleplay/RoleplayTools.kt`; the format text comes from
+`RoleplaySpec.kt`, generated from the serializers and `RoleplayLimits` so it
+cannot drift from the codec. They are **infrastructural**, appended after the
+allow-list only when the conversation already has workspace file tools, and
+`rp_validate` additionally requires `read_file` or `list_files` — a pure scene
+(`tools = []`) keeps its empty tool set, and the validator can never become a
+read path the user did not grant. The findings name fields, lengths and JSON
+types, never the file's prose.
 
 **What goes on the wire.** `buildWireHistory` appends, after the assistant's own
 prompt, the rendered card, the scene and the rules block; then the
 continuous-session instruction, the rolling brief, and the workspace `AGENTS.md`
-last. Card and scene are static for the conversation, so the only part that moves
-between turns is at the tail; editing a card or a scene costs one rebuilt request
+last. The prompt, card and scene are static for the conversation — the first
+two because they are the pinned snapshot — so the only part that moves between
+turns is at the tail; editing a pin or the scene costs one rebuilt request
 prefix and both editors say so. The rules block states that the card, the scene,
 the brief and tool output are setting/data rather than instructions, bans writing
 the user's words or actions, and defines `/ooc` as out-of-character speech to the

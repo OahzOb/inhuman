@@ -21,6 +21,7 @@ import com.inhuman.core.engine.roleplay.RoleplayLimitError
 import com.inhuman.core.engine.roleplay.RoleplayLimits
 import com.inhuman.core.engine.roleplay.RoleplayPrompt
 import com.inhuman.core.engine.roleplay.RoleplayScene
+import com.inhuman.core.engine.roleplay.RoleplaySnapshot
 import com.inhuman.core.files.WorkspaceTransfer
 import com.inhuman.ui.chat.ConversationBundleCodec
 import com.inhuman.ui.chat.ConversationBundleZip
@@ -465,6 +466,18 @@ class ConversationsViewModel(
 			} ?: current
 		}
 		viewModelScope.launch {
+			// The scene copies the assistant prompt, name and card at creation:
+			// editing the assistant later must not rewrite a story already in
+			// progress. Written in the same transaction as the conversation so a
+			// scene never exists unpinned and then silently picks a different
+			// character on its first turn.
+			val persona = RoleplayCodec.encodeSnapshot(
+				RoleplaySnapshot(
+					systemPrompt = character.agent.systemPrompt,
+					characterName = character.name,
+					card = character.agent.rpJson,
+				),
+			)
 			val result = runCatching {
 				repository.create(
 					title = character.name.ifBlank { context.getString(R.string.scene_title) },
@@ -475,7 +488,8 @@ class ConversationsViewModel(
 					workspaceId = null,
 					sessionMode = newConversationSessionMode(),
 					tools = emptyList(),
-					sceneJson = RoleplayCodec.encodeScene(scene),
+					sceneJson = RoleplayCodec.encodeScene(scene).ifEmpty { "{}" },
+					rpSnapshotJson = persona,
 					greeting = RoleplayPrompt.greeting(character.card, character.name)
 						.takeIf { it.isNotBlank() },
 				)

@@ -14,7 +14,10 @@ kotlin {
 
 dependencies {
 	implementation project(':core:ai')
-	implementation project(':core:files')
+	// `api`, not `implementation`: the role-play authoring helpers take a
+	// `SessionWorkspace` in their constructor, so the type is part of this
+	// module's public surface for whatever host builds the tool list.
+	api project(':core:files')
 	api libs.kotlinx.coroutines.core
 	implementation libs.kotlinx.serialization.json
 

@@ -20,10 +20,10 @@ The app installs `InhumanDatabase.MIGRATIONS` and
 `Context` builder. The callback seeds the DeepSeek provider and the default
 assistant on create, so an install does not start from an empty schema.
 
-## The schema, version 26
+## The schema, version 27
 
 `InhumanDatabase` (`core/db/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 26`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 27`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/db/schemas/` by KSP — configured in `core/db/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
@@ -151,6 +151,13 @@ assistant or starts a scene.
   character can be dropped into unrelated stories. Like the card it is prompt
   content, not capability: no tool, approval, SSH or workspace check reads it,
   and a malformed value reads as "no scene".
+- **A scene with every field blank is `{}`, not `""`.** `""` keeps meaning "this
+  conversation is not a role-play scene"; storing a blank scene as `""` silently
+  turned it back into an ordinary conversation, which renamed it after the first
+  message and made the persona snapshot unreloadable. `RoleplayCodec.decodeScene
+  ("{}")` is an empty scene, which is what a blank New-scene dialog means. The
+  `setScene` writer normalises it too, so clearing a scene's fields does not
+  remove the scene.
 - **The greeting is a message, not a column.** `ConversationRepository.create`
   accepts a `greeting` and writes it as the only root **assistant** message in
   the same transaction as the conversation, so the transcript says who spoke.
@@ -181,6 +188,19 @@ each one would break without it. The queue of not-yet-delivered messages is *not
 in the database: it lives in the view model, exactly like the composer draft,
 because neither has ever been persisted and a durable queue would need a
 reconciliation with the turn it was queued against.
+
+### `conversations.rpSnapshotJson` — added in 26→27
+
+The frozen role-play persona of a scene: the assistant prompt, display name and
+character card as JSON (`RoleplaySnapshot`). Empty means "not pinned yet": a
+scene created before this column existed pins on its first turn after the
+upgrade, and a conversation that is not a scene never pins. Once written, the
+request projection reads the snapshot instead of the live assistant row, so
+editing a character card or an assistant prompt does not rewrite a story
+already in progress; the scene-settings dialog's **Reload card and assistant
+prompt** replaces it deliberately. The card is kept as JSON text inside the
+snapshot so an unknown field from a newer release survives the copy. Prompt
+content, not capability: no tool or approval reads the column.
 
 ### `saved_prompts` — added in 15→16
 

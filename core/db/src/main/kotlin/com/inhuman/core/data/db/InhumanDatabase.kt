@@ -187,6 +187,10 @@ interface ConversationDao {
 	@Query("UPDATE conversations SET sceneJson = :json WHERE id = :id")
 	suspend fun setSceneJson(id: String, json: String)
 
+	/** Replace the frozen role-play persona snapshot; see `ConversationEntity`. */
+	@Query("UPDATE conversations SET rpSnapshotJson = :json WHERE id = :id")
+	suspend fun setRoleplaySnapshot(id: String, json: String)
+
 	/**
 	 * Replace a conversation's tool selection.
 	 *
@@ -709,7 +713,7 @@ interface SavedPromptDao {
 	// the app crashed on launch with "Looks like you've changed schema but
 	// forgot to update the version number" instead of quietly losing
 	// conversations.
-	version = 26,
+	version = 27,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -1339,6 +1343,23 @@ abstract class InhumanDatabase : RoomDatabase() {
 		}
 
 		/**
+		 * 26 -> 27: the frozen role-play persona of a scene.
+		 *
+		 * Additive and empty by default, which means "not pinned yet": a scene
+		 * created before this release keeps reading the live assistant row on
+		 * its next turn and pins a copy then, so an upgrade freezes the values
+		 * the conversation is using at that moment rather than inventing new
+		 * ones. Non-role-play conversations never write it.
+		 */
+		val MIGRATION_26_27 = object : Migration(26, 27) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"ALTER TABLE conversations ADD COLUMN rpSnapshotJson TEXT NOT NULL DEFAULT ''",
+				)
+			}
+		}
+
+		/**
 		 * Every migration, in order.
 		 *
 		 * A builder must not copy this list. `:core:data` uses
@@ -1372,6 +1393,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 			MIGRATION_23_24,
 			MIGRATION_24_25,
 			MIGRATION_25_26,
+			MIGRATION_26_27,
 		)
 
 		/**

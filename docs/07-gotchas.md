@@ -480,6 +480,55 @@ moves `lastUser`, orphans the start checkpoint, and turns Continue into a second
 kind of retry. The queue itself (`ChatUiState.queued`) is memory-only, exactly
 like the composer draft; the draft has never been persisted either.
 
+### A30. A role-play scene freezes its persona, and its helpers attach to the file capability
+
+`conversations.rpSnapshotJson` (schema v27) holds the assistant prompt, display
+name and card copied when a scene is created. The projection reads the snapshot
+instead of the live assistant, so editing a card or an assistant prompt cannot
+rewrite a story already underway. Three rules follow, and each is a bug if
+undone:
+
+- **Empty means "not pinned yet", not "no persona".** A scene created before the
+  column existed pins on its first turn; a malformed value is treated the same
+  way and is repaired by that pin. Do not backfill the column in the migration:
+  the values at upgrade time are the ones being used, and writing them from
+  somewhere else would freeze a persona the conversation never sent.
+- **A blank scene is `{}`, not `""`.** `""` is "ordinary conversation"; the
+  scene-creation path and `setScene` normalise a blank scene to `{}`. The first
+  version stored `""`, so a scene created with all fields empty was treated as a
+  non-scene: the auto-title rule renamed it after the first message and the
+  persona reload refused it. `{}` decodes as an empty `RoleplayScene` and keeps
+  the conversation a scene.
+- **Once a snapshot exists, never fall back to the live row.** A cleared
+  assistant card must not silently resurrect through the fallback; the scene's
+  persona is the snapshot until the user hits **Reload card and assistant
+  prompt**. The reload is the `AGENTS.md` pattern: one deliberate cold request,
+  because it rebuilds the system prefix.
+- **The copy keeps the card as JSON text**, not decoded fields, so an unknown
+  field written by a newer release survives and the normal codec decides what it
+  means.
+
+`rp_format` and `rp_validate` (`core/engine/.../roleplay/RoleplayTools.kt`) are
+authoring helpers, not selectable capabilities:
+
+- They are appended **after** the allow-list, like `recall`, only when the
+  conversation already has workspace file tools. `rp_validate` additionally
+  requires `read_file` or `list_files`: it must not become a read path the user
+  did not grant. A pure scene (`tools = []`) keeps its empty tool set — the
+  create path and `RoleplayToolsPlanTest` pin that.
+- The validator resolves through `SessionWorkspace` and reports field names,
+  lengths, JSON types and unknown-field warnings. It must not quote the file's
+  prose; that would be a second read tool with different permission rules. Its
+  persisted transcript line is a count, not the findings.
+- The format text is generated from the serializers and `RoleplayLimits`
+  (`RoleplaySpec.kt`), and `RoleplaySpecTest` fails if a field or a limit drifts.
+  Do not hand-write a second description: the model writes files against this
+  text and the same codec validates them.
+- They are absent from the tool catalogue and from every picker. Listing them
+  would turn an infrastructural helper into a capability row the user is asked
+  to grant, which is the "greyed row" `docs/08-port-philosophy.md` §1.2.1
+  refuses in spirit: there is nothing there to grant or refuse.
+
 ---
 
 ## B. Defects that were found here — and where each one now stands

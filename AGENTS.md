@@ -17,7 +17,7 @@ than implementation; the old feasibility studies are archived under
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
 | `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the per-tool media backends (image/video/speech/transcription/decision)**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)**, **`download_url` (app-proxied file download into the workspace)**, and the user-set `SshLimits` ceilings |
-| `docs/04-data-persistence.md` | Room schema v26, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup, and the continuous-session cost ledger |
+| `docs/04-data-persistence.md` | Room schema v27, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup, and the continuous-session cost ledger |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the file and document tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, continuous-session projection and read-only record recall, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
@@ -580,6 +580,23 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   messages is legal in all four formats. The queue strip is memory-only, like
   the composer draft, and a failed turn holds it rather than retrying the same
   error once per queued message. See `docs/07-gotchas.md` A29.
+- **A role-play scene freezes its persona, and that is the promise, not a
+  cache trick.** `conversations.rpSnapshotJson` (schema v27) holds the assistant
+  prompt, display name and card copied when the scene was created; the
+  projection reads the snapshot instead of the live assistant, so editing a
+  card or prompt cannot rewrite a story already in progress. A scene created
+  before the column existed pins on its first turn (empty column means "not
+  pinned yet"); the scene-settings dialog's **Reload card and assistant prompt**
+  is the only way to update it, matching the `AGENTS.md` reload pattern. Do not
+  fall back to the live card once a snapshot exists: that would make a cleared
+  card silently resurrect. `rp_format`/`rp_validate` (`core/engine/.../roleplay/
+  RoleplayTools.kt`) are the authoring helpers: they are appended after the
+  allow-list only when the conversation already has workspace file tools, and
+  `rp_validate` additionally requires `read_file`/`list_files`, so a scene with
+  no tools keeps an empty tool set and the validator can never become a read
+  path the user did not grant. It reports structure only, never file prose.
+  The format text is generated from the serializers and `RoleplayLimits`
+  (`RoleplaySpecTest` pins the match). See `docs/07-gotchas.md` A30.
 - **The final-answer retry keeps tools but suppresses calls.** The **Answer
   again** choice in Rewind rewrites final text from existing results; keeping the
   definitions preserves the cache prefix, while a transient system instruction

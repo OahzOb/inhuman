@@ -52,6 +52,39 @@ class ConversationRepositoryTest {
 	}
 
 	@Test
+	fun `a scene keeps its persona snapshot on the conversation row`() = runBlocking {
+		val persona = """{"systemPrompt":"You are the Archivist.","characterName":"Archivist","card":"{}"}"""
+		val scene = """{"world":"a drowned library"}"""
+
+		val created = repository.create(
+			title = "Archivist",
+			sceneJson = scene,
+			rpSnapshotJson = persona,
+			greeting = "You are late.",
+		)
+
+		assertEquals(persona, created.rpSnapshotJson)
+		assertEquals(persona, repository.conversationEntity(created.id)?.rpSnapshotJson)
+	}
+
+	@Test
+	fun `an ordinary conversation has no persona snapshot`() = runBlocking {
+		val created = repository.create(title = "plain")
+
+		assertEquals("", created.rpSnapshotJson)
+	}
+
+	@Test
+	fun `the persona snapshot can be replaced deliberately`() = runBlocking {
+		val created = repository.create(title = "Archivist", sceneJson = """{"world":"x"}""")
+		val persona = """{"systemPrompt":"new","characterName":"n","card":"{}"}"""
+
+		repository.setRoleplaySnapshot(created.id, persona)
+
+		assertEquals(persona, repository.conversationEntity(created.id)?.rpSnapshotJson)
+	}
+
+	@Test
 	fun `a conversation owns a temporary workspace directory`() = runBlocking {
 		val conversation = repository.create(title = "JVM conversation")
 

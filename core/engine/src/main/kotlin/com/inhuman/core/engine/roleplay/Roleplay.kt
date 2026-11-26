@@ -77,6 +77,40 @@ data class RoleplayScene(
 }
 
 /**
+ * The frozen role-play persona of one conversation.
+ *
+ * ## Why a snapshot rather than the live assistant row
+ *
+ * A card and an assistant's system prompt are configuration, and the app's
+ * normal behaviour is that editing an assistant changes what its conversations
+ * send next: the prompt is read live, like tools are not. That is right for a
+ * general assistant and wrong for a story: changing a character's card in
+ * scene 3 should not silently rewrite scenes 1 and 2, whose transcripts quote
+ * the character the old way. A scene therefore takes a copy of the static
+ * persona when it is created, and the request projection reads the copy.
+ *
+ * The explicit **reload** action replaces the copy when the user does want a
+ * scene to pick up an edited assistant -- the same one-way door as
+ * `AGENTS.md`'s pinned block, and for the same cache reason.
+ *
+ * [card] is the card as JSON text so an unknown field written by a newer
+ * release survives the copy; the projection decodes it through the normal
+ * codec. An empty [card] is a scene whose assistant had no character card
+ * (possible only for a conversation upgraded from before snapshots existed).
+ */
+@Serializable
+data class RoleplaySnapshot(
+	/** The assistant's system prompt at the moment the scene was created. */
+	val systemPrompt: String = "",
+	/** The assistant's display name, which the card sections use to name the character. */
+	val characterName: String = "",
+	/** The character card JSON, verbatim; empty when the assistant had no card. */
+	val card: String = "",
+	/** Bumped only if the snapshot's meaning ever changes. */
+	val version: Int = 1,
+)
+
+/**
  * The stored representation of a card and a scene.
  *
  * An empty or malformed value decodes to null, and null means "not a role-play
@@ -119,6 +153,23 @@ object RoleplayCodec {
 
 	fun encodeScene(scene: RoleplayScene): String =
 		if (scene.isBlank) "" else json.encodeToString(RoleplayScene.serializer(), scene)
+
+	/**
+	 * Decode a stored persona snapshot.
+	 *
+	 * Null means "not pinned yet" -- the projection falls back to the live
+	 * assistant row, which is what a scene created before snapshots existed
+	 * needs, and what lets the first turn after an upgrade pin.
+	 */
+	fun decodeSnapshot(raw: String?): RoleplaySnapshot? {
+		val text = raw?.trim().orEmpty()
+		if (text.isEmpty()) return null
+		return runCatching { json.decodeFromString(RoleplaySnapshot.serializer(), text) }
+			.getOrNull()
+	}
+
+	fun encodeSnapshot(snapshot: RoleplaySnapshot): String =
+		json.encodeToString(RoleplaySnapshot.serializer(), snapshot)
 }
 
 /** A card or scene field, so the UI can name the one that is too long. */

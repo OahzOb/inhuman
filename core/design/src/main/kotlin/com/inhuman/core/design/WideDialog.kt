@@ -88,7 +88,14 @@ fun WideDialog(
 	// A fixed 420dp body plus title/actions overflows a 360dp-tall landscape
 	// phone. Leave room for the dialog chrome, but never shrink the body below a
 	// usable two rows.
-	val bodyCeiling = (currentWindowFrame().heightDp - 180).coerceAtLeast(160).dp
+	//
+	// 220dp, not 180: measured on a 360dp-tall landscape window, 180 still put
+	// the Cancel/Save row below the screen edge, because the surface padding
+	// (24dp top and bottom), the content padding (16dp), the title and the
+	// action row together take more than 180dp. The body is scrollable, so
+	// reserving the extra 40dp costs nothing on taller windows -- `maxBodyHeight`
+	// still caps it at 420dp there.
+	val bodyCeiling = (currentWindowFrame().heightDp - 220).coerceAtLeast(120).dp
 	val effectiveBodyHeight = minOf(maxBodyHeight, bodyCeiling)
 	Dialog(
 		onDismissRequest = onDismissRequest,

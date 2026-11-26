@@ -28,7 +28,7 @@ not; `AGENTS.md` states the non-negotiable working rules. These files explain
 | [01-overview.md](01-overview.md) | What this is, which module holds what, what the app does today, what is deliberately missing |
 | [02-architecture.md](02-architecture.md) | Module graph, dependency rule, start-up wiring, navigation, build toolchain, build/verify commands |
 | [03-ai-provider.md](03-ai-provider.md) | Provider interface and stream types, provider profiles, OpenAI-compatible / Anthropic / Gemini / Responses adapters, SSE, demo mode, paid web tools, SSH tools and limits |
-| [04-data-persistence.md](04-data-persistence.md) | Room schema v26 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
+| [04-data-persistence.md](04-data-persistence.md) | Room schema v27 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | Turn lifecycle, tool execution, approval gate, cancellation, context gauge, Compose layout |
 | [07-gotchas.md](07-gotchas.md) | Load-bearing invariants, and mistakes that already cost someone a day |
@@ -75,7 +75,7 @@ should be built and why; they are not a description of current behaviour.
 | [proposals/deepseek-app-apis.md](proposals/deepseek-app-apis.md) | A triage of DeepSeek's 2026-11-13 application-API suite: the standalone ASR/TTS and OCR APIs were adopted in 0.13.0 as paid app-proxied backends (see `03-ai-provider.md`); the server-side web tools, the Files API and the safety check are refused because they change the capability boundary |
 | [proposals/in-turn-user-message.md](proposals/in-turn-user-message.md) | **Implemented 2026-11-25**: a message written while a turn runs is queued for the next turn, or inserted before the current turn's next model call (schema v26, `messages.injected`); kept as the design and decision record |
 | [proposals/user-cloud-sync.md](proposals/user-cloud-sync.md) | Let the user bring their own cloud storage: phase 1 mirrors the existing encrypted backup into a user-picked SAF folder that the user's own sync client uploads; phase 2 is conversation-level two-way sync with stable ids, tombstones and explicit conflict copies |
-| [proposals/rp-authoring-assistant.md](proposals/rp-authoring-assistant.md) | An assistant *template* that writes character-card and scene JSON into the workspace, plus JSON import in the card/scene editors; explicitly not a general personal assistant — cross-conversation memory stays deferred |
+| [proposals/rp-authoring-assistant.md](proposals/rp-authoring-assistant.md) | RP materials as workspace files plus two authoring tools: `rp_format` / `rp_validate` (Phase 0, implemented: frozen scene persona and the helpers), and a folder-based scene-creation flow with legacy card migration (Phase 1, not implemented) |
 
 The role-play proposal (`proposals/roleplay.md`) was implemented on 2026-11-25
 (single character, single scene; no multi-character turns, world books or card
@@ -84,8 +84,11 @@ import); current behaviour is described in
 [04-data-persistence.md](04-data-persistence.md). The in-turn message proposal
 was implemented the same day (queue and insert-before-next-call, schema v26);
 its current behaviour is in [06-agent-loop-ui.md](06-agent-loop-ui.md) and
-[07-gotchas.md](07-gotchas.md) A29. The RP authoring assistant and the
-user-configured sync proposals still wait on product decisions; each records its
+[07-gotchas.md](07-gotchas.md) A29. The RP authoring proposal has been decided:
+Phase 0 — the frozen scene persona (`conversations.rpSnapshotJson`) and the
+`rp_format` / `rp_validate` authoring helpers — is implemented (schema v27),
+while Phase 1, creating scenes from a workspace folder, is not. The
+user-configured sync proposal still waits on a product decision; it records its
 own open questions and suggested order.
 
 ## Conventions used here
@@ -214,6 +217,7 @@ repository root; `…/` stands for `src/main/kotlin/com/inhuman/`.
 | Role-play card, scene, codec and limits | `core/engine/…/roleplay/Roleplay.kt` |
 | Role-play system prompt, rules, story-brief prompt, start line | `core/engine/…/roleplay/RoleplayPrompt.kt` |
 | Role-play card editor; new-scene flow; scene settings | `app/…/ui/agents/RoleplayCardEditor.kt`, `app/…/ui/NewSceneDialog.kt`, `app/…/ui/chat/ChatScreen.kt`, `app/…/ui/chat/ChatViewModel.kt` |
+| Role-play persona snapshot; authoring format and validator tools | `core/engine/…/roleplay/Roleplay.kt` (`RoleplaySnapshot`), `RoleplaySpec.kt`, `RoleplayValidation.kt`, `RoleplayTools.kt`; `conversations.rpSnapshotJson`; `app/…/ui/chat/RoleplayToolsPlan.kt`, `ChatViewModel.pinRoleplaySnapshot` |
 | Messages written while a turn runs: queue, insertion, turn roots | `app/…/ui/chat/TurnQueue.kt`, `app/…/ui/chat/ChatViewModel.kt`, `app/…/ui/chat/ChatScreen.kt`; `core/engine/…/ChatEngine.kt` (`EngineTurn.beforeRound`) |
 | File tools' behaviour | `core/files/…/tools/FileTools.kt` |
 | Quotas and guarded reads/writes/lists | `core/files/…/WorkspaceTool.kt`, `WorkspaceLimits.kt` |

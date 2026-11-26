@@ -488,6 +488,18 @@ class ConversationRepository(
 	suspend fun setSceneJson(id: String, sceneJson: String) =
 		db.conversations().setSceneJson(id, sceneJson)
 
+	/**
+	 * Freeze (or refresh) this conversation's role-play persona.
+	 *
+	 * The snapshot is the conversation's own copy of the assistant prompt, name
+	 * and character card. Once written, editing the assistant no longer changes
+	 * this conversation's system message; the scene-settings dialog is the
+	 * deliberate way to replace it. Prompt content, not capability: no tool,
+	 * approval or workspace check reads it.
+	 */
+	suspend fun setRoleplaySnapshot(id: String, json: String) =
+		db.conversations().setRoleplaySnapshot(id, json)
+
 	suspend fun setSshAllowed(id: String, allowed: Boolean) =
 		db.conversations().setSshAllowed(id, allowed)
 
@@ -561,6 +573,15 @@ class ConversationRepository(
 		sessionMode: String = SessionMode.CLASSIC,
 		tools: List<String>? = null,
 		sceneJson: String = "",
+		/**
+		 * The frozen role-play persona written with a new scene, as JSON.
+		 *
+		 * A scene copies the assistant prompt, name and card at creation so a
+		 * later edit to the assistant cannot rewrite the story. Empty for an
+		 * ordinary conversation; a scene created before this parameter existed
+		 * pins on its first turn instead.
+		 */
+		rpSnapshotJson: String = "",
 		greeting: String? = null,
 	): ConversationEntity {
 		val now = System.currentTimeMillis()
@@ -606,6 +627,7 @@ class ConversationRepository(
 			// Role-play data only tells the model about the story; it is not a
 			// capability and no tool or approval reads it.
 			sceneJson = sceneJson,
+			rpSnapshotJson = rpSnapshotJson,
 			sessionMode = SessionMode.parse(sessionMode),
 			createdAt = now,
 			updatedAt = now,

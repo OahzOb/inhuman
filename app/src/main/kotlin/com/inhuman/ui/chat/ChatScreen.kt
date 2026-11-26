@@ -3204,6 +3204,7 @@ fun ChatScreen(
 				viewModel.setScene(scene)
 				showSceneDialog = false
 			},
+			onReloadPersona = { viewModel.reloadRoleplayPersona() },
 			onDismiss = { showSceneDialog = false },
 		)
 	}
@@ -6390,6 +6391,8 @@ private fun SceneSettingsDialog(
 	initial: RoleplayScene?,
 	streaming: Boolean,
 	onSave: (RoleplayScene) -> Unit,
+	/** Replace the frozen persona with the assistant's current card and prompt. */
+	onReloadPersona: () -> Unit,
 	onDismiss: () -> Unit,
 ) {
 	val base = initial ?: RoleplayScene()
@@ -6420,6 +6423,20 @@ private fun SceneSettingsDialog(
 			style = MaterialTheme.typography.bodyMedium,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
+		Text(
+			text = stringResource(R.string.scene_reload_persona_note),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		TextButton(
+			onClick = {
+				onReloadPersona()
+				onDismiss()
+			},
+			enabled = !streaming,
+		) {
+			Text(stringResource(R.string.scene_reload_persona))
+		}
 		SceneField(stringResource(R.string.roleplay_field_world), world) { world = it }
 		SceneField(stringResource(R.string.roleplay_field_premise), premise) { premise = it }
 		SceneField(stringResource(R.string.roleplay_field_user_persona), userPersona) {

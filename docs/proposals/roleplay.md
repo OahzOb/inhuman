@@ -6,6 +6,11 @@
 > （Phase 3）、JSON/PNG 卡导入、把卡或场景写进对话包。当前行为以正式文档
 > （`04` / `06` / `07` / `13`）为准，本文保留为设计与决定记录。
 >
+> **2026-11-26 更新：** 场景现在在创建时冻结助手提示词/名字/角色卡（`conversations.rpSnapshotJson`，
+> schema v27），并新增 `rp_format` / `rp_validate` 写作辅助工具；这是"工作区文件作为
+> RP 资料源"的第一步（Phase 0）。下一步（Phase 1：选工作区文件夹建场景）见
+> `docs/proposals/rp-authoring-assistant.md`。
+>
 > 词汇：**角色卡**（character card）是一个助手背后的人设数据；**场景**（scene）是一段
 > RP 对话及其设定；**投影**（projection）是这一次请求实际发给模型的 system + messages。
 
@@ -360,7 +365,11 @@ Phase 1 的投影稳定，否则多角色的上下文形状会返工。
 
 ## 13. 被否决 / 暂不做
 
-- **工作区文件当卡/场景**：不可发现、不能校验、`AGENTS.md` 只 pin 一次。
+- **工作区文件当卡/场景**（原判断，2026-11-26 部分推翻）：最初拒绝是因为"不可发现、
+  不能校验、`AGENTS.md` 只 pin 一次"。2026-11-26 的决定把**资料源**放到工作区文件：
+  建场景时用文件夹选择器发现并校验，场景创建时快照冻结（所以旧对话不受文件变化影响），
+  格式说明改为 `rp_format`/`rp_validate` 两个工具而不是 `AGENTS.md`。这条仍拒绝的是
+  "卡库只存在于工作区、没有发现/校验/冻结"的旧形态；Phase 1（从文件建场景）尚未实现。
 - **新增「RP 模式」权限档或全局开关**：违反 §1.1；RP 是内容配置，不是能力。
 - **角色自动对聊**：花钱不可控，且要自动回合循环，另做设计。
 - **RAG / 向量记忆**：第一版不做；简报 + 世界书已能覆盖大部分长场景。
@@ -422,6 +431,13 @@ Phase 1 的投影稳定，否则多角色的上下文形状会返工。
    `setScene`；`DemoProvider` 的场景脚本。开场白带 `finishReason = "stop"`，否则一个只有
    开场白的场景会被 `isInterruptedTurn` 判成中断并显示「继续」——这是设备验证时抓到的
    真实缺陷。角色卡可以在助手系统提示词为空时单独保存（`AgentDraft.canSave`）。
+10. **2026-11-26：场景冻结 + 写作辅助工具（Phase 0 已实现）。** 场景创建时把助手提示词、
+   名字和角色卡写成 `conversations.rpSnapshotJson`（schema v27）；投影读快照，编辑助手不再
+   改写已经开始的场景；场景设定里的「重新读取角色卡与助手提示词」是唯一显式刷新入口。
+   `rp_format` / `rp_validate` 两个辅助工具（`core/engine/.../roleplay/RoleplayTools.kt`）
+   只随工作区文件能力出现；`rp_validate` 需要 `read_file`/`list_files`，纯场景保持空工具集。
+   这是"工作区文件当 RP 资料源"的第一步：Phase 1（选工作区文件夹 → 校验 → 创建场景，
+   不再依赖 `agents.rpJson`）尚未实现，见 `docs/proposals/rp-authoring-assistant.md`。
 
 ---
 

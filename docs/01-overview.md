@@ -217,8 +217,14 @@ Confirmed by `README.md:17-29` and by the code:
   first assistant message, and a request whose history would start there gets a
   wire-only user start line. A scene is created with an explicit empty tool
   selection (changeable from the conversation tool sheet), and its continuous
-  briefing uses story-state headings rather than the task brief
-  ([06-agent-loop-ui.md](06-agent-loop-ui.md)).
+  briefing uses story-state headings rather than the task brief. **The persona
+  is frozen at creation**: the scene keeps its own copy of the assistant prompt,
+  name and card, so editing a card later does not rewrite a story already in
+  progress; **Scene settings** has an explicit reload for when the user does
+  want the current card. Tools with workspace-file access also carry `rp_format`
+  and `rp_validate`, which describe and check role-play material files; they are
+  helpers, not selectable capabilities, and a scene with no tools keeps an empty
+  tool set ([06-agent-loop-ui.md](06-agent-loop-ui.md)).
 - A root `AGENTS.md` in the conversation's workspace is pinned on the
   conversation's first request and appended to the system prompt. Later edits
   apply to new conversations, or to the current one through the chat menu's

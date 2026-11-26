@@ -434,6 +434,24 @@ data class ConversationEntity(
 	val sceneJson: String = "",
 
 	/**
+	 * The frozen role-play persona: the assistant prompt, display name and card
+	 * that this conversation sends, as JSON.
+	 *
+	 * Empty means "not pinned yet": a scene created before this column existed
+	 * reads the live assistant row until its first turn pins a copy, and a
+	 * non-role-play conversation never pins. Once non-empty, editing the
+	 * assistant -- its card, prompt or name -- no longer changes this
+	 * conversation's system message, which is the promise a story needs: a card
+	 * edit in scene 3 must not rewrite what was already said in scenes 1 and 2.
+	 * The chat's scene-settings dialog can replace the snapshot deliberately.
+	 *
+	 * [com.inhuman.core.engine.roleplay.RoleplaySnapshot] is the shape; the card
+	 * is kept as JSON text so a field from a newer release survives the copy.
+	 */
+	@ColumnInfo(defaultValue = "")
+	val rpSnapshotJson: String = "",
+
+	/**
 	 * How this conversation maintains its request projection.
 	 *
 	 * [SessionMode.CLASSIC] keeps the manual compaction; [SessionMode.CONTINUOUS]

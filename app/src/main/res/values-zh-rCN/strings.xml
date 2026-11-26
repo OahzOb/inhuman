@@ -746,6 +746,9 @@
 	<string name="scene_settings_detail">世界、情境、你扮演谁、叙事格式。</string>
 	<string name="scene_save">保存场景</string>
 	<string name="scene_save_intro">改动从下一回合生效，会重建一次请求前缀。</string>
+	<string name="scene_reload_persona">重新读取角色卡与助手提示词</string>
+	<string name="scene_reload_persona_note">这个场景冻结了开始时的角色卡与助手提示词；之后编辑助手不会改变它，这里可以显式再读一次（下一次请求生效）。</string>
+	<string name="chat_error_roleplay_persona_reload">无法重新读取角色扮演设定：%1$s</string>
 	<string name="scene_format_hint">例如：第二人称，两段短段落。</string>
 	<string name="scene_notes_hint">这段故事里模型需要记住的事。</string>
 	<string name="chat_scene_menu">场景设定…</string>

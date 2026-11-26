@@ -56,8 +56,13 @@ import com.inhuman.core.engine.projection.planProjection
 import com.inhuman.core.engine.projection.weightedChars
 import com.inhuman.core.engine.roleplay.RoleplayCard
 import com.inhuman.core.engine.roleplay.RoleplayCodec
+import com.inhuman.core.engine.roleplay.RoleplayFormatTool
+import com.inhuman.core.engine.roleplay.RoleplayPersona
+import com.inhuman.core.engine.roleplay.RoleplayPersonaResolver
 import com.inhuman.core.engine.roleplay.RoleplayPrompt
 import com.inhuman.core.engine.roleplay.RoleplayScene
+import com.inhuman.core.engine.roleplay.RoleplaySnapshot
+import com.inhuman.core.engine.roleplay.RoleplayValidateTool
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ApprovalRecord
 import com.inhuman.core.data.Branches
@@ -524,16 +529,33 @@ class ChatViewModel(
 	private var agent: AgentEntity? = null
 
 	/**
-	 * The assistant's character card, or null for a plain assistant.
+	 * This scene's frozen persona, or null when it is not pinned yet.
 	 *
-	 * Decoded from the in-memory assistant row rather than passed around: this
-	 * is read once per request build (and once for the sampling values), so a
-	 * decoded copy in a field would have to be invalidated whenever the row was
-	 * reloaded. The card cannot change while this view model lives unless the
-	 * user leaves the chat to edit the assistant, and reopening the chat
-	 * reloads it -- the same lifetime the assistant's system prompt has.
+	 * Loaded with the conversation row and replaced by the explicit reload. The
+	 * projection reads this copy instead of the live assistant so editing a
+	 * character card or an assistant prompt cannot rewrite an existing scene --
+	 * see `RoleplaySnapshot` for why that promise is a story requirement rather
+	 * than a preference.
 	 */
-	private fun roleplayCard(): RoleplayCard? = RoleplayCodec.decodeCard(agent?.rpJson)
+	private var rpSnapshot: RoleplaySnapshot? = null
+
+	/**
+	 * The persona this conversation sends: the pinned snapshot, or the live
+	 * assistant row when the scene has never been pinned.
+	 *
+	 * One resolver rather than three call-site fallbacks, because "pinned means
+	 * pinned" has to hold for the prompt, the name and the card together; the
+	 * rule is tested in `RoleplayPersonaTest`.
+	 */
+	private fun roleplayPersona(): RoleplayPersona = RoleplayPersonaResolver.resolve(
+		snapshot = rpSnapshot,
+		liveSystemPrompt = agent?.systemPrompt,
+		liveName = agent?.name,
+		liveCard = agent?.rpJson,
+	)
+
+	/** The character card this conversation actually sends. */
+	private fun roleplayCard(): RoleplayCard? = roleplayPersona().card
 
 	/**
 	 * This conversation's role-play scene, or null when it has none.
@@ -622,6 +644,10 @@ class ChatViewModel(
 			// started. The agent supplies the defaults it was created with.
 			agent = c?.agentId?.let { agents.byId(it) }
 				?: agents.byId(Database.DEFAULT_AGENT_ID)
+			// The scene's frozen persona is conversation state. Decoded here
+			// rather than per call so the projection and the sampling values
+			// read one object; a first turn with no snapshot pins one.
+			rpSnapshot = RoleplayCodec.decodeSnapshot(conversation?.rpSnapshotJson)
 			// The scene is part of the conversation row; the character belongs to
 			// the assistant. Both are mirrored into the UI state so the chat menu
 			// can offer scene settings without re-reading either row.
@@ -1565,7 +1591,12 @@ class ChatViewModel(
 	fun setScene(scene: RoleplayScene?) {
 		if (_state.value.isStreaming || _state.value.isCompacting) return
 		val entity = conversation ?: return
-		val json = scene?.let(RoleplayCodec::encodeScene).orEmpty()
+		// A scene whose fields were all cleared is still a scene, so it is
+		// stored as `{}`; the empty string keeps its original meaning of "this
+		// conversation is not a role-play scene". Without this, clearing a
+		// scene's fields silently turned it back into an ordinary
+		// conversation -- and the persona snapshot stopped being reloadable.
+		val json = if (scene == null) "" else RoleplayCodec.encodeScene(scene).ifEmpty { "{}" }
 		conversation = entity.copy(sceneJson = json)
 		_state.update { it.copy(roleplayScene = RoleplayCodec.decodeScene(json)) }
 		Diag.i(
@@ -1581,6 +1612,90 @@ class ChatViewModel(
 					conversation = runCatching { repository.conversationEntity(conversationId) }
 						.getOrNull() ?: entity
 					_state.update { it.copy(roleplayScene = roleplayScene()) }
+				}
+		}
+	}
+
+	/**
+	 * Freeze this scene's static persona, once.
+	 *
+	 * A scene created after this release is born pinned (the repository writes
+	 * the snapshot in the creation transaction); this covers a scene that
+	 * existed before snapshots did, and it pins whatever the assistant is on
+	 * the first turn after the upgrade. A write failure leaves the scene
+	 * unpinned so the next turn retries; the request uses the live row in the
+	 * meantime, which is exactly the pre-snapshot behaviour.
+	 */
+	private suspend fun pinRoleplaySnapshot() {
+		val entity = conversation ?: return
+		if (RoleplayCodec.decodeScene(entity.sceneJson) == null) return
+		val existing = RoleplayCodec.decodeSnapshot(entity.rpSnapshotJson)
+		if (existing != null) {
+			rpSnapshot = existing
+			return
+		}
+		val snapshot = RoleplaySnapshot(
+			systemPrompt = agent?.systemPrompt.orEmpty(),
+			characterName = agent?.name.orEmpty(),
+			card = agent?.rpJson.orEmpty(),
+		)
+		val json = RoleplayCodec.encodeSnapshot(snapshot)
+		runCatching { repository.setRoleplaySnapshot(entity.id, json) }
+			.onSuccess {
+				conversation = entity.copy(rpSnapshotJson = json)
+				rpSnapshot = snapshot
+				Diag.i("roleplay", "persona pinned conv=${Diag.shortId(entity.id)}")
+			}
+			.onFailure { failure ->
+				Diag.w("roleplay", "could not pin persona", failure)
+			}
+	}
+
+	/**
+	 * Replace this scene's frozen persona with the current assistant.
+	 *
+	 * The only way an edit to a character card or an assistant prompt reaches a
+	 * scene that already started. Like reloading `AGENTS.md`, it changes the
+	 * system message and therefore starts a new cache prefix -- one deliberate
+	 * cold request -- which is why it is a button rather than a file watcher.
+	 */
+	fun reloadRoleplayPersona() {
+		if (_state.value.isStreaming || _state.value.isCompacting) return
+		val entity = conversation ?: return
+		// A scene created after schema v27 is pinned even when its fields were
+		// left blank (stored as `{}`), so the snapshot alone is enough: a
+		// legacy scene with no scene text is still not reloadable.
+		if (RoleplayCodec.decodeScene(entity.sceneJson) == null && rpSnapshot == null) return
+		val snapshot = RoleplaySnapshot(
+			systemPrompt = agent?.systemPrompt.orEmpty(),
+			characterName = agent?.name.orEmpty(),
+			card = agent?.rpJson.orEmpty(),
+		)
+		val json = RoleplayCodec.encodeSnapshot(snapshot)
+		viewModelScope.launch {
+			runCatching { repository.setRoleplaySnapshot(entity.id, json) }
+				.onSuccess {
+					conversation = entity.copy(rpSnapshotJson = json)
+					rpSnapshot = snapshot
+					_state.update {
+						it.copy(
+							error = null,
+							roleplayCharacter = roleplayCard() != null,
+							roleplayScene = roleplayScene(),
+						)
+					}
+					Diag.i("roleplay", "persona reloaded conv=${Diag.shortId(entity.id)}")
+				}
+				.onFailure { failure ->
+					Diag.w("roleplay", "could not reload persona", failure)
+					_state.update {
+						it.copy(
+							error = context.getString(
+								R.string.chat_error_roleplay_persona_reload,
+								failure.message.orEmpty(),
+							),
+						)
+					}
 				}
 		}
 	}
@@ -4109,7 +4224,9 @@ class ChatViewModel(
 			// A scene is titled after its character at creation; the first player
 			// line is part of the story, not its title, so auto-titling would
 			// rename the scene to "I walk into the tavern".
-			if (_state.value.messages.count { it.isTurnRoot } == 1 && roleplayScene() == null) {
+			if (_state.value.messages.count { it.isTurnRoot } == 1 &&
+				roleplayScene() == null && rpSnapshot == null
+			) {
 				// An image-only first message has no text to derive a title
 				// from, so it falls back rather than leaving the list blank.
 				repository.autoTitle(
@@ -4609,6 +4726,9 @@ class ChatViewModel(
 		// AGENTS.md block once, then never re-reads the file. A failure leaves
 		// it unpinned so the next turn retries.
 		pinWorkspaceInstructions()
+		// Same rule for the story: the static persona is copied on the first
+		// turn that could send it, then never re-read from the assistant.
+		pinRoleplaySnapshot()
 		val policies = loadPolicies()
 		// The user pressed send. If the projection is already past the hard
 		// line, fold now: the maintenance rules say "at a turn boundary while
@@ -5945,6 +6065,17 @@ class ChatViewModel(
 				}
 		}.orEmpty()
 
+		// Role-play authoring helpers follow workspace file capability: they are
+		// only useful where the agent can already touch files, and a pure scene
+		// (tools = []) keeps its empty tool set. `rp_format` describes the format
+		// and touches nothing; `rp_validate` reads one workspace file, so it
+		// additionally needs a read/list tool -- it must never become a read
+		// path the user did not grant. The rule is a pure function so it can be
+		// tested without a view model.
+		val roleplayHelpers = planRoleplayHelpers(fileTools.map { it.name }) {
+			ToolCatalog.permits(selected, it)
+		}
+
 		return buildList {
 			addAll(fileTools)
 			// Scanned PDFs: render pages and ask the turn's own vision model.
@@ -6170,6 +6301,19 @@ class ChatViewModel(
 			}
 		}.filter { ToolCatalog.permits(selected, it.name) }
 			.let { built ->
+				// Infrastructural helpers, added after the allow-list for the
+				// same reason as recall: they are not selectable capabilities,
+				// and they exist only where the file capability they describe
+				// already does. A stored selection therefore cannot smuggle a
+				// read path in, and a scene with no tools gets neither.
+				val withAuthoring = buildList {
+					addAll(built)
+					if (roleplayHelpers.format) add(RoleplayFormatTool())
+					val ws = workspace
+					if (roleplayHelpers.validate && ws != null) {
+						add(RoleplayValidateTool(ws))
+					}
+				}
 				// The record search belongs to the session mode, not to the
 				// assistant's tool list: it reads this conversation's own
 				// messages, adds no external capability, and inserts itself
@@ -6177,9 +6321,9 @@ class ChatViewModel(
 				// (there is nothing to allow: classic conversations already have
 				// the full transcript in the request).
 				val withRecall = if (sessionMode == SessionMode.CONTINUOUS) {
-					built + RecallTool { _state.value.messages }
+					withAuthoring + RecallTool { _state.value.messages }
 				} else {
-					built
+					withAuthoring
 				}
 				// Built last, because it reports on the set it is part of. The
 				// universe is what the app offers *now*: a capability the user
@@ -6671,12 +6815,18 @@ class ChatViewModel(
 		// continuous instruction and the rolling brief, so the only part of the
 		// system message that moves between turns is at the tail -- and editing
 		// a card or a scene is one rebuilt prefix, which the editors say.
-		val card = roleplayCard()
 		val scene = roleplayScene()
+		// A pinned scene uses the copy taken when it started; editing the
+		// assistant must not rewrite a story already underway. A conversation
+		// with no snapshot yet (a preview, or the first turn of an upgraded
+		// scene) reads the live row, exactly as it did before snapshots existed.
+		val persona = roleplayPersona()
+		val card = persona.card
 		val system = buildString {
-			agent?.systemPrompt?.takeIf { it.isNotBlank() }?.let { append(it) }
+			persona.systemPrompt.takeIf { it.isNotBlank() }?.let { append(it) }
 			if (card != null) {
-				val name = agent?.name?.trim().takeUnless { it.isNullOrEmpty() } ?: "the character"
+				val name = persona.characterName.trim().takeUnless { it.isNullOrEmpty() }
+					?: "the character"
 				for (section in RoleplayPrompt.systemSections(card, scene, name)) {
 					if (isNotEmpty()) append("\n\n")
 					append(section)

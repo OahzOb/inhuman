@@ -77,6 +77,9 @@ class CurrentSchemaMigrationTest {
 			// `InjectedMessageMigrationTest` writes a message row. This assertion
 			// keeps the chain itself exercised to the newest version.
 			assertTrue(db.messages().all("none").isEmpty())
+			// v27 added the frozen role-play persona. An upgraded conversation is
+			// not a scene and has nothing pinned, so it reads as empty.
+			assertEquals("", canary?.rpSnapshotJson)
 		} finally {
 			db.close()
 		}

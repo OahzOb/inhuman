@@ -766,6 +766,9 @@
 	<string name="scene_settings_detail">World, premise, who you play, narration format.</string>
 	<string name="scene_save">Save scene</string>
 	<string name="scene_save_intro">Changes apply from the next turn and rebuild one request prefix.</string>
+	<string name="scene_reload_persona">Reload card and assistant prompt</string>
+	<string name="scene_reload_persona_note">This scene keeps the character card and assistant prompt it started with. Editing the assistant does not change it; this reads them again for the next request.</string>
+	<string name="chat_error_roleplay_persona_reload">Could not reload the role-play persona: %1$s</string>
 	<string name="scene_format_hint">For example: second person, two short paragraphs.</string>
 	<string name="scene_notes_hint">Anything the model should keep in mind for this story.</string>
 	<string name="chat_scene_menu">Scene settings…</string>
