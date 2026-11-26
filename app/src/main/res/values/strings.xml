@@ -282,7 +282,7 @@
 	<string name="settings_saved_host_port">Port</string>
 	<string name="settings_saved_host_user">Username</string>
 	<string name="settings_saved_host_fingerprint">Host key fingerprint (optional)</string>
-	<string name="settings_saved_host_error">Enter a host, a username and a password or private key.</string>
+	<string name="settings_saved_host_error">Enter a host and a username.</string>
 	<string name="settings_host_keys_count">Pinned host keys (%1$d)</string>
 	<string name="settings_section_limits">04 / Turn limits</string>
 	<string name="settings_limits_title">Tool limits</string>
@@ -1036,7 +1036,7 @@
 	<string name="chat_ssh_title">Allow SSH in this conversation?</string>
 	<string name="chat_download_title">Allow URL downloads in this conversation?</string>
 	<string name="chat_download_body">The agent is asking the app to download a file from %1$s into this conversation\'s folder. Once allowed, it can ask the app to fetch any public https URL in this conversation without asking again. The agent itself has no network; the app makes the request.</string>
-	<string name="chat_download_understand">I understand this lets the app fetch URLs the agent names</string>
+	<string name="chat_download_understand">I understand a URL can carry data out of the device</string>
 	<string name="chat_download_warning">A URL can carry data out: anything the agent encodes into the URL leaves the device when the request is made. Only allow this in a conversation you trust.</string>
 	<string name="chat_allow_download">Allow URL downloads</string>
 	<string name="chat_revoke_download">Revoke URL download access</string>

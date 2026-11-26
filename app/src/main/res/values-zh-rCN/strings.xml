@@ -268,7 +268,7 @@
 	<string name="settings_saved_host_port">端口</string>
 	<string name="settings_saved_host_user">用户名</string>
 	<string name="settings_saved_host_fingerprint">主机密钥指纹（可选）</string>
-	<string name="settings_saved_host_error">请填写主机、用户名，以及密码或私钥。</string>
+	<string name="settings_saved_host_error">请填写主机和用户名。</string>
 	<string name="settings_host_keys_count">已固定 %1$d 个主机密钥</string>
 	<string name="settings_section_limits">04 / 轮次上限</string>
 	<string name="settings_limits_title">工具上限</string>
@@ -1012,7 +1012,7 @@
 	<string name="chat_ssh_title">允许这个对话使用 SSH？</string>
 	<string name="chat_download_title">允许这个对话下载 URL？</string>
 	<string name="chat_download_body">助手正在请求 app 从 %1$s 下载一个文件到这段对话的文件夹。允许之后，它可以让 app 在这段对话里抓取任何公网 https URL，不再逐次询问。助手自身没有网络，请求由 app 发出。</string>
-	<string name="chat_download_understand">我明白这会让 app 去抓取助手指定的 URL</string>
+	<string name="chat_download_understand">我明白 URL 可以把数据带出设备</string>
 	<string name="chat_download_warning">URL 可以把数据带出去：助手编码进 URL 的任何内容都会随请求离开设备。只在你信任的对话里允许。</string>
 	<string name="chat_allow_download">允许 URL 下载</string>
 	<string name="chat_revoke_download">撤销 URL 下载授权</string>

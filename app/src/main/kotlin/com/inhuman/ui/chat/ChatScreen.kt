@@ -1538,9 +1538,19 @@ fun ChatScreen(
 			val interrupted = transcriptIndex.interrupted
 			val turns = transcriptIndex.turns
 			val userTurns = transcriptIndex.userTurns
-			// The two banners above the transcript occupy list items of their
-			// own; every index taken from `messages` has to add them back.
-			val leadingItems = (if (compaction != null) 1 else 0) + (if (isCompacting) 1 else 0)
+			// The banners above the transcript occupy list items of their own;
+			// every index taken from `messages` has to add them back. The count
+			// mirrors the LazyColumn's render conditions exactly -- see
+			// `transcriptLeadingItems`. It once counted only the two classic
+			// banners, so while the maintenance row was visible the turn badge
+			// read one turn ahead and every jump landed on the banner row
+			// instead of the message.
+			val leadingItems = transcriptLeadingItems(
+				continuous = isContinuous,
+				compaction = compaction != null,
+				compacting = isCompacting,
+				maintaining = isMaintaining || maintenancePreparing,
+			)
 			val currentTurnIndex by remember(userTurns, leadingItems) {
 				derivedStateOf {
 					if (userTurns.isEmpty()) {
@@ -2324,10 +2334,12 @@ fun ChatScreen(
 	// blocks the turn: nothing else happens until it is answered, and an inline
 	// card could be scrolled past without noticing that the run has stopped.
 	//
-	// The text is written for a person, not for the model. Showing the raw tool
-	// name and JSON arguments would be technically complete and practically
-	// useless -- the point of the gate is that someone reads it before saying
-	// yes, and nobody reads `{"path":"a.txt"}` carefully.
+	// The text is written for a person, not for the model: a redacted
+	// `details` summary leads when the tool provides one, and the raw JSON
+	// arguments are printed below it on purpose -- they are the one place a
+	// careful reader can see exactly what the call will do, so hiding them
+	// would leave the summary as the only thing between the user and a yes.
+	// docs/06 "The approval dialog" keeps the ruling.
 	pendingApproval?.let { pending ->
 		// The details are model-written JSON and can be arbitrarily long: a
 		// `write_file` call carries a whole file in `content`. Left unbounded

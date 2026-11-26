@@ -310,11 +310,13 @@ different capability: the app will fetch the **https URL the model names** for
 the rest of the conversation. It shows the first URL whole and its host, says
 that the agent has no network of its own and the app makes the request, and
 warns in the error colour that a URL can carry data out — anything encoded into
-it leaves the device when the request is made. A required checkbox gates
-"Allow URL downloads"; Cancel and Back decline. The warning is deliberate and
-is the reason the capability is a consent rather than a default-on read: a URL
-is not inert, and this is the only place the user sees that stated before the
-first request happens.
+it leaves the device when the request is made. The required checkbox carries
+the risk sentence itself — "I understand a URL can carry data out of the
+device" — so the one control the user must touch is the one that states the
+outbound channel, not just the action; Cancel and Back decline. The warning is
+deliberate and is the reason the capability is a consent rather than a
+default-on read: a URL is not inert, and this is the only place the user sees
+that stated before the first request happens.
 
 ## Regeneration, without re-running tools
 
@@ -491,8 +493,9 @@ Three-case arithmetic, because a ring drawn naively from `used/window` turns
 
 `window` treats `0` as absent (`:39`); `summary` degrades to a bare token count
 when there is no window (`:87-93`). `TokenFormat` avoids `String.format` on
-purpose — Turkish locale (`:122-124`). That rule is **not** followed at
-`UsageLine.kt:102,114,143-144` and `ChatScreen.kt:1039`.
+purpose — Turkish locale (`:129-131`). `UsageLine` follows the same rule through
+its `tenths` helper: the speed and seconds figures are built by integer
+arithmetic, so a comma-decimal locale cannot bend them.
 
 ### `MarkdownText`
 
@@ -957,9 +960,11 @@ conversation where it was made, and a new conversation is cold anyway.
 Modal. `onDismissRequest = declinePendingCall`, so Back and an outside tap both
 **decline** rather than leaving the call pending. The body is a sentence from
 `describeCall` plus Allow / Decline. It also prints the arguments in monospace
-— directly under a comment saying raw JSON is "practically useless", which is a
-doc-vs-code contradiction rather than a bug: the arguments are the one place a
-user can see what a call will actually do. For the SSH tools the view model
+on purpose: the arguments are the one place a user can see what a call will
+actually do. (The comment above the dialog once claimed raw JSON was
+"practically useless" while the code printed it seven lines below; `docs/07` C
+carried the contradiction until the comment was rewritten to match the
+behaviour.) For the SSH tools the view model
 supplies `PendingApproval.details` instead: host, port, user, auth **type** and
 the operation (command or the two transfer paths), never the password or private
 key.

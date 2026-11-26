@@ -86,7 +86,7 @@ SSH 工具不在会话目录里执行。远端的一台机器不是副本，删�
 
 处理方式和 SSH 同构，而不是新增审批层：Settings 全局开关默认关；打开后助手必须
 显式选中这个工具（catalogue 里 `optIn` + `gatedByDownload`）；每个会话第一次调用
-弹专用授权，显示 URL 与 host、要求勾选"URL 可以把数据带出去"，允许后写
+弹专用授权，显示 URL 与 host、要求勾选"我明白 URL 可以把数据带出设备"，允许后写
 `conversations.downloadAllowed`，之后该会话的下载调用走普通 `ToolPolicy`（默认
 Free，不再逐条问）。撤销在聊天菜单；全局开关关闭清空所有会话的授权。若用户把
 `download_url` 的规则设成 `Ask`，每次调用会先过能力授权、再过单次审批。

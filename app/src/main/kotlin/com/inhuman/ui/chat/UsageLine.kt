@@ -112,7 +112,7 @@ internal fun summaryOf(
 ): String {
 	val parts = mutableListOf<String>()
 
-	u.tokensPerSecond?.let { parts += "%.1f tok/s".format(it) }
+	u.tokensPerSecond?.let { parts += tenths(it) + " tok/s" }
 	u.completionTokens?.let { parts += "$it $outLabel" }
 	u.promptTokens?.let { parts += "$it $inLabel" }
 	// Zero is shown, not omitted: a missing "cache" span read as "the cache
@@ -128,7 +128,7 @@ internal fun summaryOf(
 private fun detailRows(u: UsageUi): List<Pair<String, String>> = buildList {
 	u.timeToFirstTokenMs?.let { add(stringResource(R.string.usage_first_token) to formatMs(it)) }
 	u.generationMs?.let { add(stringResource(R.string.usage_generating) to formatMs(it)) }
-	u.tokensPerSecond?.let { add(stringResource(R.string.usage_speed) to "%.1f tok/s".format(it)) }
+	u.tokensPerSecond?.let { add(stringResource(R.string.usage_speed) to tenths(it) + " tok/s") }
 		?: run {
 			// Say why the row is absent rather than leaving a gap. Someone who
 			// saw a speed on the last reply and not on this one should be able
@@ -162,6 +162,18 @@ private fun detailRows(u: UsageUi): List<Pair<String, String>> = buildList {
 
 private fun formatMs(ms: Long): String = when {
 	ms < 1000 -> "${ms}ms"
-	ms < 60_000 -> "%.1fs".format(ms / 1000.0)
+	ms < 60_000 -> tenths(ms / 1000.0) + "s"
 	else -> "%dm %.0fs".format(ms / 60_000, (ms % 60_000) / 1000.0)
+}
+
+/**
+ * "12.3" by integer arithmetic rather than `String.format`: on a locale with
+ * a comma decimal separator `"%.1f"` renders "12,3", and a technical readout
+ * must not change shape with the device locale. Same rule as
+ * `TokenFormat.compact` (see its note in `ContextUsage.kt`); the `%.0f`/`%d`
+ * sites in this file produce no decimal separator and stay as they are.
+ */
+private fun tenths(value: Double): String {
+	val rounded = kotlin.math.round(value * 10).toLong()
+	return "${rounded / 10}.${rounded % 10}"
 }

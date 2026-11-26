@@ -889,16 +889,13 @@ Still open, each re-verified in the code as of this pass:
   `RemoteModel.maxOutputTokens` (read by `DeepSeekModelsTest`) and
   `SseFrame.id`/`retryMillis` (read by `SseParserTest`). `StreamChunk.Raw` is
   never emitted — its only reference is the `when` branch that ignores it.
-- **`TokenFormat` avoids `String.format` for a Turkish-locale reason**
-  (`ContextUsage.kt:122-124`) — `%` formatting is locale-sensitive and `"%.1f"`
-  renders a comma decimal separator in some locales. The rule is not followed
-  where a user actually reads the number: `UsageLine.kt:102`, `:105`, `:114`,
-  `:143-144` all use it, as does `ChatScreen.kt`.
 - **The transcript's two derivations still walk every message on every
-  publish** (`ChatScreen.kt:905`, `:909`): `turnSummariesOf` and `userTurnsOf`
-  sit behind `remember(messages)`, and `messages` is a new list on every stream
-  tick, so the key never holds. Each publish (at most every 40 ms,
-  `ChatViewModel.kt`'s `STREAM_PUBLISH_INTERVAL_MS`) walks the whole transcript.
+  publish** — off the main thread since the derivation moved into the view
+  model (`ChatViewModel.kt:399-413`), so the cost is background CPU rather
+  than jank, but there is still no memo: every publish (at most every 40 ms,
+  `STREAM_PUBLISH_INTERVAL_MS`) re-runs `turnSummariesOf`, `userTurnsOf` and
+  `isInterruptedTurn` over the whole transcript, and the `distinctUntilChanged`
+  that follows walks it a fourth time.
 
   Half of this is now gone: `TurnSummary` carries `start`/`end` indices instead
   of two copied lists per turn, and `ChatScreen` slices the transcript when the
@@ -913,9 +910,13 @@ Still open, each re-verified in the code as of this pass:
   sound means maintaining the index incrementally in the view model's append and
   update paths, which is a real state machine and belongs in its own change with
   its own tests.
-Three things that *were* on this list and are now clean, recorded because a
+Four things that *were* on this list and are now clean, recorded because a
 stale entry is how this list loses its authority (each was re-read, not assumed):
 
+- the `UsageLine` locale stragglers are gone: its `"%.1f tok/s"` and `"%.1fs"`
+  figures are built by a `tenths` helper with the same integer arithmetic as
+  `TokenFormat.compact`, so a comma-decimal locale can no longer bend a
+  technical readout. The dead `ChatScreen.kt:1039` reference went with them;
 - the duplicated doc comments on `replyDeltas`, `regenerate` and `selectBranch`
   are gone — each KDoc is now single and describes its own function;
 - the `attachImage` / composer disagreement about vision is gone with the
@@ -1466,7 +1467,6 @@ staying as history.
 | `SessionWorkspace.kt:20-22`: "[root] is never exposed" | `rootPath()` exposes it (`:175-184`) — deliberately, for `StatFs`, with the argument written out. |
 | `SessionWorkspace.kt:26-33`: a symlink "can never be swapped in between the check and the open()" | The walk refuses to *traverse* links; nothing stops another same-UID writer creating one, and there is no re-check or `O_NOFOLLOW` at open. |
 | `Tool.kt:81-82`: "Anything that writes, deletes or reaches outside the workspace should override this" | **No tool overrides `needsApproval` to return true**, `delete_file` included — it returns `false` (`FileTools.kt:355`). The advice is now historical: approval is decided by the user's configured rules, and `needsApproval` survives as an unused "must always ask" hook. |
-| `ChatScreen.kt:419-422`: raw JSON is "practically useless" | The dialog prints the raw `argumentsJson` seven lines later (`:429-443`). |
 
 ---
 
