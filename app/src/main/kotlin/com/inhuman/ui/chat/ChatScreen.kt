@@ -1507,20 +1507,26 @@ fun ChatScreen(
 			// above the state reads.
 			val messages by fieldOf(viewModel.state, emptyList()) { it.messages }
 			LaunchedEffect(messages) {
-				val texts = messages.asSequence()
-					// Only rows that can read this cache: `MarkdownText` takes the
-					// incremental path whenever `deltas` is non-null and returns
-					// before it looks at `parsed`. A streaming reply's text grows
-					// on every publish, so it is always "missing", and parsing
-					// each intermediate prefix here was pure waste -- the whole
-					// answer was transformed and parsed again every 40 ms, and
-					// every prefix stayed in the map for the life of the screen.
-					.filter { !it.fromUser && !it.isToolResult && it.deltas == null }
-					.flatMap { it.parts.asSequence() }
-					.filter { it.kind == AssistantPart.Kind.Text && it.text.isNotBlank() }
-					.map { it.text }
-					.distinct()
-					.toList()
+				// The walk itself runs on a background thread too: on a long
+				// transcript this is a full pass over every part on the main
+				// thread once per publish (every 40 ms while streaming), and
+				// only the parsing below needed `Dispatchers.Default`.
+				val texts = withContext(Dispatchers.Default) {
+					messages.asSequence()
+						// Only rows that can read this cache: `MarkdownText` takes the
+						// incremental path whenever `deltas` is non-null and returns
+						// before it looks at `parsed`. A streaming reply's text grows
+						// on every publish, so it is always "missing", and parsing
+						// each intermediate prefix here was pure waste -- the whole
+						// answer was transformed and parsed again every 40 ms, and
+						// every prefix stayed in the map for the life of the screen.
+						.filter { !it.fromUser && !it.isToolResult && it.deltas == null }
+						.flatMap { it.parts.asSequence() }
+						.filter { it.kind == AssistantPart.Kind.Text && it.text.isNotBlank() }
+						.map { it.text }
+						.distinct()
+						.toList()
+				}
 				val missing = texts.filter { !parsedMarkdown.containsKey(it) }
 				val parsed = withContext(Dispatchers.Default) {
 					missing.mapNotNull { text ->

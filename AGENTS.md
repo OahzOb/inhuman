@@ -256,7 +256,7 @@ small:
 - **Mono is for metadata**, not body text: wordmark, section codes, timestamps,
   model/workspace lines. Body text stays 16sp/26sp sans.
 - **Hairlines, not cards**, separate list rows and sections. Corners are 3–10dp;
-  dialog-large surfaces use 22dp. A filled card is for an actual raised object,
+  dialog-large surfaces use 20dp (`WideDialog`). A filled card is for an actual raised object,
   not for every row.
 - **Grid only on empty canvases**, at 12% alpha. It gives a large tablet empty
   state a sense of place; it is not wallpaper.

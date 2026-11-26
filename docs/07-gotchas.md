@@ -1645,6 +1645,46 @@ string choice; the list screens were not device-driven in this pass (the
 emulator's input injection was broken — see B41), and none of the five changes
 alters a capability, a policy or the persisted schema.
 
+### B45. Still open after this pass, with why
+
+Recorded so the next session starts from the truth rather than from the audit
+list. Each of these is a real gap, not a style opinion.
+
+- **The media tools are listed in every picker even when their backend cannot
+  run them** (`AgentsScreen`, the conversation tool sheet, the Settings approval
+  table). `docs/13-product.md` says a tool whose backend is unsupported or
+  unconfigured "does not appear in the list", and `ChatViewModel.buildTools`
+  already omits it from the *request* — so the pickers offer a row that, when
+  ticked, does nothing and says nothing. This was left open deliberately:
+  availability is resolved per assistant (its provider profile, that profile's
+  key, and the per-tool `MediaToolConfig` mode), so the fix is to extract
+  `ChatViewModel.mediaBackend`'s resolution into a pure predicate every picker
+  can ask, then add a catalogue gate. A cheap global guess would hide tools that
+  do work, which is worse than the current over-listing — `docs/08` §1.2.1's
+  "absent, not greyed" rule is about *switched-off capabilities*, and this is a
+  *configuration* gate, so it needs its own reasoning rather than a copy of
+  `includeSsh`.
+- **The transcript's per-publish scan has no memo.** `turnSummariesOf`,
+  `userTurnsOf` and `isInterruptedTurn` now run on a background dispatcher, and
+  the Markdown pre-parse collection was moved off the main thread in this pass,
+  but the scan still repeats per publish. B11's note stands: a sound memo means
+  maintaining the index in the view model's append/update paths, with tests for
+  the older-row rewrite case — its own change.
+- **A message with image attachments shows `📎 name` and no thumbnail.** The
+  bytes are deliberately not in state; a thumbnail needs a bounded,
+  identity-keyed decode, which is a small feature rather than a fix.
+- **The conversation tool sheet is one flat list**, and ticking `ssh_exec`,
+  `ssh_upload` or `ssh_write_file` when the conversation already has an SSH
+  grant silently resets that grant. The reset is correct and load-bearing; what
+  is missing is the sentence on the sheet. Grouping the ~30 rows is the
+  follow-up.
+- **Settings search matches section code, title and summary only**, so
+  "音色", "B 站" or "地址簿" find nothing although they exist inside sections.
+  Needs a per-section keyword resource.
+- **The workbench dialog's disabled rows do not say why**, while the tool sheet
+  and the rewind picker both do — one shared disabled-reason parameter would fix
+  it.
+
 ## C. Comments that contradict the code
 
 By this repository's standard, the comment is the bug. These were all verified.
