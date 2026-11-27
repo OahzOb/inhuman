@@ -753,8 +753,23 @@ row — stays inside a short window too ([07-gotchas.md](07-gotchas.md) B38). Th
 `isCompact` for both its field layout and its height, which is why a wide, short
 window stacks fields rather than trying to draw tablet columns.
 
-The ratio matrix is in `AGENTS.md` and is part of verification, not an optional
-extra.
+The full matrix is part of verification, not an optional extra:
+
+| Case | dp | expected shell |
+| --- | --- | --- |
+| 16:9 phone portrait | 360×640 | single pane, FAB |
+| 20:9 phone portrait | 360×800 | single pane, FAB |
+| 16:9 phone landscape | 640×360 | single pane, header Create |
+| square foldable | 700×700 | single pane, header Create |
+| 4:3 tablet | 1024×768 | two panes |
+| 16:10 tablet | 1280×800 | two panes |
+| large font phone | 360×640 @ 1.5× | overflow destinations |
+
+A single AVD can stand in for a ratio with `adb shell wm size WxH` +
+`adb shell wm density DPI`, then `wm size reset` / `wm density reset`; that is a
+supplement to the two device profiles, not a substitute. The tablet AVD's GL
+failure and the resized-phone workaround are
+[07-gotchas.md](07-gotchas.md) C12.
 
 
 **The composer must not consume `safeDrawing` before `imePadding()`.** That

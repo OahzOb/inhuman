@@ -4,37 +4,16 @@ Notes for whoever picks this up next, human or agent. The README explains what
 the app is; this file explains how to change it without breaking what it
 already gets right.
 
-**Before reading the source, read `docs/`.** The numbered files plus the index
-describe what the code actually does today, with a `file:line` for every claim,
-so a session can start work without re-deriving the architecture from scratch.
-`13-product.md` is the deliberate exception: a technology-neutral product
-document with no code references. `08-port-philosophy.md` records intent rather
-than implementation; the old feasibility studies are archived under
-`docs/archive/`.
-
-| File | Answers |
-| --- | --- |
-| `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
-| `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
-| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, the paid and free local web backends, per-tool media backends, the SSH tools, `download_url`, and the user-set `SshLimits` ceilings |
-| `docs/04-data-persistence.md` | Room schema v30, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup, and the continuous-session cost ledger |
-| `docs/05-files-sandbox.md` | The sandbox, quotas, the file and document tools, import/export, the design layer |
-| `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, continuous-session projection and read-only record recall, layout |
-| `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
-| `docs/08-port-philosophy.md` | **Why** the runtime is ported, which options the project refuses to have, the seven design questions, the paid-disclosure rule (§1.4), the authoring principle (§1.8: content may be authored, behaviour may not), and the SSH, URL-download and local-page-fetch exceptions (§1.2.1/§1.5/§1.6/§1.7) |
-| `docs/09-approvals.md` | The approval model: why the default is no prompts at all, how per-tool, per-assistant and per-path rules compose, and what of it is built |
-| `docs/10-diagnostics.md` | The flight recorder: what is logged, what is deliberately not, where the file lives and how to share it |
-| `docs/11-conversation-tools.md` | The conversation-level tool sheet: who may change it, the assistant ceiling, when it applies, and why it is not a new SSH exception |
-| `docs/13-product.md` | **Technology-neutral product document**: design principles, current features, future plans |
-| `docs/14-documents-voice.md` | The documents/voice decision: format matrix and libraries, the neutral model and loss report, read/write limits, the three tools, Android-only voice |
-| `docs/archive/` | Historical feasibility/design studies; not current documentation |
-
-`docs/07-gotchas.md` is the one to read before changing anything in a hurry.
-`docs/08-port-philosophy.md` is the one to read before proposing a new setting,
-mode, or permission — it is where the project records which options it refuses.
-Keep the docs current: a commit that changes a documented behaviour changes the
-document in the same commit, or the doc becomes the next "comment that is the
-bug".
+**Before reading the source, read `docs/`.** `docs/README.md` is the index: one
+line per numbered file, in reading order, plus the proposals. The ones to read
+before touching anything are **07** (the load-bearing invariants and the
+mistakes that already cost someone a day) and **08** (why the runtime is ported
+and which options the project refuses — the authoring principle is §1.8). **13**
+is the product document and deliberately has no code references; **14** is the
+documents/voice decision; the feasibility studies in `docs/archive/` are
+historical. Keep the docs current: a commit that changes a documented behaviour
+changes the document in the same commit, or the doc becomes the next "comment
+that is the bug".
 
 ## Scope: Android only
 
@@ -198,119 +177,40 @@ escape hatch without answering it there first.
 ## Window ratios, always
 
 **Every change is verified on both a phone-sized and a tablet-sized window, and
-on the ratios in between.** Not "checked on one and reasoned about for the other"
-— actually run them. Width alone is not a layout: a 16:9 phone in landscape is
+on the ratios in between** — actually run them, not "checked on one and reasoned
+about for the other". Width alone is not a layout: a 16:9 phone in landscape is
 640dp wide but only 360dp tall, and a square foldable is 700dp on both axes.
-`WindowFrame` (`core/design/.../Layout.kt`) classifies width **and** height;
-`usesTwoPane`, `isCompact` and `usesFab` are derived from both.
-
-| Case | dp | expected shell |
-| --- | --- | --- |
-| 16:9 phone portrait | 360×640 | single pane, FAB |
-| 20:9 phone portrait | 360×800 | single pane, FAB |
-| 16:9 phone landscape | 640×360 | single pane, header Create |
-| square foldable | 700×700 | single pane, header Create |
-| 4:3 tablet | 1024×768 | two panes |
-| 16:10 tablet | 1280×800 | two panes |
-| large font phone | 360×640 @ 1.5× | overflow destinations |
+`WindowFrame` (`core/design/.../Layout.kt`) classifies both axes and derives
+`usesTwoPane`, `isCompact` and `usesFab`. The matrix, the expected shell per case
+and the bugs it fixed are in `docs/06-agent-loop-ui.md` § "Window ratios, not
+just width".
 
 ```powershell
 emulator -avd dsh_tablet        # Android 15, x86_64, Pixel Tablet
-# one emulator at a time: the local host does not have memory for several
+# one emulator at a time: this host does not have memory for several
 ```
 
-A single AVD can be resized with `adb shell wm size WxH` and
-`adb shell wm density DPI`, then `wm size reset` / `wm density reset`. This is a
-useful ratio test, not a substitute for the two device profiles. The physical
-phone is deployable and inspectable, but HyperOS may refuse `adb shell input`.
+The phone is not a smaller tablet: the primary action moves from a FAB to a
+header Create to a top-bar button, the gutter is 20dp vs 32dp, and an uncapped
+paragraph at 1280dp is unreadable. The tablet AVD currently fails to load its GL
+driver; the resized-phone workaround is `docs/07-gotchas.md` C12.
 
-The phone-sized case is not a smaller tablet case. They differ in ways that have
-caused bugs: the primary action is a FAB on a compact-width phone, a header
-Create on a medium single pane, a top-bar button on a two-pane tablet
-(`prefersFabForPrimaryAction`); the gutter is 20dp vs 32dp
-(`comfortableGutter`); 1280dp of width makes a paragraph unreadable if nothing
-caps it.
+### Space, type and the visual system
 
-### Space utilisation is the point, not the side effect
+**Cap the measure, centre what is capped.** `ReadableMeasure` 640dp governs forms
+and settings; the transcript and composer share 900dp, user bubbles 560dp. A cap
+binds only when `widthIn` comes **before** `fillMaxWidth` — the reverse order sets
+`minWidth = maxWidth` and the cap silently does nothing (seven sites once did
+this). The full rules, the measurement that made it stick, the Graphite Workbench
+system (warm paper / warm graphite, one signal accent, mono only for metadata,
+hairlines not cards, grid at 12% only on empty canvases, shared components in
+`core/design/.../Workbench.kt`) and `Layout.Space` are in
+`docs/05-files-sandbox.md` § "The design layer".
 
-A tablet has three times a phone's horizontal room; stretching everything
-produces a 150-character line and a send button in a corner nobody looks at —
-worse than the phone layout.
-
-The rule: **cap the measure, centre what is capped.** `Layout.ReadableMeasure`
-(640dp) governs forms, settings and short prose. The chat transcript is wider —
-900dp — for code and tables, user messages narrower at 560dp. On a phone every
-cap is inert (`screenWidthDp` never reaches it), so one code path is correct at
-both sizes without a form-factor branch: a maximum that binds on the large
-screen and does nothing on the small one.
-
-Two corrections to what this file used to claim, both verified — see
-`docs/07-gotchas.md` B5:
-
-- The chat transcript and composer share a **900dp** axis. Assistant replies have
-  no bubble and no 640dp cap, but do not run the full tablet width either; user
-  messages are 560dp bubbles aligned to the end. On a tablet the home screen is
-  two columns: a 320dp workbench rail and a conversation list capped at 760dp.
-- The cap **was inert at seven call sites** in five files (conversations, agents,
-  files, settings, `WideDialog`) because they chained
-  `fillMaxWidth`/`fillMaxSize` *before* `widthIn`. **Fixed**, verified by
-  measuring the rendered column on the tablet AVD: 576dp, centred. Three of those
-  sites had a comment claiming the cap made the tablet layout readable — the
-  comment described behaviour the code did not have.
-
-**The composer must not consume `safeDrawing` before `imePadding()`.** That inset
-contains the IME; consuming it first leaves the composer under the keyboard. This
-was found by opening the keyboard on the phone AVD, not by reading the chain.
-
-**The composer is one hairline-bounded surface**, not a row of controls beside a
-field: a full-width text area over a 48dp action row — attach and microphone
-left, context ring and send/stop right. Do not put them back beside the field or
-in an `OutlinedTextField` trailing slot: Material lays a trailing slot out as a
-48dp column for the field's whole height, so every wrapped line in a multi-line
-draft sits beside a blank strip; on a 360dp phone the text is left with about
-70dp. `docs/07-gotchas.md` B32 is the recorded case; layout:
-`docs/06-agent-loop-ui.md`.
-
-### Visual language: Graphite Workbench
-
-The app is a working tool, not a chat template. The visual system is deliberately
-small:
-
-- **Warm paper (light) / warm graphite (dark)**, with a single signal accent for
-  the primary action, section codes and the assistant marker. The defaults are
-  the original pair and burnt-orange; Settings → 10 / Display offers three
-  accents (moss, indigo, plum), three neutral **surface families** (warm, slate,
-  sepia), and system/light/dark. An accent moves only `PaletteColors`; a family
-  moves all of `SurfaceColors` together, so text never comes from a different
-  family than its background. Type and spacing never move. Light uses a deeper
-  accent so text and buttons keep contrast on paper; `PaletteContrastTest`
-  checks every slot for every palette × family × scheme.
-- **Mono is for metadata**, not body text: wordmark, section codes, timestamps,
-  model/workspace lines. Body text stays 16sp/26sp sans.
-- **Hairlines, not cards**, separate list rows and sections. Corners are 3–10dp;
-  dialog-large surfaces use 20dp (`WideDialog`). A filled card is for an actual
-  raised object, not for every row.
-- **Grid only on empty canvases**, at 12% alpha. It gives a large tablet empty
-  state a sense of place; it is not wallpaper.
-- Shared components live in `core/design/…/Workbench.kt`: `Wordmark`, `Eyebrow`,
-  `Hairline`, `StatusDot`, `WorkbenchGrid`, `SectionHeading`, `MetaLine`.
-
-When changing a screen, reach for those before adding a literal colour, radius or
-spacing value.
-
-**A modifier-order trap, hit once already:** `Modifier.fillMaxWidth()` is
-greedy and consumes the incoming maximum, so `.fillMaxWidth().widthIn(max = …)`
-caps nothing. Constrain first, fill second:
-
-```kotlin
-Modifier.widthIn(max = Layout.ReadableMeasure).fillMaxWidth()
-```
-
-### Spacing
-
-Vertical rhythm lives in `Layout.Space`, not literals at call sites. It was
-literals once, and the transcript spent more vertical space on gaps than on
-content — a one-line collapsed tool result stood 53dp tall with an 18dp gap.
+The composer is one hairline-bounded surface — a full-width text area over a
+48dp action row, attach and microphone left, context ring and send/stop right —
+and it must not consume `safeDrawing` before `imePadding()`. Both were bugs found
+by running the app; see `docs/07-gotchas.md` B32 and `docs/06-agent-loop-ui.md`.
 
 ---
 
@@ -322,103 +222,57 @@ $env:JAVA_HOME = 'C:\android-toolchain\jdk17'
 adb -s <serial> install -r -t app\build\outputs\apk\debug\app-debug.apk
 ```
 
-`tools/build-and-shot.ps1` builds, installs, launches and screenshots.
-`tools/verify-*.ps1` drive the app through `uiautomator` + `adb shell input`.
+`tools/build-and-shot.ps1` builds, installs, launches and screenshots (it checks
+mean brightness, because `screencap` succeeds on a black frame);
+`tools/verify-*.ps1` drive the app through `uiautomator` + `adb shell input`. The
+script table, the `UiDump.psm1` quote lesson and the emulator commands are in
+`docs/02-architecture.md` § "Running it on a device" and § "The `tools/` scripts".
 
 ### Demo mode is the offline verification path
 
-With no API key, Settings → Demo mode gives a scripted provider. A custom
-OpenAI-compatible provider needs a name, an HTTPS base URL and a key; the
-assistant editor chooses it per assistant. Web tools need their own keys,
-independent of the chat provider. When the assistant has file tools it creates a
-file and then deletes it, so the tool loop, the results and the closing summary
-are all reachable with no key, no network and no bill. **It no longer raises an approval prompt**, because
-deletion does not ask by default — configure a rule on `delete_file` to
-exercise that path. **Put this in a message to get prose instead:**
+With no API key, Settings → Demo mode gives a scripted provider: with file tools
+on it writes a file and deletes it, so the tool loop, the results and the closing
+summary are reachable with no key, no network and no bill. **It raises no
+approval prompt**, because deletion does not ask by default — configure a rule on
+`delete_file` to exercise that path. A message containing `plain` gives prose. In
+a workshop conversation it writes nothing: `scene` proposes a scene, and `config`
+(or `配置`) proposes an assistant, an instruction and a prompt; `scene` wins when
+a message names both. The script and why each case exists are in
+`docs/03-ai-provider.md` § "Demo mode: a provider that answers from a script".
 
-```
-plain
-```
+### What adb cannot verify
 
-The long answers are Markdown on purpose — an unclosed fence, a bold span
-arriving in pieces, list markers before their text — because those are awkward
-while streaming. **In a workshop conversation the demo proposes and writes
-nothing: `scene` makes it call `rp_create_scene`** (a scripted character; the
-proposal card and tap-to-create path are reachable offline), **and `config` (or
-`配置`) makes it call `app_propose_assistant`, `app_propose_instruction` and
-`app_propose_prompt`** (the three draft cards and their handoffs). `scene` wins
-when a message names both.
-
-### What adb cannot verify, and what to do instead
-
-Screenshots and UI dumps are the right tool for layout and for end states.
-They are the **wrong** tool for anything that happens inside a stream:
-
-- One `uiautomator dump` + `adb pull` costs roughly 700ms of round trip.
-- A demo reply streams for about 3.6s.
-- So a sampling loop sees two or three frames, and an incremental parse's
-  intermediate states are **not observable**, at any sampling rate the tooling
-  allows.
-
-When something lives inside the stream, do not try to see it. **Extract the
-invariant into a pure function and test that**, then use the device only to
-confirm the surrounding path runs and renders. `DeltaCursor` and
-`ContextUsage` exist for exactly this reason, and their tests carry the
-argument that the device cannot.
-
-Also worth knowing: `adb shell input` is blocked outright on some OEM builds
-(HyperOS refuses synthetic events without an extra developer setting), so a
-physical phone may be deployable and inspectable but not drivable.
+Screenshots and dumps are for layout and end states, not for anything inside a
+stream: a demo reply streams for ~3.6s and one dump costs ~700ms, so an
+incremental parse's intermediate states are not observable at any sampling rate.
+Extract the invariant into a pure function and test it, then use the device only
+to confirm the path runs and renders — `DeltaCursor` and `ContextUsage` exist for
+that reason. More: `docs/02-architecture.md` § "What adb cannot verify".
 
 ### The LAN server: updates and uploads
 
-`tools/dev-server.py` is how a build reaches the phone and a log comes back when
-no cable is attached. It serves `dist/` (the APK and `update.json`) and accepts
-two POSTs: `/log` → `logs/`, `/conversation` → `logs/conversations/`. No
-authentication, no accounts: LAN or Tailscale only, never a public port.
-
-The app keeps **two independent addresses**: an update server and an upload
-server. Updates usually come from the public GitHub Releases feed
-(`Updates.BUILT_IN_UPDATE_URLS`: `releases/latest/download` plus two mirrors,
-rendered as chips); logs and conversations go to a LAN/Tailscale dev server,
-the only side with `/log` and `/conversation`. Chips fill the **update** field
-only. A pre-split single `local.server_url` is migrated on first read
-(`loadServerEndpoints`); the legacy key is then removed.
+`tools/dev-server.py` serves `dist/` and accepts `POST /log` and
+`POST /conversation` into `logs/`. No authentication: LAN or Tailscale only,
+never a public port. The app keeps two independent addresses — the update server
+(usually the GitHub Releases feed) and the upload server (the LAN/Tailscale dev
+server); chips fill the **update** field only.
 
 ```powershell
-# The interpreter is not interchangeable. Windows firewall has inbound allow
-# rules for C:\python314\python.exe and none for the conda interpreter that
-# plain `python` resolves to, so this exact path is reachable from the phone and
-# the other one is not.
+# The interpreter matters: Windows firewall allows C:\python314\python.exe
+# inbound, and not the conda interpreter that plain `python` resolves to.
 C:\python314\python.exe tools\dev-server.py --port 8787 --dist dist --logs logs
 ```
 
-It prints the addresses it can be reached at. Put the LAN/Tailscale one in
-Settings → 09 / Updates and uploads → **upload server**; the **update server**
-can stay on a built-in preset. HTTP is accepted only for private ranges,
-`*.local`, `*.ts.net` and Tailscale CGNAT.
+**Publishing needs the version bump first** (`app/build.gradle`; the updater
+offers only `versionCode >`), then `.\tools\release-apk.ps1 -Notes '...'`. The
+note must not contain typographic quotes: PowerShell 7 treats `“ ”` as string
+delimiters, so the argument splits. Without `keystore.properties` the release APK
+is debug-signed — it updates an earlier `dist/` install, not one signed with
+another key. The updater verifies SHA-256, package name, version code and the
+signing certificate before `PackageInstaller` asks. Details: `README.md` § "Local
+updates, log and conversation upload".
 
-**Publishing a build needs the version bump first.** The updater offers only
-`versionCode >` the installed one, and `release-apk.ps1` deliberately does not
-bump it — bump `app/build.gradle`, then:
-
-```powershell
-.\tools\release-apk.ps1 -Notes 'what changed'
-```
-
-`-Notes` must not contain typographic quotes: PowerShell 7 treats `“ ”` as
-string delimiters, so the note is split, leftover words bind to the next
-parameter, and the APK and manifest land in a directory named after the note.
-Use straight quotes or none.
-
-Without `keystore.properties` the release APK is debug-signed. That still
-updates an install made from an earlier `dist/` build; it cannot update one
-signed with a different key, which means uninstall and restore. The updater
-checks the manifest's SHA-256, package name, version code and the installed
-certificate before `PackageInstaller` asks the user.
-
-Logs the phone uploads land in `logs/` in this checkout, so they can be read
-here instead of asking for them to be sent. What that file does and does not
+Logs the phone uploads land in `logs/` here. What that file does and does not
 contain is `docs/10-diagnostics.md`.
 
 ---
@@ -937,21 +791,12 @@ Rules: `docs/07-gotchas.md` A22, mechanism: `docs/03-ai-provider.md`.
 
 `--rerun-tasks` matters: with a warm cache a plain run can report
 `BUILD SUCCESSFUL` without compiling your change. `tools/ci.ps1` runs exactly
-this list and fails on the first compiler warning; a CI host should call it
-rather than duplicate the arguments. Check the warning output too — this tree
-compiles clean, and that is worth keeping. `:core:common`, `:core:ai`,
-`:core:files`, `:core:documents`, `:core:db` and `:core:engine` are plain JVM modules now.
-`:core:db` owns the Room schema *and* the platform-free repositories
-(`ConversationRepository`, `AgentRepository`, `PolicyRepository`,
-`SnapshotStore`); `:core:data` is the Android adapter (Keystore `SecureStore`,
-`Database.open(context)`, backup, `DocumentsProvider`). Repositories take a
-`DataPaths` and, where needed, a `SecretStore` -- never a `Context` -- which is
-what keeps them testable on a plain JVM.
-`:core:engine` is the turn loop; every Android provider turn uses it, SSH
-included. SSH consent, approval, the start checkpoint and
-argument normalisation are injected through the engine's approval hook from
-`ChatViewModel.gateEngineCall`; a missing provider or model is refused before
-the engine starts. There is no second turn loop.
+this list and fails on the first compiler warning; check the warning output too,
+because this tree compiles clean and that is worth keeping. `:core:common`,
+`:core:ai`, `:core:files`, `:core:documents`, `:core:db` and `:core:engine` are
+plain JVM modules; `:core:db` owns the schema and the platform-free repositories,
+`:core:data` is the Android adapter, and `:core:engine` is the one turn loop —
+there is no second loop. See `docs/02-architecture.md`.
 
 Three tests are skipped by default, all requiring external credentials:
 `DeepSeekWebLiveTest` talks to the real Search and Fetch APIs and needs a key (and

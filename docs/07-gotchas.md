@@ -2084,7 +2084,8 @@ staying as history.
     `-gpu swiftshader_indirect -no-window`, which is what the tablet-ratio
     checks in `tools/verify-tablet-shell.ps1` now use on a resized phone AVD
     — `wm size 2560x1600` + `wm density 320` is 1280×800dp, the ratio
-    AGENTS.md allows as a supplement, not the two-device-profile substitute.
+    [06-agent-loop-ui.md](06-agent-loop-ui.md) allows as a supplement, not the
+    two-device-profile substitute.
 13. **`adb shell input text` can stop landing while the UI still reports a
     focused field and a shown IME.** Seen on 2026-11-26 in the phone AVD after
     a long driven session: `dumpsys input_method` said `mInputShown=true`, the

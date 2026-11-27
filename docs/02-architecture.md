@@ -362,9 +362,10 @@ and prints the **mean brightness** of the frame: `screencap` reports success
 even on an all-black framebuffer, so a sleeping or locked device would otherwise
 pass silently (`tools/build-and-shot.ps1:113-141`).
 
-Both screen sizes must actually be run — see `AGENTS.md` and
-[06-agent-loop-ui.md](06-agent-loop-ui.md). The phone case is not a smaller copy
-of the tablet case.
+Both screen sizes must actually be run — the matrix is in
+[06-agent-loop-ui.md](06-agent-loop-ui.md) § "Window ratios, not just width".
+The phone case is not a smaller copy of the tablet case, and one emulator at a
+time is all this host has memory for.
 
 ### The `tools/` scripts
 
@@ -401,7 +402,7 @@ change" was reported three times on the strength of a value that was never read.
 Parse the attribute, not a quote character, and when a value looks empty, check
 whether it was found at all (`tools/UiDump.psm1:1-17`).
 
-Two more `adb` facts from `AGENTS.md`: one `uiautomator dump` + `adb pull` costs
+Two more `adb` facts: one `uiautomator dump` + `adb pull` costs
 roughly 700ms round trip, and `adb shell input` is blocked outright on some OEM
 builds (HyperOS refuses synthetic events without an extra developer setting), so
 a physical phone may be deployable and inspectable but not drivable.
@@ -418,4 +419,4 @@ When something lives inside the stream, extract the invariant into a pure
 function and test that, then use the device only to confirm the surrounding path
 runs and renders. `DeltaCursor` and `ContextUsage` exist for exactly this
 reason, and their tests carry the argument that the device cannot
-(`AGENTS.md`, [06-agent-loop-ui.md](06-agent-loop-ui.md)).
+([06-agent-loop-ui.md](06-agent-loop-ui.md)).
