@@ -1,20 +1,15 @@
 package com.inhuman.ui.files
 
 import com.inhuman.core.ai.tools.DownloadUrl
+import com.inhuman.core.ai.tools.GuardedHttp
 import com.inhuman.core.common.diag.Diag
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.CookieJar
-import okhttp3.Dns
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.Closeable
 import java.io.IOException
 import java.io.InputStream
 import java.net.InetAddress
 import java.net.URI
-import java.net.UnknownHostException
-import java.util.concurrent.TimeUnit
 
 /**
  * One URL, opened as a stream the caller chooses where to put.
@@ -58,31 +53,7 @@ object UrlDownloader {
 		}
 	}
 
-	private const val MAX_REDIRECTS = 5
-
-	private val safeDns = object : Dns {
-		override fun lookup(hostname: String): List<InetAddress> {
-			val addresses = Dns.SYSTEM.lookup(hostname)
-			if (addresses.isEmpty() || addresses.any(::isBlockedAddress)) {
-				throw UnknownHostException("refusing to connect to a private address for $hostname")
-			}
-			return addresses
-		}
-	}
-
-	private val client: OkHttpClient by lazy {
-		OkHttpClient.Builder()
-			.dns(safeDns)
-			// Redirects are followed by hand so each Location goes through the
-			// same scheme/host/address checks. `followRedirects(true)` would
-			// hand the next hop to the socket without them.
-			.followRedirects(false)
-			.followSslRedirects(false)
-			.cookieJar(CookieJar.NO_COOKIES)
-			.connectTimeout(20, TimeUnit.SECONDS)
-			.readTimeout(60, TimeUnit.SECONDS)
-			.build()
-	}
+	private const val USER_AGENT = "inhuman/0.1"
 
 	/**
 	 * Validate [raw] and open a GET for it.
@@ -97,36 +68,30 @@ object UrlDownloader {
 		raw: String,
 		requireHttps: Boolean = false,
 	): DownloadResponse = withContext(Dispatchers.IO) {
-		var target = validateUrl(raw, requireHttps)
-		repeat(MAX_REDIRECTS + 1) {
-			val request = Request.Builder()
-				.url(target.toString())
-				.get()
-				.header("User-Agent", "inhuman/0.1")
-				.build()
+		// The guard lives in :core:ai so the agent's local web tools and the
+		// user's download path cannot drift: public addresses only, no cookie
+		// jar, and every redirect re-validated before the next socket.
+		val opened = try {
+			GuardedHttp.default.open(
+				raw = raw,
+				requireHttps = requireHttps,
+				userAgent = USER_AGENT,
+				connectTimeoutSeconds = 20,
+				readTimeoutSeconds = 60,
+			)
+		} catch (e: IOException) {
+			Diag.w("download", "request failed", e)
+			throw e
+		}
 
-			val response = try {
-				client.newCall(request).execute()
-			} catch (e: Exception) {
-				Diag.w("download", "request failed host=${target.host}", e)
-				throw IOException(e.message ?: "download failed", e)
-			}
-
-			val location = response.header("Location")
-			if (response.code in 300..399 && location != null) {
-				response.close()
-				target = validateUrl(target.resolve(location).toString(), requireHttps)
-				return@repeat
-			}
-
+		val response = opened.response
+		val target = opened.finalUri
+		try {
 			if (!response.isSuccessful) {
-				val code = response.code
-				val message = response.message
 				val detail = runCatching { response.body.string().take(200) }.getOrNull()
-				response.close()
-				Diag.w("download", "response HTTP $code host=${target.host}")
+				Diag.w("download", "response HTTP ${response.code} host=${target.host}")
 				throw IOException(
-					"download failed: HTTP $code $message" +
+					"download failed: HTTP ${response.code} ${response.message}" +
 						if (detail.isNullOrBlank()) "" else " — $detail",
 				)
 			}
@@ -138,15 +103,17 @@ object UrlDownloader {
 				"download",
 				"response HTTP ${response.code} host=${target.host} bytes=${body.contentLength()}",
 			)
-			return@withContext DownloadResponse(
+			DownloadResponse(
 				fileName = fileNameFor(target, response.header("Content-Disposition")),
 				mimeType = mimeTypeOf(response.header("Content-Type")),
 				contentLength = body.contentLength().takeIf { it >= 0 },
 				body = body.byteStream(),
 				source = response,
 			)
+		} catch (e: IOException) {
+			response.close()
+			throw e
 		}
-		throw IOException("download failed: more than $MAX_REDIRECTS redirects")
 	}
 
 	/**

@@ -145,22 +145,25 @@ Back is handled by a **single** `BackHandler` at the root, registered once, with
 an explicit ordering: dialog → directory level → settings/agents → conversation
 → workspace detail → workspace list. A conversation opened inside a workspace
 records its origin, so Back returns to the workspace rather than the home list.
-A workspace entered from Home (either workshop's persistent entry) records that
+A workspace entered from Home (the workshop's persistent entry) records that
 too, so Back returns to Home rather than the Workspaces list the user never
 visited. Registering one handler per screen would fire several on a single press
 and jump two or three levels at once.
 
-**The two workbenches are not screens.** Each is a built-in permanent workspace
-with a `workspaces.kind`: `roleplay` is the RP workshop and `studio` is the
-configuration workshop. The persistent home rows and the Create-sheet entries
-call `ConversationsViewModel.openWorkshop` / `openStudio`, which lazily create the
-row (`ConversationRepository.ensureWorkshop` / `ensureStudio`) and open the
+**The workshop is not a screen.** It is one built-in permanent workspace with
+`workspaces.kind = WORKSHOP` (schema v29 merged the v28 `"roleplay"` and
+`"studio"` kinds into it). The persistent home row and the Create-sheet entry
+call `ConversationsViewModel.openWorkshop`, which lazily creates the row
+(`ConversationRepository.ensureWorkshop`, the only writer) and opens the
 existing `WorkspaceDetailScreen` as the hub. The kind is what makes
-`ChatViewModel.buildTools` append the matching capability-free helpers to a
-non-scene conversation in it (`docs/06-agent-loop-ui.md`), and the configuration
-workshop's drafts are handed to the existing assistant/Files editors through
-one-shot signals in `MainActivity`. Scenes proposed from the RP workshop bind
-that same permanent workspace.
+`ChatViewModel.buildTools` append the capability-free helpers to a non-scene
+conversation in it (`docs/06-agent-loop-ui.md`; the plan is
+`WorkshopToolsPlan.planWorkshopHelpers`), and the configuration drafts' cards are
+handed to the existing assistant/Files editors through one-shot signals in
+`MainActivity`. Scenes proposed from the workshop bind that same permanent
+workspace. There is one `openWorkshop` branch and one entry; do not reintroduce
+a second built-in workspace kind, a second home row or a second Create-sheet
+choice.
 
 ### Process lifetime
 

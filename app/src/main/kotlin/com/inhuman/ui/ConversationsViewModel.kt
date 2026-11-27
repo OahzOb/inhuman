@@ -473,12 +473,13 @@ class ConversationsViewModel(
 	}
 
 	/**
-	 * Open the built-in role-play workshop, creating it on first use.
+	 * Open the built-in workshop, creating it on first use.
 	 *
-	 * The workspace is a permanent workspace the app owns; it is the only place
-	 * where the role-play authoring helpers and the scene-proposal tool exist.
-	 * Creating it lazily keeps first launch unchanged and makes the entry a
-	 * normal product surface rather than a migration side effect.
+	 * The workspace is a permanent workspace the app owns; it is the one place
+	 * where the role-play authoring helpers, the scene-proposal tool and the
+	 * app-configuration helpers exist. Creating it lazily keeps first launch
+	 * unchanged and makes the entry a normal product surface rather than a
+	 * migration side effect.
 	 *
 	 * @param name the display name to use when creating it. Passed in rather than
 	 *   read here because a view model holds the *application* context, whose
@@ -493,20 +494,7 @@ class ConversationsViewModel(
 		}
 	}
 
-	/**
-	 * Open the built-in configuration workshop, creating it on first use.
-	 *
-	 * The same shape as [openWorkshop], and the same name-passing rule: the
-	 * activity resolves the localized name because this view model only sees the
-	 * application context's locale.
-	 */
-	fun openStudio(name: String, onWorkspace: (String) -> Unit) {
-		openBuiltIn(name, R.string.studio_open_failed, onWorkspace) {
-			repository.ensureStudio(name)
-		}
-	}
-
-	/** The one ensure-then-navigate path both built-in workshops share. */
+	/** The ensure-then-navigate path the workshop entry uses. */
 	private fun openBuiltIn(
 		name: String,
 		errorRes: Int,

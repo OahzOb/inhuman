@@ -118,21 +118,14 @@ fun ConversationsScreen(
 	onOpenWorkspaces: () -> Unit,
 	onNewWorkspace: () -> Unit,
 	/**
-	 * Open the built-in role-play workshop (creating it on first use).
+	 * Open the built-in workshop (creating it on first use).
 	 *
 	 * A persistent entry, not only a Create-sheet choice: the workshop is where
-	 * the agent builds cards and scenes, so it is somewhere the user returns to
-	 * manage materials, not a one-off action buried one level down.
+	 * the agent prepares cards, scenes, assistants and instruction files, so it is
+	 * somewhere the user returns to manage materials, not a one-off action buried
+	 * one level down.
 	 */
 	onOpenWorkshop: () -> Unit = {},
-	/**
-	 * Open the built-in configuration workshop (creating it on first use).
-	 *
-	 * The second persistent workbench, for the same reason as the RP one: the
-	 * assistant drafts assistants and instruction files there, so it is somewhere
-	 * the user returns to, not a one-off Create-sheet action.
-	 */
-	onOpenStudio: () -> Unit = {},
 	sshToolEnabled: Boolean = false,
 	bilibiliEnabled: Boolean = false,
 	downloadEnabled: Boolean = false,
@@ -141,6 +134,13 @@ fun ConversationsScreen(
 	onLaterBackup: () -> Unit = {},
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
+	// The workshop row is created lazily, so its display name exists only after
+	// the first open; until then the localized feature name is the honest label.
+	// Renaming is not possible after creation (the workshop is app-owned), so this
+	// name is stable once the row exists.
+	val workshopName = state.permanentWorkspaces
+		.firstOrNull { it.kind == com.inhuman.core.data.db.WorkspaceKinds.WORKSHOP }
+		?.name
 	var pendingDelete by remember { mutableStateOf<ConversationEntity?>(null) }
 	// Rename from the list: the chat menu had it, the list did not, so
 	// changing a title meant loading the whole transcript.
@@ -293,7 +293,7 @@ fun ConversationsScreen(
 							onOpenWorkspaces = onOpenWorkspaces,
 							onOpenAssistants = onOpenAgents,
 							onOpenWorkshop = onOpenWorkshop,
-							onOpenStudio = onOpenStudio,
+							workshopName = workshopName,
 							compactLayout = frame.isCompact,
 							showStartButton = true,
 							backupReminder = backupReminder,
@@ -332,7 +332,7 @@ fun ConversationsScreen(
 					onOpenWorkspaces = onOpenWorkspaces,
 					onOpenAssistants = onOpenAgents,
 					onOpenWorkshop = onOpenWorkshop,
-					onOpenStudio = onOpenStudio,
+					workshopName = workshopName,
 					compactLayout = frame.isCompact,
 					showStartButton = false,
 					backupReminder = backupReminder,
@@ -375,10 +375,7 @@ fun ConversationsScreen(
 				showCreateSheet = false
 				onOpenWorkshop()
 			},
-			onOpenStudio = {
-				showCreateSheet = false
-				onOpenStudio()
-			},
+			workshopName = workshopName,
 		)
 	}
 
@@ -656,7 +653,8 @@ private fun CreateSheet(
 	onNewScene: () -> Unit,
 	onNewWorkspace: () -> Unit,
 	onOpenWorkshop: () -> Unit,
-	onOpenStudio: () -> Unit,
+	/** The workshop row's name, or null before the entry has ever been opened. */
+	workshopName: String?,
 ) {
 	val sheetState = androidx.compose.material3.rememberModalBottomSheetState(
 		skipPartiallyExpanded = true,
@@ -757,22 +755,13 @@ private fun CreateSheet(
 				)
 				// The same entry as the persistent row above the list: the
 				// Create sheet is where a user who is already creating goes,
-				// and the workshop is where an agent-configured scene comes
-				// from. Both open the same hub.
+				// and the workshop is where an agent-prepared card, scene or
+				// configuration draft comes from. Both open the same hub.
 				CreateChoice(
-					title = stringResource(R.string.workshop_name),
+					title = workshopName ?: stringResource(R.string.workshop_name),
 					detail = stringResource(R.string.home_create_workshop_detail),
 					onClick = onOpenWorkshop,
 					leadingIcon = Icons.Outlined.TheaterComedy,
-				)
-				// The configuration workshop is the other persistent workbench:
-				// the agent drafts assistants and AGENTS.md there, and the user
-				// saves in the editors they already use.
-				CreateChoice(
-					title = stringResource(R.string.studio_name),
-					detail = stringResource(R.string.home_create_studio_detail),
-					onClick = onOpenStudio,
-					leadingIcon = Icons.Outlined.Tune,
 				)
 				CreateChoice(
 					title = stringResource(R.string.home_import_bundle),
@@ -1203,10 +1192,10 @@ private fun ConversationPanel(
 	onCreate: () -> Unit,
 	onOpenWorkspaces: () -> Unit,
 	onOpenAssistants: () -> Unit,
-	/** Open the built-in role-play workshop from the persistent home entry. */
+	/** The workshop row's name, or null before the entry has ever been opened. */
+	workshopName: String?,
+	/** Open the built-in workshop from the persistent home entry. */
 	onOpenWorkshop: () -> Unit = {},
-	/** Open the built-in configuration workshop from the persistent home entry. */
-	onOpenStudio: () -> Unit = {},
 	compactLayout: Boolean,
 	showStartButton: Boolean,
 	backupReminder: BackupReminderUi?,
@@ -1300,9 +1289,10 @@ private fun ConversationPanel(
 			Spacer(Modifier.height(10.dp))
 			Hairline()
 			if (!selecting) {
-				WorkshopEntryRow(onOpen = onOpenWorkshop)
-				Hairline()
-				StudioEntryRow(onOpen = onOpenStudio)
+				WorkshopEntryRow(
+					name = workshopName ?: stringResource(R.string.workshop_name),
+					onOpen = onOpenWorkshop,
+				)
 				Hairline()
 				backupReminder?.let { reminder ->
 					BackupReminderBanner(
@@ -1429,17 +1419,21 @@ private fun ConversationPanel(
 }
 
 /**
- * The persistent RP workshop entry.
+ * The persistent workshop entry.
  *
- * It sits above the conversation list on every form factor because the
- * workshop is the place the RP authoring tools live: the list below is a
- * record of conversations, this is a workbench the user keeps coming back to.
- * It is a row rather than a card because the visual system separates sections
- * with hairlines, and a raised card here would compete with the conversation
- * rows for the same attention.
+ * It sits above the conversation list on every form factor because the workshop
+ * is where the host-appended authoring and configuration helpers live: the list
+ * below is a record of conversations, this is a workbench the user keeps coming
+ * back to. It is a row rather than a card because the visual system separates
+ * sections with hairlines, and a raised card here would compete with the
+ * conversation rows for the same attention.
+ *
+ * [name] is the workspace row's display name once it exists. The workshop is
+ * app-owned and cannot be renamed, so the label is stable; before the first open
+ * it falls back to the localized feature name.
  */
 @Composable
-private fun WorkshopEntryRow(onOpen: () -> Unit) {
+private fun WorkshopEntryRow(name: String, onOpen: () -> Unit) {
 	Row(
 		modifier = Modifier
 			.fillMaxWidth()
@@ -1456,58 +1450,12 @@ private fun WorkshopEntryRow(onOpen: () -> Unit) {
 		Spacer(Modifier.width(12.dp))
 		Column(modifier = Modifier.weight(1f)) {
 			Text(
-				text = stringResource(R.string.workshop_name),
+				text = name,
 				style = MaterialTheme.typography.bodyLarge,
 				color = MaterialTheme.colorScheme.onSurface,
 			)
 			Text(
 				text = stringResource(R.string.home_workshop_detail),
-				style = MaterialTheme.typography.bodySmall,
-				color = MaterialTheme.colorScheme.onSurfaceVariant,
-			)
-		}
-		Spacer(Modifier.width(8.dp))
-		Icon(
-			Icons.AutoMirrored.Filled.KeyboardArrowRight,
-			contentDescription = null,
-			modifier = Modifier.size(18.dp),
-			tint = MaterialTheme.colorScheme.onSurfaceVariant,
-		)
-	}
-}
-
-/**
- * The persistent configuration workshop entry.
- *
- * The second workbench row, directly under the RP one: both are permanent
- * workspaces the user returns to, and putting them together makes the two
- * "ask an agent to set this up" places discoverable without a menu. It is a row
- * for the same visual reason as [WorkshopEntryRow].
- */
-@Composable
-private fun StudioEntryRow(onOpen: () -> Unit) {
-	Row(
-		modifier = Modifier
-			.fillMaxWidth()
-			.clickable(onClick = onOpen)
-			.padding(vertical = 12.dp),
-		verticalAlignment = Alignment.CenterVertically,
-	) {
-		Icon(
-			Icons.Outlined.Tune,
-			contentDescription = null,
-			modifier = Modifier.size(18.dp),
-			tint = MaterialTheme.colorScheme.primary,
-		)
-		Spacer(Modifier.width(12.dp))
-		Column(modifier = Modifier.weight(1f)) {
-			Text(
-				text = stringResource(R.string.studio_name),
-				style = MaterialTheme.typography.bodyLarge,
-				color = MaterialTheme.colorScheme.onSurface,
-			)
-			Text(
-				text = stringResource(R.string.home_studio_detail),
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)

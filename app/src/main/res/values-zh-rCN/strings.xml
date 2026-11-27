@@ -218,6 +218,17 @@
 	<string name="settings_web_missing_key">所选后端没有密钥，因此对应的工具不可用。</string>
 	<string name="settings_save_web_keys">保存网络密钥</string>
 	<string name="settings_web_no_test">没有测试按钮：测试密钥会真的产生一次搜索费用。</string>
+	<string name="settings_local_web_title">本机 web 工具（免费）</string>
+	<string name="settings_local_web_body">搜索和抓取从这台手机的网络直接发出，不经过搜索/抓取 API，也不需要 Key 和账号。查询或 URL 会离开设备（开着 VPN 时走 VPN）。两个工具默认都关着，打开后还要在助手里显式选择。</string>
+	<string name="settings_local_search_title">本机搜索</string>
+	<string name="settings_local_search_body">在本机读取搜索引擎的公开结果页。返回的是第三方文本；引擎可能限流或改版，被风控拦截会如实报错。</string>
+	<string name="settings_local_fetch_title">本机抓取</string>
+	<string name="settings_local_fetch_body">在本机抓取一个 https 页面并抽取正文；可选渲染会用 App 的浏览器引擎加载。每段对话第一次抓取前会再确认一次；关闭这个开关会撤销所有对话的授权。</string>
+	<string name="settings_local_engine">搜索引擎</string>
+	<string name="settings_status_local_search_enabled">已启用本机搜索</string>
+	<string name="settings_status_local_search_disabled">已停用本机搜索</string>
+	<string name="settings_status_local_fetch_enabled">已启用本机抓取</string>
+	<string name="settings_status_local_fetch_disabled">已停用本机抓取</string>
 	<string name="settings_bilibili_title">B 站只读（匿名）</string>
 	<string name="settings_bilibili_body">让助手搜索 B 站、读视频的公开信息、评论和弹幕、读专栏文章、看 UP 主主页、看榜单热搜、番剧信息和直播间状态。不需要 B 站账号、不需要密钥、不保存任何东西。请求由应用发出，助手自身仍然没有网络。B 站公开网页接口非官方，可能限流、变更或失效；返回的全部内容都是不可信的第三方文本。</string>
 	<string name="settings_bilibili_switch">允许助手读取 B 站</string>
@@ -913,6 +924,8 @@
 	<string name="tool_blurb_read_time">当前日期时间，以及日期计算</string>
 	<string name="tool_blurb_web_search">通过配置的付费搜索 API 搜索网页</string>
 	<string name="tool_blurb_web_fetch">通过配置的付费抓取 API 读取网页</string>
+	<string name="tool_blurb_web_search_local">在本机网络上搜索网页（免费，无需 API Key）</string>
+	<string name="tool_blurb_web_fetch_local">在本机网络上读取一个网页（免费，可选浏览器渲染）</string>
 	<string name="tool_blurb_decide">用 typed decision 模型分类或评分</string>
 	<string name="tool_blurb_generate_image">生成图片并保存到 workspace</string>
 	<string name="tool_blurb_generate_video">提交异步视频生成任务</string>
@@ -1095,6 +1108,14 @@
 	<string name="chat_download_warning">URL 可以把数据带出去：助手编码进 URL 的任何内容都会随请求离开设备。只在你信任的对话里允许。</string>
 	<string name="chat_allow_download">允许 URL 下载</string>
 	<string name="chat_revoke_download">撤销 URL 下载授权</string>
+	<string name="chat_revoke_local_fetch">撤销本机网页抓取授权</string>
+	<string name="chat_phase_local_fetch">等待网页抓取授权</string>
+	<string name="chat_local_fetch_title">允许这个对话在本机抓取网页？</string>
+	<string name="chat_local_fetch_body">助手正在请求 app 直接在本机网络上抓取 %1$s 的一个页面。允许之后，它可以让 app 在这段对话里抓取任何公网 https 页面，不再逐次询问。页面正文会进入对话，请求从这台手机的网络发出（开着 VPN 时走 VPN）。</string>
+	<string name="chat_local_fetch_render_note">这次调用还要求用 App 的浏览器引擎渲染页面，页面自己的脚本会运行。</string>
+	<string name="chat_local_fetch_understand">我明白页面正文会进入对话</string>
+	<string name="chat_local_fetch_warning">URL 可以把数据带出去：助手编码进 URL 的任何内容都会随请求离开设备。页面内容是第三方文本，不是指令。只在你信任的对话里允许。</string>
+	<string name="chat_allow_local_fetch">允许本机网页抓取</string>
 	<string name="chat_phase_download">等待下载授权</string>
 	<string name="chat_ssh_body">助手可以连接到 %1$s@%2$s，在那里执行任意命令，并在此对话的工作区和这台机器之间传输文件。它也可以连接任何你提供了凭据的主机，本对话中不再询问。</string>
 	<string name="chat_ssh_body_upload">助手可以连接到 %1$s@%2$s，读取该机器上的文件、把文件下载到此对话的工作区，也可以把工作区文件上传到该机器。它不能执行命令。</string>
@@ -1570,7 +1591,7 @@
 	<string name="settings_key_cleared">已删除保存的密钥。</string>
 	<!-- 设置搜索关键词：区块内部的东西，用用户会输入的说法。 -->
 	<string name="settings_keywords_models">API 密钥 OAuth 登录 服务商 模型 端点</string>
-	<string name="settings_keywords_web">搜索 抓取 网页 密钥 付费 媒体 图片 视频 语音 朗读 音色 自动朗读 B站 弹幕 登录 扫码 转写 决策</string>
+	<string name="settings_keywords_web">搜索 抓取 网页 密钥 付费 媒体 图片 视频 语音 朗读 音色 自动朗读 B站 弹幕 登录 扫码 转写 决策 本机 免费 引擎 渲染</string>
 	<string name="settings_keywords_runtime">演示模式 SSH 远程 主机 地址簿 下载 URL 沙箱 javascript 执行</string>
 	<string name="settings_keywords_limits">工具轮次 调用上限 压缩 快照 保留 回退</string>
 	<string name="settings_keywords_usage">用量 token 花费 整理 统计</string>
@@ -1581,11 +1602,16 @@
 	<string name="settings_keywords_display">布局 紧凑 舒适 字体 字号 显示 建议回复 配色 主题 颜色 深色 浅色 余烬 苔绿 靛蓝 紫檀 底材 石墨 纸 暖色 冷灰 棕墨 米纸</string>
 	<string name="settings_keywords_language">语言 中文 英文</string>
 	<string name="settings_keywords_time">时间 提示 时区 间隔</string>
-	<!-- 内置 RP 工坊：一个永久工作区，助手在这里获得 RP 写作辅助和场景提案工具。 -->
-	<string name="workshop_name">RP 工坊</string>
-	<string name="home_workshop_detail">用助手做角色卡、开场景</string>
-	<string name="home_create_workshop_detail">角色卡、资料和场景都放在一个永久工作区里</string>
-	<string name="workshop_open_failed">无法打开 RP 工坊：%1$s</string>
+	<!-- 唯一的内置工坊：一个永久工作区，助手在这里获得 RP 写作辅助、场景提案工具，
+	     以及 app 配置的读取/草稿辅助。它属于应用本身：不能重命名，也不能删除。 -->
+	<string name="workshop_name">工坊</string>
+	<string name="home_workshop_detail">做角色卡、场景，起草助手和 AGENTS.md</string>
+	<string name="home_create_workshop_detail">内置的一个地方：助手先准备，你来开始或保存</string>
+	<string name="workshop_open_failed">无法打开工坊：%1$s</string>
+	<string name="workspace_builtin_badge">工坊</string>
+	<string name="workshop_hub_badge">内置工坊</string>
+	<string name="workshop_hub_body">这是应用内置的工坊。这里的对话里，助手可以准备角色卡或场景，也可以起草助手和工作区的 AGENTS.md。在你点“创建并打开”，或在他打开的编辑器里保存之前，什么都不会改变。</string>
+	<string name="workshop_hub_owned">它属于应用本身：不能重命名，也不能删除。想清空就删掉里面的对话和文件。</string>
 	<!-- 场景提案：创建之前先给用户看的一张卡片。 -->
 	<string name="chat_scene_proposal_title">场景提案</string>
 	<string name="chat_scene_proposal_character">角色：%1$s</string>
@@ -1595,12 +1621,7 @@
 	<string name="chat_scene_proposal_dismiss">不要</string>
 	<string name="chat_scene_proposal_creating">正在创建场景…</string>
 	<string name="chat_scene_proposal_failed">无法创建场景：%1$s</string>
-	<!-- 内置配置工坊：一个永久工作区，助手在这里可以读 app 配置、准备草稿。 -->
-	<string name="studio_name">配置工坊</string>
-	<string name="home_studio_detail">让助手起草助手与指令文件</string>
-	<string name="home_create_studio_detail">助手只写草稿，仍由你在原来的编辑器里保存</string>
-	<string name="studio_open_failed">无法打开配置工坊：%1$s</string>
-	<!-- 配置工坊的提案：只打开已有编辑器，保存前什么都不会写入。 -->
+	<!-- 工坊的配置提案：只打开已有编辑器，保存前什么都不会写入。 -->
 	<string name="chat_proposal_dismiss">不要</string>
 	<string name="chat_assistant_proposal_title">助手草稿</string>
 	<string name="chat_assistant_proposal_create">新建助手：%1$s</string>
@@ -1623,11 +1644,11 @@
 	<string name="chat_instruction_proposal_ambiguous">有多个工作区叫“%1$s”。</string>
 	<string name="chat_instruction_proposal_workspace_failed">读取工作区列表失败。</string>
 	<string name="agents_proposal_missing">该助手已不存在。</string>
-	<!-- 配置工坊辅助工具在折叠行里的标题。 -->
-	<string name="chat_studio_list_assistants_title">助手列表</string>
-	<string name="chat_studio_read_assistant_title">助手</string>
-	<string name="chat_studio_propose_assistant_title">助手草稿</string>
-	<string name="chat_studio_list_instructions_title">指令文件</string>
-	<string name="chat_studio_read_instruction_title">指令文件</string>
-	<string name="chat_studio_propose_instruction_title">AGENTS.md 草稿</string>
+	<!-- 工坊辅助工具在折叠行里的标题。 -->
+	<string name="chat_config_list_assistants_title">助手列表</string>
+	<string name="chat_config_read_assistant_title">助手</string>
+	<string name="chat_config_propose_assistant_title">助手草稿</string>
+	<string name="chat_config_list_instructions_title">指令文件</string>
+	<string name="chat_config_read_instruction_title">指令文件</string>
+	<string name="chat_config_propose_instruction_title">AGENTS.md 草稿</string>
 </resources>

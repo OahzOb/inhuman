@@ -20,10 +20,10 @@ The app installs `InhumanDatabase.MIGRATIONS` and
 `Context` builder. The callback seeds the DeepSeek provider and the default
 assistant on create, so an install does not start from an empty schema.
 
-## The schema, version 28
+## The schema, version 30
 
 `InhumanDatabase` (`core/db/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 28`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 30`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/db/schemas/` by KSP — configured in `core/db/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
@@ -207,26 +207,36 @@ uses the card's optional `name` (then the chosen assistant's name, then the
 folder name) as the display name. Prompt content, not capability: no tool or
 approval reads the column.
 
-### `workspaces.kind` — added in 27→28
+### `workspaces.kind` — added in 27→28, values rewritten in 28→29
 
-The purpose of a workspace. Empty is an ordinary workspace and is the default
-for every row an upgrade already has; `roleplay` marks the single built-in RP
-workshop, created lazily by the app the first time the user opens the workshop
-entry (`ConversationRepository.ensureWorkshop`), and `studio` marks the single
-built-in configuration workshop, created the same way by `ensureStudio`. The
-migration only adds the column: a migration has no filesystem handle and must
-not invent user data, so nothing is promoted to a workshop during an upgrade.
+The purpose of a workspace. Empty (`WorkspaceKinds.NONE`) is an ordinary
+workspace and is the default for every row an upgrade already has; `"workshop"`
+(`WorkspaceKinds.WORKSHOP`) marks the single built-in workshop, created lazily
+by the app the first time the user opens the workshop entry
+(`ConversationRepository.ensureWorkshop`, the only writer). v28 stored
+`"roleplay"` and `"studio"` instead; v29 merged the two built-in workshops into
+one and rewrote those values without touching a column, a row, a directory or a
+conversation: a `"roleplay"` row becomes `"workshop"`; a `"studio"` row is
+demoted to `""` when a role-play row existed (its files and conversations stay,
+but its non-scene conversations lose the host helpers and the context block) and
+becomes the workshop otherwise. No migration invents a row: 27→28 only adds the
+defaulted column and 28→29 only rewrites kinds that are already stored, so an
+install with neither old kind still gets the workshop row lazily on first use
+(a migration has no filesystem handle and must not invent user data).
 
 The column is a data attribute, not a capability tier. It gates only
-**capability-free host helpers** — the RP side's `rp_format`, `rp_validate`
-(which still needs an existing read tool) and the scene-proposal tool that
-creates nothing until the user taps a card; the configuration side's
-`app_list_assistants` / `app_read_assistant` / `app_propose_assistant` and
-`app_list_instructions` / `app_read_instruction` / `app_propose_instruction`,
-whose drafts only open the user's existing editors. It has no effect on
-assistant tools, approvals, SSH or download consent. Scenes created from the RP
-workshop bind it as their permanent workspace. See `docs/07-gotchas.md` A31/A32
-and `docs/proposals/config-workshop.md`.
+**capability-free host helpers**: a non-scene workshop conversation gets the
+role-play side's `rp_format`, `rp_validate` (which still needs an existing read
+tool) and the scene-proposal tool that creates nothing until the user taps a
+card, plus the configuration side's `app_list_assistants` /
+`app_read_assistant` / `app_propose_assistant` and `app_list_instructions` /
+`app_read_instruction` / `app_propose_instruction`, whose drafts only open the
+user's existing editors. It has no effect on assistant tools, approvals, SSH or
+download consent. Scenes created from the workshop bind it as their permanent
+workspace. The workshop is app-owned: the repository refuses to rename it,
+refuses to delete it, and the bulk delete filters built-in kinds out
+(`deleteWorkspaces`). See `docs/07-gotchas.md` A31 and
+`docs/proposals/workshop-merge.md`.
 
 ### `saved_prompts` — added in 15→16
 
@@ -320,7 +330,7 @@ default to `deepseek` in 11→12, so every existing row keeps working.
 | `name` | What the user sees. A permanent workspace keeps this name across renames of its conversations. A temporary workspace is kept in step with its conversation title. |
 | `isPermanent` | `0` while the workspace is owned by one conversation and deleted with it; `1` once promoted or created from the Workspaces screen. |
 | `ownerConversationId` | The single owner of a temporary workspace; null for a permanent one. A temporary workspace deliberately holds exactly one conversation, so deleting its owner cannot orphan another conversation's files. |
-| `kind` | What the workspace is for; empty for an ordinary one, `roleplay` for the built-in RP workshop, `studio` for the built-in configuration workshop. A data attribute, not a permission level: it only decides which capability-free host helpers a conversation in that workspace gets (`docs/07-gotchas.md` A31/A32). |
+| `kind` | What the workspace is for; empty for an ordinary one, `workshop` for the one built-in workshop. A data attribute, not a permission level: it only decides which capability-free host helpers a non-scene conversation in that workspace gets (`docs/07-gotchas.md` A31). |
 | `createdAt`, `updatedAt` | Ordering and display. |
 
 `conversations.workspaceId` points at `workspaces.id` and is **not unique**: a
@@ -352,6 +362,7 @@ The lifetime rule is in the row, not the directory:
 | `sshAllowed` | The conversation-level SSH acknowledgement, default `0`. Added in 8→9. Per conversation, not per assistant: consenting in one thread must not grant another thread the same capability. Room stores no credential; the address book lives in `SecureStore`, and this column is the conversation's acknowledgement that the agent may open SSH connections at all. |
 | `sshHostsJson` | The ids of the saved hosts this conversation is told about by `ssh_hosts`, `[]`/empty meaning none. Added in 21→22. Only the chat's host sheet writes it; a change applies to the next turn and does **not** touch `sshAllowed` — the list is information, not a capability, and no tool resolves it into a connection. Unlike `toolsJson` there is no "all" state: an entry added in Settings must not silently appear in an existing conversation. |
 | `downloadAllowed` | The conversation-level URL-download acknowledgement, default `0`. Added in 24→25. Defaulted off is the only safe meaning for a consent flag: an upgraded conversation starts with no grant. Persisted by the first `download_url` consent dialogue and cleared by the chat menu or by turning the global switch off; Room stores no URL or credential. |
+| `localFetchAllowed` | The conversation-level local-page-fetch acknowledgement, default `0`. Added in 29→30. Mirrors `downloadAllowed` because `web_fetch_local` is the same capability (a model-named URL the app requests for free) with a different sink: the page's text enters the conversation instead of bytes entering the workspace. Cleared by the chat menu and by turning the local-fetch switch off. |
 
 ### `messages` (`Entities.kt:207-319`)
 
@@ -494,14 +505,14 @@ messages explicitly before the row **even though the FK cascades** — the comme
 says that keeps the behaviour obvious if the cascade is ever switched off
 (`:496-502`).
 
-## Migration history 1 → 23
+## Migration history 1 → 29
 
 All hand-written. There is **no `fallbackToDestructiveMigration` anywhere** and
 the reason is stated at `MIGRATION_1_2`: it would delete every conversation on
 upgrade — acceptable while nothing has shipped, a data-loss bug the moment
 something has.
 
-Line numbers are deliberately absent from this table: eight migrations' worth of
+Line numbers are deliberately absent from this table: many migrations' worth of
 edits have moved them twice, and a wrong line number is read as a wrong claim.
 Search for `MIGRATION_n_m` in `InhumanDatabase.kt`; the order in the file is the
 order below.
@@ -534,7 +545,9 @@ order below.
 | 24→25 | `conversations` gains `downloadAllowed INTEGER NOT NULL DEFAULT 0`: the per-conversation URL-download acknowledgement. Additive and defaulted off, so an upgraded install behaves exactly as before until the user switches the capability on globally, selects it on an assistant, and consents in a conversation. |
 | 25→26 | `messages` gains `injected INTEGER NOT NULL DEFAULT 0`: a user message sent while its turn was already running. False by default, so every existing user row remains a turn root. |
 | 26→27 | `conversations` gains `rpSnapshotJson TEXT NOT NULL DEFAULT ''`: the frozen role-play persona, empty meaning "not pinned yet". An upgraded scene pins on its next turn; a non-scene never writes it. |
-| 27→28 | `workspaces` gains `kind TEXT NOT NULL DEFAULT ''`: empty is an ordinary workspace, `roleplay` is the built-in RP workshop and `studio` is the built-in configuration workshop. Nothing is promoted during the upgrade; the app creates each workshop row lazily when the user opens its entry. The column gates only capability-free host helpers, never assistant tools or grants. |
+| 27→28 | `workspaces` gains `kind TEXT NOT NULL DEFAULT ''`: empty is an ordinary workspace; at the time `roleplay` marked the RP workshop and `studio` the configuration workshop. Nothing is promoted during the upgrade; the app creates the workshop row lazily when the user opens its entry. The column gates only capability-free host helpers, never assistant tools or grants. |
+| 28→29 | Values only, no column or table change: the two built-in workshops become one. `roleplay` → `workshop`; `studio` → `""` (ordinary permanent) when a role-play row now exists, otherwise `studio` → `workshop`. No row, directory or conversation is moved or deleted; old configuration-workshop conversations keep their transcripts and files but lose the host helpers. |
+| 29→30 | `conversations` gains `localFetchAllowed INTEGER NOT NULL DEFAULT 0`: the per-conversation acknowledgement for `web_fetch_local`. Additive and defaulted off, so an upgraded install behaves exactly as before until the local-fetch switch is on, the assistant selects the tool and the user consents in the conversation. |
 
 The 7→8 comment records a product change that is *not* in the migration:
 deletion no longer asks for approval, and that lives in `DeleteFileTool`, not
@@ -556,7 +569,10 @@ database, opens it through every production migration to the current version and
 asserts the newest columns; `ContinuousSessionMigrationTest` runs
 `MIGRATION_22_23` directly against a minimal v22 database (an old conversation
 reads `classic`, an old summary reads `manual` with null coverage, and
-`maintenance_runs` exists and cascades); `CurrentSchemaTest` opens the current
+`maintenance_runs` exists and cascades); `WorkshopKindMigrationTest` runs
+`MIGRATION_27_28` and `MIGRATION_28_29` directly against a minimal `workspaces`
+table (the empty default, a lone role-play or configuration row, and both rows
+keeping the role-play one as the workshop); `CurrentSchemaTest` opens the current
 schema and queries the new DAO. `tools/ci.ps1` runs the JVM suite; the device
 suite still needs an emulator.
 
@@ -897,6 +913,8 @@ The JVM and device files below:
 | `CurrentSchemaMigrationTest` | A v12 database opens through the production migration list to the current version, and the newest columns/definitions are readable. |
 | `ContinuousSessionMigrationTest` | `MIGRATION_22_23` directly: an old conversation reads classic, an old summary is manual with unknown coverage, and `maintenance_runs` exists with its index. |
 | `RoleplayMigrationTest` | `MIGRATION_23_24` directly: an old assistant's `rpJson` and an old conversation's `sceneJson` both read as empty, which is the "not role-play" state. |
+| `WorkshopKindMigrationTest` | `MIGRATION_27_28` and `MIGRATION_28_29` directly: the empty kind default; a lone role-play row becomes the workshop; a lone configuration row becomes the workshop; both rows keep the role-play one as the workshop and demote the other to `""`, with no row deleted. |
+| `WorkshopWorkspaceTest` | One permanent workshop row, idempotent `ensureWorkshop`, a scene created inside it, no rename, no delete even when empty, bulk delete skipping the workshop and its conversations, and an ordinary workspace still renameable and deletable when empty. |
 | `ConversationRepositoryTest` | Conversation creation copies settings; `sessionMode` defaults to classic and round-trips; a scene is created with an explicit empty tool selection, its `sceneJson`, and its greeting as the only root assistant row (a blank greeting writes no row); brief coverage fields persist; maintenance runs are newest-first, survive a rewind and die with the conversation. |
 | `WorkspaceLifecycleTest` (device) | A temporary workspace dies with its conversation; a permanent one survives and can hold two; promotion changes the row without moving the directory. |
 | `ConversationLookupTest` (device) | The `id` / `workspaceId` distinction the documents provider depends on. |

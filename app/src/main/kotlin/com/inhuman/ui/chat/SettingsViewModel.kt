@@ -163,6 +163,11 @@ data class SettingsUiState(
 	val webExaKeyInput: String = "",
 	val hasWebDeepSeekKey: Boolean = false,
 	val hasWebExaKey: Boolean = false,
+	/** The app's own (keyless) web tools: two independent switches. */
+	val localWebSearchEnabled: Boolean = false,
+	val localWebFetchEnabled: Boolean = false,
+	/** Which public result page the local search reads: `duckduckgo` or `bing`. */
+	val localWebEngine: String = com.inhuman.web.LocalWebProviders.DEFAULT_ENGINE,
 	val webStatus: String? = null,
 	val webStatusIsError: Boolean = false,
 	/**
@@ -508,6 +513,10 @@ class SettingsViewModel(
 				readBytes = secure.get(SecureStore.KEY_SSH_READ_BYTES),
 			),
 			webSearchBackend = secure.get(SecureStore.KEY_WEB_SEARCH_BACKEND) ?: "deepseek",
+			localWebSearchEnabled = secure.get(SecureStore.KEY_WEB_LOCAL_SEARCH_ENABLED) == "1",
+			localWebFetchEnabled = secure.get(SecureStore.KEY_WEB_LOCAL_FETCH_ENABLED) == "1",
+			localWebEngine = secure.get(SecureStore.KEY_WEB_LOCAL_SEARCH_ENGINE)
+				?: com.inhuman.web.LocalWebProviders.DEFAULT_ENGINE,
 			webFetchBackend = secure.get(SecureStore.KEY_WEB_FETCH_BACKEND) ?: "deepseek",
 			webDeepSeekKeyInput = secure.get(SecureStore.KEY_WEB_DEEPSEEK_API_KEY).orEmpty(),
 			webExaKeyInput = secure.get(SecureStore.KEY_WEB_EXA_API_KEY).orEmpty(),
@@ -1897,6 +1906,61 @@ class SettingsViewModel(
 	fun setWebFetchBackend(backend: String) {
 		secure.put(SecureStore.KEY_WEB_FETCH_BACKEND, backend)
 		_state.value = _state.value.copy(webFetchBackend = backend, webStatus = null)
+	}
+
+	/**
+	 * Turn the app's own web search on or off.
+	 *
+	 * No consent to revoke: a search carries only a query (the `bili_search`
+	 * shape, not the download shape), and the tool is absent while this is off.
+	 */
+	fun setLocalWebSearchEnabled(enabled: Boolean) {
+		secure.put(SecureStore.KEY_WEB_LOCAL_SEARCH_ENABLED, if (enabled) "1" else "0")
+		_state.value = _state.value.copy(
+			localWebSearchEnabled = enabled,
+			status = if (enabled) {
+				context.getString(R.string.settings_status_local_search_enabled)
+			} else {
+				context.getString(R.string.settings_status_local_search_disabled)
+			},
+			statusIsError = false,
+		)
+		Diag.i("web", "local search enabled=$enabled")
+	}
+
+	/**
+	 * Turn the app's own page fetch on or off.
+	 *
+	 * Turning it off revokes every conversation's acknowledgement, the same rule
+	 * as the URL-download switch: a consent that survives the capability being
+	 * switched off and on again is a consent the user did not give for the
+	 * second enabling.
+	 */
+	fun setLocalWebFetchEnabled(enabled: Boolean) {
+		secure.put(SecureStore.KEY_WEB_LOCAL_FETCH_ENABLED, if (enabled) "1" else "0")
+		_state.value = _state.value.copy(
+			localWebFetchEnabled = enabled,
+			status = if (enabled) {
+				context.getString(R.string.settings_status_local_fetch_enabled)
+			} else {
+				context.getString(R.string.settings_status_local_fetch_disabled)
+			},
+			statusIsError = false,
+		)
+		Diag.i("webfetch", "local fetch enabled=$enabled")
+		if (!enabled) {
+			viewModelScope.launch { repository.clearAllLocalFetchAllowed() }
+		}
+	}
+
+	fun setLocalWebEngine(engine: String) {
+		val normalised = if (engine == com.inhuman.web.LocalWebProviders.ENGINE_BING) {
+			com.inhuman.web.LocalWebProviders.ENGINE_BING
+		} else {
+			com.inhuman.web.LocalWebProviders.ENGINE_DUCKDUCKGO
+		}
+		secure.put(SecureStore.KEY_WEB_LOCAL_SEARCH_ENGINE, normalised)
+		_state.value = _state.value.copy(localWebEngine = normalised, webStatus = null)
 	}
 
 	fun onWebDeepSeekKeyChange(value: String) {

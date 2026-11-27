@@ -287,18 +287,21 @@ deleted: the requests after the reload rebuild against the new prompt. The turn'
 usage line is where the reload's cost becomes visible.
 
 **Workshop context is derived, so it does not move either.** A non-scene
-conversation in the RP workshop or the configuration workshop gets a
-host-written `Workshop context:` paragraph in the system message, after the
-assistant prompt (and the continuous-session instruction) and before the
-summary and the pinned `AGENTS.md` block. It says which workshop this is and
-what the host-appended helpers mean -- "the RP workshop, not a scene, and a
-scene proposal creates nothing until the user taps" or "the configuration
-workshop, a draft is not a change, and these capabilities cannot be changed
-here". The text is computed from `workspaces.kind` alone, so it is identical on
-every turn and costs no extra cold request; it exists because a fresh workshop
-has no `AGENTS.md`, and the attached helpers by themselves do not say what
-situation the conversation is in. It is content, not capability: it cannot add
-a tool, an approval or a grant, and `docs/07-gotchas.md` A31/A32 says why.
+conversation in the built-in workshop gets one host-written `Workshop context:`
+paragraph in the system message. It is appended after the assistant prompt (and
+any role-play sections the conversation has) and the continuous-session
+instruction, and before the compaction summary and the pinned `AGENTS.md`
+block. It is **one text for both jobs** the workshop serves: this is the
+workshop rather than a scene, a scene proposal creates nothing until the user
+taps, a configuration draft only opens an editor prefilled and is not a change,
+and those capabilities cannot be changed here.
+The text is computed from `workspaces.kind` alone, so it is identical on every
+turn and costs no extra cold request; it exists because a fresh workshop has no
+`AGENTS.md`, and the attached helpers by themselves do not say what situation
+the conversation is in. It is content, not capability: it cannot add a tool, an
+approval or a grant, and `docs/07-gotchas.md` A31 says why. A scene gets none,
+and the v29 merge left one block where the two workshops had one each; the wire
+inspector still splits it on the same `Workshop context:` marker.
 
 **Time hints are derived, so they do not move between turns.** When the settingis on, `buildWireHistory` prefixes qualifying user messages with the time they
 were sent (`docs/06`, "Time hints on the wire"). The prefix comes from
@@ -1051,19 +1054,17 @@ Two special cases that exist for real reasons:
   a branch switched, then start calling delete on a file that is already gone.
   Anything after the last user message is this turn's own work in progress
   (`DemoProvider.kt:131-146`).
-- **In an RP workshop conversation, a message containing `scene` makes the demo
-  call `rp_create_scene`.** The tool is host-appended there (`docs/06`), so the
-  demo keys on it being offered plus the word, not on a settings switch: the
-  proposal card and the tap-to-create path are reachable offline exactly like a
-  real model's call. The card is a small scripted character, and the next round
-  answers prose instead of proposing again.
-- **In a configuration-workshop conversation, a message containing `config` (or
-  `配置`) makes the demo call `app_propose_assistant` and
-  `app_propose_instruction` in one turn.** Both are host-appended there, return
-  drafts and write nothing, so the two proposal cards and the editor handoffs are
-  reachable offline. The assistant draft is the fixed scripted "Notebook Keeper";
-  the instruction draft names no workspace, so it targets the conversation's own
-  (the workshop), and the next round answers prose rather than proposing again.
+- **In a workshop conversation the demo proposes, and writes nothing.** A
+  message containing `scene` makes it call `rp_create_scene` -- the card is a
+  small scripted character -- so the scene-proposal card and the tap-to-create
+  path are reachable offline. A message containing `config` (or `配置`) makes it
+  call `app_propose_assistant` and `app_propose_instruction` in one turn, so the
+  two draft cards and their editor handoffs are reachable too. All three are
+  host-appended there (`docs/06`), so the demo keys on a proposal tool being
+  offered plus the word, not on a settings switch; `scene` wins when a message
+  names both, which is the documented order. The instruction draft names no
+  workspace, so it targets the conversation's own (the workshop). The next round
+  answers prose instead of proposing again, and no tool call writes app state.
 
 ## `web_search` and `web_fetch`: independently configured paid backends
 
@@ -1198,6 +1199,101 @@ $env:DEEPSEEK_LIVE_KEY = 'sk-...'
 
 It checks the request shape that fixtures cannot, and it is what caught the
 `&amp;` URL-encoding issue above.
+
+## Local web tools: free, app-proxied search and fetch
+
+Two tools that make the request **from the device** instead of from a provider.
+They are the free, keyless alternative to the paid backends: the app sends the
+query or the URL itself, so a user with no search key still has `web_search`
+and `web_fetch`-shaped tools. The capability analysis is `docs/08-port-philosophy.md`
+§1.7; the design record is `docs/proposals/local-web-tools.md`.
+
+### Shape and gates
+
+| Tool | Parameters | Source | Gate |
+| --- | --- | --- | --- |
+| `web_search_local` | `query`, `max_results` (1–10, default 5) | DuckDuckGo's HTML page (default) or Bing's RSS feed | Settings switch + assistant `optIn` (Bilibili shape) |
+| `web_fetch_local` | `url`, `render` (boolean, default false) | `GuardedHttp` GET + jsoup extraction; optional WebView render | Settings switch + assistant `optIn` + per-conversation acknowledgement (download shape) |
+
+Both are `paid = false`, `mutates = false` and `optIn = true` in the catalogue;
+each has its own Settings switch, default off, and is **absent** from every
+picker, request and `unavailable_tools` while that switch is off — not greyed.
+`render` appears in the schema only when the host supplied a `PageRenderer`, so
+the paid `web_fetch` can never be asked for something its backend ignores. Demo
+mode does not register either tool (the offline promise).
+
+The fetch acknowledgement lives in `conversations.localFetchAllowed`
+(schema v30, `MIGRATION_29_30`); the first call shows the URL and host, allowing
+covers the rest of the conversation, the chat menu can revoke it, and turning the
+Settings switch off clears every conversation's grant. There is one guard, not
+two: the URL rules and the connect-time DNS/redirect guard are the same
+`DownloadUrl` / `GuardedHttp` pair the `download_url` path uses.
+
+### Search
+
+- **DuckDuckGo html** (default) — `GET https://html.duckduckgo.com/html/?q=…`,
+  one MiB cap, 15 s. Result links are DuckDuckGo redirects
+  (`/l/?uddg=<percent-encoded target>`); they are decoded to the destination
+  before the model sees them. A bot-check page (`anomaly`/`bots use DuckDuckGo`)
+  is an `IOException`, never an empty list; a page with no result blocks and no
+  challenge marker is an empty result set.
+- **Bing RSS** (alternative) — `GET https://www.bing.com/search?q=…&format=rss`,
+  a 5–7 KiB XML document with ten items and **direct links** (no `ck/a` redirect
+  to unwrap). A `<!DOCTYPE` is refused rather than parsed (XXE), and a response
+  without an `<rss>` root — a consent page, for example — is an error.
+- Both send a phone-browser User-Agent and the device `Accept-Language`, no
+  cookie, no credential; `publishedAt` is left null because Bing's `pubDate` is
+  a crawl/update time, not a publication date.
+
+### Fetch
+
+**Static path (default).** `DownloadUrl.validate(url, requireHttps = true)` then
+`GuardedHttp.getBytes`: https only, public addresses only, manual redirects with
+every hop re-validated, no cookie jar, no credentials, no custom headers, 2 MiB
+and 30 s caps. `Content-Type` must be HTML/XHTML, `text/*`, JSON or XML; a binary
+page is refused with a message pointing at `download_url` + `read_document`.
+Charset comes from the header or the page's `<meta>` (jsoup sniffing), then
+`HtmlText` removes script/style/nav/footer/header/aside and returns block text
+with paragraph breaks; the tool caps the result at 20,000 characters and says so
+when it truncates. A truncated 2 MiB body is marked in the content as well.
+
+**Render path (`render = true`).** The host's `PageRenderer` loads the page in a
+fresh WebView: JavaScript on (that is why it exists), no `addJavascriptInterface`,
+no injected cookies, no file/content access, no popups, no persisted storage;
+`onPageFinished` plus a 1.5 s settle, then `document.title` and
+`document.body.innerText` (visible text only), 20 s load / 30 s total, and the
+WebView is destroyed and cookies/storage cleared afterwards. Main-frame
+navigation is re-validated with the same URL rules, so a redirect to a private
+address never reaches the engine. `render = false` or a provider without a
+renderer stays on the static path; a render failure is reported, never silently
+retried as a static fetch. Page scripts run and may make their own requests —
+Settings copy, tool description and consent dialog all say so.
+
+### Failure contract and diagnostics
+
+An HTTP error, a non-RSS page, a binary page, a parse failure or blank extracted
+text is a tool error the model can read; an empty result list is a real answer
+("No results for …"). Only the host, status, byte count and elapsed time are
+logged — never the URL, the query or the page text. There is **no client-side
+rate limit** in this version (the proposal's per-turn cap was not implemented);
+the engine still runs one tool at a time and the search engines apply their own
+risk control, so a free tool that hammers an engine is a known follow-up, not a
+solved problem.
+
+### Where it lives, and tests
+
+- `core/ai/…/provider/local/{DuckDuckGoSearchApi,BingRssSearchApi,LocalFetchApi}.kt`
+- `core/ai/…/tools/{GuardedHttp,HtmlText}.kt`; `PageRenderer` / `RenderingFetchProvider`
+  in `WebFetchTool.kt`; `WebFetchTool`/`WebSearchTool` take name/description.
+- `app/…/web/{LocalWebProviders,WebViewPageRenderer}.kt`, `MainActivity` wiring,
+  `SettingsScreen`/`SettingsViewModel`, `ChatViewModel.buildTools` and
+  `gateEngineCall`.
+- JVM: `GuardedHttpTest`, `HtmlTextTest`, `DuckDuckGoSearchApiTest`,
+  `BingRssSearchApiTest`, `LocalFetchApiTest`, `LocalWebToolsTest` (fixtures and a
+  loopback `LocalHttpServer`, no external network). `LocalFetchConsentMigrationTest`
+  covers 29→30. The real WebView path is device-only and has no automated test;
+  it must be checked on a phone (a JS-rendered page, a private URL, a timeout and
+  the post-call cookie/storage clear).
 
 ## `download_url`: app-proxied downloads into the workspace
 

@@ -12,7 +12,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * The host-appended helpers of the built-in configuration workshop.
+ * The host-appended helpers of the built-in workshop.
  *
  * ## What these tools can and cannot do
  *
@@ -38,7 +38,7 @@ import kotlinx.serialization.json.put
  * stored tool selection cannot acquire them, and a story cannot either: the plan
  * hides them when the conversation is a role-play scene.
  */
-internal object StudioTools {
+internal object ConfigTools {
 	const val LIST_ASSISTANTS = "app_list_assistants"
 	const val READ_ASSISTANT = "app_read_assistant"
 	const val PROPOSE_ASSISTANT = "app_propose_assistant"
@@ -71,14 +71,14 @@ private fun stringProperty(description: String): Map<String, Any?> =
  * report on the app's capability surface. The preview is capped like every other
  * proposal preview, and the full text is a separate read.
  */
-internal class StudioListAssistantsTool(
+internal class ConfigListAssistantsTool(
 	private val loadAgents: suspend () -> List<AgentEntity>,
 ) : Tool {
 
-	override val name: String = StudioTools.LIST_ASSISTANTS
+	override val name: String = ConfigTools.LIST_ASSISTANTS
 
 	override val description: String = """
-		List the user's assistants. This configuration workshop is the one place
+		List the user's assistants. This workshop is the one place
 		the app lets an assistant see this list; use it before proposing a change
 		so you edit the real thing instead of guessing. Each entry has the display
 		name, whether the assistant has a usable character card, the prompt length
@@ -132,11 +132,11 @@ internal class StudioListAssistantsTool(
  * directory of the app's capability surface, and one that could propose them
  * would be asking the model to widen its own ceiling.
  */
-internal class StudioReadAssistantTool(
+internal class ConfigReadAssistantTool(
 	private val loadAgents: suspend () -> List<AgentEntity>,
 ) : Tool {
 
-	override val name: String = StudioTools.READ_ASSISTANT
+	override val name: String = ConfigTools.READ_ASSISTANT
 
 	override val description: String = """
 		Read one assistant's system prompt and character card. Use it before
@@ -207,11 +207,11 @@ internal class StudioReadAssistantTool(
  * approval rules), so the user still chooses those; an update leaves every field
  * the proposal did not name exactly as it was.
  */
-internal class StudioProposeAssistantTool(
+internal class ConfigProposeAssistantTool(
 	private val loadAgents: suspend () -> List<AgentEntity>,
 ) : Tool {
 
-	override val name: String = StudioTools.PROPOSE_ASSISTANT
+	override val name: String = ConfigTools.PROPOSE_ASSISTANT
 
 	override val description: String = """
 		Prepare a draft assistant, or a draft edit to one, for the user to save.
@@ -301,23 +301,23 @@ internal class StudioProposeAssistantTool(
  * The permanent workspaces and whether each has a root `AGENTS.md`.
  *
  * Names, not ids: a workspace's directory name is the opaque id and never enters
- * a request. The kind is included because "this is the RP workshop" is what tells
- * an assistant that a workspace's instructions are about authoring role-play
- * material, not about a codebase.
+ * a request. The kind is included because "this is the workshop" tells an
+ * assistant that the file can cover role-play authoring as well as app
+ * configuration.
  */
-internal class StudioListInstructionsTool(
+internal class ConfigListInstructionsTool(
 	private val loadWorkspaces: suspend () -> List<WorkspaceEntity>,
 	private val readInstructions: suspend (WorkspaceEntity) -> WorkspaceInstructions?,
 ) : Tool {
 
-	override val name: String = StudioTools.LIST_INSTRUCTIONS
+	override val name: String = ConfigTools.LIST_INSTRUCTIONS
 
 	override val description: String = """
 		List the permanent workspaces and their root AGENTS.md files. A workspace's
 		AGENTS.md is the one file the app turns into standing instructions for new
-		conversations there, so this is where to look before proposing an edit.
-		Each entry has the display name, what the workspace is (ordinary, RP
-		workshop, configuration workshop), whether an AGENTS.md exists and its
+		conversations there, and for new scenes created in it, so this is where to
+		look before proposing an edit. Each entry has the display name, what the
+		workspace is (ordinary or workshop), whether an AGENTS.md exists and its
 		size. Use app_read_instruction for the text and app_propose_instruction to
 		draft a change.
 	""".trimIndent()
@@ -368,12 +368,12 @@ internal class StudioListInstructionsTool(
  * workspace's other files, and it never opens a temporary workspace (whose
  * instructions cannot outlive its one conversation anyway).
  */
-internal class StudioReadInstructionTool(
+internal class ConfigReadInstructionTool(
 	private val loadWorkspaces: suspend () -> List<WorkspaceEntity>,
 	private val readInstructions: suspend (WorkspaceEntity) -> WorkspaceInstructions?,
 ) : Tool {
 
-	override val name: String = StudioTools.READ_INSTRUCTION
+	override val name: String = ConfigTools.READ_INSTRUCTION
 
 	override val description: String = """
 		Read one permanent workspace's AGENTS.md. Use it before proposing a rewrite;
@@ -450,13 +450,13 @@ internal class StudioReadInstructionTool(
  * `text` drafts a clear; saving it leaves an empty file, which the instruction
  * reader treats as "no instructions".
  */
-internal class StudioProposeInstructionTool(
+internal class ConfigProposeInstructionTool(
 	private val loadWorkspaces: suspend () -> List<WorkspaceEntity>,
 	private val currentWorkspace: suspend () -> WorkspaceEntity?,
 	private val readInstructions: suspend (WorkspaceEntity) -> WorkspaceInstructions?,
 ) : Tool {
 
-	override val name: String = StudioTools.PROPOSE_INSTRUCTION
+	override val name: String = ConfigTools.PROPOSE_INSTRUCTION
 
 	override val description: String = """
 		Prepare an AGENTS.md for a permanent workspace, for the user to save. This

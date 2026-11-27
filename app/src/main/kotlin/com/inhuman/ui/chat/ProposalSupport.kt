@@ -11,7 +11,7 @@ import com.inhuman.core.engine.roleplay.RoleplayValidator
  * same rule `rp_validate` follows -- so a rejected proposal cannot become a read
  * path for text the user did not hand over.
  *
- * Extracted when the configuration workshop started producing cards too: two
+ * Extracted when the workshop started producing cards too: two
  * copies of these rules would drift, and the second copy is never the one that
  * gets fixed.
  */

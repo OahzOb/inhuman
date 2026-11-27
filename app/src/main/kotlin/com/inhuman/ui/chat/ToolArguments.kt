@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonPrimitive
 /**
  * The two argument readers the proposal tools share.
  *
- * Extracted when the configuration workshop started using the same shape as
+ * Extracted when the workshop started using the same shape as
  * `rp_create_scene`: a second copy of "read a string, refuse a number" would be
  * two answers to the same question, and the refusal is the interesting part --
  * the schema declares the type, so a number or object where a name belongs is a

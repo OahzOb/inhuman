@@ -52,7 +52,7 @@ fun toolFamilyOf(entry: ToolCatalog.Entry): ToolFamily = when {
 	entry.gatedByBilibili -> ToolFamily.Bilibili
 	entry.gatedByDownload -> ToolFamily.Download
 	entry.gatedByMediaConfig -> ToolFamily.Media
-	entry.name == "web_search" || entry.name == "web_fetch" -> ToolFamily.Web
+	entry.name.startsWith("web_") -> ToolFamily.Web
 	entry.workspaceBound -> if (entry.mutates) ToolFamily.Write else ToolFamily.Read
 	else -> ToolFamily.Other
 }

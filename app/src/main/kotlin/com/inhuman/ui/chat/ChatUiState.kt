@@ -167,6 +167,14 @@ data class ChatUiState(
 	val pendingDownloadConsent: DownloadConsent? = null,
 	/** Whether this conversation may download URLs without asking again. */
 	val downloadAllowed: Boolean = false,
+	/** A first local page fetch waiting on the conversation-level acknowledgement. */
+	val pendingLocalFetchConsent: LocalFetchConsent? = null,
+	/** Whether this conversation may fetch pages from this device without asking again. */
+	val localFetchAllowed: Boolean = false,
+	/** Whether the global local-search switch is on; off hides `web_search_local`. */
+	val localSearchEnabled: Boolean = false,
+	/** Whether the global local-fetch switch is on; off hides `web_fetch_local`. */
+	val localFetchEnabled: Boolean = false,
 	/** Whether the global download capability is on; off hides every affordance. */
 	val downloadEnabled: Boolean = false,
 	/**
@@ -575,7 +583,7 @@ data class ChatMessageUi(
 	/** Why the last create attempt failed; shown on the card so retry is possible. */
 	val sceneProposalError: String? = null,
 	/**
-	 * An assistant the configuration workshop proposed, rendered as a card on the
+	 * An assistant the workshop proposed, rendered as a card on the
 	 * tool result.
 	 *
 	 * Transient like [sceneProposal]: parsed from the tool result already in the
@@ -584,7 +592,7 @@ data class ChatMessageUi(
 	 */
 	val assistantProposal: AssistantProposal? = null,
 	/**
-	 * A root `AGENTS.md` the configuration workshop proposed.
+	 * A root `AGENTS.md` the workshop proposed.
 	 *
 	 * Same transient contract as [assistantProposal]. The workspace is stored by
 	 * display name on the wire; the app resolves it when the card is tapped.

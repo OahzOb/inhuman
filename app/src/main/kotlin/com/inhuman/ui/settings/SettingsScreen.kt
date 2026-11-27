@@ -85,6 +85,7 @@ import com.inhuman.ui.common.toolGroups
 import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.tools.ToolCatalog
+import com.inhuman.web.LocalWebProviders
 import com.inhuman.core.common.diag.Diag
 import com.inhuman.core.data.db.ProviderKinds
 import com.inhuman.core.data.db.ProviderProfileEntity
@@ -591,6 +592,46 @@ fun SettingsScreen(
 						},
 					)
 				}
+
+				// The app's own web tools: no key, no bill, two independent
+				// switches. Both rows are opt-in on the assistant; these
+				// switches only make the capability available at all.
+				Hairline(Modifier.padding(vertical = 10.dp))
+				Eyebrow(stringResource(R.string.settings_local_web_title))
+				Text(
+					text = stringResource(R.string.settings_local_web_body),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				SwitchRow(
+					title = stringResource(R.string.settings_local_search_title),
+					body = stringResource(R.string.settings_local_search_body),
+					checked = state.localWebSearchEnabled,
+					onCheckedChange = viewModel::setLocalWebSearchEnabled,
+				)
+				Eyebrow(stringResource(R.string.settings_local_engine))
+				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+					FilterChip(
+						selected = state.localWebEngine == LocalWebProviders.ENGINE_DUCKDUCKGO,
+						onClick = {
+							viewModel.setLocalWebEngine(LocalWebProviders.ENGINE_DUCKDUCKGO)
+						},
+						label = { Text("DuckDuckGo") },
+					)
+					FilterChip(
+						selected = state.localWebEngine == LocalWebProviders.ENGINE_BING,
+						onClick = {
+							viewModel.setLocalWebEngine(LocalWebProviders.ENGINE_BING)
+						},
+						label = { Text("Bing") },
+					)
+				}
+				SwitchRow(
+					title = stringResource(R.string.settings_local_fetch_title),
+					body = stringResource(R.string.settings_local_fetch_body),
+					checked = state.localWebFetchEnabled,
+					onCheckedChange = viewModel::setLocalWebFetchEnabled,
+				)
 
 				Hairline(Modifier.padding(vertical = 10.dp))
 				Eyebrow(stringResource(R.string.settings_media_title))
@@ -1360,6 +1401,8 @@ fun SettingsScreen(
 					bilibiliEnabled = state.bilibiliEnabled,
 					bilibiliLoggedIn = state.bilibiliLoggedIn,
 					downloadEnabled = state.downloadEnabled,
+					localSearchEnabled = state.localWebSearchEnabled,
+					localFetchEnabled = state.localWebFetchEnabled,
 					mediaConfigured = state.mediaConfiguredTools,
 					onRuleChange = viewModel::setApprovalRule,
 					onRulesChange = viewModel::setApprovalRules,
@@ -3466,6 +3509,8 @@ private fun ApprovalRulesSection(
 	bilibiliEnabled: Boolean,
 	bilibiliLoggedIn: Boolean,
 	downloadEnabled: Boolean,
+	localSearchEnabled: Boolean,
+	localFetchEnabled: Boolean,
 	mediaConfigured: Set<String>?,
 	onRuleChange: (String, ToolPolicy) -> Unit,
 	onRulesChange: (List<String>, ToolPolicy) -> Unit,
@@ -3482,6 +3527,8 @@ private fun ApprovalRulesSection(
 		includeBilibili = bilibiliEnabled,
 		includeBilibiliLogin = bilibiliLoggedIn,
 		includeDownload = downloadEnabled,
+		includeLocalSearch = localSearchEnabled,
+		includeLocalFetch = localFetchEnabled,
 		includePdfVision = true,
 		mediaConfigured = mediaConfigured,
 	)
@@ -3626,4 +3673,39 @@ private fun ToolPolicy.label(): String = when (this) {
 private fun setAppLanguage(context: Context, tag: String) {
 	val manager = context.getSystemService(LocaleManager::class.java) ?: return
 	manager.applicationLocales = LocaleList.forLanguageTags(tag)
+}
+
+/** A title + explanation + switch row, for the local web section. */
+@Composable
+private fun SwitchRow(
+	title: String,
+	body: String,
+	checked: Boolean,
+	onCheckedChange: (Boolean) -> Unit,
+) {
+	Row(
+		modifier = Modifier
+			.fillMaxWidth()
+			.padding(vertical = 8.dp),
+		horizontalArrangement = Arrangement.SpaceBetween,
+		verticalAlignment = Alignment.Top,
+	) {
+		Column(modifier = Modifier.weight(1f)) {
+			Text(
+				text = title,
+				style = MaterialTheme.typography.titleMedium,
+				color = MaterialTheme.colorScheme.onBackground,
+			)
+			Text(
+				text = body,
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+		WorkbenchSwitch(
+			checked = checked,
+			onCheckedChange = onCheckedChange,
+			modifier = Modifier.padding(start = 12.dp),
+		)
+	}
 }

@@ -198,6 +198,14 @@ class SecureStore(
 		const val KEY_WEB_SEARCH_BACKEND = "web.search_backend"
 		const val KEY_WEB_FETCH_BACKEND = "web.fetch_backend"
 
+		/**
+		 * The app's own (keyless) web tools. Two independent switches, both off
+		 * by default, and the engine choice for the local search page.
+		 */
+		const val KEY_WEB_LOCAL_SEARCH_ENABLED = "web.local_search_enabled"
+		const val KEY_WEB_LOCAL_FETCH_ENABLED = "web.local_fetch_enabled"
+		const val KEY_WEB_LOCAL_SEARCH_ENGINE = "web.local_search_engine"
+
 		/** The last voice chosen for reply read-aloud; absent means the default. */
 		const val KEY_SPEECH_VOICE = "speech.reply.voice"
 

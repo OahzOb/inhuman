@@ -62,11 +62,10 @@ private fun toolWorkspace(
  * text instead of a failed turn, and a proposal says explicitly that nothing has
  * been written.
  */
-class StudioToolsTest {
+class ConfigToolsTest {
 
 	private val notes = toolWorkspace("Notes")
-	private val rp = toolWorkspace("RP workshop", WorkspaceKinds.ROLEPLAY)
-	private val studio = toolWorkspace("Config workshop", WorkspaceKinds.STUDIO)
+	private val workshop = toolWorkspace("Workshop", WorkspaceKinds.WORKSHOP)
 	private val temporary = toolWorkspace("Scratch", permanent = false)
 
 	private fun execute(tool: Tool, arguments: JsonObject): ToolResult =
@@ -94,22 +93,22 @@ class StudioToolsTest {
 	@Test
 	fun `every helper is a non-mutating host helper`() {
 		val tools = listOf(
-			StudioListAssistantsTool { emptyList() },
-			StudioReadAssistantTool { emptyList() },
-			StudioProposeAssistantTool { emptyList() },
-			StudioListInstructionsTool({ emptyList() }, { _: WorkspaceEntity -> null }),
-			StudioReadInstructionTool({ emptyList() }, { _: WorkspaceEntity -> null }),
-			StudioProposeInstructionTool({ emptyList() }, { null }, { _: WorkspaceEntity -> null }),
+			ConfigListAssistantsTool { emptyList() },
+			ConfigReadAssistantTool { emptyList() },
+			ConfigProposeAssistantTool { emptyList() },
+			ConfigListInstructionsTool({ emptyList() }, { _: WorkspaceEntity -> null }),
+			ConfigReadInstructionTool({ emptyList() }, { _: WorkspaceEntity -> null }),
+			ConfigProposeInstructionTool({ emptyList() }, { null }, { _: WorkspaceEntity -> null }),
 		)
 
 		assertEquals(
 			listOf(
-				StudioTools.LIST_ASSISTANTS,
-				StudioTools.READ_ASSISTANT,
-				StudioTools.PROPOSE_ASSISTANT,
-				StudioTools.LIST_INSTRUCTIONS,
-				StudioTools.READ_INSTRUCTION,
-				StudioTools.PROPOSE_INSTRUCTION,
+				ConfigTools.LIST_ASSISTANTS,
+				ConfigTools.READ_ASSISTANT,
+				ConfigTools.PROPOSE_ASSISTANT,
+				ConfigTools.LIST_INSTRUCTIONS,
+				ConfigTools.READ_INSTRUCTION,
+				ConfigTools.PROPOSE_INSTRUCTION,
 			),
 			tools.map { it.name },
 		)
@@ -123,7 +122,7 @@ class StudioToolsTest {
 	@Test
 	fun `the assistant list is content, not a capability report`() {
 		val result = execute(
-			StudioListAssistantsTool {
+			ConfigListAssistantsTool {
 				listOf(
 					toolAgent(),
 					toolAgent(id = "a2", name = "Plain", prompt = "", card = ""),
@@ -150,7 +149,7 @@ class StudioToolsTest {
 	@Test
 	fun `a list read failure is text, not a throw`() {
 		val result = execute(
-			StudioListAssistantsTool { throw IllegalStateException("db closed") },
+			ConfigListAssistantsTool { throw IllegalStateException("db closed") },
 			buildJsonObject {},
 		)
 
@@ -161,7 +160,7 @@ class StudioToolsTest {
 	@Test
 	fun `reading an assistant returns its prompt and card`() {
 		val result = execute(
-			StudioReadAssistantTool { listOf(toolAgent()) },
+			ConfigReadAssistantTool { listOf(toolAgent()) },
 			buildJsonObject { put("assistant", " Aria ") },
 		)
 
@@ -175,11 +174,11 @@ class StudioToolsTest {
 	@Test
 	fun `an unknown or duplicate assistant name is an error`() {
 		val unknown = execute(
-			StudioReadAssistantTool { listOf(toolAgent()) },
+			ConfigReadAssistantTool { listOf(toolAgent()) },
 			buildJsonObject { put("assistant", "Nobody") },
 		)
 		val duplicate = execute(
-			StudioReadAssistantTool { listOf(toolAgent(), toolAgent(id = "a2")) },
+			ConfigReadAssistantTool { listOf(toolAgent(), toolAgent(id = "a2")) },
 			buildJsonObject { put("assistant", "Aria") },
 		)
 
@@ -192,7 +191,7 @@ class StudioToolsTest {
 	@Test
 	fun `an over-long prompt is cut and says so`() {
 		val result = execute(
-			StudioReadAssistantTool {
+			ConfigReadAssistantTool {
 				listOf(toolAgent(prompt = "p".repeat(MAX_PROPOSED_PROMPT_CHARS + 20)))
 			},
 			buildJsonObject { put("assistant", "Aria") },
@@ -209,7 +208,7 @@ class StudioToolsTest {
 	@Test
 	fun `a create draft is a proposal and says nothing has changed`() {
 		val result = execute(
-			StudioProposeAssistantTool { listOf(toolAgent()) },
+			ConfigProposeAssistantTool { listOf(toolAgent()) },
 			buildJsonObject {
 				put("name", "Helper")
 				put("prompt", "Be brief.")
@@ -230,7 +229,7 @@ class StudioToolsTest {
 	@Test
 	fun `an update draft targets the resolved row`() {
 		val result = execute(
-			StudioProposeAssistantTool { listOf(toolAgent()) },
+			ConfigProposeAssistantTool { listOf(toolAgent()) },
 			buildJsonObject {
 				put("assistant", "Aria")
 				put("name", "Ria")
@@ -246,7 +245,7 @@ class StudioToolsTest {
 	@Test
 	fun `a proposal for an unknown assistant is an error`() {
 		val result = execute(
-			StudioProposeAssistantTool { listOf(toolAgent()) },
+			ConfigProposeAssistantTool { listOf(toolAgent()) },
 			buildJsonObject {
 				put("assistant", "Nobody")
 				put("name", "Ria")
@@ -261,7 +260,7 @@ class StudioToolsTest {
 	@Test
 	fun `a duplicate new name is an error, not a second row`() {
 		val result = execute(
-			StudioProposeAssistantTool { listOf(toolAgent()) },
+			ConfigProposeAssistantTool { listOf(toolAgent()) },
 			buildJsonObject {
 				put("name", "Aria")
 				put("prompt", "Another one.")
@@ -275,11 +274,11 @@ class StudioToolsTest {
 	@Test
 	fun `malformed proposal arguments are errors`() {
 		val nameAsNumber = execute(
-			StudioProposeAssistantTool { emptyList() },
+			ConfigProposeAssistantTool { emptyList() },
 			buildJsonObject { put("name", 7) },
 		)
 		val cardAsArray = execute(
-			StudioProposeAssistantTool { emptyList() },
+			ConfigProposeAssistantTool { emptyList() },
 			buildJsonObject {
 				put("name", "Helper")
 				put("card", kotlinx.serialization.json.buildJsonArray {})
@@ -297,10 +296,10 @@ class StudioToolsTest {
 	@Test
 	fun `the instruction list covers permanent workspaces and names their kinds`() {
 		val result = execute(
-			StudioListInstructionsTool(
-				loadWorkspaces = { listOf(notes, rp, studio, temporary) },
+			ConfigListInstructionsTool(
+				loadWorkspaces = { listOf(notes, workshop, temporary) },
 				readInstructions = { workspace ->
-					if (workspace.id == rp.id) {
+					if (workspace.id == workshop.id) {
 						WorkspaceInstructions(body = "# rules", truncated = false, bytes = 7)
 					} else {
 						null
@@ -312,33 +311,29 @@ class StudioToolsTest {
 
 		val rows = array(result)
 		// The temporary workspace is excluded by construction.
-		assertEquals(3, rows.size)
+		assertEquals(2, rows.size)
 		val byName = rows.associateBy { it.jsonObject["workspace"]?.jsonPrimitive?.content }
 		assertEquals(
 			"ordinary",
 			byName["Notes"]?.jsonObject?.get("kind")?.jsonPrimitive?.content,
 		)
 		assertEquals(
-			"roleplay workshop",
-			byName["RP workshop"]?.jsonObject?.get("kind")?.jsonPrimitive?.content,
+			"workshop",
+			byName["Workshop"]?.jsonObject?.get("kind")?.jsonPrimitive?.content,
 		)
-		assertEquals(
-			"configuration workshop",
-			byName["Config workshop"]?.jsonObject?.get("kind")?.jsonPrimitive?.content,
-		)
-		assertEquals(true, byName["RP workshop"]?.jsonObject?.get("hasInstructions")?.jsonPrimitive?.content?.toBoolean())
+		assertEquals(true, byName["Workshop"]?.jsonObject?.get("hasInstructions")?.jsonPrimitive?.content?.toBoolean())
 		assertEquals(false, byName["Notes"]?.jsonObject?.get("hasInstructions")?.jsonPrimitive?.content?.toBoolean())
 	}
 
 	@Test
 	fun `reading an instruction file returns text, or says there is none`() {
-		val tool = StudioReadInstructionTool(
+		val tool = ConfigReadInstructionTool(
 			loadWorkspaces = { listOf(notes) },
 			readInstructions = { WorkspaceInstructions(body = "# Notes", truncated = false, bytes = 7) },
 		)
 		val present = execute(tool, buildJsonObject { put("workspace", "Notes") })
 		val absent = execute(
-			StudioReadInstructionTool({ listOf(notes) }, { _: WorkspaceEntity -> null }),
+			ConfigReadInstructionTool({ listOf(notes) }, { _: WorkspaceEntity -> null }),
 			buildJsonObject { put("workspace", "Notes") },
 		)
 
@@ -352,7 +347,7 @@ class StudioToolsTest {
 	@Test
 	fun `an instruction proposal names the workspace and never its id`() {
 		val result = execute(
-			StudioProposeInstructionTool(
+			ConfigProposeInstructionTool(
 				loadWorkspaces = { listOf(notes) },
 				currentWorkspace = { null },
 				readInstructions = { _: WorkspaceEntity -> null },
@@ -374,21 +369,21 @@ class StudioToolsTest {
 	@Test
 	fun `omitting the workspace drafts against this conversation's own`() {
 		val result = execute(
-			StudioProposeInstructionTool(
-				loadWorkspaces = { listOf(notes, studio) },
-				currentWorkspace = { studio },
+			ConfigProposeInstructionTool(
+				loadWorkspaces = { listOf(notes, workshop) },
+				currentWorkspace = { workshop },
 				readInstructions = { _: WorkspaceEntity -> null },
 			),
-			buildJsonObject { put("text", "# Studio\n") },
+			buildJsonObject { put("text", "# Workshop\n") },
 		)
 
-		assertEquals("Config workshop", decodeInstructionProposal(result).workspaceName)
+		assertEquals("Workshop", decodeInstructionProposal(result).workspaceName)
 	}
 
 	@Test
 	fun `an instruction proposal for an unknown workspace is an error`() {
 		val result = execute(
-			StudioProposeInstructionTool(
+			ConfigProposeInstructionTool(
 				loadWorkspaces = { listOf(notes) },
 				currentWorkspace = { null },
 				readInstructions = { _: WorkspaceEntity -> null },
@@ -406,7 +401,7 @@ class StudioToolsTest {
 	@Test
 	fun `an instruction proposal must carry text`() {
 		val result = execute(
-			StudioProposeInstructionTool(
+			ConfigProposeInstructionTool(
 				loadWorkspaces = { listOf(notes) },
 				currentWorkspace = { null },
 				readInstructions = { _: WorkspaceEntity -> null },
@@ -422,11 +417,11 @@ class StudioToolsTest {
 	fun `an instruction read failure becomes text`() {
 		val failing: suspend (WorkspaceEntity) -> WorkspaceInstructions? = { _ -> throw IllegalStateException("disk gone") }
 		val list = execute(
-			StudioListInstructionsTool({ listOf(notes) }, failing),
+			ConfigListInstructionsTool({ listOf(notes) }, failing),
 			buildJsonObject {},
 		)
 		val propose = execute(
-			StudioProposeInstructionTool({ listOf(notes) }, { null }, failing),
+			ConfigProposeInstructionTool({ listOf(notes) }, { null }, failing),
 			buildJsonObject {
 				put("workspace", "Notes")
 				put("text", "# hi")

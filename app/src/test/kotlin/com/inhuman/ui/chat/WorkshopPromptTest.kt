@@ -9,9 +9,10 @@ import org.junit.Test
  * What a workshop conversation is told about itself.
  *
  * The helpers are attached structurally, but the model has no other way to know
- * that it is in the RP workshop with no scene yet, or in the configuration
- * workshop where a draft is not a change. The block is content, so these tests
- * also pin that it states the boundary instead of implying a capability.
+ * that it is in the workshop with no scene yet, that a scene proposal creates
+ * nothing, or that a configuration draft is not a change. The block is content,
+ * so these tests also pin that it states the boundary instead of implying a
+ * capability.
  */
 class WorkshopPromptTest {
 
@@ -24,36 +25,50 @@ class WorkshopPromptTest {
 	}
 
 	@Test
-	fun `the RP workshop says it is the workshop, not a scene`() {
-		val text = workshopPrompt(WorkspaceKinds.ROLEPLAY, roleplayActive = false)
-			?: error("the RP workshop must get a block")
+	fun `the workshop says it is the workshop, not a scene`() {
+		val text = workshopPrompt(WorkspaceKinds.WORKSHOP, roleplayActive = false)
+			?: error("the workshop must get a block")
 
 		assertTrue(text.startsWith(WORKSHOP_PROMPT_MARKER))
-		assertTrue(text, text.contains("RP workshop"))
-		assertTrue(text, text.contains("rp_create_scene"))
-		assertTrue(text, text.contains("nothing is created until the user taps"))
-		assertTrue(text, text.contains("no character"))
+		assertTrue(text, text.contains("runs in the user's workshop"))
+		assertTrue(text, text.contains("not a scene"))
+		assertTrue(text, text.contains("no character is in play"))
 		assertTrue(text, text.contains("cannot enter"))
+		assertTrue(text, text.contains("Never announce a scene"))
 	}
 
 	@Test
-	fun `the configuration workshop says a draft is not a change`() {
-		val text = workshopPrompt(WorkspaceKinds.STUDIO, roleplayActive = false)
-			?: error("the configuration workshop must get a block")
+	fun `the workshop explains both jobs and both write-on-user-action rules`() {
+		val text = workshopPrompt(WorkspaceKinds.WORKSHOP, roleplayActive = false)
+			?: error("the workshop must get a block")
 
-		assertTrue(text.startsWith(WORKSHOP_PROMPT_MARKER))
-		assertTrue(text, text.contains("configuration workshop"))
+		// Role-play authoring.
+		assertTrue(text, text.contains("rp_format"))
+		assertTrue(text, text.contains("rp_create_scene"))
+		// App configuration.
+		assertTrue(text, text.contains("app_list_*"))
 		assertTrue(text, text.contains("AGENTS.md"))
-		assertTrue(text, text.contains("never say that a change"))
+		assertTrue(text, text.contains("app_propose_*"))
+		// Nothing takes effect by itself.
+		assertTrue(text, text.contains("creates nothing"))
+		assertTrue(text, text.contains("written only when the user saves"))
+	}
+
+	@Test
+	fun `the workshop states the capability boundary`() {
+		val text = workshopPrompt(WorkspaceKinds.WORKSHOP, roleplayActive = false)
+			?: error("the workshop must get a block")
+
 		// A boundary that is not stated is a boundary the model will cross.
 		assertTrue(text, text.contains("cannot change tools"))
+		assertTrue(text, text.contains("delete an assistant"))
+		assertTrue(text, text.contains("saved-prompt library"))
 	}
 
 	@Test
 	fun `a scene gets no workshop context`() {
 		// A scene has its own role-play prompt; the workshop is not a mode the
 		// story can switch back into.
-		assertNull(workshopPrompt(WorkspaceKinds.ROLEPLAY, roleplayActive = true))
-		assertNull(workshopPrompt(WorkspaceKinds.STUDIO, roleplayActive = true))
+		assertNull(workshopPrompt(WorkspaceKinds.WORKSHOP, roleplayActive = true))
 	}
 }

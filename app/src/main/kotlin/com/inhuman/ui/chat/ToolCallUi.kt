@@ -119,3 +119,24 @@ data class DownloadConsent(
 	/** The host, for the one-line summary and the diagnostics line. */
 	val host: String,
 )
+
+/**
+ * The once-per-conversation acknowledgement for `web_fetch_local`.
+ *
+ * The same capability as [DownloadConsent] -- the model names a URL and the app
+ * requests it from the device's network for free -- so it has the same shape:
+ * one acknowledgement, the first URL and host shown, then the ordinary policy.
+ * The difference the copy must carry is that the page's *text* enters the
+ * conversation, and that the request leaves from this phone (a VPN changes what
+ * is reachable).
+ */
+data class LocalFetchConsent(
+	val messageId: String,
+	val call: ToolCallUi,
+	/** The validated URL, shown whole so the user can see what is being fetched. */
+	val url: String,
+	/** The host, for the one-line summary and the diagnostics line. */
+	val host: String,
+	/** Whether the first call asked for the browser engine as well. */
+	val render: Boolean = false,
+)

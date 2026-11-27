@@ -236,6 +236,25 @@ class ChatViewModel(
 	 */
 	private val searchProvider: () -> SearchProvider? = { null },
 	private val fetchProvider: () -> FetchProvider? = { null },
+	/**
+	 * Where the app's own (keyless) web tools get their answers.
+	 *
+	 * Separate seams from [searchProvider]/[fetchProvider]: these have no key,
+	 * no provider and no bill -- the app requests the search page or the URL
+	 * from the device's network. Null is still "not wired" and means the tool
+	 * is absent rather than present and always failing.
+	 */
+	private val localSearchProvider: () -> SearchProvider? = { null },
+	private val localFetchProvider: () -> FetchProvider? = { null },
+	/**
+	 * Whether the global local web switches are on.
+	 *
+	 * Read per turn, like the SSH switch: the user can flip one in Settings
+	 * while this view model lives, and a tool still registered after being
+	 * switched off is a gate that opens the wrong way.
+	 */
+	private val localSearchEnabled: () -> Boolean = { false },
+	private val localFetchEnabled: () -> Boolean = { false },
 	/** The SSH transport, or null when the feature is not wired. */
 	private val sshTransport: SshTransport? = null,
 	/** SFTP for the same hosts; null when the build has no file transport. */
@@ -454,6 +473,8 @@ class ChatViewModel(
 			current.pendingSshConsent != null -> context.getString(R.string.chat_phase_ssh)
 			current.pendingDownloadConsent != null ->
 				context.getString(R.string.chat_phase_download)
+			current.pendingLocalFetchConsent != null ->
+				context.getString(R.string.chat_phase_local_fetch)
 			current.isCompacting -> context.getString(R.string.chat_phase_compacting)
 			call != null -> context.getString(R.string.chat_phase_using, call.displayName)
 			streaming && lastAssistant?.plainText.isNullOrBlank() ->
@@ -471,7 +492,8 @@ class ChatViewModel(
 			failed = !streaming && current.error != null,
 			awaitingApproval = current.pendingApproval != null ||
 				current.pendingSshConsent != null ||
-				current.pendingDownloadConsent != null,
+				current.pendingDownloadConsent != null ||
+				current.pendingLocalFetchConsent != null,
 		)
 		if (!streaming) turnStartedAt = 0L
 		return status
@@ -515,6 +537,8 @@ class ChatViewModel(
 	private var sshAllowed: Boolean = false
 	/** This conversation's URL-download acknowledgement; see [DownloadConsent]. */
 	private var downloadAllowed: Boolean = false
+	/** This conversation's local page-fetch acknowledgement; see [LocalFetchConsent]. */
+	private var localFetchAllowed: Boolean = false
 
 	/**
 	 * The saved hosts this conversation shares with the agent, as ids.
@@ -1755,7 +1779,7 @@ class ChatViewModel(
 		}
 	}
 
-	// --- role-play scene proposals (RP workshop) ----------------------------
+	// --- role-play scene proposals (workshop) --------------------------------
 
 	/**
 	 * The live assistant's card, or null when it has none.
@@ -1779,7 +1803,7 @@ class ChatViewModel(
 	 * model they are already using, and an assistant edit cannot silently
 	 * replace it.
 	 *
-	 * The scene binds this conversation's workspace (the RP workshop), which is
+	 * The scene binds this conversation's workspace (the workshop), which is
 	 * permanent: materials and the story stay in one place, and deleting the
 	 * transcript does not delete them.
 	 */
@@ -2529,6 +2553,7 @@ class ChatViewModel(
 		val branchInfo = repository.branchesIn(conversationId)
 		sshAllowed = loaded?.entity?.sshAllowed ?: false
 		downloadAllowed = loaded?.entity?.downloadAllowed ?: false
+		localFetchAllowed = loaded?.entity?.localFetchAllowed ?: false
 		sshHostIds = loaded?.entity?.sshHosts.orEmpty()
 		val workspace = loaded?.entity?.let { entity ->
 			runCatching { repository.workspaceRecord(entity.workspaceId) }
@@ -2536,8 +2561,8 @@ class ChatViewModel(
 				.getOrNull()
 		}
 		// The workshop sentence is derived from this, and buildTools reads the
-		// same value for the helper set, so the two cannot disagree about which
-		// workshop the conversation is in.
+		// same value for the helper set, so the two cannot disagree about
+		// whether this conversation is in the workshop.
 		workspaceKind = workspace?.kind
 		val workspaceConversations = loaded?.entity?.let { entity ->
 			runCatching { repository.workspaceConversationCount(entity.workspaceId) }
@@ -2648,6 +2673,9 @@ class ChatViewModel(
 				suggestionsEnabled = suggestionsEnabled(),
 				downloadAllowed = downloadAllowed,
 				downloadEnabled = downloadEnabled(),
+				localFetchAllowed = localFetchAllowed,
+				localSearchEnabled = localSearchEnabled(),
+				localFetchEnabled = localFetchEnabled(),
 				conversationTools = loaded?.entity?.tools,
 				agentTools = agent?.tools,
 				toolsKnown = loaded?.entity != null,
@@ -2655,6 +2683,7 @@ class ChatViewModel(
 				workspaceInstructionsChars = loaded?.entity?.workspaceInstructions?.length ?: 0,
 				pendingSshConsent = null,
 				pendingDownloadConsent = null,
+				pendingLocalFetchConsent = null,
 				rollbackAvailable = rollbackAvailable,
 				rollbackBlockedReason = rollbackBlockedReason,
 				snapshotStats = snapshotStats,
@@ -3419,7 +3448,8 @@ class ChatViewModel(
 	fun continueInterruptedTurn() {
 		if (_state.value.isStreaming || _state.value.isCompacting) return
 		if (_state.value.pendingApproval != null || _state.value.pendingSshConsent != null ||
-			_state.value.pendingDownloadConsent != null
+			_state.value.pendingDownloadConsent != null ||
+			_state.value.pendingLocalFetchConsent != null
 		) {
 			return
 		}
@@ -4032,6 +4062,7 @@ class ChatViewModel(
 					pendingApproval = null,
 					pendingSshConsent = null,
 					pendingDownloadConsent = null,
+					pendingLocalFetchConsent = null,
 				)
 			}
 			reload()
@@ -4314,12 +4345,15 @@ class ChatViewModel(
 		sshConsentContinuation = null
 		downloadConsentContinuation?.cancel()
 		downloadConsentContinuation = null
+		localFetchConsentContinuation?.cancel()
+		localFetchConsentContinuation = null
 		_state.update { s ->
 			s.copy(
 				isStreaming = false,
 				pendingApproval = null,
 				pendingSshConsent = null,
 				pendingDownloadConsent = null,
+				pendingLocalFetchConsent = null,
 				messages = s.messages.map {
 					if (it.isStreaming) it.copy(isStreaming = false) else it
 				},
@@ -5470,14 +5504,14 @@ class ChatViewModel(
 										}
 									}
 
-								StudioTools.PROPOSE_ASSISTANT ->
+								ConfigTools.PROPOSE_ASSISTANT ->
 									AssistantProposal.fromJson(event.result.content)?.let { proposal ->
 										attachToToolResult(call.id) {
 											it.copy(assistantProposal = proposal)
 										}
 									}
 
-								StudioTools.PROPOSE_INSTRUCTION ->
+								ConfigTools.PROPOSE_INSTRUCTION ->
 									InstructionProposal.fromJson(event.result.content)?.let { proposal ->
 										attachToToolResult(call.id) {
 											it.copy(instructionProposal = proposal)
@@ -5783,6 +5817,7 @@ class ChatViewModel(
 
 		val remote = ToolCatalog.all.firstOrNull { it.name == tool.name }?.remote == true
 		val download = ToolCatalog.all.firstOrNull { it.name == tool.name }?.gatedByDownload == true
+		val localFetch = ToolCatalog.all.firstOrNull { it.name == tool.name }?.gatedByLocalFetch == true
 		if (remote) {
 			// Never show a consent dialogue for a call the tool would reject as
 			// malformed: the dialogue describes a call that can actually happen.
@@ -5958,6 +5993,74 @@ class ChatViewModel(
 			}
 		}
 
+		// The app's own page fetch is the same capability as `download_url`: a
+		// model-named URL the app requests from this device, free and unlimited.
+		// Same shape: validate first, re-read the global switch, remember one
+		// acknowledgement per conversation, then the ordinary policy applies.
+		if (localFetch) {
+			val rawUrl = stringArg(parsed, "url").orEmpty()
+			val uri = try {
+				DownloadUrl.validate(rawUrl, requireHttps = true)
+			} catch (e: IllegalArgumentException) {
+				Diag.w("webfetch", "malformed url")
+				return EngineDecision.Deny("web_fetch_local: ${e.message}", stopTurn = false)
+			}
+			if (!localFetchEnabled()) {
+				Diag.i("webfetch", "refused: global switch off")
+				return EngineDecision.Deny(
+					"${REFUSED_MARKER} Local page fetch is disabled in Settings.",
+					stopTurn = false,
+				)
+			}
+			if (localFetchAllowed) {
+				val persisted = runCatching { repository.localFetchAllowed(conversationId) }
+					.getOrNull()
+				if (persisted == false) {
+					localFetchAllowed = false
+					_state.update { it.copy(localFetchAllowed = false) }
+					Diag.i("webfetch", "persisted consent gone; asking again")
+				}
+			}
+			if (!localFetchAllowed) {
+				val host = uri.host.orEmpty()
+				val render = parsed["render"]?.toString()?.trim('"') == "true"
+				Diag.i("webfetch", "consent ask host=$host")
+				_state.update {
+					it.copy(
+						pendingLocalFetchConsent = LocalFetchConsent(
+							messageId = id,
+							call = call.toUi(),
+							url = uri.toString(),
+							host = host,
+							render = render,
+						),
+					)
+				}
+				val allowed = awaitLocalFetchConsent()
+				if (!allowed) {
+					Diag.i("webfetch", "consent denied host=$host")
+					markCall(id, call.index, ToolCallUi.State.Declined)
+					return EngineDecision.Deny(
+						DECLINED_MARKER + " The user declined local page fetches for this conversation.",
+						stopTurn = true,
+						declined = true,
+					)
+				}
+				localFetchAllowed = true
+				runCatching { repository.setLocalFetchAllowed(conversationId, true) }
+					.onFailure { Diag.w("webfetch", "could not persist consent", it) }
+				_state.update { it.copy(localFetchAllowed = true) }
+				Diag.i("webfetch", "consent allow host=$host")
+				if (!localFetchEnabled()) {
+					Diag.i("webfetch", "global switch turned off during consent")
+					return EngineDecision.Deny(
+						"${REFUSED_MARKER} Local page fetch was disabled in Settings before the call ran.",
+						stopTurn = false,
+					)
+				}
+			}
+		}
+
 		val toolAsks = tool.needsApproval(parsed)
 		if (policy == ToolPolicy.Ask || toolAsks) {
 			val ui = call.toUi()
@@ -6107,6 +6210,7 @@ class ChatViewModel(
 	private var approvalContinuation: kotlinx.coroutines.CancellableContinuation<Boolean>? = null
 	private var sshConsentContinuation: kotlinx.coroutines.CancellableContinuation<Boolean>? = null
 	private var downloadConsentContinuation: kotlinx.coroutines.CancellableContinuation<Boolean>? = null
+	private var localFetchConsentContinuation: kotlinx.coroutines.CancellableContinuation<Boolean>? = null
 
 	private suspend fun awaitSshConsent(): Boolean =
 		kotlinx.coroutines.suspendCancellableCoroutine { cont ->
@@ -6174,6 +6278,40 @@ class ChatViewModel(
 		_state.update { it.copy(downloadAllowed = false) }
 		viewModelScope.launch { repository.setDownloadAllowed(conversationId, false) }
 		Diag.i("download", "consent revoked")
+	}
+
+	private suspend fun awaitLocalFetchConsent(): Boolean =
+		kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+			localFetchConsentContinuation = cont
+		}
+
+	fun allowLocalFetchConsent() {
+		val pending = _state.value.pendingLocalFetchConsent ?: return
+		Diag.i("webfetch", "consent allow requested host=${pending.host}")
+		_state.update { it.copy(pendingLocalFetchConsent = null) }
+		localFetchConsentContinuation?.let { cont ->
+			localFetchConsentContinuation = null
+			if (cont.isActive) cont.resumeWith(Result.success(true))
+		}
+	}
+
+	fun denyLocalFetchConsent() {
+		val pending = _state.value.pendingLocalFetchConsent ?: return
+		Diag.i("webfetch", "consent denied host=${pending.host}")
+		_state.update { it.copy(pendingLocalFetchConsent = null) }
+		localFetchConsentContinuation?.let { cont ->
+			localFetchConsentContinuation = null
+			if (cont.isActive) cont.resumeWith(Result.success(false))
+		}
+	}
+
+	/** Revoke this conversation's local-fetch consent; the next call asks again. */
+	fun revokeLocalFetchAccess() {
+		if (!localFetchAllowed) return
+		localFetchAllowed = false
+		_state.update { it.copy(localFetchAllowed = false) }
+		viewModelScope.launch { repository.setLocalFetchAllowed(conversationId, false) }
+		Diag.i("webfetch", "consent revoked")
 	}
 
 	private suspend fun awaitApproval(): ApprovalAnswer {
@@ -6445,38 +6583,30 @@ class ChatViewModel(
 				}
 		}.orEmpty()
 
-		// Role-play authoring helpers belong to the built-in RP workshop, not to
-		// "any conversation with file tools": a workspace kind decides where the
-		// RP surface exists, which keeps the management story to one place and
-		// keeps the tool definitions out of every ordinary request. They are
+		// Workshop helpers belong to the one built-in workshop, not to "any
+		// conversation with file tools": a workspace kind decides where the
+		// workshop surface exists, which keeps the management story to one place
+		// and keeps the tool definitions out of every ordinary request. They are
 		// appended after the allow-list because none of them adds capability --
-		// `rp_format` is constant text, the scene proposal only previews data,
-		// and `rp_validate` additionally needs an existing read tool so it can
-		// never become a read path on its own. A scene (`roleplayActive`) keeps
-		// its empty tool set. The rule is a pure function so it can be tested
-		// without a view model.
+		// `rp_format` is constant text, the scene and configuration proposals
+		// only preview data, and `rp_validate` additionally needs an existing
+		// read tool so it can never become a read path on its own. A scene
+		// (`roleplayActive`) keeps its empty tool set. The rule is a pure
+		// function so it can be tested without a view model.
 		//
 		// The kind is read once per conversation by reload() into [workspaceKind]:
 		// no tool can create, enter or retag a workspace, so a model cannot talk
-		// itself into either workshop (`docs/07-gotchas.md` A31/A32). The same
-		// value writes the workshop-context paragraph, so the helpers and the
-		// sentence that explains them cannot disagree.
+		// itself into the workshop (`docs/07-gotchas.md` A31). The same value
+		// writes the workshop-context paragraph, so the helpers and the sentence
+		// that explains them cannot disagree.
 		val roleplayActive = roleplayCard() != null || roleplayScene() != null
-		val roleplayHelpers = planRoleplayHelpers(
-			workshop = workspaceKind == WorkspaceKinds.ROLEPLAY,
+		val workshopHelpers = planWorkshopHelpers(
+			workshop = workspaceKind == WorkspaceKinds.WORKSHOP,
 			roleplayActive = roleplayActive,
 			fileToolNames = fileTools.map { it.name },
 		) {
 			ToolCatalog.permits(selected, it)
 		}
-		// The configuration workshop's helpers can read the app's own
-		// configuration and prepare drafts, but write nothing: a proposal opens
-		// the user's existing editor prefilled. Same management shape, same
-		// reason, and none of it is a capability (`docs/proposals/config-workshop.md`).
-		val studioHelpers = planStudioHelpers(
-			studio = workspaceKind == WorkspaceKinds.STUDIO,
-			roleplayActive = roleplayActive,
-		)
 
 		return buildList {
 			addAll(fileTools)
@@ -6515,6 +6645,33 @@ class ChatViewModel(
 			// that it cannot use it, and it says so.
 			searchProvider()?.let { add(WebSearchTool(it)) }
 			fetchProvider()?.let { add(WebFetchTool(it)) }
+			// The app's own web tools: no key, no provider, no bill. Two
+			// independent switches, and both catalogue rows are opt-in, so the
+			// assistant must still select one. Demo mode stays offline.
+			if (!demoEnabled()) {
+				if (localSearchEnabled()) {
+					localSearchProvider()?.let {
+						add(
+							WebSearchTool(
+								provider = it,
+								name = "web_search_local",
+								description = WebSearchTool.LOCAL_DESCRIPTION,
+							),
+						)
+					}
+				}
+				if (localFetchEnabled()) {
+					localFetchProvider()?.let {
+						add(
+							WebFetchTool(
+								provider = it,
+								name = "web_fetch_local",
+								description = WebFetchTool.LOCAL_DESCRIPTION,
+							),
+						)
+					}
+				}
+			}
 			// Agent-initiated downloads. Three gates: the global switch, the
 			// assistant's explicit selection (the entry is opt-in, so null
 			// "all tools" must not inherit it), and the conversation-level
@@ -6710,52 +6867,51 @@ class ChatViewModel(
 				// read path in, and a scene with no tools gets neither.
 				val withAuthoring = buildList {
 					addAll(built)
-					if (roleplayHelpers.format) add(RoleplayFormatTool())
+					if (workshopHelpers.format) add(RoleplayFormatTool())
 					val ws = workspace
-					if (roleplayHelpers.validate && ws != null) {
+					if (workshopHelpers.validate && ws != null) {
 						add(RoleplayValidateTool(ws))
 					}
-					if (roleplayHelpers.createScene) {
+					if (workshopHelpers.createScene) {
 						// Preview-only: the result is a card the user taps. The
 						// tool never writes a conversation, so it needs no
 						// capability seam beyond the assistant list it reads to
 						// resolve a named character card.
 						add(RoleplaySceneProposalTool { agents.all() })
 					}
-					// Configuration-workshop helpers. Read-only seams for the
-					// app's own configuration, and proposal tools whose results
-					// only open an existing editor. `repository.workspace` is
-					// reached through the ordinary resolver for the one known
-					// file name, so the instruction reader cannot be pointed at
-					// a path.
-					if (studioHelpers.listAssistants) {
-						add(StudioListAssistantsTool { agents.all() })
+					// Configuration helpers. Read-only seams for the app's own
+					// configuration, and proposal tools whose results only open
+					// an existing editor. `repository.workspace` is reached
+					// through the ordinary resolver for the one known file name,
+					// so the instruction reader cannot be pointed at a path.
+					if (workshopHelpers.listAssistants) {
+						add(ConfigListAssistantsTool { agents.all() })
 					}
-					if (studioHelpers.readAssistant) {
-						add(StudioReadAssistantTool { agents.all() })
+					if (workshopHelpers.readAssistant) {
+						add(ConfigReadAssistantTool { agents.all() })
 					}
-					if (studioHelpers.proposeAssistant) {
-						add(StudioProposeAssistantTool { agents.all() })
+					if (workshopHelpers.proposeAssistant) {
+						add(ConfigProposeAssistantTool { agents.all() })
 					}
-					if (studioHelpers.listInstructions) {
+					if (workshopHelpers.listInstructions) {
 						add(
-							StudioListInstructionsTool(
+							ConfigListInstructionsTool(
 								loadWorkspaces = { repository.workspaces() },
 								readInstructions = ::workspaceInstructionsOf,
 							),
 						)
 					}
-					if (studioHelpers.readInstruction) {
+					if (workshopHelpers.readInstruction) {
 						add(
-							StudioReadInstructionTool(
+							ConfigReadInstructionTool(
 								loadWorkspaces = { repository.workspaces() },
 								readInstructions = ::workspaceInstructionsOf,
 							),
 						)
 					}
-					if (studioHelpers.proposeInstruction) {
+					if (workshopHelpers.proposeInstruction) {
 						add(
-							StudioProposeInstructionTool(
+							ConfigProposeInstructionTool(
 								loadWorkspaces = { repository.workspaces() },
 								currentWorkspace = { repository.workspaceRecord(entity.workspaceId) },
 								readInstructions = ::workspaceInstructionsOf,
@@ -6790,6 +6946,8 @@ class ChatViewModel(
 							includeBilibili = bilibiliEnabled(),
 							includeBilibiliLogin = bilibiliLoggedIn(),
 							includeDownload = downloadEnabled(),
+							includeLocalSearch = localSearchEnabled(),
+							includeLocalFetch = localFetchEnabled(),
 							includePdfVision = true,
 						),
 					)
@@ -7285,7 +7443,7 @@ class ChatViewModel(
 		val card = persona.card
 		// The workshop helpers are attached structurally, but a fresh workshop
 		// has no AGENTS.md and no card, so without a sentence the model cannot
-		// tell "the RP workshop, with no scene yet" from an ordinary chat with a
+		// tell "the workshop, with no scene yet" from an ordinary chat with a
 		// few authoring tools -- and it may narrate a scene or announce a config
 		// change that does not exist. Derived from the kind alone, so it is the
 		// same text on every turn and the cache prefix does not move.

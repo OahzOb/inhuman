@@ -232,6 +232,17 @@
 	<string name="settings_web_missing_key">A selected backend has no key, so its tool stays unavailable.</string>
 	<string name="settings_save_web_keys">Save web keys</string>
 	<string name="settings_web_no_test">There is no test button: validating these keys would spend a real search.</string>
+	<string name="settings_local_web_title">Local web tools (free)</string>
+	<string name="settings_local_web_body">Search and fetch run from this device\'s own network, not through a search or fetch API: no key, no account. The query or URL leaves the phone (through your VPN if one is on). Both tools stay off until switched on here and selected on an assistant.</string>
+	<string name="settings_local_search_title">Local search</string>
+	<string name="settings_local_search_body">Reads a search engine\'s public result page from this device. Results are third-party text; the engine can rate-limit or change, and a bot check is reported as an error.</string>
+	<string name="settings_local_fetch_title">Local page fetch</string>
+	<string name="settings_local_fetch_body">Fetches one https page from this device and extracts its text; the optional render loads it in the app\'s browser engine. Each conversation asks once before the first fetch; turning this off revokes those answers.</string>
+	<string name="settings_local_engine">Search engine</string>
+	<string name="settings_status_local_search_enabled">Local search enabled</string>
+	<string name="settings_status_local_search_disabled">Local search disabled</string>
+	<string name="settings_status_local_fetch_enabled">Local page fetch enabled</string>
+	<string name="settings_status_local_fetch_disabled">Local page fetch disabled</string>
 	<string name="settings_bilibili_title">Bilibili reads (anonymous)</string>
 	<string name="settings_bilibili_body">Lets assistants search Bilibili; read a video\'s public details, comments and danmaku; read column articles; open an uploader\'s page; read rankings, hot searches, shows and live-room state. No Bilibili account, no key, nothing saved. The app sends the requests; the assistant itself still has no network. Bilibili\'s public web interface is unofficial: it can rate-limit, change or stop working, and everything it returns is untrusted third-party text.</string>
 	<string name="settings_bilibili_switch">Allow assistants to read Bilibili</string>
@@ -934,6 +945,8 @@
 	<string name="tool_blurb_read_time">The current date and time, and date arithmetic</string>
 	<string name="tool_blurb_web_search">Search the web via the configured paid search API</string>
 	<string name="tool_blurb_web_fetch">Fetch a page via the configured paid fetch API</string>
+	<string name="tool_blurb_web_search_local">Search the web from this device (free, no API key)</string>
+	<string name="tool_blurb_web_fetch_local">Fetch one page from this device (free; optional browser rendering)</string>
 	<string name="tool_blurb_decide">Classify or score a state with a typed decision model</string>
 	<string name="tool_blurb_generate_image">Generate an image and save it in the workspace</string>
 	<string name="tool_blurb_generate_video">Start an async video generation task</string>
@@ -1119,6 +1132,14 @@
 	<string name="chat_download_warning">A URL can carry data out: anything the agent encodes into the URL leaves the device when the request is made. Only allow this in a conversation you trust.</string>
 	<string name="chat_allow_download">Allow URL downloads</string>
 	<string name="chat_revoke_download">Revoke URL download access</string>
+	<string name="chat_revoke_local_fetch">Revoke local page-fetch access</string>
+	<string name="chat_phase_local_fetch">Waiting for page-fetch consent</string>
+	<string name="chat_local_fetch_title">Allow local page fetches in this conversation?</string>
+	<string name="chat_local_fetch_body">The agent is asking the app to fetch a page from %1$s directly from this device. Once allowed, it can ask the app to fetch any public https page in this conversation without asking again. The page\'s text enters the conversation, and the request leaves from this phone\'s network (through a VPN if one is on).</string>
+	<string name="chat_local_fetch_render_note">This first call also asks to render the page in the app\'s browser engine, which means the page\'s own scripts run.</string>
+	<string name="chat_local_fetch_understand">I understand the page text enters the conversation</string>
+	<string name="chat_local_fetch_warning">A URL can carry data out: anything the agent encodes into the URL leaves the device when the request is made. The page is third-party text and is not instructions. Only allow this in a conversation you trust.</string>
+	<string name="chat_allow_local_fetch">Allow local page fetches</string>
 	<string name="chat_phase_download">Waiting for download consent</string>
 	<string name="chat_ssh_body">The agent will be able to connect to %1$s@%2$s, run any command there, and move files between this conversation\'s workspace and that machine. It can also connect to any other host it is given credentials for, without asking again in this conversation.</string>
 	<string name="chat_ssh_body_upload">The agent will be able to connect to %1$s@%2$s, read files there, download them into this conversation\'s workspace, and upload workspace files to that machine. It cannot run commands.</string>
@@ -1599,7 +1620,7 @@
 	<string name="settings_key_cleared">Saved key deleted.</string>
 	<!-- Settings search keywords: the things inside a section, by the name a person uses. -->
 	<string name="settings_keywords_models">API key OAuth sign in provider model endpoint</string>
-	<string name="settings_keywords_web">search fetch web key paid media image video speech read aloud voice auto-read Bilibili danmaku login QR transcribe decision</string>
+	<string name="settings_keywords_web">search fetch web key paid media image video speech read aloud voice auto-read Bilibili danmaku login QR transcribe decision local free DuckDuckGo engine render</string>
 	<string name="settings_keywords_runtime">demo mode SSH remote host address book download URL sandbox javascript execution</string>
 	<string name="settings_keywords_limits">tool rounds call limit compaction snapshot retention rewind</string>
 	<string name="settings_keywords_usage">usage token spend maintenance statistics</string>
@@ -1610,11 +1631,18 @@
 	<string name="settings_keywords_display">layout compact comfortable font size display suggestions theme palette colour color dark light accent ember moss indigo plum surface graphite paper warm slate sepia</string>
 	<string name="settings_keywords_language">language Chinese English</string>
 	<string name="settings_keywords_time">time hint timezone gap</string>
-	<!-- The built-in role-play workshop: a permanent workspace where the agent gets the RP authoring helpers and the scene-proposal tool. -->
-	<string name="workshop_name">RP workshop</string>
-	<string name="home_workshop_detail">Build cards and open scenes with an assistant</string>
-	<string name="home_create_workshop_detail">Character cards, materials and scenes in one permanent place</string>
-	<string name="workshop_open_failed">Could not open the RP workshop: %1$s</string>
+	<!-- The one built-in workshop: a permanent workspace where the agent gets the
+	     role-play authoring helpers, the scene-proposal tool and the app
+	     configuration read/draft helpers. App-owned: it cannot be renamed or
+	     deleted. -->
+	<string name="workshop_name">Workshop</string>
+	<string name="home_workshop_detail">Draft cards, scenes, assistants and AGENTS.md</string>
+	<string name="home_create_workshop_detail">One built-in place where the assistant prepares; you start or save</string>
+	<string name="workshop_open_failed">Could not open the workshop: %1$s</string>
+	<string name="workspace_builtin_badge">Workshop</string>
+	<string name="workshop_hub_badge">Built-in workshop</string>
+	<string name="workshop_hub_body">This is the one built-in workshop. In a conversation here the assistant can prepare a character card or a scene, and draft an assistant or a workspace AGENTS.md. Nothing changes until you tap Create and open, or save in the editor it opens.</string>
+	<string name="workshop_hub_owned">It is part of the app: it cannot be renamed or deleted. Delete its conversations and files to clear it.</string>
 	<!-- The scene proposal a workshop conversation offers before anything is created. -->
 	<string name="chat_scene_proposal_title">Scene proposal</string>
 	<string name="chat_scene_proposal_character">Character: %1$s</string>
@@ -1624,12 +1652,7 @@
 	<string name="chat_scene_proposal_dismiss">Not now</string>
 	<string name="chat_scene_proposal_creating">Creating the scene…</string>
 	<string name="chat_scene_proposal_failed">Could not create the scene: %1$s</string>
-	<!-- The built-in configuration workshop: a permanent workspace where the assistant can read the app's configuration and prepare drafts. -->
-	<string name="studio_name">Config workshop</string>
-	<string name="home_studio_detail">Draft assistants and instruction files</string>
-	<string name="home_create_studio_detail">The assistant drafts; you save in the editors you already use</string>
-	<string name="studio_open_failed">Could not open the config workshop: %1$s</string>
-	<!-- Configuration-workshop proposals: drafts that open an existing editor. Nothing is written until the user saves there. -->
+	<!-- Workshop configuration proposals: drafts that open an existing editor. Nothing is written until the user saves there. -->
 	<string name="chat_proposal_dismiss">Not now</string>
 	<string name="chat_assistant_proposal_title">Assistant draft</string>
 	<string name="chat_assistant_proposal_create">New assistant: %1$s</string>
@@ -1652,11 +1675,11 @@
 	<string name="chat_instruction_proposal_ambiguous">More than one workspace is named "%1$s".</string>
 	<string name="chat_instruction_proposal_workspace_failed">Could not read the workspace list.</string>
 	<string name="agents_proposal_missing">That assistant no longer exists.</string>
-	<!-- Collapsed tool-row titles for the configuration-workshop helpers. -->
-	<string name="chat_studio_list_assistants_title">Assistants</string>
-	<string name="chat_studio_read_assistant_title">Assistant</string>
-	<string name="chat_studio_propose_assistant_title">Assistant draft</string>
-	<string name="chat_studio_list_instructions_title">Instruction files</string>
-	<string name="chat_studio_read_instruction_title">Instruction file</string>
-	<string name="chat_studio_propose_instruction_title">AGENTS.md draft</string>
+	<!-- Collapsed tool-row titles for the workshop's configuration helpers. -->
+	<string name="chat_config_list_assistants_title">Assistants</string>
+	<string name="chat_config_read_assistant_title">Assistant</string>
+	<string name="chat_config_propose_assistant_title">Assistant draft</string>
+	<string name="chat_config_list_instructions_title">Instruction files</string>
+	<string name="chat_config_read_instruction_title">Instruction file</string>
+	<string name="chat_config_propose_instruction_title">AGENTS.md draft</string>
 </resources>

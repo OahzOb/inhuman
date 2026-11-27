@@ -661,6 +661,8 @@ fun ChatScreen(
 	val sshHostIds by fieldOf(viewModel.state, emptyList()) { it.sshHostIds }
 	val suggestionsEnabled by fieldOf(viewModel.state, false) { it.suggestionsEnabled }
 	val bilibiliEnabled by fieldOf(viewModel.state, false) { it.bilibiliEnabled }
+	val localSearchEnabled by fieldOf(viewModel.state, false) { it.localSearchEnabled }
+	val localFetchEnabled by fieldOf(viewModel.state, false) { it.localFetchEnabled }
 	val bilibiliLoggedIn by fieldOf(viewModel.state, false) { it.bilibiliLoggedIn }
 	val agentTools by fieldOf(viewModel.state, null) { it.agentTools }
 	val conversationTools by fieldOf(viewModel.state, null) { it.conversationTools }
@@ -681,6 +683,8 @@ fun ChatScreen(
 		bilibiliEnabled,
 		bilibiliLoggedIn,
 		downloadEnabled,
+		localSearchEnabled,
+		localFetchEnabled,
 	) {
 		conversationToolPlan(
 			sshEnabled = sshToolEnabled,
@@ -692,6 +696,8 @@ fun ChatScreen(
 			bilibiliEnabled = bilibiliEnabled,
 			bilibiliLoggedIn = bilibiliLoggedIn,
 			downloadEnabled = downloadEnabled,
+			localSearchEnabled = localSearchEnabled,
+			localFetchEnabled = localFetchEnabled,
 		)
 	}
 	val rollbackAvailable by fieldOf(viewModel.state, false) { it.rollbackAvailable }
@@ -706,6 +712,8 @@ fun ChatScreen(
 	val toolRoundLimit by fieldOf(viewModel.state, 8) { it.toolRoundLimit }
 	val pendingSshConsent by fieldOf(viewModel.state, null) { it.pendingSshConsent }
 	val pendingDownloadConsent by fieldOf(viewModel.state, null) { it.pendingDownloadConsent }
+	val pendingLocalFetchConsent by fieldOf(viewModel.state, null) { it.pendingLocalFetchConsent }
+	val localFetchAllowed by fieldOf(viewModel.state, false) { it.localFetchAllowed }
 	val workspaceName by fieldOf(viewModel.state, "") { it.workspaceName }
 	val workspaceId by fieldOf(viewModel.state, null) { it.workspaceId }
 	val workspaceIsPermanent by fieldOf(viewModel.state, false) { it.workspaceIsPermanent }
@@ -1121,6 +1129,7 @@ fun ChatScreen(
 	// answer by dismissing, not by navigating away from.
 	val anyDialogOpen = showChatMenu || searchOpen || showModelPicker || pendingApproval != null ||
 		pendingSshConsent != null || pendingDownloadConsent != null ||
+		pendingLocalFetchConsent != null ||
 		rollbackTarget != null || showRewindDialog ||
 		showCompactPreview || showCompactionSummary ||
 		showSnapshotDialog || showToolLimitDialog || showRenameDialog || showWireDialog ||
@@ -2259,6 +2268,8 @@ fun ChatScreen(
 			sshAllowed = sshAllowed,
 			downloadEnabled = downloadEnabled,
 			downloadAllowed = downloadAllowed,
+			localFetchEnabled = localFetchEnabled,
+			localFetchAllowed = localFetchAllowed,
 			showHeaderOverflowActions = currentWindowFrame().usesHeaderOverflow,
 			creatingConversation = creatingConversation,
 			onDismiss = { showChatMenu = false },
@@ -2321,6 +2332,10 @@ fun ChatScreen(
 			onRevokeDownload = {
 				showChatMenu = false
 				viewModel.revokeDownloadAccess()
+			},
+			onRevokeLocalFetch = {
+				showChatMenu = false
+				viewModel.revokeLocalFetchAccess()
 			},
 			onOpenSessionMemory = {
 				showChatMenu = false
@@ -2492,6 +2507,14 @@ fun ChatScreen(
 			consent = consent,
 			onAllow = viewModel::allowDownloadConsent,
 			onDeny = viewModel::denyDownloadConsent,
+		)
+	}
+
+	pendingLocalFetchConsent?.let { consent ->
+		LocalFetchConsentDialog(
+			consent = consent,
+			onAllow = viewModel::allowLocalFetchConsent,
+			onDeny = viewModel::denyLocalFetchConsent,
 		)
 	}
 
@@ -4060,6 +4083,87 @@ private fun DownloadConsentDialog(
 }
 
 /**
+ * The local page-fetch acknowledgement.
+ *
+ * Same capability family as [DownloadConsentDialog] -- a model-named URL the app
+ * requests from the device's network for free -- with two extra facts the user
+ * needs: the request leaves from this phone (a VPN changes what is reachable),
+ * and the page's text enters the conversation. `render` is called out because
+ * it means the page's own scripts run.
+ */
+@Composable
+private fun LocalFetchConsentDialog(
+	consent: LocalFetchConsent,
+	onAllow: () -> Unit,
+	onDeny: () -> Unit,
+) {
+	var understood by remember { mutableStateOf(false) }
+	AlertDialog(
+		onDismissRequest = onDeny,
+		title = { Text(stringResource(R.string.chat_local_fetch_title)) },
+		text = {
+			Column(
+				modifier = Modifier
+					.fillMaxWidth()
+					.heightIn(max = dialogBodyMaxHeight(460.dp))
+					.verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(12.dp),
+			) {
+				Text(
+					text = stringResource(R.string.chat_local_fetch_body, consent.host),
+					style = MaterialTheme.typography.bodyLarge,
+				)
+				Text(
+					text = consent.url,
+					style = MaterialTheme.typography.bodyMedium,
+					fontFamily = FontFamily.Monospace,
+					modifier = Modifier
+						.fillMaxWidth()
+						.background(
+							MaterialTheme.colorScheme.surfaceVariant,
+							RoundedCornerShape(8.dp),
+						)
+						.padding(10.dp),
+				)
+				if (consent.render) {
+					Text(
+						text = stringResource(R.string.chat_local_fetch_render_note),
+						style = MaterialTheme.typography.bodyMedium,
+					)
+				}
+				Row(verticalAlignment = Alignment.CenterVertically) {
+					Checkbox(
+						checked = understood,
+						onCheckedChange = { understood = it },
+					)
+					Text(
+						text = stringResource(R.string.chat_local_fetch_understand),
+						style = MaterialTheme.typography.bodyMedium,
+						modifier = Modifier.weight(1f),
+					)
+				}
+				Text(
+					text = stringResource(R.string.chat_local_fetch_warning),
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.error,
+				)
+			}
+		},
+		confirmButton = {
+			TextButton(onClick = onAllow, enabled = understood) {
+				Text(stringResource(R.string.chat_allow_local_fetch))
+			}
+		},
+		dismissButton = {
+			TextButton(onClick = onDeny) { Text(stringResource(R.string.common_cancel)) }
+		},
+		containerColor = MaterialTheme.colorScheme.surface,
+		titleContentColor = MaterialTheme.colorScheme.onSurface,
+		textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+	)
+}
+
+/**
  * Put the end of [lastIndex] at the viewport bottom.
  *
  * `scrollToItem` alone aligns the item's **top**, which for a reply taller than
@@ -4209,6 +4313,8 @@ private fun ChatWorkbenchDialog(
 	sshAllowed: Boolean,
 	downloadEnabled: Boolean,
 	downloadAllowed: Boolean,
+	localFetchEnabled: Boolean,
+	localFetchAllowed: Boolean,
 	showHeaderOverflowActions: Boolean,
 	creatingConversation: Boolean,
 	onDismiss: () -> Unit,
@@ -4225,6 +4331,7 @@ private fun ChatWorkbenchDialog(
 	onOpenSshHosts: () -> Unit,
 	onRevokeSsh: () -> Unit,
 	onRevokeDownload: () -> Unit,
+	onRevokeLocalFetch: () -> Unit,
 	onOpenSessionMemory: () -> Unit,
 	onOpenSnapshots: () -> Unit,
 	onPreviewNextRequest: () -> Unit,
@@ -4439,6 +4546,13 @@ private fun ChatWorkbenchDialog(
 						title = stringResource(R.string.chat_revoke_download),
 						enabled = downloadAllowed,
 						onClick = onRevokeDownload,
+					)
+				}
+				if (localFetchEnabled) {
+					ChatWorkbenchRow(
+						title = stringResource(R.string.chat_revoke_local_fetch),
+						enabled = localFetchAllowed,
+						onClick = onRevokeLocalFetch,
 					)
 				}
 			}
@@ -4671,12 +4785,12 @@ private fun toolRowTitle(name: String?): String = when (name) {
 	// The proposal's *result* is the card; this names the call that prepared it
 	// rather than showing a raw `rp_create_scene` in the transcript.
 	"rp_create_scene" -> stringResource(R.string.chat_scene_proposal_title)
-	StudioTools.LIST_ASSISTANTS -> stringResource(R.string.chat_studio_list_assistants_title)
-	StudioTools.READ_ASSISTANT -> stringResource(R.string.chat_studio_read_assistant_title)
-	StudioTools.PROPOSE_ASSISTANT -> stringResource(R.string.chat_studio_propose_assistant_title)
-	StudioTools.LIST_INSTRUCTIONS -> stringResource(R.string.chat_studio_list_instructions_title)
-	StudioTools.READ_INSTRUCTION -> stringResource(R.string.chat_studio_read_instruction_title)
-	StudioTools.PROPOSE_INSTRUCTION -> stringResource(R.string.chat_studio_propose_instruction_title)
+	ConfigTools.LIST_ASSISTANTS -> stringResource(R.string.chat_config_list_assistants_title)
+	ConfigTools.READ_ASSISTANT -> stringResource(R.string.chat_config_read_assistant_title)
+	ConfigTools.PROPOSE_ASSISTANT -> stringResource(R.string.chat_config_propose_assistant_title)
+	ConfigTools.LIST_INSTRUCTIONS -> stringResource(R.string.chat_config_list_instructions_title)
+	ConfigTools.READ_INSTRUCTION -> stringResource(R.string.chat_config_read_instruction_title)
+	ConfigTools.PROPOSE_INSTRUCTION -> stringResource(R.string.chat_config_propose_instruction_title)
 	else -> name ?: stringResource(R.string.chat_tool_result)
 }
 
@@ -5574,7 +5688,7 @@ private fun SceneProposalCard(
 }
 
 /**
- * An assistant draft from the configuration workshop.
+ * An assistant draft from the workshop.
  *
  * The same bordered surface as the scene proposal: an app object with actions,
  * not something the assistant said. The action opens the assistant editor
@@ -5678,7 +5792,7 @@ private fun AssistantProposalCard(
 }
 
 /**
- * A root `AGENTS.md` draft from the configuration workshop.
+ * A root `AGENTS.md` draft from the workshop.
  *
  * The action opens the Files text editor with this text; Save there goes through
  * the ordinary `WorkspaceTransfer`, so the write is the same one the user could

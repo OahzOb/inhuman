@@ -43,6 +43,9 @@ internal fun conversationToolPlan(
 	 * user to remember it.
 	 */
 	downloadEnabled: Boolean = false,
+	/** False hides the app's own (keyless) web tools. */
+	localSearchEnabled: Boolean = false,
+	localFetchEnabled: Boolean = false,
 	/**
 	 * Media tool names whose backend resolves for this conversation, or
 	 * null to keep every media row.
@@ -75,6 +78,8 @@ internal fun conversationToolPlan(
 		includeBilibili = bilibiliEnabled,
 		includeBilibiliLogin = bilibiliLoggedIn,
 		includeDownload = downloadEnabled,
+		includeLocalSearch = localSearchEnabled,
+		includeLocalFetch = localFetchEnabled,
 		includePdfVision = true,
 		mediaConfigured = mediaConfigured,
 	)

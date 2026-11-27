@@ -5,7 +5,7 @@ import com.inhuman.core.engine.roleplay.RoleplayLimits
 /**
  * The JSON schemas the role-play-shaped tools share.
  *
- * `rp_create_scene` and the configuration workshop's `app_propose_assistant`
+ * `rp_create_scene` and the workshop's `app_propose_assistant`
  * both accept a character card, and the assistant editor writes the same object
  * through [com.inhuman.core.engine.roleplay.RoleplayCodec]. Two copies of this
  * schema would be two answers to "what is a card"; the numeric ranges are read

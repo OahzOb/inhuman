@@ -28,6 +28,8 @@ fun toolBlurb(entry: ToolCatalog.Entry): String = when (entry.name) {
 	"unavailable_tools" -> stringResource(R.string.tool_blurb_unavailable_tools)
 	"web_search" -> stringResource(R.string.tool_blurb_web_search)
 	"web_fetch" -> stringResource(R.string.tool_blurb_web_fetch)
+	"web_search_local" -> stringResource(R.string.tool_blurb_web_search_local)
+	"web_fetch_local" -> stringResource(R.string.tool_blurb_web_fetch_local)
 	"decide" -> stringResource(R.string.tool_blurb_decide)
 	"generate_image" -> stringResource(R.string.tool_blurb_generate_image)
 	"generate_video" -> stringResource(R.string.tool_blurb_generate_video)

@@ -383,7 +383,7 @@ class FilesViewModel(
 	/**
 	 * Open the text editor on a proposed file, whether or not it exists yet.
 	 *
-	 * The configuration workshop's proposal targets a root `AGENTS.md` that may
+	 * The workshop's proposal targets a root `AGENTS.md` that may
 	 * not exist, so it cannot go through [openForEdit], which refuses a missing
 	 * file. Save still goes through [saveEditor] and therefore the ordinary
 	 * `WorkspaceTransfer`: the per-file ceiling, total quota and atomic replace

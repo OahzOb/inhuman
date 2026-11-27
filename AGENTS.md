@@ -16,12 +16,12 @@ than implementation; the old feasibility studies are archived under
 | --- | --- |
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
-| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the per-tool media backends (image/video/speech/transcription/decision)**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)**, **`download_url` (app-proxied file download into the workspace)**, and the user-set `SshLimits` ceilings |
-| `docs/04-data-persistence.md` | Room schema v28, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup, and the continuous-session cost ledger |
+| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the free local web tools (`web_search_local` / `web_fetch_local`, app-proxied, with optional WebView render)**, **the per-tool media backends (image/video/speech/transcription/decision)**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)**, **`download_url` (app-proxied file download into the workspace)**, and the user-set `SshLimits` ceilings |
+| `docs/04-data-persistence.md` | Room schema v30, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup, and the continuous-session cost ledger |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the file and document tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, continuous-session projection and read-only record recall, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
-| `docs/08-port-philosophy.md` | **Why** the runtime is ported, which options the project refuses to have, the seven design questions, the paid-disclosure rule (§1.4), and the SSH and URL-download exceptions (§1.2.1/§1.5/§1.6) |
+| `docs/08-port-philosophy.md` | **Why** the runtime is ported, which options the project refuses to have, the seven design questions, the paid-disclosure rule (§1.4), and the SSH, URL-download and local-page-fetch exceptions (§1.2.1/§1.5/§1.6/§1.7) |
 | `docs/09-approvals.md` | The approval model: why the default is no prompts at all, how per-tool, per-assistant and per-path rules compose, and what of it is built |
 | `docs/10-diagnostics.md` | The flight recorder: what is logged, what is deliberately not, where the file lives and how to share it |
 | `docs/11-conversation-tools.md` | The conversation-level tool sheet: who may change it, the assistant ceiling, when it applies, and why it is not a new SSH exception |
@@ -72,8 +72,8 @@ Two consequences bind every future change, and neither is negotiable:
   set; a change takes effect on the next turn.
 - **The capability boundary must be statable in one sentence a person can
   read.** The default sentence is: *code runs on your device, sees only what you
-  hand it, cannot reach the network, and cannot reach your files.* **Two
-  exceptions exist, and both are off by default and granted per conversation.**
+  hand it, cannot reach the network, and cannot reach your files.* **Three
+  exceptions exist, and all are off by default and granted per conversation.**
   The first is **the SSH tools (`ssh_probe`, `ssh_list`,
   `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`),
   off by default, enabled globally, selected explicitly on the assistant or the
@@ -163,6 +163,24 @@ but the request itself is an outbound channel: the consent text, the Settings
 copy and the tool description all say that a URL can carry data out, and
 diagnostics record only host and byte count. The rules are
 `docs/08-port-philosophy.md` §1.6 and `docs/07-gotchas.md` A27.
+
+**Local web tools are app-proxied reads, and the page fetch is a third exception.**
+`web_search_local` reads DuckDuckGo's or Bing's public result page from the device and
+is the same shape as the Bilibili reads: no key, no bill, a query and no URL,
+global switch plus the assistant's explicit `optIn`, absent when off, no
+conversation grant. `web_fetch_local` is the `download_url` shape: free and
+unlimited, the model names the URL, so it has a global switch (default off), its
+own `optIn` row, and a once-per-conversation acknowledgement persisted in
+`conversations.localFetchAllowed` (schema v30, `MIGRATION_29_30`); turning the
+switch off clears every conversation's grant. It is **https-only**, public
+addresses only, GET-only, no cookie/credential/custom header, and uses the one
+`GuardedHttp` guard (DNS check at connect, redirect re-validation) shared with
+`download_url` — do not add a second SSRF path. `render = true` loads the page in
+a fresh WebView: page scripts run (that is the point), so there is no JS bridge,
+no cookie injection, no file access and no persisted storage, and the WebView is
+destroyed per call; the Settings copy, the tool description and the consent
+dialog all say what leaves the device. Diagnostics record host/bytes only. Rules:
+`docs/08-port-philosophy.md` §1.7, mechanism: `docs/03-ai-provider.md`.
 
 Full reasoning, plus the design questions and how each was answered, is in
 `docs/08-port-philosophy.md`. Do not add a mode, a permission prompt, or a "pro"
@@ -324,13 +342,12 @@ plain
 
 The long answers are written in Markdown deliberately — an unclosed fence, a
 bold span arriving in pieces, a list whose markers precede their text — because
-those are the constructs that are awkward while streaming. **In an RP workshop
-conversation, a message containing `scene` makes the demo call
-`rp_create_scene`, so the proposal card and the tap-to-create path are reachable
-offline too**; the card it proposes is a small scripted character. **In a
-configuration-workshop conversation, a message containing `config` (or `配置`)
-makes the demo call the two propose helpers, so both draft cards and their
-editor handoffs are reachable offline**; nothing is written.
+those are the constructs that are awkward while streaming. **In a workshop
+conversation the demo proposes and writes nothing: `scene` in a message makes it
+call `rp_create_scene`** (a scripted character; the proposal card and
+tap-to-create path are reachable offline), **and `config` (or `配置`) makes it
+call `app_propose_assistant` and `app_propose_instruction`** (the two draft cards
+and their editor handoffs). `scene` wins when a message names both.
 
 ### What adb cannot verify, and what to do instead
 
@@ -606,56 +623,46 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   card or prompt cannot rewrite a story already in progress. A scene created
   before the column existed pins on its first turn (empty column means "not
   pinned yet"); the scene-settings **Reload card and assistant prompt** is the
-  only way to update it, matching the `AGENTS.md` reload pattern. Do not fall
-  back to the live card once a snapshot exists: that would make a cleared card
-  silently resurrect. The button is shown only when the live assistant has a
-  decodable card (`ChatUiState.roleplayReloadable`; `reloadRoleplayPersona`
-  refuses otherwise), because a scene built from a files folder or from a
-  proposal has its persona only in the snapshot and reloading it from an
-  assistant with no card would empty the story. `rp_format`/`rp_validate`
-  (`core/engine/.../roleplay/RoleplayTools.kt`) are the authoring helpers: they
-  are appended after the allow-list only in a **non-scene conversation of the RP
-  workshop**, and `rp_validate` additionally requires `read_file`/`list_files`,
-  so a scene with no tools keeps an empty tool set and the validator can never
-  become a read path the user did not grant. Ordinary workspaces get no
-  role-play helpers. It reports structure only, never file prose.
-  The format text is generated from the serializers and `RoleplayLimits`
+  only update. Do not fall back to the live card once a snapshot exists: that
+  would make a cleared card silently resurrect. The button appears only when the
+  live assistant has a decodable card (`ChatUiState.roleplayReloadable`), because
+  a folder- or proposal-built scene has its persona only in the snapshot.
+  `rp_format`/`rp_validate` (`core/engine/.../roleplay/RoleplayTools.kt`) are the
+  authoring helpers; they attach only as the workshop bullet below says, and
+  `rp_validate` additionally requires `read_file`/`list_files`, so a scene with
+  no tools keeps an empty tool set and the validator can never become a read
+  path the user did not grant. It reports structure only, never file prose. The
+  format text is generated from the serializers and `RoleplayLimits`
   (`RoleplaySpecTest` pins the match). See `docs/07-gotchas.md` A30.
-- **The RP workshop is a workspace kind, not a permission tier.** The app keeps
-  one built-in permanent workspace with `workspaces.kind = "roleplay"` (schema
-  v28), created lazily by the Home entry or the Create sheet
-  (`ConversationRepository.ensureWorkshop`). In a non-scene conversation there,
-  the host appends `rp_format`, `rp_validate` (read tool required) and
-  `rp_create_scene`; none is in `ToolCatalog`, so none appears in the assistant
-  editor, conversation tool sheet, approval rules or gap report. The kind adds
-  **no capability**: file/SSH/download/media tools still come from the assistant
-  and the conversation's own list. The model cannot create, enter or mark a
-  workspace, so it cannot talk itself into the workshop. `rp_create_scene`
-  returns a `SceneProposal` only; the conversation is created by the user's tap
-  through `RoleplaySceneCreator` (the same writer the New-scene dialog uses) with
-  `tools = "[]"`, the frozen snapshot, the greeting, the current conversation's
-  model, and the workshop as its permanent workspace. A proposal that is never
-  tapped leaves no row and no file. `docs/07-gotchas.md` A31 is the invariant;
-  a host-written `Workshop context` block tells the model where it is.
-- **The configuration workshop drafts configuration; it never writes it.** The
-  second built-in permanent workspace has `workspaces.kind = "studio"` (same v28
-  column), created lazily by its Home row or the Create sheet
-  (`ConversationRepository.ensureStudio`). A non-scene conversation there gets
-  six host-appended helpers, none in `ToolCatalog`: `app_list_assistants`,
-  `app_read_assistant`, `app_propose_assistant`, `app_list_instructions`,
-  `app_read_instruction`, `app_propose_instruction`. Reads return content fields
-  only -- assistant name/prompt/card/model id (never tools, provider or approval
-  rules), and each **permanent** workspace's root `AGENTS.md` (one known file
-  name, through that workspace's `SessionWorkspace`). The propose helpers write
-  nothing: the card opens the existing assistant editor
-  (`AgentsViewModel.openProposal`) or Files text editor
-  (`FilesViewModel.openProposedEditor`) prefilled, and the user's Save is the
-  only write. A proposal carries no tool/provider/model/approval field; a
-  workspace is carried by display name, never its directory id; the saved-prompt
-  library stays invisible; a saved `AGENTS.md` keeps the normal pin rule. Do not
-  add an "apply" tool: writing configuration is a category change.
-  `docs/07-gotchas.md` A32 is the invariant; the same `Workshop context` block
-  says a draft is not a change.
+- **The built-in workshop is one workspace of kind `workshop`, not a permission
+  tier.** The app keeps one built-in permanent workspace,
+  `workspaces.kind = "workshop"` (schema v29), created lazily on first use
+  (`ConversationRepository.ensureWorkshop`, the only writer).
+  `MIGRATION_28_29` rewrote the v28 `"roleplay"`/`"studio"` values with no column
+  change: role-play becomes the workshop; a configuration row is demoted to an
+  ordinary permanent workspace when a role-play row existed (files and
+  conversations kept, helpers and context block lost), else it becomes the
+  workshop. A non-scene conversation gets nine helpers after the
+  allow-list: `rp_format`, `rp_validate` (needs `read_file`/`list_files`),
+  `rp_create_scene`, `app_list_assistants`, `app_read_assistant`,
+  `app_propose_assistant`, `app_list_instructions`, `app_read_instruction`,
+  `app_propose_instruction`. None is in `ToolCatalog` and all are
+  `mutates = false`, so none appears in a picker, approval table or gap report; a
+  scene gets none. The kind adds **no capability** -- file/SSH/download tools
+  still come from the assistant and the conversation's list -- and no tool lets
+  the model create, enter or retag a workspace. `rp_create_scene` returns a
+  `SceneProposal` only; the user's tap creates it through `RoleplaySceneCreator`
+  with `tools = "[]"`, the frozen snapshot, the greeting, the current model and
+  the workshop as its workspace; an untapped proposal leaves no row and no file.
+  The configuration helpers only read and draft: reads return content fields
+  (never tools, provider or approval rules) and each permanent workspace's root
+  `AGENTS.md`; a proposal opens the existing assistant or Files editor prefilled
+  and the user's Save is the only write. A proposal carries no
+  tool/provider/model/approval field and names a workspace by display name, never
+  its directory id; do not add an "apply" tool. A saved `AGENTS.md` also reaches
+  new scenes there. The workshop is app-owned: no rename, no single or bulk
+  delete. One host-written `Workshop context` block covers both jobs, from the
+  kind alone; `docs/07-gotchas.md` A31 is the invariant.
 - **A role-play reply is painted, not rewritten.** In a scene (a conversation
   whose assistant has a card, or a scene with a snapshot) assistant text goes
   through `RoleplayText` (`app/.../ui/chat/RoleplayText.kt`) instead of the

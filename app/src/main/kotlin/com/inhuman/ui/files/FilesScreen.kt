@@ -164,7 +164,7 @@ fun FilesScreen(
 	/**
 	 * A proposed file to open in the editor, applied once.
 	 *
-	 * Used by the configuration workshop, where an `AGENTS.md` proposal opens the
+	 * Used by the workshop, where an `AGENTS.md` proposal opens the
 	 * ordinary text editor on a file that may not exist yet. The screen owns the
 	 * one-shot contract so a recomposition cannot reopen the editor over the
 	 * user's own edits.

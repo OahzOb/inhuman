@@ -19,7 +19,7 @@ import kotlinx.serialization.json.put
  *
  * ## Drafts, not edits
  *
- * In the configuration workshop the host appends helpers that can list and read
+ * In the workshop the host appends helpers that can list and read
  * the app's own configuration (assistants, each permanent workspace's root
  * `AGENTS.md`). A helper that "writes" returns one of these proposals instead:
  * the chat renders it as a card, and the card's action opens the user's existing
@@ -506,8 +506,7 @@ internal fun resolveInstructionWorkspace(
 
 /** How a workspace kind is named to the model; display-only, never a path. */
 internal fun workspaceKindLabel(kind: String): String = when (kind) {
-	com.inhuman.core.data.db.WorkspaceKinds.ROLEPLAY -> "roleplay workshop"
-	com.inhuman.core.data.db.WorkspaceKinds.STUDIO -> "configuration workshop"
+	com.inhuman.core.data.db.WorkspaceKinds.WORKSHOP -> "workshop"
 	else -> "ordinary"
 }
 

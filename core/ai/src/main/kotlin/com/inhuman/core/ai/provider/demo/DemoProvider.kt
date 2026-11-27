@@ -300,11 +300,13 @@ class DemoProvider(
 		// this check exists to prevent.
 		if (inFlight.any { it.toolCalls.isNotEmpty() }) return emptyList()
 
-		// A workshop conversation: the host appends the scene-proposal tool, so
-		// the proposal card can be exercised end to end with no key and no
-		// network. Keyed on the word "scene" so an ordinary workshop question
-		// still answers as prose; the tool itself creates nothing, so the demo is
-		// not writing app state behind the user's back.
+		// A workshop conversation: the host appends both the scene-proposal tool
+		// and the configuration helpers, so all three proposal cards can be
+		// exercised end to end with no key and no network. Keyed on the words so
+		// an ordinary workshop question still answers as prose; the tools
+		// themselves create nothing, so the demo is not writing app state behind
+		// the user's back. Scene wins when a message names both, which is the
+		// documented order.
 		if (
 			PROPOSAL_TOOL in offered &&
 			request.messages[lastUser].content.contains(SCENE_MARKER, ignoreCase = true)
@@ -312,11 +314,10 @@ class DemoProvider(
 			return listOf(ScriptedCall(PROPOSAL_TOOL, PROPOSAL_ARGUMENTS))
 		}
 
-		// A configuration-workshop conversation: the host appends the assistant
-		// and instruction helpers, and both proposal cards can be exercised with
-		// no key and no network. Keyed on "config" (or 配置) so an ordinary
-		// workshop question still answers as prose; the helpers write nothing, so
-		// the demo is not changing app state behind the user's back.
+		// The configuration side of the same workshop. Keyed on "config" (or
+		// 配置) so an ordinary workshop question still answers as prose; the
+		// helpers write nothing, so the demo is not changing app state behind the
+		// user's back.
 		if (
 			PROPOSE_ASSISTANT_TOOL in offered &&
 			(

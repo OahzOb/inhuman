@@ -24,7 +24,7 @@ import kotlinx.serialization.json.JsonObject
  *
  * It has no capability: it reads the assistant rows the host hands it, writes
  * nothing, reaches no network and executes nothing. It is attached by
- * `ChatViewModel.buildTools` only in an RP workshop conversation, the same way
+ * `ChatViewModel.buildTools` only in a workshop conversation, the same way
  * `recall` and `rp_format` are, so it never appears in the assistant editor,
  * the conversation tool sheet, the approval table or the capability gap report.
  *

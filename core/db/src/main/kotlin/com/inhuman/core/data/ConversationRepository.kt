@@ -339,7 +339,7 @@ class ConversationRepository(
 	 * the orphan sweep, so the row is written before the directory is created.
 	 *
 	 * [kind] is the workspace's purpose ([WorkspaceKinds]); the app passes the
-	 * role-play kind for the built-in workshop, and ordinary workspaces keep the
+	 * workshop kind for the built-in workshop, and ordinary workspaces keep the
 	 * empty default.
 	 */
 	suspend fun createWorkspace(
@@ -362,48 +362,31 @@ class ConversationRepository(
 	}
 
 	/**
-	 * The built-in role-play workshop, or null before the user has opened it.
+	 * The built-in workshop, or null before the user has opened it.
 	 *
-	 * At most one row carries [WorkspaceKinds.ROLEPLAY]. Read from the whole
+	 * At most one row carries [WorkspaceKinds.WORKSHOP]. Read from the whole
 	 * table rather than adding a DAO query: the workspace list is small and the
-	 * only caller is the app's "open the workshop" action.
+	 * only callers read it once per entry tap or conversation load.
 	 */
-	suspend fun workshop(): WorkspaceEntity? = workspaceOfKind(WorkspaceKinds.ROLEPLAY)
-
-	/**
-	 * The built-in configuration workshop, or null before the user opened it.
-	 *
-	 * The same shape as [workshop]: at most one row carries
-	 * [WorkspaceKinds.STUDIO], and no user-facing action can mark another
-	 * workspace as one.
-	 */
-	suspend fun studio(): WorkspaceEntity? = workspaceOfKind(WorkspaceKinds.STUDIO)
+	suspend fun workshop(): WorkspaceEntity? = workspaceOfKind(WorkspaceKinds.WORKSHOP)
 
 	/** The one workspace of [kind], if it exists. */
 	private suspend fun workspaceOfKind(kind: String): WorkspaceEntity? =
 		db.workspaces().all().firstOrNull { it.kind == kind }
 
 	/**
-	 * Open the role-play workshop, creating it on first use.
+	 * Open the built-in workshop, creating it on first use.
 	 *
 	 * The row and the directory are app-owned; the user never configures a
-	 * workspace *into* the workshop, so this is the only writer of the roleplay
-	 * kind. Serialised because the entry can be tapped twice before the first
-	 * creation finishes, and two workshops would split the materials.
+	 * workspace *into* the workshop, so this is the only writer of the kind. It
+	 * is also the only built-in workspace: v29 merged the role-play and
+	 * configuration rows into this one (see `MIGRATION_28_29` in
+	 * `InhumanDatabase`). Serialised because the entry can be tapped twice
+	 * before the first creation finishes, and two workshops would split the
+	 * materials.
 	 */
 	suspend fun ensureWorkshop(name: String): WorkspaceEntity = builtInMutex.withLock {
-		workshop() ?: createWorkspace(name, WorkspaceKinds.ROLEPLAY)
-	}
-
-	/**
-	 * Open the configuration workshop, creating it on first use.
-	 *
-	 * App-owned for the same reason as [ensureWorkshop], and serialised by the
-	 * same lock: the home entry is a tap on a phone, and a second tap before the
-	 * first row commits must not create a second workshop.
-	 */
-	suspend fun ensureStudio(name: String): WorkspaceEntity = builtInMutex.withLock {
-		studio() ?: createWorkspace(name, WorkspaceKinds.STUDIO)
+		workshop() ?: createWorkspace(name, WorkspaceKinds.WORKSHOP)
 	}
 
 	private val builtInMutex = Mutex()
@@ -428,7 +411,16 @@ class ConversationRepository(
 		return db.workspaces().byId(workspace.id)
 	}
 
+	/**
+	 * Rename a permanent workspace.
+	 *
+	 * The built-in workshop is app-owned and its name is not user data: its entry
+	 * is a fixed feature surface, so a rename would make the entry and the stored
+	 * row disagree. Ordinary workspaces keep the old behaviour (display name
+	 * only; the directory name is the id and never moves).
+	 */
 	suspend fun renameWorkspace(workspace: WorkspaceEntity, name: String) {
+		if (workspace.kind != WorkspaceKinds.NONE) return
 		val clean = name.trim()
 		if (clean.isBlank()) return
 		db.workspaces().rename(workspace.id, clean, System.currentTimeMillis())
@@ -437,14 +429,18 @@ class ConversationRepository(
 	/**
 	 * Delete an empty permanent workspace.
 	 *
-	 * Refuses while any conversation still uses it. The alternative -- a cascade
-	 * -- would turn one tap into the deletion of every transcript in the
-	 * workspace along with files the user may have spent hours producing; that is
-	 * a separate, explicit action if it is ever added.
+	 * Refuses while any conversation still uses it, and refuses the built-in
+	 * workshop entirely: deleting the workshop would take the scenes and
+	 * materials that live there with it, and the entry would silently recreate an
+	 * empty one. The alternative -- a cascade -- would turn one tap into the
+	 * deletion of every transcript in the workspace along with files the user may
+	 * have spent hours producing; that is a separate, explicit action if it is
+	 * ever added.
 	 */
 	suspend fun deleteWorkspace(workspace: WorkspaceEntity): Boolean =
 		withContext(Dispatchers.IO) {
 			if (!workspace.isPermanent) return@withContext false
+			if (workspace.kind != WorkspaceKinds.NONE) return@withContext false
 			if (db.workspaces().conversationCount(workspace.id) > 0) return@withContext false
 			paths.workspaceDir(workspace.id).deleteRecursively()
 			db.workspaces().delete(workspace.id)
@@ -580,6 +576,16 @@ class ConversationRepository(
 
 	/** Turning the global download switch off revokes every conversation's consent. */
 	suspend fun clearAllDownloadAllowed() = db.conversations().clearAllDownloadAllowed()
+
+	/** Record or revoke the conversation's local page-fetch acknowledgement. */
+	suspend fun setLocalFetchAllowed(id: String, allowed: Boolean) =
+		db.conversations().setLocalFetchAllowed(id, allowed)
+
+	suspend fun localFetchAllowed(id: String): Boolean? =
+		db.conversations().localFetchAllowed(id)
+
+	/** Turning the global local-fetch switch off revokes every conversation's consent. */
+	suspend fun clearAllLocalFetchAllowed() = db.conversations().clearAllLocalFetchAllowed()
 
 	/**
 	 * Replace the set of saved hosts this conversation may use.
@@ -788,10 +794,17 @@ class ConversationRepository(
 	 * conversation count in its confirmation; this method then removes those
 	 * conversations (their rollback snapshots included), the workspace
 	 * directories, and finally the workspace rows.
+	 *
+	 * Built-in workspaces are never targets, even if a caller names one: the
+	 * workshop is app-owned, and a bulk delete is exactly the path that would
+	 * silently take its scenes and materials with it. The list UI also excludes
+	 * it, so this is the data-layer half of the same rule.
 	 */
 	suspend fun deleteWorkspaces(workspaces: List<WorkspaceEntity>): WorkspaceBulkDelete =
 		withContext(Dispatchers.IO) {
-			val targets = workspaces.filter { it.isPermanent }.distinctBy { it.id }
+			val targets = workspaces
+				.filter { it.isPermanent && it.kind == WorkspaceKinds.NONE }
+				.distinctBy { it.id }
 			val ids = targets.mapTo(mutableSetOf()) { it.id }
 			if (ids.isEmpty()) return@withContext WorkspaceBulkDelete(0, 0)
 			val conversations = db.conversations().all().filter { it.workspaceId in ids }

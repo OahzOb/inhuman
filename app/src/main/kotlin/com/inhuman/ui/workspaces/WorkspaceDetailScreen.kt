@@ -60,6 +60,7 @@ import com.inhuman.ui.common.formatBytes
 import com.inhuman.R
 import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
+import com.inhuman.core.data.db.WorkspaceKinds
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.comfortableGutter
 import com.inhuman.core.design.dialogBodyMaxHeight
@@ -188,21 +189,27 @@ fun WorkspaceDetailScreen(
 									)
 								},
 							)
-							DropdownMenuItem(
-								text = { Text(stringResource(R.string.workspace_rename)) },
-								onClick = {
-									menuOpen = false
-									renameInput = workspace?.name.orEmpty()
-									showRename = true
-								},
-							)
-							DropdownMenuItem(
-								text = { Text(stringResource(R.string.workspace_delete)) },
-								onClick = {
-									menuOpen = false
-									showDelete = true
-								},
-							)
+							// The workshop is app-owned: its name is a feature
+							// label and deleting it would take the scenes and
+							// materials that live there with it. Ordinary
+							// workspaces keep both actions.
+							if (workspace?.kind != WorkspaceKinds.WORKSHOP) {
+								DropdownMenuItem(
+									text = { Text(stringResource(R.string.workspace_rename)) },
+									onClick = {
+										menuOpen = false
+										renameInput = workspace?.name.orEmpty()
+										showRename = true
+									},
+								)
+								DropdownMenuItem(
+									text = { Text(stringResource(R.string.workspace_delete)) },
+									onClick = {
+										menuOpen = false
+										showDelete = true
+									},
+								)
+							}
 						}
 					}
 				},
@@ -239,6 +246,39 @@ fun WorkspaceDetailScreen(
 						modifier = Modifier.weight(1f),
 					)
 					TextButton(onClick = viewModel::clearError) { Text(stringResource(R.string.common_dismiss)) }
+				}
+			}
+
+			// The workshop is a permanent workspace like any other in this screen,
+			// but the user has no other place that explains what it is for. The
+			// generic quota/path body below is useful; this block makes the page
+			// the workshop's hub instead of a shared folder that happens to hold
+			// scenes.
+			if (workspace?.kind == WorkspaceKinds.WORKSHOP) {
+				Surface(
+					modifier = Modifier.widthIn(max = Layout.ReadableMeasure).fillMaxWidth(),
+					color = MaterialTheme.colorScheme.surfaceVariant,
+					shape = RoundedCornerShape(10.dp),
+				) {
+					Column(
+						modifier = Modifier.padding(16.dp),
+						verticalArrangement = Arrangement.spacedBy(8.dp),
+					) {
+						Text(
+							text = stringResource(R.string.workshop_hub_badge),
+							style = MaterialTheme.typography.labelMedium,
+							color = MaterialTheme.colorScheme.primary,
+						)
+						Text(
+							text = stringResource(R.string.workshop_hub_body),
+							style = MaterialTheme.typography.bodyMedium,
+						)
+						Text(
+							text = stringResource(R.string.workshop_hub_owned),
+							style = MaterialTheme.typography.bodySmall,
+							color = MaterialTheme.colorScheme.onSurfaceVariant,
+						)
+					}
 				}
 			}
 

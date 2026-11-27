@@ -927,9 +927,12 @@ last body is kept in `ChatViewModel.wire` in memory. It shows:
 
 - request parameters (`model`, `stream`, `thinking`, `reasoning_effort`,
   `stream_options`, `user_id`);
-- the composed system message split into assistant prompt, workshop context
-  (only in a workshop conversation), compaction summary and workspace
-  instructions;
+- the composed system message split into assistant prompt (including any
+  role-play sections), workshop context (only in a non-scene workshop
+  conversation), the compaction/continuous summary, and workspace instructions
+  (`AGENTS.md`), in that order. The labels are **Assistant prompt**,
+  **Workshop context**, **Earlier conversation summary** and **Workspace
+  instructions (AGENTS.md)**;
 - tool names, descriptions, typed parameter tables and an optional raw schema;
 - numbered messages with role, text, `content: null`, `reasoning_content`,
   `tool_calls` (call id, name, parsed fields, raw arguments) and linked
@@ -1002,24 +1005,30 @@ conversation where it was made, and a new conversation is cold anyway.
 
 ### Workshop context
 
-A non-scene conversation in the RP workshop or the configuration workshop gets
-one more system paragraph, written by the host: `Workshop context: this
-conversation runs in the user's RP workshop...` or `...configuration
-workshop...`. It explains what the host-appended helpers mean, because a fresh
-workshop has no `AGENTS.md` and the tools' own descriptions do not say what
-situation the conversation is in -- a model in the RP workshop can otherwise
-start narrating a scene that does not exist, and one in the configuration
-workshop can announce a change nobody saved.
+A non-scene conversation in the built-in workshop gets one more system
+paragraph, written by the host, beginning `Workshop context:`. It is **one text
+for both jobs** the workshop serves: role-play authoring (a card written with
+`rp_format`, checked with `rp_validate` when that helper is attached, and a
+scene prepared with `rp_create_scene`) and app-configuration drafts (the
+`app_*` helpers that read assistants and `AGENTS.md` and prepare a draft). It
+says that this is the workshop and not a scene, and that nothing prepared takes
+effect by itself — a scene proposal creates nothing until the user taps Create
+and open, and a draft only opens an editor prefilled until the user saves there.
+That is needed because a fresh workshop has no `AGENTS.md` and the tools' own
+descriptions do not say what situation the conversation is in: without the
+sentence a model can start narrating a scene that does not exist, or announce a
+configuration change nobody saved.
 
 `WorkshopPrompt.kt` derives it from `workspaces.kind` and the conversation's
 scene state (`roleplayActive`); a scene gets none, because it has its own
 role-play prompt and the workshop is not a mode it can switch back into. The
 text is the same on every turn, so it needs no pin and does not move the cache
-prefix; it is appended after the assistant prompt and the continuous-session
-instruction, before the compaction summary and the `AGENTS.md` block. It is
-content, not capability: it cannot add a tool, an approval or a grant
-(`docs/07-gotchas.md` A31/A32). The wire inspector labels it **Workshop
-context** and splits it away from the prompt, the summary and the file block.
+prefix; it is appended after the assistant prompt (and the role-play sections
+and continuous-session instruction when they exist), before the compaction
+summary and the pinned `AGENTS.md` block. It is content, not capability: it
+cannot add a tool, an approval or a grant (`docs/07-gotchas.md` A31). The wire
+inspector labels it **Workshop context** and splits it away from the prompt, the
+summary and the file block.
 
 ### The approval dialog
 
@@ -1194,9 +1203,10 @@ projection can replace older complete turns with a model-written summary:
   turns. A tool call and its results are never split.
 - **The wire gets a system summary plus the suffix.** `buildWireHistory` checks
   that `throughMessageId` is still on the active path; if it is not, the full
-  history is sent. The assistant prompt, the workshop context (in a workshop),
-  the summary and the workspace instructions are combined into the first system
-  message.
+  history is sent. The assistant prompt (and the role-play sections), the
+  continuous instruction, the workshop context (in a non-scene workshop
+  conversation), the summary and the workspace instructions are combined into
+  the first system message, in that order.
 - **Failure is a no-op.** No key, timeout, provider failure, blank summary or a
   changed transcript leaves the previous projection intact and reports the cause.
   Demo mode uses `demoCompactionSummary`, a deterministic list of questions and
@@ -1329,12 +1339,31 @@ scene** (`NewSceneDialog`), which offers two sources:
   scene file is a creation template only: after creation the conversation owns
   its scene copy, and **Scene settings** edits do not write back to the file.
 
-**The RP workshop and the scene proposal.** The app keeps one built-in
-permanent workspace with `workspaces.kind = roleplay` (schema v28), created
-lazily by the entry on Home or in the Create sheet. A **non-scene** conversation
-in that workspace gets the authoring helpers and `rp_create_scene`; a
-conversation that is itself a scene does not, and an ordinary workspace gets no
-role-play tooling at all. `rp_create_scene` prepares and validates a
+**The built-in workshop.** The app keeps one built-in permanent workspace with
+`workspaces.kind = WORKSHOP` (schema v29; the v28 `"roleplay"` and `"studio"`
+rows were merged into it by `MIGRATION_28_29`, and a config-workshop row left
+over from v28 is an ordinary permanent workspace with its files and
+conversations intact), created lazily the first time the user opens it. It is
+reached from **one** persistent home row above the conversation list and **one**
+Create-sheet choice; both call `ConversationsViewModel.openWorkshop` and open the
+workspace detail screen as the workshop's hub. That page shows an explainer
+block when the kind is the workshop -- that it is built in, what the assistant
+can prepare there, that nothing takes effect until the user taps Create or saves,
+and that it cannot be renamed or deleted -- hides Rename/Delete, and keeps **New
+conversation**. The Workspaces list shows a built-in badge for it and never
+offers it a selection checkbox; the repository also refuses to rename it,
+refuses to delete it even when empty, and skips built-in kinds in the bulk
+delete, so the UI cannot promise an action the data layer would reject. The
+display name is the stored row name, created from a localized string; it is not
+editable.
+
+A **non-scene** conversation in the workshop gets the union of the two
+capability-free helper sets, appended by the host: the role-play authoring
+helpers and the configuration read/draft helpers. A conversation that is itself
+a scene gets neither the helpers nor the workshop paragraph; an ordinary
+workspace gets none. None of the nine is in `ToolCatalog`.
+
+**The scene proposal.** `rp_create_scene` prepares and validates a
 `SceneProposal` (an assistant's card or a card the model wrote, plus an optional
 scene) and returns it as JSON; it creates nothing. The chat renders that result
 as a proposal card showing the character, a one-line description and the model,
@@ -1347,23 +1376,26 @@ tapped leaves no conversation, no workspace and no row behind. The result is
 transient like suggestions: a reopened transcript shows the plain persisted
 line, not a live button.
 
-**The configuration workshop and its drafts.** The app also keeps one built-in
-permanent workspace with `workspaces.kind = studio`, created lazily by its Home
-row or Create-sheet entry. A **non-scene** conversation there gets six
-host-appended helpers: two read the user's assistant content, one prepares an
-assistant draft, two read a permanent workspace's root `AGENTS.md`, and one
+**The configuration drafts, in the same workshop.** The other six helpers read
+and draft rather than write: two read the user's assistant content, one prepares
+an assistant draft, two read a permanent workspace's root `AGENTS.md`, and one
 prepares an instruction draft. Each propose result is rendered as a card showing
 what would change and an action that **opens an existing editor prefilled**: an
 assistant draft opens the assistant editor (`AgentsViewModel.openProposal`), an
-instruction draft opens the Files text editor (`FilesViewModel.openProposedEditor`).
-Nothing is written by the tool, and the only Save is the user's in that editor;
-missing targets (a deleted assistant, a renamed or duplicated workspace) are
-reported on the card instead of opening the wrong thing. The handoffs are
-one-shot signals consumed in `ChatScreen` and routed by `MainActivity`, the same
-pattern the scene proposal uses for navigation. The cards are transient: a
-reopened transcript shows the persisted summary line. `AGENTS.md` saves keep the
-normal pin semantics — new conversations, or **Reload AGENTS.md** for the
-current one (`docs/07-gotchas.md` A32).
+instruction draft opens the Files text editor
+(`FilesViewModel.openProposedEditor`). Nothing is written by the tool, and the
+only Save is the user's in that editor; missing targets (a deleted assistant, a
+renamed or duplicated workspace) are reported on the card instead of opening the
+wrong thing. The handoffs are one-shot signals consumed in `ChatScreen` and
+routed by `MainActivity`, the same pattern the scene proposal uses for
+navigation. The cards are transient: a reopened transcript shows the persisted
+summary line. `AGENTS.md` saves keep the normal pin semantics — the file applies
+to new conversations **and new scenes created in that workspace**, and an
+existing conversation needs **Reload AGENTS.md** (`docs/07-gotchas.md` A31). A
+proposal carries no tool, provider, model or approval field, names a workspace
+by display name (never its directory id), and the saved-prompt library stays
+invisible. `ConfigTools.kt` holds the six tools (the file was `StudioTools.kt`
+before the merge); `workspaceKindLabel` reports `"workshop"` or `"ordinary"`.
 
 A scene whose fields are all blank is stored as `{}` rather than `""`: the
 empty string keeps meaning "ordinary conversation", and otherwise a blank scene
@@ -1408,7 +1440,7 @@ proposal (above). All three are built in `app/.../ui/chat/` and
 `core/engine/.../roleplay/RoleplayTools.kt`; the format text comes from
 `RoleplaySpec.kt`, generated from the serializers and `RoleplayLimits` so it
 cannot drift from the codec. They are **infrastructural**, appended after the
-allow-list only in an RP-workshop conversation that is not itself a scene, and
+allow-list only in a workshop conversation that is not itself a scene, and
 `rp_validate` additionally requires `read_file` or `list_files` — a pure scene
 (`tools = []`) keeps its empty tool set, and the validator can never become a
 read path the user did not grant. None is in `ToolCatalog`, so none appears in
@@ -1418,8 +1450,9 @@ the file's prose.
 
 **What goes on the wire.** `buildWireHistory` appends, after the assistant's own
 prompt, the rendered card, the scene and the rules block; then the
-continuous-session instruction, the rolling brief, and the workspace `AGENTS.md`
-last. The prompt, card and scene are static for the conversation — the first
+continuous-session instruction, the workshop context (in a non-scene workshop
+conversation), the rolling brief, and the workspace `AGENTS.md` last. The
+prompt, card and scene are static for the conversation — the first
 two because they are the pinned snapshot — so the only part that moves between
 turns is at the tail; editing a pin or the scene costs one rebuilt request
 prefix and both editors say so. The rules block states that the card, the scene,

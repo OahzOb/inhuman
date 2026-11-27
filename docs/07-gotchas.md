@@ -538,10 +538,10 @@ undone:
 authoring helpers, not selectable capabilities:
 
 - They are appended **after** the allow-list, like `recall`, but only in a
-  conversation whose workspace is the built-in RP workshop
-  (`WorkspaceKinds.ROLEPLAY`, A31) and which is **not** itself a role-play
+  conversation whose workspace is the built-in workshop
+  (`WorkspaceKinds.WORKSHOP`, A31) and which is **not** itself a role-play
   scene. An ordinary workspace gets no role-play tooling, even with file tools;
-  a scene keeps its explicit empty tool set. `RoleplayToolsPlanTest` pins the
+  a scene keeps its explicit empty tool set. `WorkshopToolsPlanTest` pins the
   truth table.
 - `rp_validate` additionally requires `read_file` or `list_files`: it must not
   become a read path the user did not grant. `rp_format` is constant text and
@@ -565,106 +565,152 @@ authoring helpers, not selectable capabilities:
   and the method refuses as well. This also covers folder scenes that existed
   before the guard.
 
-### A31. The RP workshop is a workspace kind, not a permission level
+### A31. The built-in workshop is a workspace kind, not a permission level
 
-`workspaces.kind` (schema v28) is a **data attribute**, like `isPermanent`. It
-exists so the role-play authoring surface has one home instead of a per-assistant
-switch on every conversation. Four rules make that safe, and each is a bug if
-undone:
+`workspaces.kind` (schema v29; `WorkspaceKinds.NONE = ""` and
+`WorkspaceKinds.WORKSHOP = "workshop"`, `Entities.kt:310-368`) is a **data
+attribute**, like `isPermanent`, and at most one row carries the workshop kind.
+`MIGRATION_28_29` (`InhumanDatabase.kt:1377-1401`) rewrote the old v28 values
+without changing a column: a `"roleplay"` row became `"workshop"`; a `"studio"`
+row became an ordinary permanent workspace (`""`) when a role-play row existed,
+and became the workshop otherwise. Nothing was moved or deleted — an old
+configuration-workshop conversation keeps its transcript and files but loses the
+host helpers and the context block. No runtime code may see the legacy strings.
 
-- **The kind gates only capability-free helpers.** In a non-scene conversation
-  whose workspace is the workshop, the host appends `rp_format`, `rp_validate`
-  (only where a read tool already exists) and `rp_create_scene` (A30). None of
-  them reads outside the workspace, reaches the network, executes anything, or
-  writes app state. Capability-bearing tools still come from the assistant and
+Rules that make the kind safe (each is a bug if undone):
+
+- **The kind gates only capability-free helpers.** In a non-scene conversation in
+  the workshop the host appends nine helpers after the allow-list, decided by
+  `planWorkshopHelpers` (`app/.../ui/chat/WorkshopToolsPlan.kt`): role-play's
+  `rp_format`, `rp_validate` (only where the conversation already has
+  `read_file`/`list_files`) and `rp_create_scene` (A30), plus the configuration
+  side's `app_list_assistants`, `app_read_assistant`, `app_propose_assistant`,
+  `app_list_instructions`, `app_read_instruction` and `app_propose_instruction`.
+  None is in `ToolCatalog`, so none appears in the assistant editor, the
+  conversation tool sheet, approval rules or the gap report; all are
+  `mutates = false`. Capability-bearing tools still come from the assistant and
   the conversation's own `toolsJson`; the kind adds none.
-- **The model cannot enter, create or mark a workshop.** There is no tool that
-  creates a workspace or changes its kind. Entering the workshop is a user
-  gesture (the home entry or a Create-sheet choice), so there is no
-  "convince the model to give you more" path — the thing
-  `docs/08-port-philosophy.md` §1.1 warns about. The same entry is the only
-  writer of the roleplay row (`ConversationRepository.ensureWorkshop`).
-- **A scene says so in its tool list, and the proposal creates nothing.** The
-  scene-proposal tool returns data only; the conversation is created by the
-  user's tap through `RoleplaySceneCreator` (the same writer the New-scene
-  dialog uses), with `tools = emptyList()` (stored `"[]"`), the persona frozen
-  and the greeting in the same transaction. A proposed-but-untapped card leaves
-  no database row and no workspace behind. Never let the tool call
-  `repository.create` itself: that would be the first tool writing app state,
-  and it would need a new invariant decision.
-- **A scene created from the workshop binds the workshop workspace.** The
-  permanent workspace is where the materials and the transcripts live, so
-  deleting the scene does not delete the cards; deleting the workspace itself is
-  still refused while any conversation uses it.
-- **The helper set is not a mode.** There is no global switch, no approval row
-  and no picker entry; a workspace either has the kind or it does not. Ordinary
-  workspaces lose `rp_format`/`rp_validate` by design — that is the management
-  shape, not a removal of a capability (the helpers never were one).
-- **The workshop says where it is.** A non-scene conversation in the workshop
-  gets a host-written `Workshop context:` paragraph in the system message
-  (`WorkshopPrompt.kt`), derived from `workspaces.kind` and the conversation's
-  scene state. A fresh workshop has no `AGENTS.md`, and the helpers' own
-  descriptions do not say which situation the conversation is in: without the
-  sentence a model starts narrating a scene that does not exist. The text is
-  identical on every turn, so it is not pinned and does not move the cache
-  prefix; a scene gets none, because its role-play prompt already describes the
-  story. It is content-only: it cannot add a tool, change an approval or grant
-  SSH. `WorkshopPromptTest` and the wire-split tests pin it.
-
-### A32. The configuration workshop drafts configuration; it never writes it
-
-`WorkspaceKinds.STUDIO` (`workspaces.kind = "studio"`, same v28 column as A31)
-is the second built-in workbench: one permanent workspace reached from a
-persistent home row and the Create sheet, created lazily by
-`ConversationRepository.ensureStudio`. Its helpers read the app's own
-configuration and prepare drafts; every draft opens an editor the user already
-had, and Save there is the only write.
-
 - **No tool writes configuration.** `app_list_assistants`/`app_read_assistant`
   return content fields only (name, prompt, card, model id — never tools,
   approvals or provider config). `app_propose_assistant` returns an
   `AssistantProposal`; the card's action calls `AgentsViewModel.openProposal`,
   which either opens the existing row and overwrites only the fields the proposal
-  changed, or starts the New-assistant defaults and applies the content. The
-  proposal cannot name a tool, provider, model, reasoning level, suggestion
-  setting or approval rule: those are the editor's fields and the user's alone.
-  `app_list_instructions`/`app_read_instruction` read exactly one known file
-  name (`AGENTS.md`) through that workspace's `SessionWorkspace`;
-  `app_propose_instruction` returns text for `FilesViewModel.openProposedEditor`,
-  whose Save still goes through `WorkspaceTransfer` (quota, per-file limit,
-  atomic replace). There is no "apply" button and no repository write in a tool.
+  changed, or starts the New-assistant defaults. The proposal cannot name a tool,
+  provider, model, reasoning level, suggestion setting or approval rule: those
+  are the editor's fields and the user's alone. `app_list_instructions`/
+  `app_read_instruction` read exactly one known file name (`AGENTS.md`) through
+  that workspace's `SessionWorkspace`; `app_propose_instruction` returns text for
+  `FilesViewModel.openProposedEditor`, whose Save still goes through
+  `WorkspaceTransfer` (quota, per-file limit, atomic replace). There is no
+  "apply" button and no repository write in a tool; do not add one, because
+  writing configuration is a category change.
 - **A workspace is named, never identified.** An instruction proposal carries the
   display name; the id is resolved at the tap
   (`resolveInstructionWorkspace`), and a missing or ambiguous name is an error on
   the card rather than a guess. The raw workspace id is the directory name and
-  must not enter a request (A31). A workspace renamed or deleted between the
-  proposal and the tap is answered at the tap.
+  must not enter a request. A workspace renamed or deleted between the proposal
+  and the tap is answered at the tap.
 - **Only permanent workspaces can own instructions.** A temporary workspace
   belongs to one conversation; its `AGENTS.md` cannot outlive it, so it is
   neither listed nor written.
-- **Saving keeps the existing prompt semantics.** The file reaches a conversation
-  only through the pin: a save affects new conversations, and an existing one
-  needs **Reload AGENTS.md** (one deliberate cold request). Do not add a watcher
-  that re-pins, and do not have the save path touch any conversation row.
+- **Saving `AGENTS.md` keeps the pin rule, and it reaches scenes too.** The file
+  enters a conversation only through the pin: a save affects new conversations —
+  and new scenes created in that workspace — while an existing one needs
+  **Reload AGENTS.md** (one deliberate cold request). Do not add a watcher that
+  re-pins, and do not have the save path touch any conversation row.
 - **The saved-prompt library stays model-invisible.** Nothing here can read,
   write or select `saved_prompts`; "save to prompt library" in the assistant
   editor remains a user action (`docs/13-product.md`). The model may draft an
   assistant prompt, not curate the library.
-- **The helper set is not a mode.** No catalogue entry, no approval row, no
-  picker row; a conversation is either in a `kind = "studio"` workspace or not,
-  and a role-play scene gets none of the helpers (`planStudioHelpers`). The model
-  cannot create, enter or retag a workspace — the home entry is the only writer
-  of the studio row, exactly as with the RP workshop.
-- **The workshop says where it is, and that a draft is not a change.** The same
-  host-written `Workshop context:` paragraph (A31, `WorkshopPrompt.kt`) tells a
-  configuration-workshop conversation that the host lets it read assistant
-  content and `AGENTS.md` and prepare drafts, that a draft's card only opens the
-  user's editor, and that it cannot change tools/approvals/SSH/downloads/
-  providers or read the saved-prompt library. Derived from `workspaces.kind`
-  alone, so it is deterministic and needs no pin; content, not capability, and
-  the helpers themselves are attached by the same kind check in `buildTools`.
+- **The model cannot enter, create or retag the workshop.** There is no tool that
+  creates a workspace or changes its kind. Entering is a user gesture (the one
+  persistent home row or the Create-sheet choice), so there is no "convince the
+  model to give you more" path — the thing
+  `docs/08-port-philosophy.md` §1.1 warns about.
+  `ConversationRepository.ensureWorkshop` (`:377-390`) is the only writer of the
+  row, serialised by `builtInMutex` so two entry taps cannot create two
+  workshops.
+- **A scene says so in its tool list, and the proposal creates nothing.** A
+  conversation that is itself a role-play scene gets **none** of the nine helpers
+  and no workshop paragraph: the role-play prompt already describes the story,
+  and "build me a scene" or "manage the assistants" inside it would be a second
+  role. The scene-proposal tool returns data only; the conversation is created by
+  the user's tap through `RoleplaySceneCreator` (the same writer the New-scene
+  dialog uses), with `tools = emptyList()` (stored `"[]"`), the persona frozen
+  and the greeting in the same transaction. A proposed-but-untapped card leaves
+  no database row and no workspace behind. Never let the tool call
+  `repository.create` itself: that would be the first tool writing app state, and
+  it would need a new invariant decision.
+- **A scene created from the workshop binds the workshop workspace.** The
+  permanent workspace is where the materials and the transcripts live, so
+  deleting the scene does not delete the cards. A scene created from a workspace
+  folder keeps that permanent workspace instead.
+- **The workshop is app-owned: no rename, no single delete, no bulk delete.**
+  `renameWorkspace` returns early for any non-`NONE` kind, `deleteWorkspace`
+  refuses the workshop even when empty, and `deleteWorkspaces` filters every
+  built-in kind out (`ConversationRepository.kt:414-448`, `:779-823`). The
+  Workspaces list shows the workshop with a built-in badge and never offers it a
+  selection checkbox; the detail page hides Rename/Delete, shows an explainer
+  block instead (`WorkspacesScreen.kt`, `WorkspaceDetailScreen.kt`), and the home
+  screen has one persistent entry that opens the same hub. Without those guards
+  one bulk delete would take the scenes and materials the feature lives in, and
+  a rename would make the home entry, the list and the hub disagree about the
+  name. The display name is the stored row name, created from the localized
+  string; it is not editable.
+- **The helper set is not a mode.** There is no global switch, no approval row
+  and no picker entry; a workspace either has the kind or it does not. Ordinary
+  workspaces lose all nine helpers by design — that is the management shape, not
+  a removal of a capability (the helpers never were one).
+- **The workshop says where it is.** A non-scene conversation in the workshop
+  gets one host-written `Workshop context:` paragraph
+  (`WorkshopPrompt.kt:36-69`), derived from `workspaces.kind` and the
+  conversation's scene state. It covers both jobs — role-play authoring and
+  app-configuration drafts — and says that a proposal creates nothing until the
+  user taps Create or saves in the editor. It is appended after the role-play
+  sections and the continuous-session instruction, and before the compaction
+  summary and the pinned `AGENTS.md` block; a scene gets none. The text is
+  identical on every turn, so it is not pinned and does not move the cache
+  prefix. It is content-only: it cannot add a tool, change an approval or grant
+  SSH/download. `WorkshopToolsPlanTest`, `WorkshopPromptTest` and
+  `WireSheetSystemSplitTest` pin the plan, the text and the wire split;
+  `WorkshopWorkspaceTest` covers the single row and the rename/delete/bulk-delete
+  guards; `WorkshopKindMigrationTest` covers the v29 cases.
 
 ---
+
+### A32. Local web tools are two gates over one guard, and `render` is a browser
+
+- `web_search_local` is the Bilibili shape: query only, no URL, global switch +
+  assistant `optIn`, no conversation grant. `web_fetch_local` is the
+  `download_url` shape: a model-named URL, free and unlimited, so it keeps the
+  global switch, the `optIn` row **and** the per-conversation acknowledgement in
+  `conversations.localFetchAllowed` (schema v30, `MIGRATION_29_30`). Turning the
+  global switch off clears every conversation's grant. Both are absent from
+  every picker, request and `unavailable_tools` while off — never a greyed row —
+  and demo mode does not register them.
+- They use the one `GuardedHttp` guard extracted from `UrlDownloader`
+  (`DownloadUrl.validate` for the URL rules, a connect-time DNS check and a
+  manual redirect loop re-validating every hop). Do not add a second SSRF path,
+  do not swap in a client with `followRedirects(true)`, and do not let the paid
+  `web_fetch` reach a renderer it does not have: `render` is in the schema only
+  when the provider is a `RenderingFetchProvider`.
+- `render = true` executes the page's own JavaScript in a **fresh** WebView and
+  returns only `innerText`. There is no `addJavascriptInterface`, no injected
+  cookie/credential, no file access, no persistent storage, and the WebView is
+  destroyed per call. Do not add a bridge or reuse the WebView: page script is
+  the reason the path exists, and any app bridge would turn a fetched page into
+  a caller. Public addresses are checked before the engine loads anything and
+  main-frame navigation is re-validated; the page can still make its own
+  requests (that is rendering, not a bug) and the Settings copy says so.
+- Diagnostics record host, status, bytes and time only. The query/URL and the
+  page text never go to the log.
+- There is **no client-side rate limit** yet; a free tool can be called as often
+  as the model asks. The engine is sequential and the engines' risk control is
+  the only brake — treat a per-turn cap/throttle as a known follow-up, not as
+  implemented.
+- Tests: `GuardedHttpTest`, `HtmlTextTest`, the two search-parser tests,
+  `LocalFetchApiTest`, `LocalWebToolsTest`, `LocalFetchConsentMigrationTest`;
+  the real WebView path is device-only and needs a phone check.
 
 ## B. Defects that were found here — and where each one now stands
 

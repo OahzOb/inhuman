@@ -24,6 +24,9 @@ dependencies {
 	implementation libs.okhttp
 	implementation libs.sshj
 	implementation libs.bouncycastle.bcprov
+	// Pure-Java HTML/XML parsing: readable-text extraction and the local
+	// search-page parsers. No Android artifact, so the JVM tests exercise it.
+	implementation libs.jsoup
 
 	testImplementation libs.junit
 	testImplementation libs.kotlinx.coroutines.test

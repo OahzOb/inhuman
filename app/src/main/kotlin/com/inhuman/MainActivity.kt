@@ -77,7 +77,9 @@ import com.inhuman.ui.workspaces.WorkspaceDetailViewModel
 import com.inhuman.ui.workspaces.WorkspacesScreen
 import com.inhuman.ui.workspaces.WorkspacesViewModel
 import com.inhuman.web.BilibiliReadProvider
+import com.inhuman.web.LocalWebProviders
 import com.inhuman.web.WebToolProviders
+import com.inhuman.web.WebViewPageRenderer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -610,6 +612,9 @@ private fun InhumanRoot(
 					val ssh = SshClient(
 						File(context.applicationContext.filesDir, "ssh/known_hosts"),
 					)
+					// One renderer object for the process; it creates a fresh
+					// WebView per rendered fetch and destroys it afterwards.
+					val pageRenderer = WebViewPageRenderer(context.applicationContext)
 					ChatViewModel(
 						context = context.applicationContext,
 						repository = repository,
@@ -622,6 +627,19 @@ private fun InhumanRoot(
 						// reopening the conversation.
 						searchProvider = { WebToolProviders.search(secure) },
 						fetchProvider = { WebToolProviders.fetch(secure) },
+						// The app's own web tools: no key, no provider. Both
+						// switches are read per turn, so a Settings change takes
+						// effect without reopening the conversation.
+						localSearchProvider = { LocalWebProviders.search(secure) },
+						localFetchProvider = {
+							LocalWebProviders.fetch(secure, pageRenderer)
+						},
+						localSearchEnabled = {
+							LocalWebProviders.searchEnabled(secure)
+						},
+						localFetchEnabled = {
+							LocalWebProviders.fetchEnabled(secure)
+						},
 						// The Bilibili client is shared, but whose session it
 						// sends is read per request: unlinking in Settings takes
 						// effect on the next call, not the next chat.
@@ -765,12 +783,13 @@ private fun InhumanRoot(
 				}
 			}
 			val vm: ConversationsViewModel = viewModel(factory = factory)
-			// The workshop display names are resolved from the activity's
+			// The workshop display name is resolved from the activity's
 			// resources, not the application context the view model holds: the
 			// app has its own language setting, and a name created from the
-			// system locale disagreed with the UI that showed the entry.
+			// system locale disagreed with the UI that showed the entry. It is
+			// only used when the row does not exist yet; the workshop cannot be
+			// renamed afterwards.
 			val workshopName = stringResource(R.string.workshop_name)
-			val studioName = stringResource(R.string.studio_name)
 			ConversationsScreen(
 				viewModel = vm,
 				onOpenConversation = {
@@ -796,16 +815,6 @@ private fun InhumanRoot(
 					// so reading the name there stored one language and displayed
 					// another.
 					vm.openWorkshop(workshopName) { workspaceId ->
-						showSettings = false
-						showFiles = false
-						showAgents = false
-						showWorkspaces = false
-						workspaceFromHome = true
-						openWorkspaceId = workspaceId
-					}
-				},
-				onOpenStudio = {
-					vm.openStudio(studioName) { workspaceId ->
 						showSettings = false
 						showFiles = false
 						showAgents = false

@@ -270,6 +270,8 @@ fun AgentsScreen(
 			suggestionsEnabled = state.suggestionsEnabled,
 			bilibiliEnabled = state.bilibiliEnabled,
 			bilibiliLoggedIn = state.bilibiliLoggedIn,
+			localSearchEnabled = state.localSearchEnabled,
+			localFetchEnabled = state.localFetchEnabled,
 			downloadEnabled = state.downloadEnabled,
 			mediaConfiguredTools = state.mediaConfiguredTools,
 			savedPrompts = state.savedPrompts,
@@ -447,6 +449,8 @@ private fun AgentEditor(
 	bilibiliEnabled: Boolean,
 	bilibiliLoggedIn: Boolean,
 	downloadEnabled: Boolean,
+	localSearchEnabled: Boolean,
+	localFetchEnabled: Boolean,
 	/** Null means "not resolved yet"; the tool list then does not filter. */
 	mediaConfiguredTools: Set<String>?,
 	savedPrompts: List<SavedPromptEntity>,
@@ -473,6 +477,8 @@ private fun AgentEditor(
 		includeBilibili = bilibiliEnabled,
 		includeBilibiliLogin = bilibiliLoggedIn,
 		includeDownload = downloadEnabled,
+		includeLocalSearch = localSearchEnabled,
+		includeLocalFetch = localFetchEnabled,
 		includePdfVision = true,
 		mediaConfigured = mediaConfiguredTools,
 	)
@@ -970,6 +976,8 @@ private fun AgentEditor(
 			bilibiliEnabled = bilibiliEnabled,
 			bilibiliLoggedIn = bilibiliLoggedIn,
 			downloadEnabled = downloadEnabled,
+			localSearchEnabled = localSearchEnabled,
+			localFetchEnabled = localFetchEnabled,
 			mediaConfiguredTools = mediaConfiguredTools,
 			expandedFamily = expandedRuleFamily,
 			onToggleExpanded = { name ->
@@ -1186,6 +1194,8 @@ private fun AgentEditor(
 			bilibiliEnabled = bilibiliEnabled,
 			bilibiliLoggedIn = bilibiliLoggedIn,
 			downloadEnabled = downloadEnabled,
+			localSearchEnabled = localSearchEnabled,
+			localFetchEnabled = localFetchEnabled,
 			mediaConfiguredTools = mediaConfiguredTools,
 			modelLabel = draft.model?.let { id ->
 				models.firstOrNull { it.id == id }?.displayName?.takeIf { it.isNotBlank() } ?: id
@@ -1295,6 +1305,8 @@ private fun PromptPreview(
 	bilibiliEnabled: Boolean,
 	bilibiliLoggedIn: Boolean,
 	downloadEnabled: Boolean,
+	localSearchEnabled: Boolean,
+	localFetchEnabled: Boolean,
 	mediaConfiguredTools: Set<String>?,
 	modelLabel: String,
 	onDismiss: () -> Unit,
@@ -1308,6 +1320,8 @@ private fun PromptPreview(
 		includeBilibili = bilibiliEnabled,
 		includeBilibiliLogin = bilibiliLoggedIn,
 		includeDownload = downloadEnabled,
+		includeLocalSearch = localSearchEnabled,
+		includeLocalFetch = localFetchEnabled,
 		includePdfVision = true,
 		mediaConfigured = mediaConfiguredTools,
 	)
@@ -1593,6 +1607,8 @@ private fun AssistantRulesSection(
 	bilibiliEnabled: Boolean,
 	bilibiliLoggedIn: Boolean,
 	downloadEnabled: Boolean,
+	localSearchEnabled: Boolean,
+	localFetchEnabled: Boolean,
 	mediaConfiguredTools: Set<String>?,
 	/** The family currently open, by name; only one at a time. */
 	expandedFamily: String,
@@ -1607,6 +1623,8 @@ private fun AssistantRulesSection(
 		includeBilibili = bilibiliEnabled,
 		includeBilibiliLogin = bilibiliLoggedIn,
 		includeDownload = downloadEnabled,
+		includeLocalSearch = localSearchEnabled,
+		includeLocalFetch = localFetchEnabled,
 		includePdfVision = true,
 		mediaConfigured = mediaConfiguredTools,
 	)

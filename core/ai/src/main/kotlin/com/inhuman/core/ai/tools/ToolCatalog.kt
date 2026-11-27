@@ -128,6 +128,30 @@ object ToolCatalog {
 		 */
 		val gatedByBilibili: Boolean = false,
 		/**
+		 * Whether the tool belongs to the app's own (keyless) web search.
+		 *
+		 * The request is made by the app from the device's network, not by a
+		 * search API provider. Free and anonymous, but still a new external
+		 * read the user must switch on in Settings: while the switch is off the
+		 * row is absent from every picker, request and gap report rather than
+		 * greyed -- the same rule §1.2.1 applies to the remote tools.
+		 *
+		 * It is also [optIn]: a null "all tools" selection predates this name,
+		 * and a new external read must not appear in every existing assistant
+		 * because a release added it.
+		 */
+		val gatedByLocalSearch: Boolean = false,
+		/**
+		 * Whether the tool belongs to the app's own (keyless) page fetch.
+		 *
+		 * This one is a [download_url]-class capability: the model names a URL,
+		 * the app requests it from the device, and a URL can carry data out.
+		 * That is why it has its own switch, its own `optIn` row and a
+		 * once-per-conversation acknowledgement on the first call, exactly like
+		 * `download_url` (`docs/08-port-philosophy.md` §1.6).
+		 */
+		val gatedByLocalFetch: Boolean = false,
+		/**
 		 * Whether the tool belongs to the app-proxied URL download capability.
 		 *
 		 * The app makes the request and the agent still has no socket, but a
@@ -238,6 +262,23 @@ object ToolCatalog {
 			"Fetch a page via the configured paid fetch API",
 			mutates = false,
 			paid = true,
+		),
+		// App-proxied local web reads. Free and keyless, but still external
+		// reads the user chose: two independent switches, and both rows are
+		// opt-in so a null "all tools" selection does not inherit them.
+		Entry(
+			"web_search_local",
+			"Search the web from this device (free, no API key)",
+			mutates = false,
+			optIn = true,
+			gatedByLocalSearch = true,
+		),
+		Entry(
+			"web_fetch_local",
+			"Fetch one page from this device (free; optional browser rendering)",
+			mutates = false,
+			optIn = true,
+			gatedByLocalFetch = true,
 		),
 		// Anonymous, read-only Bilibili. Free and account-free, so no PAID or
 		// REMOTE badge: the app makes the request and the model still has no
@@ -532,6 +573,21 @@ object ToolCatalog {
 		 */
 		includeDownload: Boolean = false,
 		/**
+		 * Whether the global local-search switch is on.
+		 *
+		 * Off means `web_search_local` is absent from every picker, request and
+		 * `unavailable_tools`, not a greyed row -- the same rule the remote and
+		 * Bilibili capabilities follow.
+		 */
+		includeLocalSearch: Boolean = false,
+		/**
+		 * Whether the global local-fetch switch is on.
+		 *
+		 * Same rule; the conversation-level acknowledgement is a separate gate
+		 * enforced by the host on the first call.
+		 */
+		includeLocalFetch: Boolean = false,
+		/**
 		 * Whether the host implements [PDF_VISION_TOOL]. Unlike SSH or the
 		 * sandbox this is not a runtime capability switch: it is a statement
 		 * about the binary. The Android pickers pass true; the default keeps a
@@ -559,6 +615,8 @@ object ToolCatalog {
 				(includeBilibili || !entry.gatedByBilibili) &&
 				(includeBilibiliLogin || !entry.bilibiliLoginRequired) &&
 				(includeDownload || !entry.gatedByDownload) &&
+				(includeLocalSearch || !entry.gatedByLocalSearch) &&
+				(includeLocalFetch || !entry.gatedByLocalFetch) &&
 				(includePdfVision || entry.name != PDF_VISION_TOOL) &&
 				(mediaConfigured == null || !entry.gatedByMediaConfig ||
 					entry.name in mediaConfigured)

@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -50,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.inhuman.R
+import com.inhuman.core.data.db.WorkspaceKinds
 import com.inhuman.core.design.Layout
 import com.inhuman.core.design.Eyebrow
 import com.inhuman.core.design.Hairline
@@ -288,17 +291,23 @@ fun WorkspacesScreen(
 							selecting = state.selecting,
 							selected = row.workspace.id in state.selectedIds,
 							onClick = {
-								if (state.selecting) {
-									viewModel.toggleSelection(row.workspace.id)
-								} else {
-									onOpenWorkspace(row.workspace.id)
+								when {
+									!state.selecting -> onOpenWorkspace(row.workspace.id)
+									row.workspace.kind == WorkspaceKinds.NONE ->
+										viewModel.toggleSelection(row.workspace.id)
+									// A built-in workspace is not selectable: opening it
+									// from selection mode would leave the mode active
+									// behind a different screen.
+									else -> Unit
 								}
 							},
 							onLongClick = {
-								if (state.selecting) {
-									viewModel.toggleSelection(row.workspace.id)
-								} else {
-									viewModel.beginSelection(row.workspace.id)
+								if (row.workspace.kind == WorkspaceKinds.NONE) {
+									if (state.selecting) {
+										viewModel.toggleSelection(row.workspace.id)
+									} else {
+										viewModel.beginSelection(row.workspace.id)
+									}
 								}
 							},
 						)
@@ -408,6 +417,7 @@ private fun WorkspaceListRow(
 	onClick: () -> Unit,
 	onLongClick: () -> Unit,
 ) {
+	val builtIn = row.workspace.kind != WorkspaceKinds.NONE
 	Row(
 		modifier = Modifier
 			.fillMaxWidth()
@@ -419,7 +429,10 @@ private fun WorkspaceListRow(
 			.padding(vertical = 12.dp, horizontal = 4.dp),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
-		if (selecting) {
+		// A built-in workspace is app-owned: it cannot be renamed, deleted or
+		// bulk-deleted, so it never enters selection mode. Showing a checkbox
+		// would promise an action the data layer refuses.
+		if (selecting && !builtIn) {
 			Checkbox(
 				checked = selected,
 				onCheckedChange = { onClick() },
@@ -429,12 +442,23 @@ private fun WorkspaceListRow(
 			modifier = Modifier.weight(1f),
 			verticalArrangement = Arrangement.spacedBy(2.dp),
 		) {
-			Text(
-				text = row.workspace.name,
-				style = MaterialTheme.typography.titleSmall,
-				maxLines = 1,
-				overflow = TextOverflow.Ellipsis,
-			)
+			Row(verticalAlignment = Alignment.CenterVertically) {
+				Text(
+					text = row.workspace.name,
+					style = MaterialTheme.typography.titleSmall,
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis,
+					modifier = Modifier.weight(1f, fill = false),
+				)
+				if (builtIn) {
+					Spacer(Modifier.width(8.dp))
+					Text(
+						text = stringResource(R.string.workspace_builtin_badge),
+						style = MaterialTheme.typography.labelSmall,
+						color = MaterialTheme.colorScheme.primary,
+					)
+				}
+			}
 			Text(
 				text = pluralStringResource(
 					R.plurals.workspaces_conversation_count,

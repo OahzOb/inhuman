@@ -154,26 +154,28 @@ request to forget the selection.
 
 ## Helpers the sheet never shows
 
-`recall` (continuous sessions), `rp_format` / `rp_validate` / `rp_create_scene`
-(RP workshop conversations), the six configuration-workshop helpers
-(`app_list_assistants`, `app_read_assistant`, `app_propose_assistant`,
-`app_list_instructions`, `app_read_instruction`, `app_propose_instruction`) and
-`unavailable_tools` are appended by the host after the allow-list. They are not
-catalogue entries, so the sheet neither shows nor changes them: a conversation's
-selection is about **capability**, and these have none. `recall` reads this
-conversation's own record; `rp_format` is constant text; `rp_validate` reads a
-workspace file only when a read tool is already selected; `rp_create_scene`
-prepares a proposal and creates nothing until the user taps a card.
+`recall` (continuous sessions), the nine workshop helpers and
+`unavailable_tools` are appended by the host after the allow-list. The workshop
+helpers are the role-play set (`rp_format` / `rp_validate` / `rp_create_scene`)
+and the configuration set (`app_list_assistants`, `app_read_assistant`,
+`app_propose_assistant`, `app_list_instructions`, `app_read_instruction`,
+`app_propose_instruction`). They are not catalogue entries, so the sheet neither
+shows nor changes them: a conversation's selection is about **capability**, and
+these have none. `recall` reads this conversation's own record; `rp_format` is
+constant text; `rp_validate` reads a workspace file only when a read tool is
+already selected; `rp_create_scene` prepares a proposal and creates nothing until
+the user taps a card.
 
-The role-play helpers exist only in a non-scene conversation whose workspace has
-`kind = roleplay`, and the configuration helpers only in a non-scene conversation
-whose workspace has `kind = studio` — workspace-scoped presentation decisions,
-not grants (`docs/07-gotchas.md` A31/A32). The configuration helpers read app
-configuration rather than workspace files: assistant content, and each permanent
-workspace's root `AGENTS.md` by display name. Their two propose tools write
-nothing; the card opens the existing assistant/Files editor and the user's Save
-is the only write. A proposal cannot carry a tool selection, provider, model or
-approval rule, and the saved-prompt library remains invisible to the model.
+Both sets exist together, only in a non-scene conversation whose workspace has
+`kind = "workshop"` (schema v29; one built-in workshop, the v28 role-play and
+configuration kinds merged) — a workspace-scoped presentation decision, not a
+grant (`docs/07-gotchas.md` A31). A conversation that is itself a role-play
+scene gets none of them. The configuration helpers read app configuration rather
+than workspace files: assistant content, and each permanent workspace's root
+`AGENTS.md` by display name. Their propose tools write nothing; the card opens
+the existing assistant/Files editor and the user's Save is the only write. A
+proposal cannot carry a tool selection, provider, model or approval rule, and
+the saved-prompt library remains invisible to the model.
 
 ## Why this is not a new exception
 
@@ -204,7 +206,7 @@ per turn, not for the lifetime of the conversation.
 ## Non-goals
 
 - A model-callable `set_tools` tool.
-- A model-callable workspace-kind change or role-play-helper toggle: entering
+- A model-callable workspace-kind change or workshop-helper toggle: entering
   the workshop and leaving it are user gestures, and the helpers are not a
   capability to grant.
 - Automatic synchronisation from the assistant on every edit.

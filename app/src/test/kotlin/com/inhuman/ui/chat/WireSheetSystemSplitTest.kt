@@ -32,8 +32,8 @@ class WireSheetSystemSplitTest {
 
 	@Test
 	fun `a workshop block sits between the prompt and the summary`() {
-		val workshop = workshopPrompt(WorkspaceKinds.STUDIO, roleplayActive = false)
-			?: error("the configuration workshop must get a block")
+		val workshop = workshopPrompt(WorkspaceKinds.WORKSHOP, roleplayActive = false)
+			?: error("the workshop must get a block")
 		val block = workspaceInstructionsBlock(WorkspaceInstructions("Use LF.", false, 7))
 		val blocks = splitSystem("You are terse.\n\n$workshop\n\n$summary\nold turns\n\n$block")
 
@@ -57,8 +57,8 @@ class WireSheetSystemSplitTest {
 
 	@Test
 	fun `a workshop block without a summary is its own block`() {
-		val workshop = workshopPrompt(WorkspaceKinds.ROLEPLAY, roleplayActive = false)
-			?: error("the RP workshop must get a block")
+		val workshop = workshopPrompt(WorkspaceKinds.WORKSHOP, roleplayActive = false)
+			?: error("the workshop must get a block")
 		val blocks = splitSystem("You are terse.\n\n$workshop")
 
 		assertEquals(listOf("Assistant prompt", "Workshop context"), blocks.map { it.first })

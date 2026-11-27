@@ -238,6 +238,15 @@ interface ConversationDao {
 	@Query("UPDATE conversations SET downloadAllowed = 0")
 	suspend fun clearAllDownloadAllowed()
 
+	@Query("SELECT localFetchAllowed FROM conversations WHERE id = :id")
+	suspend fun localFetchAllowed(id: String): Boolean?
+
+	@Query("UPDATE conversations SET localFetchAllowed = :allowed WHERE id = :id")
+	suspend fun setLocalFetchAllowed(id: String, allowed: Boolean)
+
+	@Query("UPDATE conversations SET localFetchAllowed = 0")
+	suspend fun clearAllLocalFetchAllowed()
+
 	@Query("UPDATE conversations SET model = :model WHERE id = :id")
 	suspend fun setModel(id: String, model: String?)
 
@@ -708,13 +717,14 @@ interface SavedPromptDao {
 	// workspace instructions, again for the per-conversation SSH host
 	// selection, again for continuous-session maintenance, again for
 	// role-play cards and scenes, again for the per-conversation URL
-	// download acknowledgement, and again for the workspace kind that marks the
-	// built-in role-play workshop. Room refuses to open a database whose schema
+	// download acknowledgement, again for the workspace kind that marks the
+	// built-in role-play workshop, and again for merging the two built-in
+	// workshops into one. Room refuses to open a database whose schema
 	// hash does not match rather than guessing, which is how each was caught:
 	// the app crashed on launch with "Looks like you've changed schema but
 	// forgot to update the version number" instead of quietly losing
 	// conversations.
-	version = 28,
+	version = 30,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -733,7 +743,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 		const val NAME = "inhuman.db"
 
 		/** Mirrors the Room annotation; backups record it without reflection. */
-		const val VERSION = 25
+		const val VERSION = 30
 
 		/**
 		 * 1 -> 2: tool-call columns.
@@ -1374,6 +1384,47 @@ abstract class InhumanDatabase : RoomDatabase() {
 		}
 
 		/**
+		 * 28 -> 29: the two built-in workshops become one.
+		 *
+		 * No column changes: v28 already stores a kind, so this migration only
+		 * rewrites values and keeps every row, directory and conversation where
+		 * it is. A role-play row is the survivor when both exist, because scene
+		 * conversations are bound to it and its materials are the ones that must
+		 * stay in one place; a configuration row is demoted to an ordinary
+		 * permanent workspace, which keeps its files and conversations (they
+		 * lose the host helpers, as `docs/proposals/workshop-merge.md` records).
+		 *
+		 * A migration must not move files or rename rows: a directory merge
+		 * would need quota, collision and rollback handling that a schema
+		 * upgrade cannot own, and a localized name cannot be invented here.
+		 */
+		val MIGRATION_28_29 = object : Migration(28, 29) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL("UPDATE workspaces SET kind = 'workshop' WHERE kind = 'roleplay'")
+				connection.execSQL(
+					"UPDATE workspaces SET kind = '' WHERE kind = 'studio' " +
+						"AND EXISTS (SELECT 1 FROM workspaces WHERE kind = 'workshop')",
+				)
+				connection.execSQL("UPDATE workspaces SET kind = 'workshop' WHERE kind = 'studio'")
+			}
+		}
+
+		/**
+		 * The local page-fetch consent flag.
+		 *
+		 * Additive and defaulted to false: an existing conversation has never
+		 * been asked, and "not answered" is not "yes". Nothing else depends on
+		 * the value, so this is one ALTER with no data rewrite.
+		 */
+		val MIGRATION_29_30 = object : Migration(29, 30) {
+			override fun migrate(connection: SQLiteConnection) {
+				connection.execSQL(
+					"ALTER TABLE conversations ADD COLUMN localFetchAllowed INTEGER NOT NULL DEFAULT 0",
+				)
+			}
+		}
+
+		/**
 		 * Every migration, in order.
 		 *
 		 * A builder must not copy this list. `:core:data` uses
@@ -1409,6 +1460,8 @@ abstract class InhumanDatabase : RoomDatabase() {
 			MIGRATION_25_26,
 			MIGRATION_26_27,
 			MIGRATION_27_28,
+			MIGRATION_28_29,
+			MIGRATION_29_30,
 		)
 
 		/**

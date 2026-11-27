@@ -153,7 +153,11 @@ class WorkspacesViewModel(
 	fun deleteSelected() {
 		val current = _state.value
 		if (current.deletingSelection || current.selectedIds.isEmpty()) return
-		val targets = current.workspaces.filter { it.workspace.id in current.selectedIds }
+		val targets = current.workspaces
+			.filter { it.workspace.id in current.selectedIds }
+			// The built-in workshop is app-owned and never deletable, even if a
+			// stale selection names it: the list UI has no checkbox for it.
+			.filter { it.workspace.kind == com.inhuman.core.data.db.WorkspaceKinds.NONE }
 		if (targets.isEmpty()) {
 			cancelSelection()
 			return

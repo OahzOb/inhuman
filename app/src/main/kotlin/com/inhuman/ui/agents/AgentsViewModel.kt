@@ -44,6 +44,9 @@ data class AgentsUiState(
 	val suggestionsEnabled: Boolean = false,
 	/** Whether the anonymous Bilibili read tools are offered to pick at all. */
 	val bilibiliEnabled: Boolean = false,
+	/** Whether the app's own (keyless) web tools are switched on globally. */
+	val localSearchEnabled: Boolean = false,
+	val localFetchEnabled: Boolean = false,
 	/** Whether the URL-download tool is offered to pick at all. */
 	val downloadEnabled: Boolean = false,
 	/** Whether the optional Bilibili login is linked (`bili_transcript` needs it). */
@@ -220,6 +223,8 @@ class AgentsViewModel(
 				sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
 				suggestionsEnabled = secure.get(SecureStore.KEY_SUGGESTIONS_ENABLED) == "1",
 				bilibiliEnabled = secure.get(SecureStore.KEY_BILIBILI_TOOL_ENABLED) == "1",
+				localSearchEnabled = secure.get(SecureStore.KEY_WEB_LOCAL_SEARCH_ENABLED) == "1",
+				localFetchEnabled = secure.get(SecureStore.KEY_WEB_LOCAL_FETCH_ENABLED) == "1",
 				downloadEnabled = secure.get(SecureStore.KEY_DOWNLOAD_TOOL_ENABLED) == "1",
 				bilibiliLoggedIn = com.inhuman.core.ai.bilibili.BilibiliCredentials.fromStoredJson(
 					secure.get(SecureStore.KEY_BILIBILI_SESSION),

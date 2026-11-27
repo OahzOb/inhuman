@@ -7,6 +7,7 @@ import com.inhuman.core.data.db.WorkspaceKinds
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -16,12 +17,14 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * The built-in workshops on the JVM.
+ * The one built-in workshop on the JVM.
  *
  * The row is the whole state: the kind must survive a re-read, ordinary
- * workspaces must not acquire it, each kind has one row, and the ensure calls
- * must be idempotent because an entry can be tapped twice before the first
- * creation finishes.
+ * workspaces must never acquire it, there is exactly one workshop row, and the
+ * ensure call must be idempotent because an entry can be tapped twice before
+ * the first creation finishes. The workshop is also app-owned: rename and delete
+ * refuse it, because its entry is a fixed feature surface and deleting it would
+ * take the scenes and materials that live there with it.
  */
 class WorkshopWorkspaceTest {
 
@@ -53,28 +56,40 @@ class WorkshopWorkspaceTest {
 	}
 
 	@Test
-	fun `ensureWorkshop creates one permanent role-play workspace`() = runBlocking {
-		val workshop = repository.ensureWorkshop("RP 工坊")
+	fun `ensureWorkshop creates one permanent workshop`() = runBlocking {
+		val workshop = repository.ensureWorkshop("工坊")
 
-		assertEquals(WorkspaceKinds.ROLEPLAY, workshop.kind)
+		assertEquals(WorkspaceKinds.WORKSHOP, workshop.kind)
 		assertTrue(workshop.isPermanent)
-		assertEquals("RP 工坊", workshop.name)
+		assertEquals("工坊", workshop.name)
 		assertNotNull(repository.workspaceRecord(workshop.id))
-		assertEquals(WorkspaceKinds.ROLEPLAY, repository.workshop()?.kind)
+		assertEquals(WorkspaceKinds.WORKSHOP, repository.workshop()?.kind)
 	}
 
 	@Test
 	fun `ensureWorkshop is idempotent and never replaces the first row`() = runBlocking {
-		val first = repository.ensureWorkshop("RP 工坊")
+		val first = repository.ensureWorkshop("工坊")
 		val second = repository.ensureWorkshop("Another name")
 
 		assertEquals(first.id, second.id)
-		assertEquals("RP 工坊", repository.workshop()?.name)
+		assertEquals("工坊", repository.workshop()?.name)
+	}
+
+	@Test
+	fun `ensureWorkshop adopts a row that already carries the workshop kind`() = runBlocking {
+		// The shape v29 leaves behind: the kind is already on the surviving row,
+		// and the entry must open it instead of creating a second workshop.
+		val existing = repository.createWorkspace("RP 工坊", WorkspaceKinds.WORKSHOP)
+
+		val ensured = repository.ensureWorkshop("工坊")
+
+		assertEquals(existing.id, ensured.id)
+		assertEquals(1, repository.workspaces().count { it.kind == WorkspaceKinds.WORKSHOP })
 	}
 
 	@Test
 	fun `a scene can be created inside the workshop workspace`() = runBlocking {
-		val workshop = repository.ensureWorkshop("RP 工坊")
+		val workshop = repository.ensureWorkshop("工坊")
 
 		val scene = repository.create(
 			title = "Archivist",
@@ -91,37 +106,49 @@ class WorkshopWorkspaceTest {
 	}
 
 	@Test
-	fun `ensureStudio creates one permanent configuration workspace`() = runBlocking {
-		val studio = repository.ensureStudio("Config workshop")
+	fun `the workshop cannot be renamed`() = runBlocking {
+		val workshop = repository.ensureWorkshop("工坊")
 
-		assertEquals(WorkspaceKinds.STUDIO, studio.kind)
-		assertTrue(studio.isPermanent)
-		assertEquals("Config workshop", studio.name)
-		assertEquals(WorkspaceKinds.STUDIO, repository.studio()?.kind)
-		assertEquals(null, repository.workshop())
+		repository.renameWorkspace(workshop, "My workshop")
+
+		assertEquals("工坊", repository.workshop()?.name)
 	}
 
 	@Test
-	fun `ensureStudio is idempotent and never replaces the first row`() = runBlocking {
-		val first = repository.ensureStudio("Config workshop")
-		val second = repository.ensureStudio("Another name")
+	fun `the workshop cannot be deleted even when empty`() = runBlocking {
+		val workshop = repository.ensureWorkshop("工坊")
 
-		assertEquals(first.id, second.id)
-		assertEquals("Config workshop", repository.studio()?.name)
+		assertFalse(repository.deleteWorkspace(workshop))
+		assertNotNull(repository.workspaceRecord(workshop.id))
 	}
 
 	@Test
-	fun `the two built-in kinds are separate rows`() = runBlocking {
-		val workshop = repository.ensureWorkshop("RP 工坊")
-		val studio = repository.ensureStudio("配置工坊")
+	fun `bulk delete never takes the workshop or its conversations`() = runBlocking {
+		val workshop = repository.ensureWorkshop("工坊")
+		repository.create(
+			title = "A scene",
+			workspaceId = workshop.id,
+			tools = emptyList(),
+			sceneJson = """{"world":"somewhere"}""",
+			rpSnapshotJson = """{"systemPrompt":"","characterName":"A","card":"{}"}""",
+		)
+		val ordinary = repository.createWorkspace("notes")
 
-		assertNotEquals(workshop.id, studio.id)
-		assertEquals(WorkspaceKinds.ROLEPLAY, repository.workshop()?.kind)
-		assertEquals(WorkspaceKinds.STUDIO, repository.studio()?.kind)
-		// Each lookup must not mistake the other kind for its own, and an
-		// ordinary workspace must never become one of them.
-		val notes = repository.createWorkspace("notes")
-		assertEquals(3, repository.workspaces().size)
-		assertEquals(WorkspaceKinds.NONE, repository.workspaceRecord(notes.id)?.kind)
+		val deleted = repository.deleteWorkspaces(listOf(workshop, ordinary))
+
+		assertEquals(1, deleted.workspaces)
+		assertEquals(0, deleted.conversations)
+		assertNotNull(repository.workspaceRecord(workshop.id))
+		assertEquals(null, repository.workspaceRecord(ordinary.id))
+	}
+
+	@Test
+	fun `an ordinary workspace can still be renamed and deleted when empty`() = runBlocking {
+		val workspace = repository.createWorkspace("notes")
+
+		repository.renameWorkspace(workspace, "renamed")
+		assertEquals("renamed", repository.workspaceRecord(workspace.id)?.name)
+		assertTrue(repository.deleteWorkspace(repository.workspaceRecord(workspace.id)!!))
+		assertEquals(null, repository.workspaceRecord(workspace.id))
 	}
 }

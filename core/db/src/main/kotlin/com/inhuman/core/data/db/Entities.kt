@@ -312,14 +312,13 @@ data class WorkspaceEntity(
 	 *
 	 * A workspace kind is a data attribute, not a permission level: it decides
 	 * which *host-appended helpers* a conversation in this workspace gets
-	 * ([WorkspaceKinds.ROLEPLAY] adds the role-play authoring helpers and the
-	 * scene-proposal tool; [WorkspaceKinds.STUDIO] adds the assistant and
-	 * instruction-file helpers). None of those helpers can reach the network,
-	 * execute anything, or read a workspace file the conversation's tool set
-	 * did not already allow. Capability-bearing tools still come from the
-	 * assistant and the conversation's own tool list, so this column cannot
-	 * widen what an agent may do -- see `docs/proposals/rp-agent-studio.md`,
-	 * `docs/proposals/config-workshop.md` and `docs/07-gotchas.md` A31/A32.
+	 * ([WorkspaceKinds.WORKSHOP] adds the role-play authoring helpers, the
+	 * scene-proposal tool and the app-configuration read/draft helpers). None of
+	 * those helpers can reach the network, execute anything, or read a workspace
+	 * file the conversation's tool set did not already allow. Capability-bearing
+	 * tools still come from the assistant and the conversation's own tool list,
+	 * so this column cannot widen what an agent may do -- see
+	 * `docs/proposals/workshop-merge.md` and `docs/07-gotchas.md` A31.
 	 *
 	 * Empty is the default so every workspace an upgrade already has stays an
 	 * ordinary one; nothing is promoted automatically.
@@ -337,9 +336,9 @@ data class WorkspaceEntity(
  * treated as an ordinary workspace by every reader, so a kind added by a newer
  * release degrades to "no extra helpers" rather than to an error.
  *
- * Each kind has at most one row: [ConversationRepository.workshop] and
- * [ConversationRepository.studio] find the built-in one, and the app creates it
- * lazily from the home entry.
+ * At most one row has the workshop kind:
+ * [ConversationRepository.workshop] finds the built-in one, and the app creates
+ * it lazily from the home entry.
  */
 object WorkspaceKinds {
 
@@ -347,25 +346,26 @@ object WorkspaceKinds {
 	const val NONE = ""
 
 	/**
-	 * The built-in role-play workshop.
+	 * The one built-in workshop.
 	 *
 	 * At most one row has this kind; the app creates it lazily when the user
-	 * opens the workshop entry (see [ConversationRepository.ensureWorkshop]). It
-	 * is a permanent workspace, so scenes created from it keep their materials.
-	 */
-	const val ROLEPLAY = "roleplay"
-
-	/**
-	 * The built-in configuration workshop.
+	 * opens the workshop entry (see [ConversationRepository.ensureWorkshop]) and
+	 * is the only writer. It is app-owned: the user can neither create another
+	 * one, rename this one nor delete it, because it is a feature surface rather
+	 * than a shared folder, and deleting it would take the scenes and materials
+	 * that live there with it.
 	 *
-	 * At most one row has this kind; [ConversationRepository.ensureStudio]
-	 * creates it lazily. In a non-scene conversation there, the host appends the
-	 * assistant- and instruction-file helpers: they can list and read the app's
-	 * own configuration, and a "proposal" they return only opens one of the
-	 * user's existing editors prefilled. No row is written by a tool, and no
-	 * capability is added -- see `docs/proposals/config-workshop.md`.
+	 * In a non-scene conversation there, the host appends the role-play
+	 * authoring helpers and the app-configuration read/draft helpers: they can
+	 * prepare a scene proposal, read the app's own configuration and prepare
+	 * drafts, but no row is written by a tool and no capability is added -- see
+	 * `docs/proposals/workshop-merge.md`.
+	 *
+	 * Schema v29 rewrites the v28 `"roleplay"` and `"studio"` values into this
+	 * one (the role-play row is the survivor when both exist); no runtime code
+	 * should ever see the legacy strings.
 	 */
-	const val STUDIO = "studio"
+	const val WORKSHOP = "workshop"
 }
 
 /**
@@ -453,6 +453,18 @@ data class ConversationEntity(
 	 */
 	@ColumnInfo(defaultValue = "0")
 	val downloadAllowed: Boolean = false,
+
+	/**
+	 * The once-per-conversation acknowledgement for `web_fetch_local`.
+	 *
+	 * The same capability as [downloadAllowed] -- a model-named URL the app
+	 * requests from this device, free and unlimited -- so it is a separate
+	 * consent flag, not a reused one: agreeing to save bytes to the workspace
+	 * is not agreeing to put a page's text into the conversation. Additive and
+	 * defaulted, so an upgrade starts with local fetches unallowed.
+	 */
+	@ColumnInfo(defaultValue = "0")
+	val localFetchAllowed: Boolean = false,
 
 	/**
 	 * The saved SSH hosts this conversation may use, as ids.
