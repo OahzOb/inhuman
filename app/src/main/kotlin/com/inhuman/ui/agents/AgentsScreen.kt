@@ -275,6 +275,16 @@ fun AgentsScreen(
 			downloadEnabled = state.downloadEnabled,
 			mediaConfiguredTools = state.mediaConfiguredTools,
 			savedPrompts = state.savedPrompts,
+			promptImport = state.promptImport,
+			promptImportPicked = state.promptImportPicked,
+			onOpenPromptImport = viewModel::openPromptImport,
+			onChoosePromptImportWorkspace = viewModel::choosePromptImportWorkspace,
+			onEnterPromptImportDirectory = viewModel::enterPromptImportDirectory,
+			onPromptImportUp = viewModel::promptImportUp,
+			onPromptImportChangeWorkspace = viewModel::promptImportChangeWorkspace,
+			onPromptImportPickFile = viewModel::pickPromptImportFile,
+			onClosePromptImport = viewModel::closePromptImport,
+			onConsumePromptImportPicked = viewModel::consumePromptImportPicked,
 			effortLevels = { viewModel.effortLevelsFor(it) },
 			onChange = viewModel::updateDraft,
 			onProviderChange = viewModel::selectProvider,
@@ -454,6 +464,18 @@ private fun AgentEditor(
 	/** Null means "not resolved yet"; the tool list then does not filter. */
 	mediaConfiguredTools: Set<String>?,
 	savedPrompts: List<SavedPromptEntity>,
+	/** The workspace prompt importer's current step; null when closed. */
+	promptImport: PromptImportDraft?,
+	/** A workspace file the importer read; consumed once by this editor. */
+	promptImportPicked: PromptImportPicked?,
+	onOpenPromptImport: () -> Unit,
+	onChoosePromptImportWorkspace: (String) -> Unit,
+	onEnterPromptImportDirectory: (String) -> Unit,
+	onPromptImportUp: () -> Unit,
+	onPromptImportChangeWorkspace: () -> Unit,
+	onPromptImportPickFile: (String) -> Unit,
+	onClosePromptImport: () -> Unit,
+	onConsumePromptImportPicked: () -> Unit,
 	effortLevels: (String?) -> List<String>,
 	onChange: ((AgentDraft) -> AgentDraft) -> Unit,
 	onProviderChange: (String) -> Unit,
@@ -517,6 +539,8 @@ private fun AgentEditor(
 	var promptTitle by remember { mutableStateOf("") }
 	var promptStatus by remember { mutableStateOf<String?>(null) }
 	var pendingPromptDelete by remember { mutableStateOf<String?>(null) }
+	var showPromptImportChoice by remember { mutableStateOf(false) }
+	var showWorkspacePromptImport by remember { mutableStateOf(false) }
 
 	// The fallback name is resolved here because the result callback is not a
 	// composition and cannot call `stringResource`.
@@ -548,6 +572,59 @@ private fun AgentEditor(
 				}
 			}
 		}
+	}
+
+	// A workspace file arrives through the parent's state, once. Apply it with
+	// the same rule as the device picker: an empty prompt is replaced directly,
+	// an existing one asks whether to replace or append.
+	LaunchedEffect(promptImportPicked) {
+		val picked = promptImportPicked ?: return@LaunchedEffect
+		onConsumePromptImportPicked()
+		importError = null
+		if (draft.systemPrompt.isBlank()) {
+			onChange { it.copy(systemPrompt = picked.text) }
+			importStatus = context.getString(
+				R.string.agents_imported,
+				picked.name,
+				picked.text.length,
+			)
+		} else {
+			pendingImport = ImportedPrompt(picked.name, picked.text)
+		}
+	}
+	// The picker must not stay over the replace/append question: reading a file
+	// clears the importer's draft, and that is the signal it finished.
+	LaunchedEffect(promptImport) {
+		if (promptImport == null) showWorkspacePromptImport = false
+	}
+
+	if (showPromptImportChoice) {
+		PromptImportChoiceDialog(
+			onDeviceFile = {
+				showPromptImportChoice = false
+				promptImporter.launch(arrayOf("*/*"))
+			},
+			onWorkspaceFile = {
+				showPromptImportChoice = false
+				showWorkspacePromptImport = true
+				onOpenPromptImport()
+			},
+			onDismiss = { showPromptImportChoice = false },
+		)
+	}
+	if (showWorkspacePromptImport) {
+		WorkspacePromptImportDialog(
+			draft = promptImport,
+			onChooseWorkspace = onChoosePromptImportWorkspace,
+			onEnterDirectory = onEnterPromptImportDirectory,
+			onUp = onPromptImportUp,
+			onChangeWorkspace = onPromptImportChangeWorkspace,
+			onPickFile = onPromptImportPickFile,
+			onDismiss = {
+				showWorkspacePromptImport = false
+				onClosePromptImport()
+			},
+		)
 	}
 
 	WideDialog(
@@ -611,7 +688,7 @@ private fun AgentEditor(
 			textStyle = MaterialTheme.typography.bodyMedium.copy(
 				fontFamily = FontFamily.Monospace,
 			),
-			onImport = { promptImporter.launch(arrayOf("*/*")) },
+			onImport = { showPromptImportChoice = true },
 		)
 		importError?.let {
 			Text(

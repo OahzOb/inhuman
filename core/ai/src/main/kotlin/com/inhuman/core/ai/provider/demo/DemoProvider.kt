@@ -123,10 +123,13 @@ class DemoProvider(
 		emit(StreamChunk.TextStart())
 		val answer = when {
 			calls.any { it.name == PROPOSAL_TOOL } -> PROPOSAL_PREAMBLE
-			// The configuration workshop's two drafts are also proposals: they
-			// write nothing and open the user's editors.
-			calls.any { it.name == PROPOSE_ASSISTANT_TOOL || it.name == PROPOSE_INSTRUCTION_TOOL } ->
-				CONFIG_PREAMBLE
+			// The configuration workshop's three drafts are also proposals: they
+			// write nothing and open the user's editors or cards.
+			calls.any {
+				it.name == PROPOSE_ASSISTANT_TOOL ||
+					it.name == PROPOSE_INSTRUCTION_TOOL ||
+					it.name == PROPOSE_PROMPT_TOOL
+			} -> CONFIG_PREAMBLE
 			calls.isNotEmpty() -> CALL_PREAMBLE
 			// Scoped to *this* turn, which is the bug this fixes. Scanning the
 			// whole history for a tool message meant that once a conversation
@@ -332,6 +335,11 @@ class DemoProvider(
 				if (PROPOSE_INSTRUCTION_TOOL in offered) {
 					add(ScriptedCall(PROPOSE_INSTRUCTION_TOOL, INSTRUCTION_PROPOSAL_ARGUMENTS))
 				}
+				// The prompt-library draft writes nothing either: its card's
+				// Save button is the only write.
+				if (PROPOSE_PROMPT_TOOL in offered) {
+					add(ScriptedCall(PROPOSE_PROMPT_TOOL, PROMPT_PROPOSAL_ARGUMENTS))
+				}
 			}
 		}
 
@@ -529,6 +537,7 @@ class DemoProvider(
 		 */
 		const val PROPOSE_ASSISTANT_TOOL = "app_propose_assistant"
 		const val PROPOSE_INSTRUCTION_TOOL = "app_propose_instruction"
+		const val PROPOSE_PROMPT_TOOL = "app_propose_prompt"
 		const val CONFIG_MARKER = "config"
 		const val CONFIG_MARKER_ZH = "配置"
 
@@ -538,6 +547,10 @@ class DemoProvider(
 
 		val INSTRUCTION_PROPOSAL_ARGUMENTS = """
 			{"text":"# Demo instructions\n\nWritten by the configuration workshop in demo mode. New conversations in this workspace start here.\n"}
+		""".trimIndent()
+
+		val PROMPT_PROPOSAL_ARGUMENTS = """
+			{"title":"Demo prompt","text":"You are a concise assistant. Prefer short answers, ask one clarifying question when the request is ambiguous, and reply in the user's language."}
 		""".trimIndent()
 
 		const val CONFIG_PREAMBLE =

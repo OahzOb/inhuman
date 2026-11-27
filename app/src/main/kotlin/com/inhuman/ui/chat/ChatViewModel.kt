@@ -2042,6 +2042,67 @@ class ChatViewModel(
 		}
 	}
 
+	/**
+	 * Save the prompt-library entry a workshop card prepared.
+	 *
+	 * This is an app action triggered by the user's tap, not a tool: the agent
+	 * only prepared the title and text. The write goes through
+	 * [com.inhuman.core.data.SavedPromptRepository], so the title-unique upsert
+	 * and the editor's own rules are the same; nothing here can change an
+	 * assistant or select a prompt for one.
+	 */
+	fun saveProposedPrompt(messageId: String) {
+		val state = _state.value
+		if (state.isStreaming || state.isCompacting) return
+		val message = state.messages.firstOrNull { it.id == messageId } ?: return
+		if (message.promptProposalBusy || message.promptProposalSaved) return
+		val proposal = message.promptProposal ?: return
+		updateMessage(messageId) {
+			it.copy(promptProposalBusy = true, promptProposalError = null)
+		}
+		viewModelScope.launch {
+			val saved = withContext(Dispatchers.IO) {
+				runCatching { repository.savedPrompts().save(proposal.title, proposal.text) }
+			}
+			updateMessage(messageId) {
+				saved.fold(
+					onSuccess = { id ->
+						it.copy(
+							promptProposalBusy = false,
+							promptProposalSaved = id != null,
+							promptProposalError = if (id == null) {
+								context.getString(
+									R.string.chat_prompt_proposal_failed,
+									context.getString(R.string.chat_prompt_proposal_empty),
+								)
+							} else {
+								null
+							},
+						)
+					},
+					onFailure = { failure ->
+						it.copy(
+							promptProposalBusy = false,
+							promptProposalError = context.getString(
+								R.string.chat_prompt_proposal_failed,
+								failure.message ?: context.getString(
+									R.string.chat_prompt_proposal_empty,
+								),
+							),
+						)
+					},
+				)
+			}
+		}
+	}
+
+	/** Drop a prompt-library proposal the user does not want. Nothing was written. */
+	fun dismissPromptProposal(messageId: String) {
+		updateMessage(messageId) {
+			it.copy(promptProposal = null, promptProposalError = null)
+		}
+	}
+
 	// --- SSH hosts -----------------------------------------------------------
 
 	/**
@@ -5517,6 +5578,13 @@ class ChatViewModel(
 											it.copy(instructionProposal = proposal)
 										}
 									}
+
+								ConfigTools.PROPOSE_PROMPT ->
+									PromptProposal.fromJson(event.result.content)?.let { proposal ->
+										attachToToolResult(call.id) {
+											it.copy(promptProposal = proposal)
+										}
+									}
 							}
 						}
 						// The suggestions are the result. They are rendered as
@@ -6917,6 +6985,18 @@ class ChatViewModel(
 								readInstructions = ::workspaceInstructionsOf,
 							),
 						)
+					}
+					// The saved-prompt library. Reads return the user's stored
+					// text; the proposal's only write is the card's Save tap,
+					// handled by saveProposedPrompt -- no tool writes a row.
+					if (workshopHelpers.listPrompts) {
+						add(ConfigListPromptsTool { repository.savedPrompts().all() })
+					}
+					if (workshopHelpers.readPrompt) {
+						add(ConfigReadPromptTool { repository.savedPrompts().all() })
+					}
+					if (workshopHelpers.proposePrompt) {
+						add(ConfigProposePromptTool { repository.savedPrompts().all() })
 					}
 				}
 				// The record search belongs to the session mode, not to the

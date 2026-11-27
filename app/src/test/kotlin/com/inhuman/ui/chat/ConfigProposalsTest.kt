@@ -1,6 +1,7 @@
 package com.inhuman.ui.chat
 
 import com.inhuman.core.data.db.AgentEntity
+import com.inhuman.core.data.db.SavedPromptEntity
 import com.inhuman.core.data.db.WorkspaceEntity
 import com.inhuman.core.data.db.WorkspaceKinds
 import com.inhuman.core.engine.roleplay.RoleplayCodec
@@ -28,6 +29,14 @@ private fun agent(
 	name = name,
 	systemPrompt = prompt,
 	rpJson = card,
+	createdAt = 0L,
+	updatedAt = 0L,
+)
+
+private fun savedPrompt(title: String, text: String): SavedPromptEntity = SavedPromptEntity(
+	id = "p-$title",
+	title = title,
+	text = text,
 	createdAt = 0L,
 	updatedAt = 0L,
 )
@@ -433,5 +442,78 @@ class ConfigProposalsTest {
 		val lookup = resolveInstructionWorkspace(listOf(one, two), "Notes")
 
 		assertTrue(lookup is WorkspaceLookup.Ambiguous)
+	}
+
+	// ------------------------------------------------------ prompt library
+
+	@Test
+	fun `a new saved prompt is named and previewed`() {
+		val proposal = promptOk(
+			PromptProposals.prepare("Terse", "Be brief.\nAsk one question.", emptyList()),
+		)
+
+		assertEquals("Terse", proposal.title)
+		assertEquals("Be brief.\nAsk one question.", proposal.text)
+		assertNull(proposal.existingChars)
+		assertTrue(proposal.summary, proposal.summary.contains("Be brief"))
+	}
+
+	@Test
+	fun `a saved prompt with an existing title says it replaces that entry`() {
+		val proposal = promptOk(
+			PromptProposals.prepare(
+				"Terse",
+				"Be even briefer.",
+				listOf(savedPrompt("Terse", "Be brief.")),
+			),
+		)
+
+		assertEquals("Be brief.".length, proposal.existingChars)
+	}
+
+	@Test
+	fun `a no-op saved prompt is rejected`() {
+		val result = PromptProposals.prepare(
+			"Terse",
+			"Be brief.",
+			listOf(savedPrompt("Terse", "Be brief.")),
+		)
+
+		assertTrue(result is DraftResult.Rejected)
+		assertTrue((result as DraftResult.Rejected).message.contains("exact text"))
+	}
+
+	@Test
+	fun `a saved prompt needs a title and non-blank text`() {
+		assertTrue(PromptProposals.prepare(" ", "text", emptyList()) is DraftResult.Rejected)
+		assertTrue(PromptProposals.prepare("T", "  ", emptyList()) is DraftResult.Rejected)
+		assertTrue(
+			PromptProposals.prepare("T", "x".repeat(MAX_PROPOSED_PROMPT_CHARS + 1), emptyList())
+				is DraftResult.Rejected,
+		)
+	}
+
+	@Test
+	fun `a prompt proposal survives JSON and rejects a malformed one`() {
+		val proposal = PromptProposal("Terse", "Be brief.", 4, "Be brief.")
+		assertEquals(proposal, PromptProposal.fromJson(proposal.toJson()))
+
+		assertNull(PromptProposal.fromJson("not json"))
+		assertNull(PromptProposal.fromJson("""{"kind":"assistant"}"""))
+		assertNull(
+			PromptProposal.fromJson(
+				"""{"kind":"prompt","title":"","text":"x","existingChars":null,"summary":""}""",
+			),
+		)
+		assertNull(
+			PromptProposal.fromJson(
+				"""{"kind":"prompt","title":"T","text":" ","existingChars":null,"summary":""}""",
+			),
+		)
+	}
+
+	private fun promptOk(result: DraftResult<PromptProposal>): PromptProposal = when (result) {
+		is DraftResult.Ok -> result.value
+		is DraftResult.Rejected -> error("unexpected rejection: ${result.message}")
 	}
 }

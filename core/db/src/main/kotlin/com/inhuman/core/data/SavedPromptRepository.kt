@@ -18,9 +18,12 @@ import java.util.UUID
  *
  * ## What this repository must never expose
  *
- * There is no tool-facing API here, and none should be added. The model may see
- * a prompt only after the user puts it in an assistant's system prompt; the
- * library itself is not context, and no tool may read, write or select it.
+ * The configuration workshop may list and read the library and prepare a draft
+ * entry (`app_list_prompts` / `app_read_prompt` / `app_propose_prompt`), but no
+ * tool may write or select one. The only writes are the assistant editor's own
+ * save flow and the proposal card's **Save to prompt library** tap, both of
+ * which land here through [save]; a proposal that is never saved leaves no row.
+ * Choosing an entry only fills an assistant's editable prompt field.
  */
 class SavedPromptRepository(private val db: InhumanDatabase) {
 

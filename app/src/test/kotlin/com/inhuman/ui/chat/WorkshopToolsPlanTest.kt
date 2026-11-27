@@ -57,6 +57,9 @@ class WorkshopToolsPlanTest {
 		assertTrue(plan.listInstructions)
 		assertTrue(plan.readInstruction)
 		assertTrue(plan.proposeInstruction)
+		assertTrue(plan.listPrompts)
+		assertTrue(plan.readPrompt)
+		assertTrue(plan.proposePrompt)
 	}
 
 	@Test
@@ -95,5 +98,8 @@ class WorkshopToolsPlanTest {
 		assertTrue(plan.listInstructions)
 		assertTrue(plan.readInstruction)
 		assertTrue(plan.proposeInstruction)
+		assertTrue(plan.listPrompts)
+		assertTrue(plan.readPrompt)
+		assertTrue(plan.proposePrompt)
 	}
 }

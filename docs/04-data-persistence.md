@@ -228,10 +228,12 @@ The column is a data attribute, not a capability tier. It gates only
 **capability-free host helpers**: a non-scene workshop conversation gets the
 role-play side's `rp_format`, `rp_validate` (which still needs an existing read
 tool) and the scene-proposal tool that creates nothing until the user taps a
-card, plus the configuration side's `app_list_assistants` /
+card, the configuration side's `app_list_assistants` /
 `app_read_assistant` / `app_propose_assistant` and `app_list_instructions` /
 `app_read_instruction` / `app_propose_instruction`, whose drafts only open the
-user's existing editors. It has no effect on assistant tools, approvals, SSH or
+user's existing editors, and the saved-prompt set (`app_list_prompts` /
+`app_read_prompt` / `app_propose_prompt`), whose proposal card's Save is the only
+write. It has no effect on assistant tools, approvals, SSH or
 download consent. Scenes created from the workshop bind it as their permanent
 workspace. The workshop is app-owned: the repository refuses to rename it,
 refuses to delete it, and the bulk delete filters built-in kinds out
@@ -533,7 +535,7 @@ order below.
 | 12→13 | `context_summaries` created, empty: a derived projection, so an upgraded install starts with no compaction and the full transcript. |
 | 13→14 | `provider_profiles` gains `modelTags TEXT NOT NULL DEFAULT ''`, so an upgraded install has every model untagged and the picker falls back to the name-based guess. |
 | 14→15 | `approval_audit` created, empty: an install that never sees a prompt has nothing to show, and an upgraded one has no old questions to import. The table has one index `(conversationId, askedAt)`, for the history dialogue, and a cascade on the conversation. |
-| 15→16 | `saved_prompts` created, empty, with a unique index on `title`. No existing row is interpreted; an install that never saves a prompt keeps a table nobody reads. |
+| 15→16 | `saved_prompts` created, empty, with a unique index on `title`. No existing row is interpreted; an install that never saves a prompt keeps an empty table. |
 | 16→17 | `messages.reasoningSignature` added, nullable. Old rows read as null, which the Anthropic adapter treats as "do not enable thinking on this history"; an empty string would look like a signature and produce a 400. |
 | 17→18 | `messages.providerState` added, nullable: a JSON array of opaque OpenAI Responses reasoning items. It is additive, never interpreted by the app, and null on every old row and every other provider. |
 | 18→19 | `agents` gains the four `suggestion*` columns: provider, model and prompt nullable, format `TEXT NOT NULL DEFAULT 'tool'`. Complete by construction — every assistant has an inert default until `suggest_replies` is selected. |

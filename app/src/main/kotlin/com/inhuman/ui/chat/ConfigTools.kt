@@ -3,6 +3,7 @@ package com.inhuman.ui.chat
 import com.inhuman.core.ai.Tool
 import com.inhuman.core.ai.ToolResult
 import com.inhuman.core.data.db.AgentEntity
+import com.inhuman.core.data.db.SavedPromptEntity
 import com.inhuman.core.data.db.WorkspaceEntity
 import com.inhuman.core.engine.roleplay.RoleplayCodec
 import kotlinx.coroutines.CancellationException
@@ -17,11 +18,13 @@ import kotlinx.serialization.json.put
  * ## What these tools can and cannot do
  *
  * They can **read the app's own configuration** -- the assistant rows (names,
- * prompts, cards) and each permanent workspace's root `AGENTS.md` -- and they can
- * **prepare a draft**. They cannot write: a "propose" tool returns a
- * [AssistantProposal] or [InstructionProposal], the chat renders it as a card,
- * and the card's action opens the user's existing editor prefilled. The user
- * saves it there, or does not.
+ * prompts, cards), each permanent workspace's root `AGENTS.md`, and the user's
+ * saved-prompt library -- and they can **prepare a draft**. They cannot write:
+ * a "propose" tool returns an [AssistantProposal], [InstructionProposal] or
+ * [PromptProposal], the chat renders it as a card, and the user's own action
+ * (save in an existing editor, or Save to prompt library on the card) is the
+ * only write. The prompt card is the one tap-gated write; a tool result still
+ * never writes a row.
  *
  * That is the whole safety story of this workshop, and it is structural rather
  * than a sentence in a prompt: no row, file or approval rule is written by a tool
@@ -45,6 +48,9 @@ internal object ConfigTools {
 	const val LIST_INSTRUCTIONS = "app_list_instructions"
 	const val READ_INSTRUCTION = "app_read_instruction"
 	const val PROPOSE_INSTRUCTION = "app_propose_instruction"
+	const val LIST_PROMPTS = "app_list_prompts"
+	const val READ_PROMPT = "app_read_prompt"
+	const val PROPOSE_PROMPT = "app_propose_prompt"
 }
 
 /** The argument schema shared by the parameterless list tools. */
@@ -534,6 +540,192 @@ internal class ConfigProposeInstructionTool(
 				persistedContent = "AGENTS.md proposal ready for " +
 					"${outcome.value.workspaceName}; nothing has been written — the user " +
 					"must open it and save in the file editor.",
+			)
+		}
+	}
+}
+
+/**
+ * The user's saved prompt library, as content.
+ *
+ * The library is text the user wrote for assistants, not capability: it holds
+ * no tools, model or approval rule. The workshop may now read it and prepare a
+ * draft entry, but the assistant editor's own library panel remains the only
+ * writer -- a proposal becomes a row only after the user taps Save.
+ */
+internal class ConfigListPromptsTool(
+	private val loadPrompts: suspend () -> List<SavedPromptEntity>,
+) : Tool {
+
+	override val name: String = ConfigTools.LIST_PROMPTS
+
+	override val description: String = """
+		List the user's saved prompt library: reusable system-prompt texts that the
+		user stores for later. This workshop may read the library, but saving an
+		entry is the user's action. Each row has the title, its length and a short
+		preview; use app_read_prompt for the full text and app_propose_prompt to
+		draft a new or updated entry. The library does not select a prompt for any
+		assistant on its own.
+	""".trimIndent()
+
+	override val parameters: Map<String, Any?> = emptyParameters()
+
+	override val mutates: Boolean = false
+
+	override suspend fun execute(arguments: JsonObject): ToolResult {
+		val prompts = try {
+			loadPrompts().sortedBy { it.title.lowercase() }
+		} catch (e: CancellationException) {
+			throw e
+		} catch (e: Exception) {
+			return ToolResult.error("$name: the prompt library could not be read.")
+		}
+		val content = buildJsonArray {
+			prompts.forEach { prompt ->
+				add(
+					buildJsonObject {
+						put("title", prompt.title)
+						put("chars", prompt.text.length)
+						put("preview", previewLine(prompt.text))
+					},
+				)
+			}
+		}.toString()
+		return ToolResult.ok(
+			content = content,
+			persistedContent = "Listed ${prompts.size} saved prompt(s).",
+		)
+	}
+}
+
+/**
+ * One saved prompt's full text.
+ *
+ * The prompt is user-written content; reading it changes nothing. The cut is
+ * the same one the assistant prompt uses, because a proposal should carry text
+ * an editor can plausibly save rather than an unbounded row.
+ */
+internal class ConfigReadPromptTool(
+	private val loadPrompts: suspend () -> List<SavedPromptEntity>,
+) : Tool {
+
+	override val name: String = ConfigTools.READ_PROMPT
+
+	override val description: String = """
+		Read one saved prompt by its title. Use it before app_propose_prompt when
+		rewriting an entry: without reading first you would replace text the user
+		wrote. The text is cut at $MAX_PROPOSED_PROMPT_CHARS characters and the
+		result says whether it was truncated. Reading changes nothing.
+	""".trimIndent()
+
+	override val parameters: Map<String, Any?> = objectSchema(
+		properties = mapOf(
+			"title" to stringProperty("The saved prompt's title, as app_list_prompts shows it."),
+		),
+		required = listOf("title"),
+	)
+
+	override val mutates: Boolean = false
+
+	override suspend fun execute(arguments: JsonObject): ToolResult = try {
+		read(arguments)
+	} catch (e: CancellationException) {
+		throw e
+	} catch (e: IllegalArgumentException) {
+		ToolResult.error("$name: ${e.message ?: "invalid arguments"}")
+	} catch (e: Exception) {
+		ToolResult.error("$name: that read failed; nothing was changed.")
+	}
+
+	private suspend fun read(arguments: JsonObject): ToolResult {
+		val wanted = arguments.stringArgument("title")?.trim().orEmpty()
+		if (wanted.isEmpty()) {
+			return ToolResult.error("$name: pass `title`, the library entry's title.")
+		}
+		val prompt = loadPrompts().firstOrNull { it.title.trim() == wanted }
+			?: return ToolResult.error(
+				"$name: the library has no entry titled \"$wanted\"; use " +
+					"app_list_prompts to see the titles.",
+			)
+		val truncated = prompt.text.length > MAX_PROPOSED_PROMPT_CHARS
+		val content = buildJsonObject {
+			put("title", prompt.title)
+			put("text", if (truncated) prompt.text.take(MAX_PROPOSED_PROMPT_CHARS) else prompt.text)
+			put("truncated", truncated)
+			put("chars", prompt.text.length)
+		}.toString()
+		return ToolResult.ok(
+			content = content,
+			persistedContent = "Read saved prompt \"${prompt.title}\" " +
+				"(${prompt.text.length} chars${if (truncated) ", truncated" else ""}).",
+		)
+	}
+}
+
+/**
+ * Prepare a saved prompt, or an update to one, for the user to keep.
+ *
+ * This writes nothing: it returns a [PromptProposal], the chat renders it as a
+ * card, and the card's **Save to prompt library** button is the only write. A
+ * proposal that is never saved leaves no row. The text is the user's prompt
+ * content, so a save inserts/updates exactly what the card showed.
+ */
+internal class ConfigProposePromptTool(
+	private val loadPrompts: suspend () -> List<SavedPromptEntity>,
+) : Tool {
+
+	override val name: String = ConfigTools.PROPOSE_PROMPT
+
+	override val description: String = """
+		Prepare a saved prompt (an entry in the user's prompt library) for the user
+		to save. This changes nothing: it returns a proposal card with the title and
+		preview, and the user must tap Save to write it. Never say or imply that the
+		library was changed. Read the current text with app_read_prompt before
+		rewriting an entry. Pass the full text; the same title updates that entry,
+		a new title creates one. The library entry does not change any assistant
+		until the user selects it in the assistant editor.
+	""".trimIndent()
+
+	override val parameters: Map<String, Any?> = objectSchema(
+		properties = mapOf(
+			"title" to stringProperty(
+				"The library entry's title. An existing title updates that entry.",
+			),
+			"text" to stringProperty(
+				"The full prompt text to store. Cannot be blank.",
+			),
+		),
+		required = listOf("title", "text"),
+	)
+
+	override val mutates: Boolean = false
+
+	override suspend fun execute(arguments: JsonObject): ToolResult = try {
+		prepare(arguments)
+	} catch (e: CancellationException) {
+		throw e
+	} catch (e: IllegalArgumentException) {
+		ToolResult.error("$name: ${e.message ?: "invalid arguments"}")
+	} catch (e: Exception) {
+		ToolResult.error("$name: the draft could not be prepared; nothing was changed.")
+	}
+
+	private suspend fun prepare(arguments: JsonObject): ToolResult {
+		val title = arguments.stringArgument("title")
+		val text = arguments.stringArgument("text")
+		if (title == null || text == null) {
+			return ToolResult.error(
+				"$name: pass `title` and `text`; nothing was prepared.",
+			)
+		}
+		val prompts = loadPrompts()
+		return when (val outcome = PromptProposals.prepare(title, text, prompts)) {
+			is DraftResult.Rejected -> ToolResult.error("$name: ${outcome.message}")
+			is DraftResult.Ok -> ToolResult.ok(
+				content = outcome.value.toJson(),
+				persistedContent = "Prompt library draft ready for " +
+					"\"${outcome.value.title}\"; nothing has been saved — the user must " +
+					"tap Save on the card.",
 			)
 		}
 	}

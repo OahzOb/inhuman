@@ -13,6 +13,7 @@ import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.Database
 import com.inhuman.core.data.db.SavedPromptEntity
 import com.inhuman.core.data.db.ToolsColumn
+import com.inhuman.core.data.db.WorkspaceEntity
 import com.inhuman.AppCapabilities
 import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.ui.chat.AssistantEditRequest
@@ -30,6 +31,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.nio.file.Files
 
 data class AgentsUiState(
 	val agents: List<AgentEntity> = emptyList(),
@@ -68,6 +71,10 @@ data class AgentsUiState(
 	val error: String? = null,
 	/** Non-null while the "export card to workspace" dialog is open. */
 	val cardExport: CardExportDraft? = null,
+	/** Non-null while the "import prompt from a workspace file" dialog is open. */
+	val promptImport: PromptImportDraft? = null,
+	/** A file the user picked in the workspace importer, consumed once by the screen. */
+	val promptImportPicked: PromptImportPicked? = null,
 	/** The user's saved system prompts, newest first. */
 	val savedPrompts: List<SavedPromptEntity> = emptyList(),
 )
@@ -94,6 +101,38 @@ data class CardExportDraft(
 	/** Workspace-relative path once the write succeeded. */
 	val savedPath: String? = null,
 )
+
+/** A workspace offered by the prompt importer. */
+data class PromptImportWorkspace(val id: String, val name: String, val permanent: Boolean)
+
+/** One row in the prompt importer's file browser. */
+data class PromptImportEntry(val name: String, val isDirectory: Boolean)
+
+/**
+ * The "import a system prompt from a workspace file" dialog.
+ *
+ * A workspace is a normal place for the user to keep a prompt they want to
+ * reuse, so this is an import source next to the device file picker -- not a new
+ * read path for an assistant. The browser resolves every path through the
+ * workspace's own [SessionWorkspace], exactly as Files does; it never touches a
+ * path outside the selected workspace.
+ */
+data class PromptImportDraft(
+	val workspaces: List<PromptImportWorkspace> = emptyList(),
+	val selectedWorkspaceId: String? = null,
+	val selectedWorkspaceName: String = "",
+	val directory: String = "",
+	val entries: List<PromptImportEntry> = emptyList(),
+	val loading: Boolean = false,
+	val error: String? = null,
+)
+
+/** A workspace file the user chose, handed to the screen once. */
+data class PromptImportPicked(val name: String, val text: String)
+
+/** The file browser's row cap; the same order Files shows, but a prompt picker
+ * does not need thousands of rows to be useful. */
+private const val PROMPT_IMPORT_LIST_LIMIT = 500
 
 /**
  * An agent being edited.
@@ -590,6 +629,224 @@ class AgentsViewModel(
 	fun closeCardExport() {
 		if (_state.value.cardExport?.busy == true) return
 		_state.update { it.copy(cardExport = null) }
+	}
+
+	// --- importing a prompt from a workspace file --------------------------
+
+	/**
+	 * Open the workspace prompt importer.
+	 *
+	 * Workspaces are listed with the permanent ones first (the same order Files
+	 * uses for its cross-workspace copy); the user then browses one workspace
+	 * and picks a text file. The file is read through that workspace's
+	 * [SessionWorkspace], so the same path fence and read guard apply as
+	 * everywhere else. A temporary workspace is included on purpose: a prompt
+	 * may have been written in a conversation that is still open.
+	 */
+	fun openPromptImport() {
+		_state.update {
+			it.copy(
+				promptImport = PromptImportDraft(loading = true),
+				promptImportPicked = null,
+			)
+		}
+		viewModelScope.launch {
+			val workspaces = withContext(Dispatchers.IO) {
+				runCatching { conversations.workspaces() }
+					.onFailure { Diag.w("agent", "prompt import workspace list failed", it) }
+					.getOrDefault(emptyList())
+			}.sortedWith(
+				compareByDescending<WorkspaceEntity> { it.isPermanent }
+					.thenBy { it.name.lowercase() },
+			).map { PromptImportWorkspace(it.id, it.name, it.isPermanent) }
+			_state.update { current ->
+				val draft = current.promptImport ?: return@update current
+				current.copy(
+					promptImport = draft.copy(
+						workspaces = workspaces,
+						loading = false,
+						error = if (workspaces.isEmpty()) {
+							context.getString(R.string.prompt_import_no_workspaces)
+						} else {
+							null
+						},
+					),
+				)
+			}
+		}
+	}
+
+	fun choosePromptImportWorkspace(workspaceId: String) {
+		val draft = _state.value.promptImport ?: return
+		val workspace = draft.workspaces.firstOrNull { it.id == workspaceId } ?: return
+		loadPromptImportDirectory(workspace.id, workspace.name, "")
+	}
+
+	fun enterPromptImportDirectory(name: String) {
+		val draft = _state.value.promptImport ?: return
+		val workspaceId = draft.selectedWorkspaceId ?: return
+		val path = if (draft.directory.isEmpty()) name else "${draft.directory}/$name"
+		loadPromptImportDirectory(workspaceId, draft.selectedWorkspaceName, path)
+	}
+
+	fun promptImportUp() {
+		val draft = _state.value.promptImport ?: return
+		if (draft.selectedWorkspaceId == null || draft.directory.isEmpty()) return
+		val parent = if (draft.directory.contains('/')) {
+			draft.directory.substringBeforeLast('/')
+		} else {
+			""
+		}
+		loadPromptImportDirectory(draft.selectedWorkspaceId, draft.selectedWorkspaceName, parent)
+	}
+
+	fun promptImportChangeWorkspace() {
+		_state.update { current ->
+			val draft = current.promptImport ?: return@update current
+			current.copy(
+				promptImport = draft.copy(
+					selectedWorkspaceId = null,
+					selectedWorkspaceName = "",
+					directory = "",
+					entries = emptyList(),
+					loading = false,
+					error = null,
+				),
+			)
+		}
+	}
+
+	fun closePromptImport() {
+		_state.update { it.copy(promptImport = null) }
+	}
+
+	/** The screen has applied [AgentsUiState.promptImportPicked]; clear it. */
+	fun consumePromptImportPicked() {
+		_state.update { it.copy(promptImportPicked = null) }
+	}
+
+	fun pickPromptImportFile(name: String) {
+		val draft = _state.value.promptImport ?: return
+		val workspaceId = draft.selectedWorkspaceId ?: return
+		val path = if (draft.directory.isEmpty()) name else "${draft.directory}/$name"
+		_state.update { current ->
+			val dialog = current.promptImport ?: return@update current
+			current.copy(promptImport = dialog.copy(loading = true, error = null))
+		}
+		viewModelScope.launch {
+			val read = withContext(Dispatchers.IO) {
+				runCatching { readPromptImportFile(workspaceId, path, name) }
+			}
+			_state.update { current ->
+				val dialog = current.promptImport ?: return@update current
+				read.fold(
+					onSuccess = { text ->
+						current.copy(
+							promptImport = null,
+							promptImportPicked = PromptImportPicked(name, text),
+						)
+					},
+					onFailure = { failure ->
+						current.copy(
+							promptImport = dialog.copy(
+								loading = false,
+								error = failure.message
+									?: context.getString(R.string.prompt_import_failed),
+							),
+						)
+					},
+				)
+			}
+		}
+	}
+
+	private fun loadPromptImportDirectory(
+		workspaceId: String,
+		workspaceName: String,
+		directory: String,
+	) {
+		_state.update { current ->
+			val draft = current.promptImport ?: return@update current
+			current.copy(
+				promptImport = draft.copy(
+					selectedWorkspaceId = workspaceId,
+					selectedWorkspaceName = workspaceName,
+					directory = directory,
+					entries = emptyList(),
+					loading = true,
+					error = null,
+				),
+			)
+		}
+		viewModelScope.launch {
+			val listed = withContext(Dispatchers.IO) {
+				runCatching { listPromptImportEntries(workspaceId, directory) }
+			}
+			_state.update { current ->
+				val draft = current.promptImport ?: return@update current
+				// A slower listing for a folder the user already left must not
+				// replace the one they are looking at.
+				if (draft.selectedWorkspaceId != workspaceId || draft.directory != directory) {
+					return@update current
+				}
+				listed.fold(
+					onSuccess = {
+						current.copy(
+							promptImport = draft.copy(entries = it, loading = false, error = null),
+						)
+					},
+					onFailure = { failure ->
+						current.copy(
+							promptImport = draft.copy(
+								loading = false,
+								error = failure.message
+									?: context.getString(R.string.prompt_import_failed),
+							),
+						)
+					},
+				)
+			}
+		}
+	}
+
+	private suspend fun listPromptImportEntries(
+		workspaceId: String,
+		directory: String,
+	): List<PromptImportEntry> {
+		val workspace = conversations.workspace(workspaceId)
+		val dir = when (val resolved = workspace.resolve(directory)) {
+			is SessionWorkspace.Resolution.Rejected -> error(resolved.reason)
+			is SessionWorkspace.Resolution.Ok -> resolved.file
+		}
+		if (!dir.isDirectory) error("not a directory: $directory")
+		return dir.listFiles().orEmpty()
+			.filterNot { Files.isSymbolicLink(it.toPath()) }
+			.sortedWith(
+				compareByDescending<File> { it.isDirectory }
+					.thenBy { it.name.lowercase() },
+			)
+			.take(PROMPT_IMPORT_LIST_LIMIT)
+			.map { PromptImportEntry(it.name, it.isDirectory) }
+	}
+
+	private suspend fun readPromptImportFile(
+		workspaceId: String,
+		path: String,
+		name: String,
+	): String {
+		if (!isPromptText(name, null)) {
+			error(context.getString(R.string.agents_prompt_file_type))
+		}
+		val workspace = conversations.workspace(workspaceId)
+		val file = when (val resolved = workspace.resolve(path)) {
+			is SessionWorkspace.Resolution.Rejected -> error(resolved.reason)
+			is SessionWorkspace.Resolution.Ok -> resolved.file
+		}
+		if (!file.isFile) error("not a file: $path")
+		if (file.length() > MAX_PROMPT_IMPORT_BYTES) {
+			error(context.getString(R.string.agents_prompt_too_large))
+		}
+		return file.inputStream().use { readPromptBytes(it) }.let(::decodePromptText)
 	}
 
 	/**

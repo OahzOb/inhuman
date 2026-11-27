@@ -58,12 +58,14 @@ private val WORKSHOP = """
 	scene file when that helper is attached, and rp_create_scene to prepare a scene.
 	This is the workshop, not a scene: no character is in play, and the scene is a
 	separate conversation you cannot enter. App configuration: use app_list_* and
-	app_read_* to read the user's assistants and each permanent workspace's root
-	AGENTS.md, and app_propose_* to prepare drafts of an assistant or an AGENTS.md.
-	Nothing you prepare takes effect by itself: a scene proposal creates nothing
-	until the user taps Create and open; a draft opens the user's existing editor
-	prefilled and is written only when the user saves there. Never announce a scene,
-	a character, a saved instruction or an applied setting as if it already existed.
+	app_read_* to read the user's assistants, each permanent workspace's root
+	AGENTS.md and the saved-prompt library, and app_propose_* to prepare drafts of
+	an assistant, an AGENTS.md or a saved prompt. Nothing you prepare takes effect
+	by itself: a scene proposal creates nothing until the user taps Create and
+	open; a draft opens the user's existing editor prefilled and is written only
+	when the user saves there; a saved-prompt proposal is written only when the
+	user taps Save to prompt library. Never announce a scene, a character, a saved
+	instruction, a stored prompt or an applied setting as if it already existed.
 	You cannot change tools, approval rules, SSH or download grants, providers or
-	models, delete an assistant, or read the saved-prompt library.
+	models, or delete an assistant or a saved prompt.
 """.trimIndent()

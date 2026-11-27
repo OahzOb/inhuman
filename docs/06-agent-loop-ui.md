@@ -1010,14 +1010,15 @@ paragraph, written by the host, beginning `Workshop context:`. It is **one text
 for both jobs** the workshop serves: role-play authoring (a card written with
 `rp_format`, checked with `rp_validate` when that helper is attached, and a
 scene prepared with `rp_create_scene`) and app-configuration drafts (the
-`app_*` helpers that read assistants and `AGENTS.md` and prepare a draft). It
-says that this is the workshop and not a scene, and that nothing prepared takes
-effect by itself — a scene proposal creates nothing until the user taps Create
-and open, and a draft only opens an editor prefilled until the user saves there.
-That is needed because a fresh workshop has no `AGENTS.md` and the tools' own
-descriptions do not say what situation the conversation is in: without the
-sentence a model can start narrating a scene that does not exist, or announce a
-configuration change nobody saved.
+`app_*` helpers that read assistants, `AGENTS.md` and the saved-prompt library,
+and prepare a draft). It says that this is the workshop and not a scene, and
+that nothing prepared takes effect by itself — a scene proposal creates nothing
+until the user taps Create and open, a draft only opens an editor prefilled
+until the user saves there, and a saved-prompt proposal is written only when the
+user taps **Save to prompt library**. That is needed because a fresh workshop
+has no `AGENTS.md` and the tools' own descriptions do not say what situation the
+conversation is in: without the sentence a model can start narrating a scene
+that does not exist, or announce a configuration change nobody saved.
 
 `WorkshopPrompt.kt` derives it from `workspaces.kind` and the conversation's
 scene state (`roleplayActive`); a scene gets none, because it has its own
@@ -1359,9 +1360,10 @@ editable.
 
 A **non-scene** conversation in the workshop gets the union of the two
 capability-free helper sets, appended by the host: the role-play authoring
-helpers and the configuration read/draft helpers. A conversation that is itself
-a scene gets neither the helpers nor the workshop paragraph; an ordinary
-workspace gets none. None of the nine is in `ToolCatalog`.
+helpers and the configuration read/draft helpers, including the three
+saved-prompt helpers. A conversation that is itself a scene gets neither the
+helpers nor the workshop paragraph; an ordinary workspace gets none. None of the
+twelve is in `ToolCatalog`.
 
 **The scene proposal.** `rp_create_scene` prepares and validates a
 `SceneProposal` (an assistant's card or a card the model wrote, plus an optional
@@ -1376,10 +1378,11 @@ tapped leaves no conversation, no workspace and no row behind. The result is
 transient like suggestions: a reopened transcript shows the plain persisted
 line, not a live button.
 
-**The configuration drafts, in the same workshop.** The other six helpers read
+**The configuration drafts, in the same workshop.** The other nine helpers read
 and draft rather than write: two read the user's assistant content, one prepares
-an assistant draft, two read a permanent workspace's root `AGENTS.md`, and one
-prepares an instruction draft. Each propose result is rendered as a card showing
+an assistant draft, two read a permanent workspace's root `AGENTS.md`, one
+prepares an instruction draft, two read the saved-prompt library and one
+prepares a saved-prompt draft. Each propose result is rendered as a card showing
 what would change and an action that **opens an existing editor prefilled**: an
 assistant draft opens the assistant editor (`AgentsViewModel.openProposal`), an
 instruction draft opens the Files text editor
@@ -1391,11 +1394,24 @@ routed by `MainActivity`, the same pattern the scene proposal uses for
 navigation. The cards are transient: a reopened transcript shows the persisted
 summary line. `AGENTS.md` saves keep the normal pin semantics — the file applies
 to new conversations **and new scenes created in that workspace**, and an
-existing conversation needs **Reload AGENTS.md** (`docs/07-gotchas.md` A31). A
-proposal carries no tool, provider, model or approval field, names a workspace
-by display name (never its directory id), and the saved-prompt library stays
-invisible. `ConfigTools.kt` holds the six tools (the file was `StudioTools.kt`
-before the merge); `workspaceKindLabel` reports `"workshop"` or `"ordinary"`.
+existing conversation needs **Reload AGENTS.md** (`docs/07-gotchas.md` A31).
+
+**The saved-prompt draft is the one card with its own write.** The library has
+no text editor to hand off to, so `app_propose_prompt`'s result renders as a
+`PromptProposalCard` showing New/Update, the character counts (new: `N chars`;
+update: `existingChars → N chars`), a three-line preview, and **Save to prompt
+library** / **Not now** (`ChatScreen.kt:5902-5988`). The tool wrote nothing;
+`ChatViewModel.saveProposedPrompt(messageId)` calls the same
+`SavedPromptRepository.save` the assistant editor uses, after that tap, so a
+same-title proposal updates the existing row and the card then says it was saved
+and stops offering Save. An untapped proposal leaves no row. The card is
+transient like the others: a reopened transcript shows the persisted line.
+
+A proposal carries no tool, provider, model or approval field and names a
+workspace by display name, never its directory id. `ConfigTools.kt` holds the
+nine configuration helpers, three of them for the saved-prompt library (the file
+was `StudioTools.kt` before the merge); `workspaceKindLabel` reports
+`"workshop"` or `"ordinary"`.
 
 A scene whose fields are all blank is stored as `{}` rather than `""`: the
 empty string keeps meaning "ordinary conversation", and otherwise a blank scene
@@ -1630,15 +1646,23 @@ verbatim system prompt, optional model, optional free-text effort, thinking flag
 `LongTextField` for the prompt, model chips including "provider default",
 thinking as one row of level chips with "off", and the tool picker.
 
-**The prompt can also be imported from a file.** `Import` opens SAF and reads a
-`.txt`/`.md` as strict UTF-8, stripping a BOM; a blank file, invalid UTF-8 or a
-non-text pick is an error rather than a prompt full of replacement characters.
-The 1 MiB read ceiling is a guard against pulling a mis-tapped video into memory,
-not a prompt limit — there is no stored or sent length cap. If the prompt already
-has text, the import asks **Replace / Append / Cancel**. Files with an unknown
-extension are accepted when the provider reports a `text` MIME type, because
-Android providers disagree about `.md`; the extension check keeps those files
-usable when the MIME type is `application/octet-stream`.
+**The prompt can also be imported from a file.** `Import` first asks for the
+source: the device picker, or a workspace file. The workspace branch is a
+two-step dialog — choose a workspace (permanent ones first, temporary ones too),
+then browse folders and tap a `.txt`/`.md` file
+(`PromptImportDialogs.kt:33-246`, `AgentsViewModel.kt:646-850`). The device
+picker opens SAF and reads a `.txt`/`.md` as strict UTF-8, stripping a BOM; the
+workspace branch reads through that workspace's `SessionWorkspace` with the same
+guard, so a path outside it is refused, and both apply the same
+`isPromptText` rule, 1 MiB read ceiling and replace/append question
+(`PromptImport.kt:10-71`). A blank file, invalid UTF-8 or a non-text pick is an
+error rather than a prompt full of replacement characters. The 1 MiB read
+ceiling is a guard against pulling a mis-tapped video into memory, not a prompt
+limit — there is no stored or sent length cap. If the prompt already has text,
+the import asks **Replace / Append / Cancel**. Files with an unknown extension
+are accepted when the provider reports a `text` MIME type, because Android
+providers disagree about `.md`; the extension check keeps those files usable
+when the MIME type is `application/octet-stream`.
 
 **Tool picker semantics, which are the subtle part:**
 

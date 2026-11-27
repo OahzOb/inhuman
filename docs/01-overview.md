@@ -169,9 +169,14 @@ Confirmed by `README.md:17-29` and by the code:
   copied immediately through the same transfer limits, with no import screen
   ([05-files-sandbox.md](05-files-sandbox.md)).
 - System prompts can be saved to a library and chosen while editing an
-  assistant. The library is text the user wrote for assistants, not context:
-  no tool reads or writes it, and choosing an entry only fills the prompt box,
-  which stays editable ([04-data-persistence.md](04-data-persistence.md)).
+  assistant. The library is text the user wrote for assistants, not capability:
+  choosing an entry only fills the prompt box, which stays editable, and the
+  workshop may read and draft it but writes only when the user taps the
+  proposal card's save ([04-data-persistence.md](04-data-persistence.md),
+  [07-gotchas.md](07-gotchas.md) A31). A system prompt can also be imported
+  from a file: the assistant editor's **Import** offers the device picker or a
+  two-step browse of any workspace, with the same 1 MiB read guard, UTF-8 check
+  and replace/append question ([06-agent-loop-ui.md](06-agent-loop-ui.md)).
 - Replies can end with two or three follow-up chips. Tapping one fills the
   composer and never sends. They come from `suggest_replies`, an opt-in tool
   that sends one extra request to the assistant's suggestion model and keeps its
@@ -235,27 +240,33 @@ Confirmed by `README.md:17-29` and by the code:
   becomes an ordinary permanent workspace with its files and conversations
   intact) reached from one persistent home row and one Create-sheet entry, both
   opening the same workspace hub. In a non-scene conversation there the host
-  appends nine capability-free helpers: the role-play authoring set
+  appends twelve capability-free helpers: the role-play authoring set
   (`rp_format`, `rp_validate` only where a read tool already exists, and
-  `rp_create_scene`) and the configuration set (`app_list_assistants` /
+  `rp_create_scene`), the configuration set (`app_list_assistants` /
   `app_read_assistant` return assistant content — names, system prompts, cards;
   never tools, providers or approval rules — `app_propose_assistant` prepares a
   create/rename/rewrite draft, `app_list_instructions` / `app_read_instruction`
   list and read each permanent workspace's root `AGENTS.md`, and
-  `app_propose_instruction` prepares a new version of one). `rp_create_scene`
+  `app_propose_instruction` prepares a new version of one), and the saved-prompt
+  set (`app_list_prompts` / `app_read_prompt` list and read the user's prompt
+  library, `app_propose_prompt` prepares a new or updated entry). `rp_create_scene`
   only prepares a **scene proposal card** and creates nothing until the user
   taps **Create and open**, which runs the same creator as the New-scene dialog
-  and binds the new scene to the workshop; the two propose helpers write nothing
-  either — their cards open the existing assistant editor or Files text editor
-  prefilled, and Save there is the only write. A proposal never carries a tool
-  selection, a model, a provider or an approval rule; a workspace is named on
-  the wire, never by its directory id; the saved-prompt library stays invisible
-  to the model. A saved `AGENTS.md` affects new conversations **and new scenes
-  created in that workspace**, or an existing conversation through the chat
-  menu's **Reload AGENTS.md**. None of the nine is in the tool catalogue, so
-  none appears in a picker, approval table or the gap report; ordinary
-  workspaces get none, and a conversation that is itself a scene gets neither
-  the helpers nor the workshop context paragraph. The workshop is app-owned: it
+  and binds the new scene to the workshop; the assistant and instruction
+  proposals write nothing either — their cards open the existing assistant
+  editor or Files text editor prefilled, and Save there is the only write. A
+  saved-prompt proposal has no editor: its card carries **Save to prompt
+  library**, and that tap is the only write, through the same title-unique
+  repository save the editor uses. A proposal never carries a tool selection, a
+  model, a provider or an approval rule; a workspace is named on the wire, never
+  by its directory id. The model still cannot delete an assistant or a saved
+  prompt, select a prompt for an assistant, or change tools, approvals, SSH or
+  download grants, providers or models. A saved `AGENTS.md` affects new
+  conversations **and new scenes created in that workspace**, or an existing
+  conversation through the chat menu's **Reload AGENTS.md**. None of the twelve
+  is in the tool catalogue, so none appears in a picker, approval table or the
+  gap report; ordinary workspaces get none, and a conversation that is itself a
+  scene gets neither the helpers nor the workshop context paragraph. The workshop is app-owned: it
   cannot be renamed, deleted or bulk-deleted, and the Workspaces list shows it
   with a badge instead of a selection checkbox
   ([06-agent-loop-ui.md](06-agent-loop-ui.md),
@@ -400,7 +411,7 @@ Worth settling before reading the rest, because the words are overloaded:
 | **conversation** | One chat, its branch, and the workspace it uses. Copies the assistant's provider, model and effort at creation so editing an assistant cannot change what an existing conversation may do. |
 | **branch** | A regenerated final answer is stored as a sibling branch; the user can switch between them. A mid-turn **Rewind** restart point replaces the suffix instead, because its tool results would no longer match the restored workspace. |
 | **workspace** | A folder and the sandbox boundary. A **temporary** workspace is created with its one conversation and deleted with it; a **permanent** workspace survives its conversations and can be shared by several. The absolute directory is visible to the user in Files and workspace detail, but never to the agent. |
-| **workshop** | The one built-in permanent workspace (`workspaces.kind = "workshop"`, schema v29). In a non-scene conversation there the host appends nine capability-free helpers for role-play authoring and app-configuration drafts, plus one `Workshop context:` paragraph; a scene in it gets neither. It is a data attribute, not a permission level — nothing about it grants a tool, approval or network path — and it is app-owned: it cannot be renamed or deleted. |
+| **workshop** | The one built-in permanent workspace (`workspaces.kind = "workshop"`, schema v29). In a non-scene conversation there the host appends twelve capability-free helpers for role-play authoring, app-configuration drafts and the saved-prompt library, plus one `Workshop context:` paragraph; a scene in it gets neither. It is a data attribute, not a permission level — nothing about it grants a tool, approval or network path — and it is app-owned: it cannot be renamed or deleted. |
 | **turn** | One user message and everything the model and its tools did in response. |
 | **mutates** | "Replaying this turn with tools would change something." A record, not a blanket regeneration gate. |
 | **reversible** | "The app can put this effect back." Local file tools are reversible; `ssh_exec` and `ssh_upload` are not, while `ssh_download` writes a workspace copy and is. Rollback requires it. |

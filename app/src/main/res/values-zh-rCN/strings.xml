@@ -776,6 +776,10 @@
 	<string name="agents_policy_hide">隐藏</string>
 	<string name="agents_prompt_file_type">请选择 .txt 或 .md 文件。</string>
 	<string name="agents_prompt_open_failed">无法打开这个文件。</string>
+	<string name="agents_prompt_too_large">文件超过 1 MiB，不能作为提示词导入。</string>
+	<string name="agents_import_choose_source">提示词文件在哪里？</string>
+	<string name="agents_import_from_device">从设备文件…</string>
+	<string name="agents_import_from_workspace">从工作区文件…</string>
 
 	<!-- 角色扮演：助手上的角色卡 + 对话上的场景。两者都是提示词内容，不是能力：
 	     这里的任何字段都不能增加工具、改变审批或扩大工作区。 -->
@@ -1506,11 +1510,20 @@
 	<string name="agents_prompt_saved">已存入提示词库。</string>
 	<string name="agents_prompt_loaded">已填入；系统提示框仍可修改。</string>
 	<string name="agents_prompt_empty">还没有保存的提示词。</string>
-	<string name="agents_prompt_library_note">模型读不到这个库；选一条只是填进系统提示框。</string>
+	<string name="agents_prompt_library_note">配置工坊可以读这个库并准备草稿；保存前什么都不会变。选一条只是填进系统提示框。</string>
 	<string name="agents_prompt_use">使用</string>
 	<string name="agents_prompt_confirm_delete">确认删除？</string>
 	<string name="agents_prompt_write_action">撰写</string>
 	<string name="agents_prompt_edit_action">编辑</string>
+	<!-- 从工作区文件导入系统提示词。 -->
+	<string name="prompt_import_title">从工作区文件导入</string>
+	<string name="prompt_import_loading">正在读取…</string>
+	<string name="prompt_import_empty">这个文件夹里没有文件。</string>
+	<string name="prompt_import_no_workspaces">还没有可读取的工作区。</string>
+	<string name="prompt_import_failed">无法读取工作区。</string>
+	<string name="prompt_import_change_workspace">换一个工作区</string>
+	<string name="prompt_import_up">上一级</string>
+	<string name="prompt_import_temporary">%1$s（临时）</string>
 	<string name="chat_branch_previous">上一个回复</string>
 	<string name="chat_branch_next">下一个回复</string>
 	<!-- 模型能力：这个模型是干什么用的。按模型名推断，用户可以改——服务商的模型列表
@@ -1605,12 +1618,12 @@
 	<!-- 唯一的内置工坊：一个永久工作区，助手在这里获得 RP 写作辅助、场景提案工具，
 	     以及 app 配置的读取/草稿辅助。它属于应用本身：不能重命名，也不能删除。 -->
 	<string name="workshop_name">工坊</string>
-	<string name="home_workshop_detail">做角色卡、场景，起草助手和 AGENTS.md</string>
+	<string name="home_workshop_detail">做角色卡、场景，起草助手、AGENTS.md 和提示词</string>
 	<string name="home_create_workshop_detail">内置的一个地方：助手先准备，你来开始或保存</string>
 	<string name="workshop_open_failed">无法打开工坊：%1$s</string>
 	<string name="workspace_builtin_badge">工坊</string>
 	<string name="workshop_hub_badge">内置工坊</string>
-	<string name="workshop_hub_body">这是应用内置的工坊。这里的对话里，助手可以准备角色卡或场景，也可以起草助手和工作区的 AGENTS.md。在你点“创建并打开”，或在他打开的编辑器里保存之前，什么都不会改变。</string>
+	<string name="workshop_hub_body">这是应用内置的工坊。这里的对话里，助手可以准备角色卡或场景，也可以起草助手、工作区的 AGENTS.md 或提示词库条目。在你点“创建并打开”、在他打开的编辑器里保存，或在草稿卡上点保存之前，什么都不会改变。</string>
 	<string name="workshop_hub_owned">它属于应用本身：不能重命名，也不能删除。想清空就删掉里面的对话和文件。</string>
 	<!-- 场景提案：创建之前先给用户看的一张卡片。 -->
 	<string name="chat_scene_proposal_title">场景提案</string>
@@ -1643,6 +1656,18 @@
 	<string name="chat_instruction_proposal_missing">工作区“%1$s”已不存在。</string>
 	<string name="chat_instruction_proposal_ambiguous">有多个工作区叫“%1$s”。</string>
 	<string name="chat_instruction_proposal_workspace_failed">读取工作区列表失败。</string>
+	<!-- 提示词库草稿：只有卡片上的“保存到提示词库”会写入。 -->
+	<string name="chat_prompt_proposal_title">提示词库草稿</string>
+	<string name="chat_prompt_proposal_create">新建提示词：%1$s</string>
+	<string name="chat_prompt_proposal_update">更新提示词：%1$s</string>
+	<string name="chat_prompt_proposal_new">新条目，%1$d 字符</string>
+	<string name="chat_prompt_proposal_replaces">用 %2$d 字符替换现有的 %1$d 字符</string>
+	<string name="chat_prompt_proposal_pending">尚未保存；点“保存到提示词库”才会写入。</string>
+	<string name="chat_prompt_proposal_saving">正在保存…</string>
+	<string name="chat_prompt_proposal_saved">已保存到提示词库。</string>
+	<string name="chat_prompt_proposal_save">保存到提示词库</string>
+	<string name="chat_prompt_proposal_failed">无法保存：%1$s</string>
+	<string name="chat_prompt_proposal_empty">提示词是空的</string>
 	<string name="agents_proposal_missing">该助手已不存在。</string>
 	<!-- 工坊辅助工具在折叠行里的标题。 -->
 	<string name="chat_config_list_assistants_title">助手列表</string>
@@ -1651,4 +1676,7 @@
 	<string name="chat_config_list_instructions_title">指令文件</string>
 	<string name="chat_config_read_instruction_title">指令文件</string>
 	<string name="chat_config_propose_instruction_title">AGENTS.md 草稿</string>
+	<string name="chat_config_list_prompts_title">提示词库</string>
+	<string name="chat_config_read_prompt_title">已保存提示词</string>
+	<string name="chat_config_propose_prompt_title">提示词库草稿</string>
 </resources>

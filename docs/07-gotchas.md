@@ -580,12 +580,14 @@ host helpers and the context block. No runtime code may see the legacy strings.
 Rules that make the kind safe (each is a bug if undone):
 
 - **The kind gates only capability-free helpers.** In a non-scene conversation in
-  the workshop the host appends nine helpers after the allow-list, decided by
+  the workshop the host appends twelve helpers after the allow-list, decided by
   `planWorkshopHelpers` (`app/.../ui/chat/WorkshopToolsPlan.kt`): role-play's
   `rp_format`, `rp_validate` (only where the conversation already has
-  `read_file`/`list_files`) and `rp_create_scene` (A30), plus the configuration
+  `read_file`/`list_files`) and `rp_create_scene` (A30), the configuration
   side's `app_list_assistants`, `app_read_assistant`, `app_propose_assistant`,
-  `app_list_instructions`, `app_read_instruction` and `app_propose_instruction`.
+  `app_list_instructions`, `app_read_instruction` and `app_propose_instruction`,
+  and the saved-prompt set's `app_list_prompts`, `app_read_prompt` and
+  `app_propose_prompt`.
   None is in `ToolCatalog`, so none appears in the assistant editor, the
   conversation tool sheet, approval rules or the gap report; all are
   `mutates = false`. Capability-bearing tools still come from the assistant and
@@ -618,10 +620,19 @@ Rules that make the kind safe (each is a bug if undone):
   and new scenes created in that workspace — while an existing one needs
   **Reload AGENTS.md** (one deliberate cold request). Do not add a watcher that
   re-pins, and do not have the save path touch any conversation row.
-- **The saved-prompt library stays model-invisible.** Nothing here can read,
-  write or select `saved_prompts`; "save to prompt library" in the assistant
-  editor remains a user action (`docs/13-product.md`). The model may draft an
-  assistant prompt, not curate the library.
+- **The saved-prompt library is readable and draftable, but tap-gated.** The
+  three prompt helpers read `saved_prompts` (`app_list_prompts` returns titles,
+  lengths and previews; `app_read_prompt` returns one text cut at 64,000
+  characters and says whether it was truncated) and `app_propose_prompt` returns
+  a `PromptProposal`; none of them writes. The proposal card's **Save to prompt
+  library** calls `ChatViewModel.saveProposedPrompt`, which writes through
+  `SavedPromptRepository.save` — the same title-unique upsert the assistant
+  editor uses — only after the user's tap. An untapped proposal leaves no row;
+  a same-title proposal updates the entry. The model may draft an entry, not
+  curate the library: it still cannot delete a prompt, select one for an
+  assistant, or make one an assistant's system prompt. This reverses the earlier
+  "model-invisible" rule and amends `docs/proposals/config-workshop.md` §9; the
+  record is `docs/proposals/prompt-library.md`.
 - **The model cannot enter, create or retag the workshop.** There is no tool that
   creates a workspace or changes its kind. Entering is a user gesture (the one
   persistent home row or the Create-sheet choice), so there is no "convince the
@@ -631,10 +642,10 @@ Rules that make the kind safe (each is a bug if undone):
   row, serialised by `builtInMutex` so two entry taps cannot create two
   workshops.
 - **A scene says so in its tool list, and the proposal creates nothing.** A
-  conversation that is itself a role-play scene gets **none** of the nine helpers
-  and no workshop paragraph: the role-play prompt already describes the story,
-  and "build me a scene" or "manage the assistants" inside it would be a second
-  role. The scene-proposal tool returns data only; the conversation is created by
+  conversation that is itself a role-play scene gets **none** of the twelve
+  helpers and no workshop paragraph: the role-play prompt already describes the
+  story, and "build me a scene" or "manage the assistants" inside it would be a
+  second role. The scene-proposal tool returns data only; the conversation is created by
   the user's tap through `RoleplaySceneCreator` (the same writer the New-scene
   dialog uses), with `tools = emptyList()` (stored `"[]"`), the persona frozen
   and the greeting in the same transaction. A proposed-but-untapped card leaves
@@ -659,19 +670,20 @@ Rules that make the kind safe (each is a bug if undone):
   string; it is not editable.
 - **The helper set is not a mode.** There is no global switch, no approval row
   and no picker entry; a workspace either has the kind or it does not. Ordinary
-  workspaces lose all nine helpers by design — that is the management shape, not
-  a removal of a capability (the helpers never were one).
+  workspaces lose all twelve helpers by design — that is the management shape,
+  not a removal of a capability (the helpers never were one).
 - **The workshop says where it is.** A non-scene conversation in the workshop
   gets one host-written `Workshop context:` paragraph
-  (`WorkshopPrompt.kt:36-69`), derived from `workspaces.kind` and the
+  (`WorkshopPrompt.kt:36-71`), derived from `workspaces.kind` and the
   conversation's scene state. It covers both jobs — role-play authoring and
-  app-configuration drafts — and says that a proposal creates nothing until the
-  user taps Create or saves in the editor. It is appended after the role-play
-  sections and the continuous-session instruction, and before the compaction
-  summary and the pinned `AGENTS.md` block; a scene gets none. The text is
-  identical on every turn, so it is not pinned and does not move the cache
-  prefix. It is content-only: it cannot add a tool, change an approval or grant
-  SSH/download. `WorkshopToolsPlanTest`, `WorkshopPromptTest` and
+  app-configuration drafts — names the saved-prompt library as readable and
+  draftable, and says that a proposal creates nothing until the user taps Create,
+  saves in the editor, or taps **Save to prompt library**. It is appended after
+  the role-play sections and the continuous-session instruction, and before the
+  compaction summary and the pinned `AGENTS.md` block; a scene gets none. The
+  text is identical on every turn, so it is not pinned and does not move the
+  cache prefix. It is content-only: it cannot add a tool, change an approval or
+  grant SSH/download. `WorkshopToolsPlanTest`, `WorkshopPromptTest` and
   `WireSheetSystemSplitTest` pin the plan, the text and the wire split;
   `WorkshopWorkspaceTest` covers the single row and the rename/delete/bulk-delete
   guards; `WorkshopKindMigrationTest` covers the v29 cases.

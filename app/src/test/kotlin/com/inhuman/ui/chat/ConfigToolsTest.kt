@@ -3,6 +3,7 @@ package com.inhuman.ui.chat
 import com.inhuman.core.ai.Tool
 import com.inhuman.core.ai.ToolResult
 import com.inhuman.core.data.db.AgentEntity
+import com.inhuman.core.data.db.SavedPromptEntity
 import com.inhuman.core.data.db.WorkspaceEntity
 import com.inhuman.core.data.db.WorkspaceKinds
 import kotlinx.coroutines.runBlocking
@@ -53,8 +54,16 @@ private fun toolWorkspace(
 	updatedAt = 0L,
 )
 
+private fun toolPrompt(title: String, text: String): SavedPromptEntity = SavedPromptEntity(
+	id = "p-$title",
+	title = title,
+	text = text,
+	createdAt = 0L,
+	updatedAt = 0L,
+)
+
 /**
- * The configuration workshop's six helpers at their tool boundary.
+ * The configuration workshop's helpers at their tool boundary.
  *
  * What matters here is not the draft model ([ConfigProposalsTest]'s job) but the
  * promises the request depends on: reads return content and never capability
@@ -432,5 +441,116 @@ class ConfigToolsTest {
 		assertTrue(propose.isError)
 		assertTrue(list.content, list.content.contains("could not be read"))
 		assertTrue(propose.content, propose.content.contains("could not be prepared"))
+	}
+
+	// ------------------------------------------------- saved prompt library
+
+	@Test
+	fun `the saved prompt list is content, not an editor`() {
+		val result = execute(
+			ConfigListPromptsTool {
+				listOf(
+					toolPrompt("Terse", "Be brief."),
+					toolPrompt("Notebook", "Keep notes tidy."),
+				)
+			},
+			buildJsonObject {},
+		)
+
+		val rows = array(result)
+		assertEquals(2, rows.size)
+		val byTitle = rows.associateBy { it.jsonObject["title"]?.jsonPrimitive?.content }
+		assertEquals(9, byTitle["Terse"]?.jsonObject?.get("chars")?.jsonPrimitive?.content?.toInt())
+		assertTrue(
+			byTitle["Notebook"]?.jsonObject?.get("preview")?.jsonPrimitive?.content
+				?.contains("Keep notes tidy") == true,
+		)
+		assertTrue(result.persistedContent, result.persistedContent?.contains("Listed 2") == true)
+	}
+
+	@Test
+	fun `reading a saved prompt returns its text and flags truncation`() {
+		val long = "x".repeat(MAX_PROPOSED_PROMPT_CHARS + 5)
+		val read = execute(
+			ConfigReadPromptTool { listOf(toolPrompt("Long", long)) },
+			buildJsonObject { put("title", "Long") },
+		)
+
+		assertFalse(read.isError)
+		val row = Json.parseToJsonElement(read.content).jsonObject
+		assertEquals(MAX_PROPOSED_PROMPT_CHARS, row["text"]?.jsonPrimitive?.content?.length)
+		assertEquals(true, row["truncated"]?.jsonPrimitive?.content?.toBoolean())
+		assertEquals(long.length, row["chars"]?.jsonPrimitive?.content?.toInt())
+	}
+
+	@Test
+	fun `an unknown saved prompt is an error that names the list tool`() {
+		val result = execute(
+			ConfigReadPromptTool { listOf(toolPrompt("Terse", "Be brief.")) },
+			buildJsonObject { put("title", "Missing") },
+		)
+
+		assertTrue(result.isError)
+		assertTrue(result.content, result.content.contains("app_list_prompts"))
+	}
+
+	@Test
+	fun `a new prompt proposal is a card, not a write`() {
+		val result = execute(
+			ConfigProposePromptTool { emptyList() },
+			buildJsonObject {
+				put("title", "Terse")
+				put("text", "Be brief.")
+			},
+		)
+
+		assertFalse(result.isError)
+		val proposal = PromptProposal.fromJson(result.content) ?: error("proposal did not decode")
+		assertEquals("Terse", proposal.title)
+		assertEquals("Be brief.", proposal.text)
+		assertNull(proposal.existingChars)
+		assertTrue(result.persistedContent, result.persistedContent?.contains("nothing has been saved") == true)
+	}
+
+	@Test
+	fun `a prompt proposal with an existing title says it will update it`() {
+		val existing = "The old text."
+		val result = execute(
+			ConfigProposePromptTool { listOf(toolPrompt("Terse", existing)) },
+			buildJsonObject {
+				put("title", "Terse")
+				put("text", "The new text.")
+			},
+		)
+
+		val proposal = PromptProposal.fromJson(result.content) ?: error("proposal did not decode")
+		assertEquals(existing.length, proposal.existingChars)
+	}
+
+	@Test
+	fun `a no-op prompt proposal is refused`() {
+		val text = "Same text."
+		val result = execute(
+			ConfigProposePromptTool { listOf(toolPrompt("Terse", text)) },
+			buildJsonObject {
+				put("title", "Terse")
+				put("text", text)
+			},
+		)
+
+		assertTrue(result.isError)
+		assertTrue(result.content, result.content.contains("exact text"))
+	}
+
+	@Test
+	fun `a prompt proposal needs a title and non-blank text`() {
+		val tool = ConfigProposePromptTool { emptyList() }
+		val noTitle = execute(tool, buildJsonObject { put("text", "x") })
+		val blankText = execute(tool, buildJsonObject { put("title", "T"); put("text", "  ") })
+
+		assertTrue(noTitle.isError)
+		assertTrue(noTitle.content, noTitle.content.contains("title"))
+		assertTrue(blankText.isError)
+		assertTrue(blankText.content, blankText.content.contains("blank"))
 	}
 }

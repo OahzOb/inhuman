@@ -1,6 +1,7 @@
 package com.inhuman.ui.chat
 
 import com.inhuman.core.data.db.AgentEntity
+import com.inhuman.core.data.db.SavedPromptEntity
 import com.inhuman.core.data.db.WorkspaceEntity
 import com.inhuman.core.engine.roleplay.RoleplayCodec
 import com.inhuman.core.engine.roleplay.RoleplayLimits
@@ -19,12 +20,12 @@ import kotlinx.serialization.json.put
  *
  * ## Drafts, not edits
  *
- * In the workshop the host appends helpers that can list and read
- * the app's own configuration (assistants, each permanent workspace's root
- * `AGENTS.md`). A helper that "writes" returns one of these proposals instead:
- * the chat renders it as a card, and the card's action opens the user's existing
- * editor -- the assistant editor or the Files text editor -- prefilled with the
- * draft. The user saves it, or does not.
+ * In the workshop the host appends helpers that can list and read the app's own
+ * configuration (assistants, each permanent workspace's root `AGENTS.md`, and the
+ * saved-prompt library). A helper that "writes" returns one of these proposals
+ * instead: the chat renders it as a card, and the card's action opens the user's
+ * existing editor prefilled or, for a saved prompt, offers the one save tap. The
+ * user saves it, or does not.
  *
  * That split is the whole design (`docs/proposals/config-workshop.md`):
  *
@@ -215,6 +216,123 @@ data class InstructionProposal(
 				summary = summary,
 			)
 		}
+	}
+}
+
+/** The longest title a prompt-library proposal may carry. */
+internal const val MAX_PROMPT_TITLE_CHARS = 120
+
+/**
+ * A suggested entry in the user's saved-prompt library.
+ *
+ * Saves are not editor-mediated the way assistant and instruction proposals are
+ * -- the library has no text editor, only a list and a "store current prompt"
+ * dialog. The proposal therefore renders its own card with a **Save to prompt
+ * library** button; that tap is the write, and the tool itself changes nothing.
+ * [existingChars] non-null means the title already exists and saving updates that
+ * entry (the library's title-unique rule), which the card must say.
+ */
+data class PromptProposal(
+	val title: String,
+	val text: String,
+	/** Length of the existing entry with this title, or null for a new one. */
+	val existingChars: Int?,
+	/** One-line preview for the card. */
+	val summary: String,
+) {
+
+	fun toJson(): String = buildJsonObject {
+		put("kind", KIND)
+		put("title", title)
+		put("text", text)
+		put("existingChars", existingChars)
+		put("summary", summary)
+	}.toString()
+
+	companion object {
+		const val KIND = "prompt"
+
+		/**
+		 * Decode a proposal, or null when [text] is not a usable one. Total for
+		 * the same reason the other proposals are: a truncated transcript row
+		 * must render as "no card", not crash the chat.
+		 */
+		fun fromJson(text: String): PromptProposal? {
+			val root = runCatching { Json.parseToJsonElement(text) }.getOrNull() as? JsonObject
+				?: return null
+			if (root.stringOrNull("kind") != KIND) return null
+			val title = root.stringOrNull("title")?.takeIf { it.isNotBlank() } ?: return null
+			if (title.length > MAX_PROMPT_TITLE_CHARS) return null
+			val body = root.stringOrNull("text")?.takeIf { it.isNotBlank() } ?: return null
+			if (body.contains('\u0000')) return null
+			if (body.length > MAX_PROPOSED_PROMPT_CHARS) return null
+			val summary = root.stringOrNull("summary") ?: return null
+			val existingChars = root["existingChars"].let { element ->
+				when {
+					element == null || element is JsonNull -> null
+					else -> {
+						val value = (element as? JsonPrimitive)?.intOrNull ?: return null
+						value.takeIf { it >= 0 } ?: return null
+					}
+				}
+			}
+			return PromptProposal(title, body, existingChars, summary)
+		}
+	}
+}
+
+/**
+ * Builds [PromptProposal] values from the helper's arguments.
+ *
+ * The validation is deliberately small: a title (the library's unique key) and
+ * non-blank text within the same proposal cap the assistant prompt uses. An
+ * update whose text equals the existing entry is refused, so a card never asks
+ * the user to save a no-op.
+ */
+internal object PromptProposals {
+
+	fun prepare(
+		title: String,
+		text: String,
+		prompts: List<SavedPromptEntity>,
+	): DraftResult<PromptProposal> {
+		val cleanTitle = title.trim()
+		if (cleanTitle.isEmpty()) {
+			return DraftResult.Rejected("the saved prompt needs a title; nothing was prepared")
+		}
+		if (cleanTitle.length > MAX_PROMPT_TITLE_CHARS) {
+			return DraftResult.Rejected(
+				"the title is longer than $MAX_PROMPT_TITLE_CHARS characters; " +
+					"shorten it; nothing was prepared",
+			)
+		}
+		if (text.isBlank()) {
+			return DraftResult.Rejected("the prompt text is blank; nothing was prepared")
+		}
+		if (text.contains('\u0000')) {
+			return DraftResult.Rejected("the prompt text contains a NUL character; nothing was prepared")
+		}
+		if (text.length > MAX_PROPOSED_PROMPT_CHARS) {
+			return DraftResult.Rejected(
+				"the prompt is longer than $MAX_PROPOSED_PROMPT_CHARS characters; " +
+					"shorten it; nothing was prepared",
+			)
+		}
+		val existing = prompts.firstOrNull { it.title.trim() == cleanTitle }
+		if (existing != null && existing.text == text) {
+			return DraftResult.Rejected(
+				"the library already has this exact text under \"$cleanTitle\"; " +
+					"nothing was prepared",
+			)
+		}
+		return DraftResult.Ok(
+			PromptProposal(
+				title = cleanTitle,
+				text = text,
+				existingChars = existing?.text?.length,
+				summary = previewLine(text),
+			),
+		)
 	}
 }
 

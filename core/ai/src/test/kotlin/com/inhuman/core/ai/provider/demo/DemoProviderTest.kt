@@ -270,14 +270,15 @@ class DemoProviderTest {
 	}
 
 	@Test
-	fun `a configuration workshop conversation proposes an assistant and an instruction`() = runTest {
-		// Both configuration-workshop helpers are host-appended and write nothing,
-		// so the demo can drive the draft -> editor -> Save loop with no key.
+	fun `a configuration workshop conversation proposes an assistant, an instruction and a prompt`() = runTest {
+		// The configuration-workshop helpers are host-appended and write nothing,
+		// so the demo can drive the draft -> editor/card -> Save loop with no key.
 		val calls = callsIn(
 			request(
 				tools = listOf(
 					DemoProvider.PROPOSE_ASSISTANT_TOOL,
 					DemoProvider.PROPOSE_INSTRUCTION_TOOL,
+					DemoProvider.PROPOSE_PROMPT_TOOL,
 				),
 				messages = listOf(ChatMessage(Role.User, "config please")),
 			),
@@ -287,6 +288,7 @@ class DemoProviderTest {
 			listOf(
 				DemoProvider.PROPOSE_ASSISTANT_TOOL,
 				DemoProvider.PROPOSE_INSTRUCTION_TOOL,
+				DemoProvider.PROPOSE_PROMPT_TOOL,
 			),
 			calls.map { it.name },
 		)
@@ -302,6 +304,12 @@ class DemoProviderTest {
 		val instruction = Json.parseToJsonElement(calls[1].argumentsJson).jsonObject
 		assertTrue(
 			instruction["text"]?.jsonPrimitive?.content?.contains("Demo instructions") == true,
+		)
+		val prompt = Json.parseToJsonElement(calls[2].argumentsJson).jsonObject
+		assertEquals("Demo prompt", prompt["title"]?.jsonPrimitive?.content)
+		assertTrue(
+			"a prompt-library draft needs text the card can offer to save",
+			prompt["text"]?.jsonPrimitive?.content?.isNotBlank() == true,
 		)
 	}
 

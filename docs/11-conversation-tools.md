@@ -154,28 +154,32 @@ request to forget the selection.
 
 ## Helpers the sheet never shows
 
-`recall` (continuous sessions), the nine workshop helpers and
+`recall` (continuous sessions), the twelve workshop helpers and
 `unavailable_tools` are appended by the host after the allow-list. The workshop
-helpers are the role-play set (`rp_format` / `rp_validate` / `rp_create_scene`)
-and the configuration set (`app_list_assistants`, `app_read_assistant`,
+helpers are the role-play set (`rp_format` / `rp_validate` / `rp_create_scene`),
+the configuration set (`app_list_assistants`, `app_read_assistant`,
 `app_propose_assistant`, `app_list_instructions`, `app_read_instruction`,
-`app_propose_instruction`). They are not catalogue entries, so the sheet neither
-shows nor changes them: a conversation's selection is about **capability**, and
-these have none. `recall` reads this conversation's own record; `rp_format` is
-constant text; `rp_validate` reads a workspace file only when a read tool is
-already selected; `rp_create_scene` prepares a proposal and creates nothing until
-the user taps a card.
+`app_propose_instruction`) and the saved-prompt set (`app_list_prompts`,
+`app_read_prompt`, `app_propose_prompt`). They are not catalogue entries, so the
+sheet neither shows nor changes them: a conversation's selection is about
+**capability**, and these have none. `recall` reads this conversation's own
+record; `rp_format` is constant text; `rp_validate` reads a workspace file only
+when a read tool is already selected; `rp_create_scene` prepares a proposal and
+creates nothing until the user taps a card.
 
-Both sets exist together, only in a non-scene conversation whose workspace has
-`kind = "workshop"` (schema v29; one built-in workshop, the v28 role-play and
+All three sets exist together, only in a non-scene conversation whose workspace
+has `kind = "workshop"` (schema v29; one built-in workshop, the v28 role-play and
 configuration kinds merged) — a workspace-scoped presentation decision, not a
 grant (`docs/07-gotchas.md` A31). A conversation that is itself a role-play
 scene gets none of them. The configuration helpers read app configuration rather
-than workspace files: assistant content, and each permanent workspace's root
-`AGENTS.md` by display name. Their propose tools write nothing; the card opens
-the existing assistant/Files editor and the user's Save is the only write. A
-proposal cannot carry a tool selection, provider, model or approval rule, and
-the saved-prompt library remains invisible to the model.
+than workspace files: assistant content, each permanent workspace's root
+`AGENTS.md` by display name, and the user's saved-prompt library. Their propose
+tools write nothing; the assistant/instruction cards open the existing
+assistant/Files editor and the user's Save is the only write, while the
+saved-prompt card's **Save to prompt library** is its own write through
+`SavedPromptRepository.save`. A proposal cannot carry a tool selection, provider,
+model or approval rule, and no helper can delete an assistant or a saved prompt,
+or select a prompt for an assistant.
 
 ## Why this is not a new exception
 

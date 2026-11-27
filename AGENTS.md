@@ -16,7 +16,7 @@ than implementation; the old feasibility studies are archived under
 | --- | --- |
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
-| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the free local web tools (`web_search_local` / `web_fetch_local`, app-proxied, with optional WebView render)**, **the per-tool media backends (image/video/speech/transcription/decision)**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)**, **`download_url` (app-proxied file download into the workspace)**, and the user-set `SshLimits` ceilings |
+| `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, the paid and free local web backends, per-tool media backends, the SSH tools, `download_url`, and the user-set `SshLimits` ceilings |
 | `docs/04-data-persistence.md` | Room schema v30, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup, and the continuous-session cost ledger |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the file and document tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, continuous-session projection and read-only record recall, layout |
@@ -55,11 +55,11 @@ without a device -- not because a second host exists.
 
 ## What this app is for, and what it refuses
 
-The short version, stated once here so it is not re-litigated per feature: the
-agent design of DeepSeek Harness is worth having on a phone, so it is being
-ported — **with hard limits on what the agent can read, write, and run.** Those
-limits exist to borrow the device's compute while isolating the filesystem. They
-are **not** about disclaiming responsibility.
+The short version, stated once so it is not re-litigated: DeepSeek Harness's
+agent design is worth having on a phone, so it is being ported — **with hard
+limits on what the agent can read, write and run.** They borrow the device's
+compute while isolating the filesystem; they are **not** about disclaiming
+responsibility.
 
 Two consequences bind every future change, and neither is negotiable:
 
@@ -90,19 +90,15 @@ Two consequences bind every future change, and neither is negotiable:
   keeps an address book of aliases, addresses, ports, users and optional
   fingerprints — **never a credential** — and each conversation decides which of
   those `ssh_hosts` may show it, without a security or privacy promise
-  (`docs/13-product.md`). The connection, including its key or password, is in
-  the call; the agent can only use what the user handed it, and a password sent
-  that way stays in the transcript. Command text, paths and `ssh_write_file` content
-  are part of the call and remain in the transcript.
+  (`docs/13-product.md`).
   The second is **`download_url`**: the app fetches one `https` URL the agent
   names and saves the bytes under `downloads/` in the workspace. The agent still
   has no socket of its own, but a URL can carry data out, so it has its own
-  global switch (default off), its own `optIn` catalogue flag, and a
-  once-per-conversation acknowledgement persisted in
-  `conversations.downloadAllowed`; the request is `https` only, public addresses
-  only, 64 MiB per file, into the ordinary workspace quota, never overwriting,
-  and nothing is executed. Do not add another exception without answering
-  `docs/08-port-philosophy.md` §1.2.1, §1.5 and §1.6.
+  global switch (default off), `optIn` flag and per-conversation acknowledgement
+  (`conversations.downloadAllowed`); https only, public addresses only, 64 MiB
+  per file, into the ordinary quota, never overwriting, nothing executed. Do not
+  add another exception without answering `docs/08-port-philosophy.md` §1.2.1,
+  §1.5 and §1.6.
 
 **Role-play is content configuration, not a mode.** A character card
 (`agents.rpJson`) and a scene (`conversations.sceneJson`) are text rendered into
@@ -176,10 +172,10 @@ switch off clears every conversation's grant. It is **https-only**, public
 addresses only, GET-only, no cookie/credential/custom header, and uses the one
 `GuardedHttp` guard (DNS check at connect, redirect re-validation) shared with
 `download_url` — do not add a second SSRF path. `render = true` loads the page in
-a fresh WebView: page scripts run (that is the point), so there is no JS bridge,
-no cookie injection, no file access and no persisted storage, and the WebView is
-destroyed per call; the Settings copy, the tool description and the consent
-dialog all say what leaves the device. Diagnostics record host/bytes only. Rules:
+a fresh WebView: page scripts run (the point), so there is no JS bridge, cookie
+injection, file access or persisted storage, and the WebView is destroyed per
+call; the Settings copy, tool description and consent dialog all say what leaves
+the device. Diagnostics record host/bytes only. Rules:
 `docs/08-port-philosophy.md` §1.7, mechanism: `docs/03-ai-provider.md`.
 
 Full reasoning, plus the design questions and how each was answered, is in
@@ -217,78 +213,72 @@ A single AVD can be resized with `adb shell wm size WxH` and
 useful ratio test, not a substitute for the two device profiles. The physical
 phone is deployable and inspectable, but HyperOS may refuse `adb shell input`.
 
-The phone-sized case is not a smaller copy of the tablet case and must not be
-treated as one. They differ in ways that have already caused bugs here: the
-primary action is a FAB on a compact-width phone, a header Create on a medium
-single pane, and a top-bar button on a two-pane tablet
-(`prefersFabForPrimaryAction`); the gutter is 20dp against 32dp
-(`comfortableGutter`); and 1280dp of width is enough for a paragraph to become
-unreadable if nothing caps it.
+The phone-sized case is not a smaller tablet case. They differ in ways that have
+caused bugs: the primary action is a FAB on a compact-width phone, a header
+Create on a medium single pane, a top-bar button on a two-pane tablet
+(`prefersFabForPrimaryAction`); the gutter is 20dp vs 32dp
+(`comfortableGutter`); 1280dp of width makes a paragraph unreadable if nothing
+caps it.
 
 ### Space utilisation is the point, not the side effect
 
-A tablet has roughly three times the horizontal room of a phone, and the lazy
-answer — stretch everything — produces a 150-character line of prose and a
-composer whose send button sits in a corner nobody looks at. That is worse than
-the phone layout, not better.
+A tablet has three times a phone's horizontal room; stretching everything
+produces a 150-character line and a send button in a corner nobody looks at —
+worse than the phone layout.
 
-The rule this project arrived at: **cap the measure, centre what is capped.**
-`Layout.ReadableMeasure` (640dp) governs forms, settings and short prose. The chat
-transcript is wider — 900dp — because it contains code and tables, and user
-messages are narrower still at 560dp. On a phone every cap is inert
-(`screenWidthDp` never reaches it), so the same code is correct at both sizes
-without a form-factor branch. Prefer that shape: a maximum that binds on the
-large screen and does nothing on the small one.
+The rule: **cap the measure, centre what is capped.** `Layout.ReadableMeasure`
+(640dp) governs forms, settings and short prose. The chat transcript is wider —
+900dp — for code and tables, user messages narrower at 560dp. On a phone every
+cap is inert (`screenWidthDp` never reaches it), so one code path is correct at
+both sizes without a form-factor branch: a maximum that binds on the large
+screen and does nothing on the small one.
 
 Two corrections to what this file used to claim, both verified — see
 `docs/07-gotchas.md` B5:
 
 - The chat transcript and composer share a **900dp** axis. Assistant replies have
-  no bubble and no 640dp cap, but they do not run the full tablet width either;
-  user messages are 560dp bubbles aligned to the end. On a tablet the home screen
-  becomes two columns: a 320dp workbench rail and a conversation list capped at
-  760dp.
-- The cap **was inert at seven call sites** in five files (the conversations
-  list, the agents list, files, settings, `WideDialog`), because they chained
-  `fillMaxWidth`/`fillMaxSize` *before* `widthIn`. **Fixed**, and verified by
-  measuring the rendered column on the tablet AVD: 576dp, centred. Three of
-  those sites had carried a comment claiming the cap was what made the tablet
-  layout readable — the comment was describing behaviour the code did not have.
+  no bubble and no 640dp cap, but do not run the full tablet width either; user
+  messages are 560dp bubbles aligned to the end. On a tablet the home screen is
+  two columns: a 320dp workbench rail and a conversation list capped at 760dp.
+- The cap **was inert at seven call sites** in five files (conversations, agents,
+  files, settings, `WideDialog`) because they chained
+  `fillMaxWidth`/`fillMaxSize` *before* `widthIn`. **Fixed**, verified by
+  measuring the rendered column on the tablet AVD: 576dp, centred. Three of those
+  sites had a comment claiming the cap made the tablet layout readable — the
+  comment described behaviour the code did not have.
 
 **The composer must not consume `safeDrawing` before `imePadding()`.** That inset
 contains the IME; consuming it first leaves the composer under the keyboard. This
 was found by opening the keyboard on the phone AVD, not by reading the chain.
 
 **The composer is one hairline-bounded surface**, not a row of controls beside a
-field: a full-width text area over a 48dp action row — attach and microphone on
-the left, context ring and send/stop on the right. Do not put those controls back
-beside the field, and do not return the ring to an `OutlinedTextField` trailing
-slot. Material lays a trailing slot out as a 48dp column for the field's whole
-height, so every wrapped line in a multi-line draft sits beside a blank strip;
-on a 360dp phone the text is left with about 70dp. `docs/07-gotchas.md` B32 is
-the recorded case, and the layout is described in `docs/06-agent-loop-ui.md`.
+field: a full-width text area over a 48dp action row — attach and microphone
+left, context ring and send/stop right. Do not put them back beside the field or
+in an `OutlinedTextField` trailing slot: Material lays a trailing slot out as a
+48dp column for the field's whole height, so every wrapped line in a multi-line
+draft sits beside a blank strip; on a 360dp phone the text is left with about
+70dp. `docs/07-gotchas.md` B32 is the recorded case; layout:
+`docs/06-agent-loop-ui.md`.
 
 ### Visual language: Graphite Workbench
 
 The app is a working tool, not a chat template. The visual system is deliberately
 small:
 
-- **Warm paper (light) / warm graphite (dark)**, with a single signal accent
-  used for the primary action, section codes and the assistant marker. The
-  original pair and the burnt-orange accent are the defaults; Settings → 10 /
-  Display offers three opt-in accents (moss, indigo, plum), three neutral
-  **surface families** (warm, slate, sepia), and a separate system/light/dark
-  choice. An accent moves only the slots in `PaletteColors`; a surface family
-  moves all of `SurfaceColors` together, so text can never come from a
-  different family than its background. Type and spacing never move. Light
-  uses a deeper accent so text and buttons keep contrast on paper;
-  `PaletteContrastTest` checks every slot for every palette × family × scheme
-  before it can drift.
+- **Warm paper (light) / warm graphite (dark)**, with a single signal accent for
+  the primary action, section codes and the assistant marker. The defaults are
+  the original pair and burnt-orange; Settings → 10 / Display offers three
+  accents (moss, indigo, plum), three neutral **surface families** (warm, slate,
+  sepia), and system/light/dark. An accent moves only `PaletteColors`; a family
+  moves all of `SurfaceColors` together, so text never comes from a different
+  family than its background. Type and spacing never move. Light uses a deeper
+  accent so text and buttons keep contrast on paper; `PaletteContrastTest`
+  checks every slot for every palette × family × scheme.
 - **Mono is for metadata**, not body text: wordmark, section codes, timestamps,
   model/workspace lines. Body text stays 16sp/26sp sans.
 - **Hairlines, not cards**, separate list rows and sections. Corners are 3–10dp;
-  dialog-large surfaces use 20dp (`WideDialog`). A filled card is for an actual raised object,
-  not for every row.
+  dialog-large surfaces use 20dp (`WideDialog`). A filled card is for an actual
+  raised object, not for every row.
 - **Grid only on empty canvases**, at 12% alpha. It gives a large tablet empty
   state a sense of place; it is not wallpaper.
 - Shared components live in `core/design/…/Workbench.kt`: `Wordmark`, `Eyebrow`,
@@ -307,10 +297,9 @@ Modifier.widthIn(max = Layout.ReadableMeasure).fillMaxWidth()
 
 ### Spacing
 
-Vertical rhythm lives in `Layout.Space`, not in literals at call sites. It was
-literals once, and the transcript ended up spending more vertical space on the
-gaps between things than on the things — a one-line collapsed tool result stood
-53dp tall with an 18dp gap to the next.
+Vertical rhythm lives in `Layout.Space`, not literals at call sites. It was
+literals once, and the transcript spent more vertical space on gaps than on
+content — a one-line collapsed tool result stood 53dp tall with an 18dp gap.
 
 ---
 
@@ -328,26 +317,26 @@ adb -s <serial> install -r -t app\build\outputs\apk\debug\app-debug.apk
 ### Demo mode is the offline verification path
 
 With no API key, Settings → Demo mode gives a scripted provider. A custom
-OpenAI-compatible provider needs only a name, an HTTPS base URL and a key; the
-assistant editor chooses it per assistant. Web tools need their own keys and are
+OpenAI-compatible provider needs a name, an HTTPS base URL and a key; the
+assistant editor chooses it per assistant. Web tools need their own keys,
 independent of the chat provider. When the assistant has file tools it creates a
 file and then deletes it, so the tool loop, the results and the closing summary
 are all reachable with no key, no network and no bill. **It no longer raises an approval prompt**, because
-deletion does not ask by default — configure a rule on `delete_file` if you want
-to exercise that path. **Put this in a message to get prose instead:**
+deletion does not ask by default — configure a rule on `delete_file` to
+exercise that path. **Put this in a message to get prose instead:**
 
 ```
 plain
 ```
 
-The long answers are written in Markdown deliberately — an unclosed fence, a
-bold span arriving in pieces, a list whose markers precede their text — because
-those are the constructs that are awkward while streaming. **In a workshop
-conversation the demo proposes and writes nothing: `scene` in a message makes it
-call `rp_create_scene`** (a scripted character; the proposal card and
-tap-to-create path are reachable offline), **and `config` (or `配置`) makes it
-call `app_propose_assistant` and `app_propose_instruction`** (the two draft cards
-and their editor handoffs). `scene` wins when a message names both.
+The long answers are Markdown on purpose — an unclosed fence, a bold span
+arriving in pieces, list markers before their text — because those are awkward
+while streaming. **In a workshop conversation the demo proposes and writes
+nothing: `scene` makes it call `rp_create_scene`** (a scripted character; the
+proposal card and tap-to-create path are reachable offline), **and `config` (or
+`配置`) makes it call `app_propose_assistant`, `app_propose_instruction` and
+`app_propose_prompt`** (the three draft cards and their handoffs). `scene` wins
+when a message names both.
 
 ### What adb cannot verify, and what to do instead
 
@@ -356,9 +345,9 @@ They are the **wrong** tool for anything that happens inside a stream:
 
 - One `uiautomator dump` + `adb pull` costs roughly 700ms of round trip.
 - A demo reply streams for about 3.6s.
-- So a sampling loop sees two or three frames of a reply, and the intermediate
-  states of an incremental parse can never be observed this way. Not "hard to
-  catch" — **not observable**, at any sampling rate the tooling allows.
+- So a sampling loop sees two or three frames, and an incremental parse's
+  intermediate states are **not observable**, at any sampling rate the tooling
+  allows.
 
 When something lives inside the stream, do not try to see it. **Extract the
 invariant into a pure function and test that**, then use the device only to
@@ -407,9 +396,9 @@ bump it — bump `app/build.gradle`, then:
 ```
 
 `-Notes` must not contain typographic quotes: PowerShell 7 treats `“ ”` as
-string delimiters, so such a note is split, the leftover words bind to the next
-positional parameter, and the APK and manifest land in a directory named after
-the note instead of `dist/`. Use straight quotes or none.
+string delimiters, so the note is split, leftover words bind to the next
+parameter, and the APK and manifest land in a directory named after the note.
+Use straight quotes or none.
 
 Without `keystore.properties` the release APK is debug-signed. That still
 updates an install made from an earlier `dist/` build; it cannot update one
@@ -468,12 +457,18 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   import's; the URI is read at once and never retained. Do not widen this into a
   general import channel, and do not give the sending app any path back into the
   workspace.
-- **The saved-prompt library is user configuration, not capability.** It is the
-  `saved_prompts` table, written only by the assistant editor; no tool reads,
-  writes or selects it, and a title is unique so re-saving updates rather than
-  clones. Choosing an entry only fills the assistant's system-prompt field,
-  which remains editable, and the assistant row keeps its own copy. Neither the
-  title nor the text goes to diagnostics.
+- **The saved-prompt library is user configuration, tap-gated, not capability.**
+  It is the `saved_prompts` table; a title is unique so re-saving updates rather
+  than clones, and the assistant row keeps its own copy. The workshop may read
+  it (`app_list_prompts` / `app_read_prompt`) and draft an entry
+  (`app_propose_prompt` returns a `PromptProposal`), but no tool writes or
+  selects it: the proposal card's **Save to prompt library** tap calls
+  `ChatViewModel.saveProposedPrompt`, which uses the same `SavedPromptRepository`
+  upsert as the editor, and an untapped proposal leaves no row. The model cannot
+  delete a prompt or make one an assistant's system prompt; choosing an entry
+  only fills that field, still editable. Neither title nor text goes to
+  diagnostics. This amends the earlier model-invisible rule
+  (`docs/proposals/prompt-library.md`).
 - **Workspace instructions are the root `AGENTS.md`, pinned once per conversation.**
   The block is rendered on the conversation's first request, stored in
   `conversations.workspaceInstructions` (schema v21), and appended after the
@@ -618,35 +613,34 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   error once per queued message. See `docs/07-gotchas.md` A29.
 - **A role-play scene freezes its persona, and that is the promise, not a
   cache trick.** `conversations.rpSnapshotJson` (schema v27) holds the assistant
-  prompt, display name and card copied when the scene was created; the
-  projection reads the snapshot instead of the live assistant, so editing a
-  card or prompt cannot rewrite a story already in progress. A scene created
-  before the column existed pins on its first turn (empty column means "not
+  prompt, display name and card copied at creation; the projection reads the
+  snapshot, not the live assistant, so editing a card or prompt cannot rewrite a
+  story in progress. A pre-column scene pins on its first turn (empty means "not
   pinned yet"); the scene-settings **Reload card and assistant prompt** is the
-  only update. Do not fall back to the live card once a snapshot exists: that
-  would make a cleared card silently resurrect. The button appears only when the
-  live assistant has a decodable card (`ChatUiState.roleplayReloadable`), because
-  a folder- or proposal-built scene has its persona only in the snapshot.
-  `rp_format`/`rp_validate` (`core/engine/.../roleplay/RoleplayTools.kt`) are the
-  authoring helpers; they attach only as the workshop bullet below says, and
-  `rp_validate` additionally requires `read_file`/`list_files`, so a scene with
-  no tools keeps an empty tool set and the validator can never become a read
-  path the user did not grant. It reports structure only, never file prose. The
-  format text is generated from the serializers and `RoleplayLimits`
-  (`RoleplaySpecTest` pins the match). See `docs/07-gotchas.md` A30.
+  only update, shown only when the live assistant has a decodable card
+  (`ChatUiState.roleplayReloadable`). Do not fall back to the live card once a
+  snapshot exists: a cleared card would silently resurrect. `rp_format`/
+  `rp_validate` (`core/engine/.../roleplay/RoleplayTools.kt`) are the authoring
+  helpers; they attach only as the workshop bullet below says, and `rp_validate`
+  additionally requires `read_file`/`list_files`, so a scene with no tools keeps
+  an empty set and the validator never becomes a read path the user did not
+  grant. It reports structure only, never file prose. The format text is
+  generated from the serializers and `RoleplayLimits` (`RoleplaySpecTest` pins
+  the match). See `docs/07-gotchas.md` A30.
 - **The built-in workshop is one workspace of kind `workshop`, not a permission
   tier.** The app keeps one built-in permanent workspace,
   `workspaces.kind = "workshop"` (schema v29), created lazily on first use
   (`ConversationRepository.ensureWorkshop`, the only writer).
   `MIGRATION_28_29` rewrote the v28 `"roleplay"`/`"studio"` values with no column
-  change: role-play becomes the workshop; a configuration row is demoted to an
+  change: role-play becomes the workshop; a configuration row becomes an
   ordinary permanent workspace when a role-play row existed (files and
-  conversations kept, helpers and context block lost), else it becomes the
-  workshop. A non-scene conversation gets nine helpers after the
-  allow-list: `rp_format`, `rp_validate` (needs `read_file`/`list_files`),
+  conversations kept, helpers and context lost), else it becomes the workshop.
+  A non-scene conversation gets twelve helpers after the allow-list:
+  `rp_format`, `rp_validate` (needs `read_file`/`list_files`),
   `rp_create_scene`, `app_list_assistants`, `app_read_assistant`,
   `app_propose_assistant`, `app_list_instructions`, `app_read_instruction`,
-  `app_propose_instruction`. None is in `ToolCatalog` and all are
+  `app_propose_instruction`, `app_list_prompts`, `app_read_prompt`,
+  `app_propose_prompt`. None is in `ToolCatalog` and all are
   `mutates = false`, so none appears in a picker, approval table or gap report; a
   scene gets none. The kind adds **no capability** -- file/SSH/download tools
   still come from the assistant and the conversation's list -- and no tool lets
@@ -655,46 +649,48 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   with `tools = "[]"`, the frozen snapshot, the greeting, the current model and
   the workshop as its workspace; an untapped proposal leaves no row and no file.
   The configuration helpers only read and draft: reads return content fields
-  (never tools, provider or approval rules) and each permanent workspace's root
-  `AGENTS.md`; a proposal opens the existing assistant or Files editor prefilled
-  and the user's Save is the only write. A proposal carries no
+  (never tools, provider or approval rules), each permanent workspace's root
+  `AGENTS.md`, and now the saved-prompt library; an assistant or instruction
+  proposal opens the existing editor prefilled and the user's Save is the only
+  write, while a prompt proposal's card **Save to prompt library** tap is its
+  only write -- no tool writes a row. A proposal carries no
   tool/provider/model/approval field and names a workspace by display name, never
   its directory id; do not add an "apply" tool. A saved `AGENTS.md` also reaches
-  new scenes there. The workshop is app-owned: no rename, no single or bulk
-  delete. One host-written `Workshop context` block covers both jobs, from the
-  kind alone; `docs/07-gotchas.md` A31 is the invariant.
-- **A role-play reply is painted, not rewritten.** In a scene (a conversation
-  whose assistant has a card, or a scene with a snapshot) assistant text goes
-  through `RoleplayText` (`app/.../ui/chat/RoleplayText.kt`) instead of the
-  Markdown renderer: narration is secondary, quoted speech is the reading
-  colour, parenthetical/`*...*` actions are secondary italic, `**...**` is bold,
-  and a `---` paragraph is a hairline. This is **display-only** and does not
-  depend on the model obeying a format instruction: `RoleplayTypography` is a
-  total linear scan that recognises the conventions models already write
-  (`"..."`, `“...”`, `「...」`, `（...）`, `*...*`, `**...**`, `---`) and hides
-  only the markup delimiters at paint time. Never persist the transformed text,
-  never put it in the request, never use it for export, search or copy -- the
-  stored reply, Source view and copy buffer stay raw. Block Markdown (fences,
-  tables, headings, quotes, dash lists) falls back to `MarkdownText`, and an
-  unclosed marker must stay literal (open quotes/parentheses are styled only
-  while streaming). `RoleplayTypographyTest` pins the conventions, the
-  streaming/unclosed cases, the raw round-trip and the fallback.
+  new scenes there. The assistant editor's prompt **Import** now offers the
+  device picker or a two-step browse of any workspace, with the same
+  `SessionWorkspace` fence, 1 MiB guard, UTF-8 check and replace/append question
+  as the device picker. The workshop is app-owned: no rename, no single or bulk
+  delete. One host-written `Workshop context` block covers both jobs and the
+  prompt library, from the kind alone; `docs/07-gotchas.md` A31 is the invariant.
+- **A role-play reply is painted, not rewritten.** In a scene assistant text
+  goes through `RoleplayText` (`app/.../ui/chat/RoleplayText.kt`), not the
+  Markdown renderer: narration secondary, quoted speech in the reading colour,
+  parenthetical/`*...*` actions secondary italic, `**...**` bold, a `---`
+  paragraph a hairline. **Display-only**, and not dependent on the model obeying
+  a format: `RoleplayTypography` is a total linear scan of the conventions models
+  already write (`"..."`, `“...”`, `「...」`, `（...）`, `*...*`, `**...**`,
+  `---`) that hides only the delimiters at paint time. Never persist or send the
+  transformed text, never use it for export, search or copy -- stored reply,
+  Source view and copy buffer stay raw. Block Markdown falls back to
+  `MarkdownText`, and an unclosed marker stays literal (open quotes/parentheses
+  are styled only while streaming). `RoleplayTypographyTest` pins the
+  conventions, the streaming/unclosed cases, the raw round-trip and the fallback.
 - **An imported character card is untrusted text, never a runtime.**
   `RoleplayCardImport` (`core/engine/.../roleplay/RoleplayCardImport.kt`) reads
   PNG (`chara` tEXt/iTXt base64), JSON (Character Card v1/v2/v3 and this app's
   own shape) and CHARX (ZIP or JPEG+ZIP `card.json`), maps the text fields, and
   reports everything else as **not imported**: alternate greetings, world book,
   `system_prompt`/`post_history_instructions`, extensions (regex/HTML UI),
-  assets. HTML in mapped text is converted to plain text; script/style *content*
-  is dropped, no tag is kept for a renderer, nothing is fetched or executed, and
+  assets. HTML in mapped text becomes plain text; script/style *content* is
+  dropped, no tag is kept for a renderer, nothing is fetched or executed, and
   the raw file is not persisted. Over-limit fields are truncated to
   `RoleplayLimits` and reported; the card name counts toward the same budget.
   The import fills the card editor's draft only -- the user still has to Save --
-  and it adds no tool, approval, SSH grant or network path. Do not add URL
-  import, extension execution or HTML rendering without answering
-  `docs/proposals/rp-formatting.md` §9 (P0a is the text-only import; P1/P2 were
-  deliberately not taken). `RoleplayCardImportTest` pins the formats, the
-  cleanup, the truncation and the failure reasons.
+  and adds no tool, approval, SSH grant or network path. Do not add URL import,
+  extension execution or HTML rendering without answering
+  `docs/proposals/rp-formatting.md` §9 (P0a is text-only; P1/P2 were not taken).
+  `RoleplayCardImportTest` pins the formats, the cleanup, the truncation and the
+  failure reasons.
 - **A scene can start from workspace files, and that source shares the tool's
   validator.** `NewSceneDialog` offers assistant cards or a permanent workspace
   folder (`rp/<story>/card.json` + optional `scene.json`), browsed and read by
@@ -702,14 +698,14 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   as `rp_validate`, so the dialog and the tool cannot disagree. The card JSON is
   copied into `rpSnapshotJson` verbatim; a card file's optional `name` is the
   scene title and `{{char}}` (then the assistant name, then the folder name).
-  A folder-built conversation keeps that permanent workspace, while its tools
+  A folder-built conversation keeps that permanent workspace while its tools
   remain the explicit empty list; `scene.json` is a creation template and
   Scene-settings edits never write back. The assistant editor's **Export to
   workspace…** writes `rp/<folder>/card.json` through `WorkspaceTransfer`,
   refuses to overwrite, writes the assistant's name into the card when it had
-  none (so the file is self-contained), and is the migration path for legacy
-  cards. Do not move the folder rules into the Android layer: the engine loader
-  is the one place both callers read them.
+  none, and is the migration path for legacy cards. Do not move the folder rules
+  into the Android layer: the engine loader is the one place both callers read
+  them.
 - **The final-answer retry keeps tools but suppresses calls.** The **Answer
   again** choice in Rewind rewrites final text from existing results; keeping the
   definitions preserves the cache prefix, while a transient system instruction
@@ -775,10 +771,9 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   tool resolves an alias: `SshArguments` reads `host`/`port`/`username` from the
   call and a key from the workspace (`identityFile`, through
   `SessionWorkspace`) or a password. Sharing a host therefore grants nothing and
-  changing the selection does not touch `sshAllowed`; the earlier design, in
-  which `host` was an alias the app turned into a stored password, made the
-  "which machines may the agent see" toggle a credential grant and is recorded
-  as refused in `docs/08-port-philosophy.md` §1.2.1.
+  changing the selection does not touch `sshAllowed`; the earlier
+  alias-to-stored-password design made that toggle a credential grant and is
+  recorded as refused in `docs/08-port-philosophy.md` §1.2.1.
 - **The gap report may not name a switched-off capability.** `unavailable_tools`
   subtracts the registry from `ToolCatalog.visible(...)`, so a tool the user
   turned off app-wide (SSH, the sandbox, follow-ups) is not in the universe and
@@ -795,9 +790,8 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   it in Settings, so `unavailable_tools` passes `null` and still reports it as
   "needs configuration", and a hidden name must survive in storage so
   configuring the backend restores the selection. The predicate exists once
-  (`app/.../ui/chat/MediaTools.kt`) because a picker and the request builder
-  disagreeing either hides a working tool or offers an inert one, and neither
-  shows up as a failure.
+  (`app/.../ui/chat/MediaTools.kt`): a picker and the request builder disagreeing
+  hides a working tool or offers an inert one, and neither shows up as a failure.
 - **`ssh_probe` is a fixed script, not a second exec.** It accepts connection
   details only; do not add a command, path or argument that the model can vary.
   The moment it can run model-supplied input it is `ssh_exec` with a better name.
@@ -819,8 +813,8 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   results; `closeDanglingCalls` inserts `[interrupted]` results in the request
   history. Without it, every later turn is HTTP 400 and the conversation is
   effectively bricked.
-- **The quota check walks the tree once**, via `SessionWorkspace.usage()`.
-  Asking for bytes and count separately traversed the workspace twice per write.
+- **The quota check walks the tree once**, via `SessionWorkspace.usage()`;
+  asking for bytes and count separately traversed it twice per write.
 - **Backup import swaps files before Room opens.** A staged backup is decrypted
   and validated while the app runs, then `InhumanApp.onCreate` replaces the
   database and workspace directory before any repository opens Room. The current
@@ -858,8 +852,8 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
 - **The eleven-minute chat read timeout is for the body, not for silence before
   the response headers.** `HeaderTimeoutInterceptor` cancels a call that has not
   received headers within 90 seconds. The 2026-10-25 log had two requests with no
-  `HTTP 200` line and a spinner until the app was restarted; removing this
-  interceptor restores that. Do not fold it into `readTimeout`. Its
+  `HTTP 200` line and a spinner until restart; removing this interceptor
+  restores that. Do not fold it into `readTimeout`. Its
   `HeaderTimeoutException` message contains "no response", which is what makes
   `chatErrorAction` offer Retry.
 - **A provider retry is per round and discards that round's output.**
@@ -889,11 +883,10 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   names the window count and which ones were read, and the hand-written
   `BilibiliDanmakuParser` must stay total on a truncated body), and **the
   ranking's `rid` and the search's `tids` are different namespaces** — do not
-  share one friendly-name map between them. `BilibiliLiveTest` is the one
-  networked anonymous test and is skipped unless `INHUMAN_BILI_LIVE=1`; it is
-  paced and opens with a grace pause, because anonymous request bursts are what
-  Bilibili's risk control blocks; a `-509` there means the probe was throttled.
-  Rules: `docs/07-gotchas.md` A22, mechanism: `docs/03-ai-provider.md`.
+  share one friendly-name map between them. `BilibiliLiveTest` is the one networked anonymous test, skipped unless
+`INHUMAN_BILI_LIVE=1`; it is paced with a grace pause because anonymous bursts
+are what Bilibili's risk control blocks; a `-509` means the probe was throttled.
+Rules: `docs/07-gotchas.md` A22, mechanism: `docs/03-ai-provider.md`.
 - **The optional Bilibili login is read-only by construction.** `BilibiliAuth`
   runs Bilibili's QR flow only (no webview, no password field) and stores exactly
   `SESSDATA` and `DedeUserID` under `SecureStore.KEY_BILIBILI_SESSION`; `bili_jct`
@@ -901,18 +894,17 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   Bilibili write path. `bili_transcript` is `bilibiliLoginRequired`, so it is
   absent from every picker, request, approval table and gap report while the
   login is unlinked; comment pages after the first are login-only and say so.
-  The transcript is returned as timestamped cues and can be read in `from`/`to`
-  windows: when the 20,000-character cap cuts a long video, the footer names the
-  timestamp to continue from, so the result is resumable rather than silently
-  partial.
+  The transcript is timestamped cues, readable in `from`/`to` windows: when the
+  20,000-character cap cuts a long video, the footer names the timestamp to
+  continue from, so the result is resumable.
   The login must never grow tools for history, favourites, followings or
   messages: those are account data, not public content, and adding them is a
   separate product decision (`docs/08-port-philosophy.md` §1.2). Tests:
   `BilibiliParsersTest` / `BilibiliMoreParsersTest` / `BilibiliToolsTest` /
-  `BilibiliMoreToolsTest` (offline fixtures, including protobuf danmaku),
-  `BilibiliAuthTest` (offline), `BilibiliLoginLiveTest` skipped unless
-  `INHUMAN_BILI_SESSION` names a gitignored scratch session file. Do not commit
-  that file, a cookie, or a fixture containing one.
+  `BilibiliMoreToolsTest` (offline fixtures), `BilibiliAuthTest` (offline),
+  `BilibiliLoginLiveTest` skipped unless `INHUMAN_BILI_SESSION` names a
+  gitignored scratch session file. Do not commit that file, a cookie, or a
+  fixture containing one.
 
 ---
 
@@ -932,11 +924,10 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   --console=plain --rerun-tasks
 ```
 
-`--rerun-tasks` matters: with the build cache warm, a plain run can report
-`BUILD SUCCESSFUL` without compiling the file you just changed. `tools/ci.ps1`
-runs exactly this list and fails on the first compiler warning; a CI host should
-call that script rather than duplicate the arguments. Check that the
-warning output is empty as well as the error output — this tree currently
+`--rerun-tasks` matters: with a warm cache a plain run can report
+`BUILD SUCCESSFUL` without compiling your change. `tools/ci.ps1` runs exactly
+this list and fails on the first compiler warning; a CI host should call it
+rather than duplicate the arguments. Check the warning output too — this tree
 compiles clean, and that is worth keeping. `:core:common`, `:core:ai`,
 `:core:files`, `:core:documents`, `:core:db` and `:core:engine` are plain JVM modules now.
 `:core:db` owns the Room schema *and* the platform-free repositories
@@ -972,14 +963,13 @@ means no future release can update an installed build.
 
 ## House style
 
-The comments in this codebase explain **why**, and the ones worth reading are
-usually about something that went wrong. Match that. If you fix a bug, the
-comment should say what the bug *was* and how it presented, not just what the
-code now does — several of the most useful paragraphs here exist because
-somebody wrote down a failure that would otherwise have been reintroduced.
+The comments explain **why**, and the ones worth reading are about something
+that went wrong. Match that: a bug-fix comment should say what the bug *was* and
+how it presented, not just what the code now does — several useful paragraphs
+here exist because somebody wrote down a failure that would otherwise have been
+reintroduced.
 
 Where a doc comment and the code disagree, the comment is the bug. One was
 found making claims the implementation did not honour (the Markdown renderer's
 incrementality), and a sweep that had never been written was another;
-`docs/07-gotchas.md` section C carries the full list, which is now long enough
-that finding one is expected rather than remarkable.
+`docs/07-gotchas.md` section C carries the full list.

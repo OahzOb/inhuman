@@ -795,6 +795,10 @@
 	<string name="agents_policy_hide">hide</string>
 	<string name="agents_prompt_file_type">Choose a .txt or .md file.</string>
 	<string name="agents_prompt_open_failed">Could not open the file.</string>
+	<string name="agents_prompt_too_large">The file is larger than 1 MiB, so it cannot be imported as a prompt.</string>
+	<string name="agents_import_choose_source">Where is the prompt file?</string>
+	<string name="agents_import_from_device">From this device…</string>
+	<string name="agents_import_from_workspace">From a workspace file…</string>
 
 	<!-- Role-play: a character card on the assistant and a scene on the conversation.
 	     Both are prompt content, not capability: nothing here can add a tool,
@@ -1534,11 +1538,20 @@
 	<string name="agents_prompt_saved">Saved to the prompt library.</string>
 	<string name="agents_prompt_loaded">Loaded. The prompt box is still editable.</string>
 	<string name="agents_prompt_empty">No saved prompts yet.</string>
-	<string name="agents_prompt_library_note">The model never reads this list; choosing one only fills the prompt box.</string>
+	<string name="agents_prompt_library_note">The configuration workshop can read this list and prepare drafts; nothing changes until you save. Choosing an entry only fills the prompt box.</string>
 	<string name="agents_prompt_use">Use</string>
 	<string name="agents_prompt_confirm_delete">Delete?</string>
 	<string name="agents_prompt_write_action">Write</string>
 	<string name="agents_prompt_edit_action">Edit</string>
+	<!-- Importing a system prompt from a workspace file. -->
+	<string name="prompt_import_title">Import from a workspace file</string>
+	<string name="prompt_import_loading">Reading…</string>
+	<string name="prompt_import_empty">This folder has no files.</string>
+	<string name="prompt_import_no_workspaces">There is no workspace to read from yet.</string>
+	<string name="prompt_import_failed">Could not read the workspace.</string>
+	<string name="prompt_import_change_workspace">Change workspace</string>
+	<string name="prompt_import_up">Up one level</string>
+	<string name="prompt_import_temporary">%1$s (temporary)</string>
 	<string name="chat_branch_previous">Previous reply</string>
 	<string name="chat_branch_next">Next reply</string>
 	<!-- Model capabilities: what a model is for, inferred from its id and
@@ -1636,12 +1649,12 @@
 	     configuration read/draft helpers. App-owned: it cannot be renamed or
 	     deleted. -->
 	<string name="workshop_name">Workshop</string>
-	<string name="home_workshop_detail">Draft cards, scenes, assistants and AGENTS.md</string>
+	<string name="home_workshop_detail">Draft cards, scenes, assistants, AGENTS.md and prompts</string>
 	<string name="home_create_workshop_detail">One built-in place where the assistant prepares; you start or save</string>
 	<string name="workshop_open_failed">Could not open the workshop: %1$s</string>
 	<string name="workspace_builtin_badge">Workshop</string>
 	<string name="workshop_hub_badge">Built-in workshop</string>
-	<string name="workshop_hub_body">This is the one built-in workshop. In a conversation here the assistant can prepare a character card or a scene, and draft an assistant or a workspace AGENTS.md. Nothing changes until you tap Create and open, or save in the editor it opens.</string>
+	<string name="workshop_hub_body">This is the one built-in workshop. In a conversation here the assistant can prepare a character card or a scene, and draft an assistant, a workspace AGENTS.md or a saved prompt. Nothing changes until you tap Create and open, save in the editor it opens, or tap Save on a draft card.</string>
 	<string name="workshop_hub_owned">It is part of the app: it cannot be renamed or deleted. Delete its conversations and files to clear it.</string>
 	<!-- The scene proposal a workshop conversation offers before anything is created. -->
 	<string name="chat_scene_proposal_title">Scene proposal</string>
@@ -1674,6 +1687,18 @@
 	<string name="chat_instruction_proposal_missing">The workspace "%1$s" no longer exists.</string>
 	<string name="chat_instruction_proposal_ambiguous">More than one workspace is named "%1$s".</string>
 	<string name="chat_instruction_proposal_workspace_failed">Could not read the workspace list.</string>
+	<!-- A saved-prompt library draft: the card's Save button is the only write. -->
+	<string name="chat_prompt_proposal_title">Prompt library draft</string>
+	<string name="chat_prompt_proposal_create">New prompt: %1$s</string>
+	<string name="chat_prompt_proposal_update">Update prompt: %1$s</string>
+	<string name="chat_prompt_proposal_new">New entry, %1$d characters</string>
+	<string name="chat_prompt_proposal_replaces">Replaces %1$d characters with %2$d</string>
+	<string name="chat_prompt_proposal_pending">Nothing is saved yet. Save to prompt library is the only write.</string>
+	<string name="chat_prompt_proposal_saving">Saving…</string>
+	<string name="chat_prompt_proposal_saved">Saved to the prompt library.</string>
+	<string name="chat_prompt_proposal_save">Save to prompt library</string>
+	<string name="chat_prompt_proposal_failed">Could not save: %1$s</string>
+	<string name="chat_prompt_proposal_empty">the prompt is empty</string>
 	<string name="agents_proposal_missing">That assistant no longer exists.</string>
 	<!-- Collapsed tool-row titles for the workshop's configuration helpers. -->
 	<string name="chat_config_list_assistants_title">Assistants</string>
@@ -1682,4 +1707,7 @@
 	<string name="chat_config_list_instructions_title">Instruction files</string>
 	<string name="chat_config_read_instruction_title">Instruction file</string>
 	<string name="chat_config_propose_instruction_title">AGENTS.md draft</string>
+	<string name="chat_config_list_prompts_title">Prompt library</string>
+	<string name="chat_config_read_prompt_title">Saved prompt</string>
+	<string name="chat_config_propose_prompt_title">Prompt library draft</string>
 </resources>

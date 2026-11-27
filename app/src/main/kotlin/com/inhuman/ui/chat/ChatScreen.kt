@@ -1929,6 +1929,8 @@ fun ChatScreen(
 							onDismissAssistantProposal = viewModel::dismissAssistantProposal,
 							onOpenInstructionProposal = viewModel::openProposedInstruction,
 							onDismissInstructionProposal = viewModel::dismissInstructionProposal,
+							onSavePromptProposal = viewModel::saveProposedPrompt,
+							onDismissPromptProposal = viewModel::dismissPromptProposal,
 							modelLabel = displayModel,
 							speakState = when {
 								speakingReply?.id == message.id && speechPaused ->
@@ -4791,6 +4793,9 @@ private fun toolRowTitle(name: String?): String = when (name) {
 	ConfigTools.LIST_INSTRUCTIONS -> stringResource(R.string.chat_config_list_instructions_title)
 	ConfigTools.READ_INSTRUCTION -> stringResource(R.string.chat_config_read_instruction_title)
 	ConfigTools.PROPOSE_INSTRUCTION -> stringResource(R.string.chat_config_propose_instruction_title)
+	ConfigTools.LIST_PROMPTS -> stringResource(R.string.chat_config_list_prompts_title)
+	ConfigTools.READ_PROMPT -> stringResource(R.string.chat_config_read_prompt_title)
+	ConfigTools.PROPOSE_PROMPT -> stringResource(R.string.chat_config_propose_prompt_title)
 	else -> name ?: stringResource(R.string.chat_tool_result)
 }
 
@@ -5020,6 +5025,10 @@ private fun MessageBubble(
 	onOpenInstructionProposal: (String) -> Unit = {},
 	/** Drop an AGENTS.md draft without opening the editor. */
 	onDismissInstructionProposal: (String) -> Unit = {},
+	/** Save a prompt-library draft; the tap is the only write. */
+	onSavePromptProposal: (String) -> Unit = {},
+	/** Drop a prompt-library draft without saving it. */
+	onDismissPromptProposal: (String) -> Unit = {},
 	/** The model label shown on a scene proposal card. */
 	modelLabel: String = "",
 	onSelectBranch: (String?, String) -> Unit,
@@ -5095,6 +5104,18 @@ private fun MessageBubble(
 				error = message.instructionProposalError,
 				onOpen = { onOpenInstructionProposal(message.id) },
 				onDismiss = { onDismissInstructionProposal(message.id) },
+			)
+			return
+		}
+		val promptProposal = message.promptProposal
+		if (promptProposal != null) {
+			PromptProposalCard(
+				proposal = promptProposal,
+				busy = message.promptProposalBusy,
+				saved = message.promptProposalSaved,
+				error = message.promptProposalError,
+				onSave = { onSavePromptProposal(message.id) },
+				onDismiss = { onDismissPromptProposal(message.id) },
 			)
 			return
 		}
@@ -5871,6 +5892,95 @@ private fun InstructionProposalCard(
 				Text(stringResource(R.string.chat_instruction_proposal_open))
 			}
 			TextButton(onClick = onDismiss) {
+				Text(stringResource(R.string.chat_proposal_dismiss))
+			}
+		}
+	}
+}
+
+@Composable
+private fun PromptProposalCard(
+	proposal: PromptProposal,
+	busy: Boolean,
+	saved: Boolean,
+	error: String?,
+	onSave: () -> Unit,
+	onDismiss: () -> Unit,
+) {
+	val actionLabel = if (proposal.existingChars == null) {
+		stringResource(R.string.chat_prompt_proposal_create, proposal.title)
+	} else {
+		stringResource(R.string.chat_prompt_proposal_update, proposal.title)
+	}
+	val detail = if (proposal.existingChars == null) {
+		stringResource(R.string.chat_prompt_proposal_new, proposal.text.length)
+	} else {
+		stringResource(
+			R.string.chat_prompt_proposal_replaces,
+			proposal.existingChars,
+			proposal.text.length,
+		)
+	}
+	Column(
+		modifier = Modifier
+			.widthIn(max = Layout.ChatMeasure)
+			.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+			.padding(16.dp),
+		verticalArrangement = Arrangement.spacedBy(6.dp),
+	) {
+		Text(
+			text = stringResource(R.string.chat_prompt_proposal_title),
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.primary,
+		)
+		Text(
+			text = actionLabel,
+			style = MaterialTheme.typography.titleSmall,
+			color = MaterialTheme.colorScheme.onSurface,
+		)
+		Text(
+			text = detail,
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		if (proposal.summary.isNotBlank()) {
+			Text(
+				text = proposal.summary,
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 3,
+				overflow = TextOverflow.Ellipsis,
+			)
+		}
+		Text(
+			text = when {
+				saved -> stringResource(R.string.chat_prompt_proposal_saved)
+				busy -> stringResource(R.string.chat_prompt_proposal_saving)
+				else -> stringResource(R.string.chat_prompt_proposal_pending)
+			},
+			style = MaterialTheme.typography.bodySmall,
+			color = if (saved) {
+				MaterialTheme.colorScheme.primary
+			} else {
+				MaterialTheme.colorScheme.onSurfaceVariant
+			},
+		)
+		error?.let {
+			Text(
+				text = it,
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.error,
+			)
+		}
+		Row(
+			modifier = Modifier.fillMaxWidth(),
+			horizontalArrangement = Arrangement.spacedBy(8.dp),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			Button(onClick = onSave, enabled = !busy && !saved) {
+				Text(stringResource(R.string.chat_prompt_proposal_save))
+			}
+			TextButton(onClick = onDismiss, enabled = !busy) {
 				Text(stringResource(R.string.chat_proposal_dismiss))
 			}
 		}

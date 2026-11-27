@@ -600,6 +600,20 @@ data class ChatMessageUi(
 	val instructionProposal: InstructionProposal? = null,
 	/** Why the tap could not resolve the proposed workspace; shown on the card. */
 	val instructionProposalError: String? = null,
+	/**
+	 * A saved-prompt library entry the workshop prepared.
+	 *
+	 * Transient like the other proposals. Unlike them it writes without an
+	 * editor: the card's Save button is the only write, and until it is tapped
+	 * the library is untouched.
+	 */
+	val promptProposal: PromptProposal? = null,
+	/** True while the card's Save is writing; disables the button. */
+	val promptProposalBusy: Boolean = false,
+	/** True after the save succeeded, so the card can say so and stop offering Save. */
+	val promptProposalSaved: Boolean = false,
+	/** Why the save failed; shown on the card so retry is possible. */
+	val promptProposalError: String? = null,
 )
 
 /**

@@ -294,8 +294,12 @@ instruction, and before the compaction summary and the pinned `AGENTS.md`
 block. It is **one text for both jobs** the workshop serves: this is the
 workshop rather than a scene, a scene proposal creates nothing until the user
 taps, a configuration draft only opens an editor prefilled and is not a change,
-and those capabilities cannot be changed here.
-The text is computed from `workspaces.kind` alone, so it is identical on every
+and those capabilities cannot be changed here. It also covers the saved-prompt
+library and its write rule: the workshop may read the user's saved-prompt library
+(`app_list_prompts`, `app_read_prompt`) and prepare a new or updated entry with
+`app_propose_prompt`, but a saved prompt is written **only** when the user taps
+**Save to prompt library** on the proposal card. The text is computed from
+`workspaces.kind` alone, so it is identical on every
 turn and costs no extra cold request; it exists because a fresh workshop has no
 `AGENTS.md`, and the attached helpers by themselves do not say what situation
 the conversation is in. It is content, not capability: it cannot add a tool, an
@@ -1058,13 +1062,16 @@ Two special cases that exist for real reasons:
   message containing `scene` makes it call `rp_create_scene` -- the card is a
   small scripted character -- so the scene-proposal card and the tap-to-create
   path are reachable offline. A message containing `config` (or `配置`) makes it
-  call `app_propose_assistant` and `app_propose_instruction` in one turn, so the
-  two draft cards and their editor handoffs are reachable too. All three are
-  host-appended there (`docs/06`), so the demo keys on a proposal tool being
-  offered plus the word, not on a settings switch; `scene` wins when a message
-  names both, which is the documented order. The instruction draft names no
-  workspace, so it targets the conversation's own (the workshop). The next round
-  answers prose instead of proposing again, and no tool call writes app state.
+  call `app_propose_assistant`, `app_propose_instruction` and
+  `app_propose_prompt` in one turn, so the three draft cards and their editor /
+  card handoffs are reachable too (`DemoProvider.kt:320-344`; the prompt draft is
+  titled "Demo prompt" and its card's Save is the only write,
+  `DemoProvider.kt:538-554`). All four are host-appended there (`docs/06`), so
+  the demo keys on a proposal tool being offered plus the word, not on a
+  settings switch; `scene` wins when a message names both, which is the
+  documented order. The instruction draft names no workspace, so it targets the
+  conversation's own (the workshop). The next round answers prose instead of
+  proposing again, and no tool call writes app state.
 
 ## `web_search` and `web_fetch`: independently configured paid backends
 

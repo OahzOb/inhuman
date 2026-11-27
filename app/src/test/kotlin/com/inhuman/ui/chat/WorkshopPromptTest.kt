@@ -51,7 +51,9 @@ class WorkshopPromptTest {
 		assertTrue(text, text.contains("app_propose_*"))
 		// Nothing takes effect by itself.
 		assertTrue(text, text.contains("creates nothing"))
-		assertTrue(text, text.contains("written only when the user saves"))
+		assertTrue(text, text.contains("written only"))
+		assertTrue(text, text.contains("user saves there"))
+		assertTrue(text, text.contains("Save to prompt library"))
 	}
 
 	@Test

@@ -39,6 +39,9 @@ internal data class WorkshopHelpersPlan(
 	val listInstructions: Boolean,
 	val readInstruction: Boolean,
 	val proposeInstruction: Boolean,
+	val listPrompts: Boolean,
+	val readPrompt: Boolean,
+	val proposePrompt: Boolean,
 ) {
 	companion object {
 		/** The plan when no helper may be attached. */
@@ -52,6 +55,9 @@ internal data class WorkshopHelpersPlan(
 			listInstructions = false,
 			readInstruction = false,
 			proposeInstruction = false,
+			listPrompts = false,
+			readPrompt = false,
+			proposePrompt = false,
 		)
 	}
 }
@@ -91,5 +97,10 @@ internal fun planWorkshopHelpers(
 		listInstructions = true,
 		readInstruction = true,
 		proposeInstruction = true,
+		// The saved-prompt library is content too: read and draft it, and let
+		// the user's tap on the proposal card be the write.
+		listPrompts = true,
+		readPrompt = true,
+		proposePrompt = true,
 	)
 }
