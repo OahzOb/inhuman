@@ -124,6 +124,7 @@ import com.inhuman.core.ai.tools.ToolCatalog
 import com.inhuman.core.ai.tools.ToolGaps
 import com.inhuman.core.ai.tools.UnavailableToolsTool
 import com.inhuman.core.ai.tools.TimeTool
+import com.inhuman.core.ai.tools.LocalWebBudget
 import com.inhuman.core.ai.tools.WebFetchTool
 import com.inhuman.core.ai.tools.WebSearchTool
 import com.inhuman.core.ai.ssh.SshFileTransport
@@ -6717,6 +6718,11 @@ class ChatViewModel(
 			// independent switches, and both catalogue rows are opt-in, so the
 			// assistant must still select one. Demo mode stays offline.
 			if (!demoEnabled()) {
+				// One budget for both tools: the engine sees a single address,
+				// so a search and the fetches after it share the same per-turn
+				// allowance. A request that arrives inside the spacing window
+				// waits; one past the cap is refused with a readable result.
+				val localWeb = LocalWebBudget()
 				if (localSearchEnabled()) {
 					localSearchProvider()?.let {
 						add(
@@ -6724,6 +6730,7 @@ class ChatViewModel(
 								provider = it,
 								name = "web_search_local",
 								description = WebSearchTool.LOCAL_DESCRIPTION,
+								budget = localWeb,
 							),
 						)
 					}
@@ -6735,6 +6742,7 @@ class ChatViewModel(
 								provider = it,
 								name = "web_fetch_local",
 								description = WebFetchTool.LOCAL_DESCRIPTION,
+								budget = localWeb,
 							),
 						)
 					}

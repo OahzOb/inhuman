@@ -1236,6 +1236,24 @@ Settings switch off clears every conversation's grant. There is one guard, not
 two: the URL rules and the connect-time DNS/redirect guard are the same
 `DownloadUrl` / `GuardedHttp` pair the `download_url` path uses.
 
+### The per-turn budget
+
+Both tools share one request budget for the turn (`LocalWebBudget`, 0.35.0):
+ten requests in total, at least one second apart, of which at most three may be
+rendered. It is created once per `buildTools`, so a new user message starts a
+fresh budget. A call past the cap is refused before any request is made, with a
+result that tells the model to answer from what it already has; a refused call
+spends nothing, and spacing is a wait inside the tool rather than a failure.
+Both tool descriptions state the budget, so the model plans one search and a few
+fetches instead of walking a result list.
+
+The values are constants, not Settings. The cap exists because a burst from one
+address is what the engines' bot checks answer with, and there is no value a
+user could pick that is better than the measured one; a knob would also be a
+second place to explain. If real use shows otherwise, that is a
+`docs/08-port-philosophy.md` §3.1 performance-budget decision, not an option to
+slip in.
+
 ### Search
 
 - **DuckDuckGo html** (default) — `GET https://html.duckduckgo.com/html/?q=…`,

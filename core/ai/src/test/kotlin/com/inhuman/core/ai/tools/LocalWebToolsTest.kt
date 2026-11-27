@@ -114,4 +114,103 @@ class LocalWebToolsTest {
 		assertEquals("web_search_local", tool.name)
 		assertEquals(WebSearchTool.LOCAL_DESCRIPTION, tool.description)
 	}
+
+	@Test
+	fun `the local descriptions state the per-turn budget`() {
+		assertTrue(WebFetchTool.LOCAL_DESCRIPTION, "per-turn budget" in WebFetchTool.LOCAL_DESCRIPTION)
+		assertTrue(WebSearchTool.LOCAL_DESCRIPTION, "per-turn budget" in WebSearchTool.LOCAL_DESCRIPTION)
+		assertTrue(
+			WebFetchTool.LOCAL_DESCRIPTION,
+			"${LocalWebBudget.MAX_PER_TURN}" in WebFetchTool.LOCAL_DESCRIPTION,
+		)
+	}
+
+	private class CountingProvider : FetchProvider {
+		override val name = "counting"
+		var calls = 0
+
+		override suspend fun fetch(url: String): FetchedPage {
+			calls++
+			return FetchedPage("Counting", "counting body")
+		}
+	}
+
+	private class CountingSearch : SearchProvider {
+		override val name = "counting"
+		var calls = 0
+
+		override suspend fun search(query: String, maxResults: Int): List<SearchResult> {
+			calls++
+			return listOf(SearchResult("T", "https://example.com/1", "S"))
+		}
+	}
+
+	@Test
+	fun `one budget spans both local tools`() {
+		val budget = LocalWebBudget(maxRequests = 2, spacingMillis = 0)
+		val fetch = CountingProvider()
+		val search = CountingSearch()
+		val fetchTool = WebFetchTool(
+			provider = fetch,
+			name = "web_fetch_local",
+			description = WebFetchTool.LOCAL_DESCRIPTION,
+			budget = budget,
+		)
+		val searchTool = WebSearchTool(
+			provider = search,
+			name = "web_search_local",
+			description = WebSearchTool.LOCAL_DESCRIPTION,
+			budget = budget,
+		)
+
+		assertFalse(call(fetchTool).isError)
+		val searched = runBlocking {
+			searchTool.execute(buildJsonObject { put("query", "kotlin") })
+		}
+		assertFalse(searched.content, searched.isError)
+
+		// The third request is refused, with a result the model can act on.
+		val refused = call(fetchTool)
+		assertTrue(refused.isError)
+		assertTrue(refused.content, "used up" in refused.content)
+		assertEquals(1, fetch.calls)
+		assertEquals(1, search.calls)
+		assertEquals(2, budget.used)
+	}
+
+	@Test
+	fun `a malformed call spends no budget`() {
+		val budget = LocalWebBudget(spacingMillis = 0)
+		val tool = WebFetchTool(
+			provider = CountingProvider(),
+			name = "web_fetch_local",
+			budget = budget,
+		)
+
+		val out = runBlocking { tool.execute(buildJsonObject { }) }
+
+		assertTrue(out.isError)
+		assertEquals(0, budget.used)
+	}
+
+	@Test
+	fun `rendered fetches count against the render cap while static ones do not`() {
+		val budget = LocalWebBudget(maxRendered = 1, spacingMillis = 0)
+		val tool = WebFetchTool(
+			provider = RenderingProvider(),
+			name = "web_fetch_local",
+			description = WebFetchTool.LOCAL_DESCRIPTION,
+			budget = budget,
+		)
+
+		assertFalse(call(tool, render = true).isError)
+
+		val refused = call(tool, render = true)
+		assertTrue(refused.isError)
+		assertTrue(refused.content, "rendered" in refused.content)
+
+		assertFalse(call(tool, render = false).isError)
+		assertEquals(1, budget.rendered)
+		assertEquals(2, budget.used)
+	}
 }

@@ -716,12 +716,17 @@ Rules that make the kind safe (each is a bug if undone):
   requests (that is rendering, not a bug) and the Settings copy says so.
 - Diagnostics record host, status, bytes and time only. The query/URL and the
   page text never go to the log.
-- There is **no client-side rate limit** yet; a free tool can be called as often
-  as the model asks. The engine is sequential and the engines' risk control is
-  the only brake — treat a per-turn cap/throttle as a known follow-up, not as
-  implemented.
+- **Both tools share one per-turn budget** (`LocalWebBudget`, 0.35.0): ten
+  requests in total, at least one second apart, of which at most three may be
+  rendered. A call past the cap is refused before any request is made and says
+  so in a result the model can act on; a refused call spends no request, and
+  spacing is a wait inside the tool, not a failure. The budget is created once
+  per `buildTools`, so it resets with each user message; do not move it to a
+  process-wide cooldown, which would fail an ordinary question for a reason the
+  user cannot see. The values are constants, not Settings.
 - Tests: `GuardedHttpTest`, `HtmlTextTest`, the two search-parser tests,
-  `LocalFetchApiTest`, `LocalWebToolsTest`, `LocalFetchConsentMigrationTest`;
+  `LocalFetchApiTest`, `LocalWebToolsTest`, `LocalWebBudgetTest`,
+  `LocalFetchConsentMigrationTest`;
   the real WebView path is device-only and needs a phone check.
 
 ## B. Defects that were found here — and where each one now stands

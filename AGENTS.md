@@ -165,7 +165,9 @@ addresses only, GET-only, no cookie/credential/custom header, and uses the one
 a fresh WebView: page scripts run (the point), so there is no JS bridge, cookie
 injection, file access or persisted storage, and the WebView is destroyed per
 call; the Settings copy, tool description and consent dialog all say what leaves
-the device. Diagnostics record host/bytes only. Rules:
+the device. Diagnostics record host/bytes only. Both local tools share a fixed
+per-turn budget — 10 requests, at least a second apart, at most 3 rendered; a
+call past it is refused before any request and says so. Rules:
 `docs/08-port-philosophy.md` §1.7, mechanism: `docs/03-ai-provider.md`.
 
 Full reasoning, plus the design questions and how each was answered, is in
