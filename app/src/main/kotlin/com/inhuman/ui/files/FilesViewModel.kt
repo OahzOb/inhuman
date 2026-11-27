@@ -13,6 +13,7 @@ import com.inhuman.core.data.db.WorkspaceEntity
 import com.inhuman.core.files.SessionWorkspace
 import com.inhuman.core.files.WorkspaceCopy
 import com.inhuman.core.files.WorkspaceTransfer
+import com.inhuman.ui.chat.InstructionEditRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -376,6 +377,59 @@ class FilesViewModel(
 					},
 				)
 			}
+		}
+	}
+
+	/**
+	 * Open the text editor on a proposed file, whether or not it exists yet.
+	 *
+	 * The configuration workshop's proposal targets a root `AGENTS.md` that may
+	 * not exist, so it cannot go through [openForEdit], which refuses a missing
+	 * file. Save still goes through [saveEditor] and therefore the ordinary
+	 * `WorkspaceTransfer`: the per-file ceiling, total quota and atomic replace
+	 * are the same ones every other write uses. `originalText` is the current
+	 * file's text when there is one (so the discard warning still works) and ""
+	 * for a new file.
+	 */
+	fun openProposedEditor(request: InstructionEditRequest) {
+		if (_state.value.editorBusy) return
+		// This view model is scoped to one workspace. A request for another one
+		// is a navigation bug, and writing it here would put the text in the
+		// wrong workspace.
+		val target = workspaceId
+		if (target != null && target != request.workspaceId) return
+		workspaceId = request.workspaceId
+		viewModelScope.launch {
+			val ws = workspace()
+			if (ws == null) {
+				_state.value = _state.value.copy(
+					error = context.getString(R.string.files_error_workspace_missing),
+				)
+				return@launch
+			}
+			val existing = withContext(Dispatchers.IO) {
+				runCatching {
+					val file = (ws.resolve(request.path) as? SessionWorkspace.Resolution.Ok)?.file
+					when {
+						file == null || !file.isFile -> ""
+						file.length() > ws.limits.maxReadBytes -> ""
+						else -> file.readText()
+					}
+				}.getOrElse { failure ->
+					Diag.w("files", "proposed editor read failed path=${request.path}", failure)
+					""
+				}
+			}
+			_state.value = _state.value.copy(
+				preview = null,
+				editor = FileEditor(
+					name = request.path.substringAfterLast('/'),
+					relativePath = request.path,
+					originalText = existing,
+					text = request.text,
+				),
+				error = null,
+			)
 		}
 	}
 

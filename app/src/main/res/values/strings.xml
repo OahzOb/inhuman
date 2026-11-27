@@ -1621,4 +1621,39 @@
 	<string name="chat_scene_proposal_dismiss">Not now</string>
 	<string name="chat_scene_proposal_creating">Creating the scene…</string>
 	<string name="chat_scene_proposal_failed">Could not create the scene: %1$s</string>
+	<!-- The built-in configuration workshop: a permanent workspace where the assistant can read the app's configuration and prepare drafts. -->
+	<string name="studio_name">Config workshop</string>
+	<string name="home_studio_detail">Draft assistants and instruction files</string>
+	<string name="home_create_studio_detail">The assistant drafts; you save in the editors you already use</string>
+	<string name="studio_open_failed">Could not open the config workshop: %1$s</string>
+	<!-- Configuration-workshop proposals: drafts that open an existing editor. Nothing is written until the user saves there. -->
+	<string name="chat_proposal_dismiss">Not now</string>
+	<string name="chat_assistant_proposal_title">Assistant draft</string>
+	<string name="chat_assistant_proposal_create">New assistant: %1$s</string>
+	<string name="chat_assistant_proposal_update">Edit assistant: %1$s</string>
+	<string name="chat_assistant_proposal_renames">renames it</string>
+	<string name="chat_assistant_proposal_rewrites_prompt">new system prompt</string>
+	<string name="chat_assistant_proposal_sets_card">sets the character card</string>
+	<string name="chat_assistant_proposal_clears_card">clears the character card</string>
+	<string name="chat_assistant_proposal_summary">Change: %1$s</string>
+	<string name="chat_assistant_proposal_pending">Nothing is saved yet. The editor opens with this draft; Save there is the only write.</string>
+	<string name="chat_assistant_proposal_open">Open assistant editor</string>
+	<string name="chat_instruction_proposal_title">AGENTS.md draft</string>
+	<string name="chat_instruction_proposal_workspace">Workspace: %1$s</string>
+	<string name="chat_instruction_proposal_creates">New file, %1$d bytes</string>
+	<string name="chat_instruction_proposal_replaces">Replaces %1$d bytes with %2$d</string>
+	<string name="chat_instruction_proposal_clears">Clears the file</string>
+	<string name="chat_instruction_proposal_pending">Nothing is written yet. The file editor opens with this text; Save there is the only write.</string>
+	<string name="chat_instruction_proposal_open">Open file editor</string>
+	<string name="chat_instruction_proposal_missing">The workspace "%1$s" no longer exists.</string>
+	<string name="chat_instruction_proposal_ambiguous">More than one workspace is named "%1$s".</string>
+	<string name="chat_instruction_proposal_workspace_failed">Could not read the workspace list.</string>
+	<string name="agents_proposal_missing">That assistant no longer exists.</string>
+	<!-- Collapsed tool-row titles for the configuration-workshop helpers. -->
+	<string name="chat_studio_list_assistants_title">Assistants</string>
+	<string name="chat_studio_read_assistant_title">Assistant</string>
+	<string name="chat_studio_propose_assistant_title">Assistant draft</string>
+	<string name="chat_studio_list_instructions_title">Instruction files</string>
+	<string name="chat_studio_read_instruction_title">Instruction file</string>
+	<string name="chat_studio_propose_instruction_title">AGENTS.md draft</string>
 </resources>

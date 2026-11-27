@@ -601,6 +601,51 @@ undone:
   workspaces lose `rp_format`/`rp_validate` by design — that is the management
   shape, not a removal of a capability (the helpers never were one).
 
+### A32. The configuration workshop drafts configuration; it never writes it
+
+`WorkspaceKinds.STUDIO` (`workspaces.kind = "studio"`, same v28 column as A31)
+is the second built-in workbench: one permanent workspace reached from a
+persistent home row and the Create sheet, created lazily by
+`ConversationRepository.ensureStudio`. Its helpers read the app's own
+configuration and prepare drafts; every draft opens an editor the user already
+had, and Save there is the only write.
+
+- **No tool writes configuration.** `app_list_assistants`/`app_read_assistant`
+  return content fields only (name, prompt, card, model id — never tools,
+  approvals or provider config). `app_propose_assistant` returns an
+  `AssistantProposal`; the card's action calls `AgentsViewModel.openProposal`,
+  which either opens the existing row and overwrites only the fields the proposal
+  changed, or starts the New-assistant defaults and applies the content. The
+  proposal cannot name a tool, provider, model, reasoning level, suggestion
+  setting or approval rule: those are the editor's fields and the user's alone.
+  `app_list_instructions`/`app_read_instruction` read exactly one known file
+  name (`AGENTS.md`) through that workspace's `SessionWorkspace`;
+  `app_propose_instruction` returns text for `FilesViewModel.openProposedEditor`,
+  whose Save still goes through `WorkspaceTransfer` (quota, per-file limit,
+  atomic replace). There is no "apply" button and no repository write in a tool.
+- **A workspace is named, never identified.** An instruction proposal carries the
+  display name; the id is resolved at the tap
+  (`resolveInstructionWorkspace`), and a missing or ambiguous name is an error on
+  the card rather than a guess. The raw workspace id is the directory name and
+  must not enter a request (A31). A workspace renamed or deleted between the
+  proposal and the tap is answered at the tap.
+- **Only permanent workspaces can own instructions.** A temporary workspace
+  belongs to one conversation; its `AGENTS.md` cannot outlive it, so it is
+  neither listed nor written.
+- **Saving keeps the existing prompt semantics.** The file reaches a conversation
+  only through the pin: a save affects new conversations, and an existing one
+  needs **Reload AGENTS.md** (one deliberate cold request). Do not add a watcher
+  that re-pins, and do not have the save path touch any conversation row.
+- **The saved-prompt library stays model-invisible.** Nothing here can read,
+  write or select `saved_prompts`; "save to prompt library" in the assistant
+  editor remains a user action (`docs/13-product.md`). The model may draft an
+  assistant prompt, not curate the library.
+- **The helper set is not a mode.** No catalogue entry, no approval row, no
+  picker row; a conversation is either in a `kind = "studio"` workspace or not,
+  and a role-play scene gets none of the helpers (`planStudioHelpers`). The model
+  cannot create, enter or retag a workspace — the home entry is the only writer
+  of the studio row, exactly as with the RP workshop.
+
 ---
 
 ## B. Defects that were found here — and where each one now stands

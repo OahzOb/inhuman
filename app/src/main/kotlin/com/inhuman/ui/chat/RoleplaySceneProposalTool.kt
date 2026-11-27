@@ -3,11 +3,8 @@ package com.inhuman.ui.chat
 import com.inhuman.core.ai.Tool
 import com.inhuman.core.ai.ToolResult
 import com.inhuman.core.data.db.AgentEntity
-import com.inhuman.core.engine.roleplay.RoleplayLimits
 import kotlinx.coroutines.CancellationException
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Prepare a role-play scene proposal for the user to start.
@@ -74,13 +71,13 @@ internal class RoleplaySceneProposalTool(
 				"type" to "object",
 				"description" to "A character card written now, with the same fields " +
 					"as rp_format. Alternative to `character`; pass exactly one of the two.",
-				"properties" to cardProperties(),
+				"properties" to RoleplayToolSchema.cardProperties(),
 			),
 			"scene" to mapOf(
 				"type" to "object",
 				"description" to "Optional scene fields for this story. The same shape " +
 					"as the scene part of rp_format.",
-				"properties" to sceneProperties(),
+				"properties" to RoleplayToolSchema.sceneProperties(),
 			),
 			"title" to mapOf(
 				"type" to "string",
@@ -106,16 +103,16 @@ internal class RoleplaySceneProposalTool(
 	}
 
 	private suspend fun prepare(arguments: JsonObject): ToolResult {
-		val character = arguments.string("character")
-		val card = arguments.objectValue("card")
+		val character = arguments.stringArgument("character")
+		val card = arguments.objectArgument("card")
 		if ((character == null) == (card == null)) {
 			return ToolResult.error(
 				"$NAME: pass exactly one of `character` (an existing assistant's " +
 					"name) or `card` (a character card object); nothing was prepared.",
 			)
 		}
-		val scene = arguments.objectValue("scene")
-		val title = arguments.string("title")?.trim()?.takeIf { it.isNotEmpty() }
+		val scene = arguments.objectArgument("scene")
+		val title = arguments.stringArgument("title")?.trim()?.takeIf { it.isNotEmpty() }
 
 		val outcome = if (card != null) {
 			SceneProposals.fromInlineCard(card, scene, title)
@@ -175,110 +172,6 @@ internal class RoleplaySceneProposalTool(
 			)
 		}
 	}
-
-	/**
-	 * A string argument, or null when it is absent or JSON null.
-	 *
-	 * A present value of another JSON type is refused rather than coerced: the
-	 * schema declares a string, and a number or object where a name belongs is
-	 * a misread call, not a name to stringify.
-	 */
-	private fun JsonObject.string(name: String): String? {
-		val element = this[name] ?: return null
-		if (element is JsonNull) return null
-		val primitive = element as? JsonPrimitive
-		if (primitive == null || !primitive.isString) {
-			throw IllegalArgumentException("`$name` must be a string")
-		}
-		return primitive.content
-	}
-
-	/** An object argument, or null when it is absent or JSON null. */
-	private fun JsonObject.objectValue(name: String): JsonObject? {
-		val element = this[name] ?: return null
-		if (element is JsonNull) return null
-		return element as? JsonObject
-			?: throw IllegalArgumentException("`$name` must be a JSON object")
-	}
-
-	/**
-	 * The `card` argument's schema.
-	 *
-	 * These are the `rp_format` card fields, and the numeric ranges come from
-	 * [RoleplayLimits] rather than being restated, so the schema the model reads
-	 * cannot drift from the limits the validator enforces.
-	 */
-	private fun cardProperties(): Map<String, Any?> = mapOf(
-		"name" to mapOf(
-			"type" to "string",
-			"description" to "The character's display name. Optional if `title` is passed.",
-		),
-		"description" to mapOf(
-			"type" to "string",
-			"description" to "Identity, appearance and background.",
-		),
-		"personality" to mapOf(
-			"type" to "string",
-			"description" to "Character, motivation and manner of speaking.",
-		),
-		"scenario" to mapOf(
-			"type" to "string",
-			"description" to "The character's default situation.",
-		),
-		"greeting" to mapOf(
-			"type" to "string",
-			"description" to "The first line the character says when the scene opens.",
-		),
-		"exampleDialogue" to mapOf(
-			"type" to "string",
-			"description" to "A short verbatim example of the character's voice.",
-		),
-		"boundaries" to mapOf(
-			"type" to "string",
-			"description" to "What the character must not do, and protections for the player.",
-		),
-		"authorNote" to mapOf(
-			"type" to "string",
-			"description" to "The user's note on how to play this character.",
-		),
-		"temperature" to mapOf(
-			"type" to "number",
-			"description" to "Optional sampling temperature, 0.0 - ${RoleplayLimits.TEMPERATURE_MAX}.",
-		),
-		"topP" to mapOf(
-			"type" to "number",
-			"description" to "Optional nucleus sampling probability, 0.0 - ${RoleplayLimits.TOP_P_MAX}.",
-		),
-		"maxTokens" to mapOf(
-			"type" to "integer",
-			"description" to "Optional reply-length ceiling, " +
-				"${RoleplayLimits.MAX_TOKENS_MIN} - ${RoleplayLimits.MAX_TOKENS_MAX} tokens.",
-		),
-	)
-
-	/** The `scene` argument's schema: the same fields as `rp_format`'s scene. */
-	private fun sceneProperties(): Map<String, Any?> = mapOf(
-		"world" to mapOf(
-			"type" to "string",
-			"description" to "The world and its rules for this story.",
-		),
-		"premise" to mapOf(
-			"type" to "string",
-			"description" to "The situation the story opens in.",
-		),
-		"userPersona" to mapOf(
-			"type" to "string",
-			"description" to "Who the player is in this story, in their own words.",
-		),
-		"format" to mapOf(
-			"type" to "string",
-			"description" to "Narration person, length and style.",
-		),
-		"notes" to mapOf(
-			"type" to "string",
-			"description" to "The user's notes for this story.",
-		),
-	)
 
 	companion object {
 		/** The name the model calls; the chat matches tool results by this name. */

@@ -50,6 +50,7 @@ import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.TheaterComedy
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -124,6 +125,14 @@ fun ConversationsScreen(
 	 * manage materials, not a one-off action buried one level down.
 	 */
 	onOpenWorkshop: () -> Unit = {},
+	/**
+	 * Open the built-in configuration workshop (creating it on first use).
+	 *
+	 * The second persistent workbench, for the same reason as the RP one: the
+	 * assistant drafts assistants and instruction files there, so it is somewhere
+	 * the user returns to, not a one-off Create-sheet action.
+	 */
+	onOpenStudio: () -> Unit = {},
 	sshToolEnabled: Boolean = false,
 	bilibiliEnabled: Boolean = false,
 	downloadEnabled: Boolean = false,
@@ -284,6 +293,7 @@ fun ConversationsScreen(
 							onOpenWorkspaces = onOpenWorkspaces,
 							onOpenAssistants = onOpenAgents,
 							onOpenWorkshop = onOpenWorkshop,
+							onOpenStudio = onOpenStudio,
 							compactLayout = frame.isCompact,
 							showStartButton = true,
 							backupReminder = backupReminder,
@@ -322,6 +332,7 @@ fun ConversationsScreen(
 					onOpenWorkspaces = onOpenWorkspaces,
 					onOpenAssistants = onOpenAgents,
 					onOpenWorkshop = onOpenWorkshop,
+					onOpenStudio = onOpenStudio,
 					compactLayout = frame.isCompact,
 					showStartButton = false,
 					backupReminder = backupReminder,
@@ -363,6 +374,10 @@ fun ConversationsScreen(
 			onOpenWorkshop = {
 				showCreateSheet = false
 				onOpenWorkshop()
+			},
+			onOpenStudio = {
+				showCreateSheet = false
+				onOpenStudio()
 			},
 		)
 	}
@@ -641,6 +656,7 @@ private fun CreateSheet(
 	onNewScene: () -> Unit,
 	onNewWorkspace: () -> Unit,
 	onOpenWorkshop: () -> Unit,
+	onOpenStudio: () -> Unit,
 ) {
 	val sheetState = androidx.compose.material3.rememberModalBottomSheetState(
 		skipPartiallyExpanded = true,
@@ -660,7 +676,7 @@ private fun CreateSheet(
 				.fillMaxWidth()
 				.padding(horizontal = 24.dp)
 				.padding(bottom = 24.dp)
-				// The sheet now has five choices plus the continuous-session
+				// The sheet now has seven choices plus the continuous-session
 				// disclosure. On a 360x640 phone at 1.5x font that can exceed the
 				// sheet's height, so the content scrolls rather than clipping the
 				// last choice.
@@ -748,6 +764,15 @@ private fun CreateSheet(
 					detail = stringResource(R.string.home_create_workshop_detail),
 					onClick = onOpenWorkshop,
 					leadingIcon = Icons.Outlined.TheaterComedy,
+				)
+				// The configuration workshop is the other persistent workbench:
+				// the agent drafts assistants and AGENTS.md there, and the user
+				// saves in the editors they already use.
+				CreateChoice(
+					title = stringResource(R.string.studio_name),
+					detail = stringResource(R.string.home_create_studio_detail),
+					onClick = onOpenStudio,
+					leadingIcon = Icons.Outlined.Tune,
 				)
 				CreateChoice(
 					title = stringResource(R.string.home_import_bundle),
@@ -1180,6 +1205,8 @@ private fun ConversationPanel(
 	onOpenAssistants: () -> Unit,
 	/** Open the built-in role-play workshop from the persistent home entry. */
 	onOpenWorkshop: () -> Unit = {},
+	/** Open the built-in configuration workshop from the persistent home entry. */
+	onOpenStudio: () -> Unit = {},
 	compactLayout: Boolean,
 	showStartButton: Boolean,
 	backupReminder: BackupReminderUi?,
@@ -1274,6 +1301,8 @@ private fun ConversationPanel(
 			Hairline()
 			if (!selecting) {
 				WorkshopEntryRow(onOpen = onOpenWorkshop)
+				Hairline()
+				StudioEntryRow(onOpen = onOpenStudio)
 				Hairline()
 				backupReminder?.let { reminder ->
 					BackupReminderBanner(
@@ -1433,6 +1462,52 @@ private fun WorkshopEntryRow(onOpen: () -> Unit) {
 			)
 			Text(
 				text = stringResource(R.string.home_workshop_detail),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+		Spacer(Modifier.width(8.dp))
+		Icon(
+			Icons.AutoMirrored.Filled.KeyboardArrowRight,
+			contentDescription = null,
+			modifier = Modifier.size(18.dp),
+			tint = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+	}
+}
+
+/**
+ * The persistent configuration workshop entry.
+ *
+ * The second workbench row, directly under the RP one: both are permanent
+ * workspaces the user returns to, and putting them together makes the two
+ * "ask an agent to set this up" places discoverable without a menu. It is a row
+ * for the same visual reason as [WorkshopEntryRow].
+ */
+@Composable
+private fun StudioEntryRow(onOpen: () -> Unit) {
+	Row(
+		modifier = Modifier
+			.fillMaxWidth()
+			.clickable(onClick = onOpen)
+			.padding(vertical = 12.dp),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		Icon(
+			Icons.Outlined.Tune,
+			contentDescription = null,
+			modifier = Modifier.size(18.dp),
+			tint = MaterialTheme.colorScheme.primary,
+		)
+		Spacer(Modifier.width(12.dp))
+		Column(modifier = Modifier.weight(1f)) {
+			Text(
+				text = stringResource(R.string.studio_name),
+				style = MaterialTheme.typography.bodyLarge,
+				color = MaterialTheme.colorScheme.onSurface,
+			)
+			Text(
+				text = stringResource(R.string.home_studio_detail),
 				style = MaterialTheme.typography.bodySmall,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,
 			)

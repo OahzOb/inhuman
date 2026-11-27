@@ -105,6 +105,7 @@ import com.inhuman.core.design.Layout
 import com.inhuman.core.design.WideDialog
 import com.inhuman.core.design.WorkbenchGrid
 import com.inhuman.core.design.comfortableGutter
+import com.inhuman.ui.chat.InstructionEditRequest
 import com.inhuman.ui.chat.MarkdownText
 import com.inhuman.ui.common.WorkbenchBackButton
 import com.inhuman.ui.common.openWorkspaceInFiles
@@ -160,6 +161,16 @@ fun FilesScreen(
 	onBack: () -> Unit,
 	/** Raised while a dialog is up, so system Back closes it rather than leaving. */
 	onDialogVisibilityChange: (Boolean) -> Unit = {},
+	/**
+	 * A proposed file to open in the editor, applied once.
+	 *
+	 * Used by the configuration workshop, where an `AGENTS.md` proposal opens the
+	 * ordinary text editor on a file that may not exist yet. The screen owns the
+	 * one-shot contract so a recomposition cannot reopen the editor over the
+	 * user's own edits.
+	 */
+	pendingEdit: InstructionEditRequest? = null,
+	onPendingConsumed: () -> Unit = {},
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	val context = LocalContext.current
@@ -170,6 +181,12 @@ fun FilesScreen(
 	val openWith = stringResource(R.string.files_open_with_chooser)
 	val noApp = stringResource(R.string.files_no_app)
 	val notReady = stringResource(R.string.files_not_ready)
+
+	LaunchedEffect(pendingEdit) {
+		val edit = pendingEdit ?: return@LaunchedEffect
+		viewModel.openProposedEditor(edit)
+		onPendingConsumed()
+	}
 
 	// The view model is activity-scoped and keyed by conversation, so it
 	// survives leaving this screen. A file written while the screen was gone is

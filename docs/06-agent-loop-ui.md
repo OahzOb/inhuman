@@ -1324,6 +1324,24 @@ tapped leaves no conversation, no workspace and no row behind. The result is
 transient like suggestions: a reopened transcript shows the plain persisted
 line, not a live button.
 
+**The configuration workshop and its drafts.** The app also keeps one built-in
+permanent workspace with `workspaces.kind = studio`, created lazily by its Home
+row or Create-sheet entry. A **non-scene** conversation there gets six
+host-appended helpers: two read the user's assistant content, one prepares an
+assistant draft, two read a permanent workspace's root `AGENTS.md`, and one
+prepares an instruction draft. Each propose result is rendered as a card showing
+what would change and an action that **opens an existing editor prefilled**: an
+assistant draft opens the assistant editor (`AgentsViewModel.openProposal`), an
+instruction draft opens the Files text editor (`FilesViewModel.openProposedEditor`).
+Nothing is written by the tool, and the only Save is the user's in that editor;
+missing targets (a deleted assistant, a renamed or duplicated workspace) are
+reported on the card instead of opening the wrong thing. The handoffs are
+one-shot signals consumed in `ChatScreen` and routed by `MainActivity`, the same
+pattern the scene proposal uses for navigation. The cards are transient: a
+reopened transcript shows the persisted summary line. `AGENTS.md` saves keep the
+normal pin semantics — new conversations, or **Reload AGENTS.md** for the
+current one (`docs/07-gotchas.md` A32).
+
 A scene whose fields are all blank is stored as `{}` rather than `""`: the
 empty string keeps meaning "ordinary conversation", and otherwise a blank scene
 lost its scene-ness — it was renamed after the first message and the persona

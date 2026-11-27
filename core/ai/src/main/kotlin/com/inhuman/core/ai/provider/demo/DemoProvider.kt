@@ -123,6 +123,10 @@ class DemoProvider(
 		emit(StreamChunk.TextStart())
 		val answer = when {
 			calls.any { it.name == PROPOSAL_TOOL } -> PROPOSAL_PREAMBLE
+			// The configuration workshop's two drafts are also proposals: they
+			// write nothing and open the user's editors.
+			calls.any { it.name == PROPOSE_ASSISTANT_TOOL || it.name == PROPOSE_INSTRUCTION_TOOL } ->
+				CONFIG_PREAMBLE
 			calls.isNotEmpty() -> CALL_PREAMBLE
 			// Scoped to *this* turn, which is the bug this fixes. Scanning the
 			// whole history for a tool message meant that once a conversation
@@ -308,6 +312,28 @@ class DemoProvider(
 			return listOf(ScriptedCall(PROPOSAL_TOOL, PROPOSAL_ARGUMENTS))
 		}
 
+		// A configuration-workshop conversation: the host appends the assistant
+		// and instruction helpers, and both proposal cards can be exercised with
+		// no key and no network. Keyed on "config" (or 配置) so an ordinary
+		// workshop question still answers as prose; the helpers write nothing, so
+		// the demo is not changing app state behind the user's back.
+		if (
+			PROPOSE_ASSISTANT_TOOL in offered &&
+			(
+				request.messages[lastUser].content.contains(CONFIG_MARKER, ignoreCase = true) ||
+					request.messages[lastUser].content.contains(CONFIG_MARKER_ZH, ignoreCase = true)
+				)
+		) {
+			return buildList {
+				add(ScriptedCall(PROPOSE_ASSISTANT_TOOL, ASSISTANT_PROPOSAL_ARGUMENTS))
+				// The instruction helper defaults to this conversation's own
+				// workspace, so the demo script needs no workspace name.
+				if (PROPOSE_INSTRUCTION_TOOL in offered) {
+					add(ScriptedCall(PROPOSE_INSTRUCTION_TOOL, INSTRUCTION_PROPOSAL_ARGUMENTS))
+				}
+			}
+		}
+
 		return listOfNotNull(
 			fileCall("write_file", offered, WRITE_ARGUMENTS),
 			fileCall("delete_file", offered, DELETE_ARGUMENTS),
@@ -490,6 +516,32 @@ class DemoProvider(
 		const val PROPOSAL_PREAMBLE =
 			"Demo mode. The workshop helper prepared a scene proposal; nothing is " +
 				"created until you tap Create and open."
+
+		/**
+		 * The configuration-workshop script: two drafts, no key, no writes.
+		 *
+		 * `app_propose_assistant` and `app_propose_instruction` are host-appended
+		 * helpers that return cards and write nothing. The demo uses both so the
+		 * draft -> editor -> Save loop is reachable offline; the assistant name is
+		 * fixed, so a second save of the same draft is refused as a duplicate
+		 * rather than silently creating twins.
+		 */
+		const val PROPOSE_ASSISTANT_TOOL = "app_propose_assistant"
+		const val PROPOSE_INSTRUCTION_TOOL = "app_propose_instruction"
+		const val CONFIG_MARKER = "config"
+		const val CONFIG_MARKER_ZH = "配置"
+
+		val ASSISTANT_PROPOSAL_ARGUMENTS = """
+			{"name":"Notebook Keeper","prompt":"You keep the user's notes tidy. Ask before assuming, and reply in the user's language."}
+		""".trimIndent()
+
+		val INSTRUCTION_PROPOSAL_ARGUMENTS = """
+			{"text":"# Demo instructions\n\nWritten by the configuration workshop in demo mode. New conversations in this workspace start here.\n"}
+		""".trimIndent()
+
+		const val CONFIG_PREAMBLE =
+			"Demo mode. The configuration workshop prepared drafts; nothing is " +
+				"written until you open the editors and save there."
 
 		/**
 		 * The closing answer, written in Markdown on purpose.

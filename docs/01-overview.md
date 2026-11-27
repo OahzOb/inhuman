@@ -240,6 +240,25 @@ Confirmed by `README.md:17-29` and by the code:
   tool catalogue, so none appears in a picker, approval table or the gap report
   ([06-agent-loop-ui.md](06-agent-loop-ui.md), [07-gotchas.md](07-gotchas.md)
   A31).
+- **The configuration workshop** is the second built-in permanent workspace
+  (`workspaces.kind = "studio"`, the same v28 column; schema does not change)
+  with a persistent home row and a Create-sheet entry. In a non-scene
+  conversation there, the host appends six capability-free helpers:
+  `app_list_assistants` / `app_read_assistant` return the user's assistant content
+  (names, system prompts, cards; never tools, providers or approval rules),
+  `app_propose_assistant` prepares a create/rename/rewrite draft,
+  `app_list_instructions` / `app_read_instruction` list and read each permanent
+  workspace's root `AGENTS.md`, and `app_propose_instruction` prepares a new
+  version of one. The two propose helpers write nothing: their cards open the
+  existing assistant editor or Files text editor prefilled, and Save in that
+  editor is the only write. A proposal never carries a tool selection, a model,
+  a provider or an approval rule; a workspace is named on the wire, never by its
+  directory id; the saved-prompt library stays invisible to the model. A
+  `AGENTS.md` save affects new conversations, or an existing one through the
+  chat menu's **Reload AGENTS.md**. None of the six is in the tool catalogue, so
+  none appears in a picker, approval table or the gap report
+  ([07-gotchas.md](07-gotchas.md) A32,
+  [proposals/config-workshop.md](proposals/config-workshop.md)).
 - A root `AGENTS.md` in the conversation's workspace is pinned on the
   conversation's first request and appended to the system prompt. Later edits
   apply to new conversations, or to the current one through the chat menu's

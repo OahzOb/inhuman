@@ -368,22 +368,45 @@ class ConversationRepository(
 	 * table rather than adding a DAO query: the workspace list is small and the
 	 * only caller is the app's "open the workshop" action.
 	 */
-	suspend fun workshop(): WorkspaceEntity? =
-		db.workspaces().all().firstOrNull { it.kind == WorkspaceKinds.ROLEPLAY }
+	suspend fun workshop(): WorkspaceEntity? = workspaceOfKind(WorkspaceKinds.ROLEPLAY)
 
 	/**
-	 * Open the workshop, creating it on first use.
+	 * The built-in configuration workshop, or null before the user opened it.
+	 *
+	 * The same shape as [workshop]: at most one row carries
+	 * [WorkspaceKinds.STUDIO], and no user-facing action can mark another
+	 * workspace as one.
+	 */
+	suspend fun studio(): WorkspaceEntity? = workspaceOfKind(WorkspaceKinds.STUDIO)
+
+	/** The one workspace of [kind], if it exists. */
+	private suspend fun workspaceOfKind(kind: String): WorkspaceEntity? =
+		db.workspaces().all().firstOrNull { it.kind == kind }
+
+	/**
+	 * Open the role-play workshop, creating it on first use.
 	 *
 	 * The row and the directory are app-owned; the user never configures a
 	 * workspace *into* the workshop, so this is the only writer of the roleplay
 	 * kind. Serialised because the entry can be tapped twice before the first
 	 * creation finishes, and two workshops would split the materials.
 	 */
-	suspend fun ensureWorkshop(name: String): WorkspaceEntity = workshopMutex.withLock {
+	suspend fun ensureWorkshop(name: String): WorkspaceEntity = builtInMutex.withLock {
 		workshop() ?: createWorkspace(name, WorkspaceKinds.ROLEPLAY)
 	}
 
-	private val workshopMutex = Mutex()
+	/**
+	 * Open the configuration workshop, creating it on first use.
+	 *
+	 * App-owned for the same reason as [ensureWorkshop], and serialised by the
+	 * same lock: the home entry is a tap on a phone, and a second tap before the
+	 * first row commits must not create a second workshop.
+	 */
+	suspend fun ensureStudio(name: String): WorkspaceEntity = builtInMutex.withLock {
+		studio() ?: createWorkspace(name, WorkspaceKinds.STUDIO)
+	}
+
+	private val builtInMutex = Mutex()
 
 	/**
 	 * Turn a conversation's temporary workspace into a permanent one.

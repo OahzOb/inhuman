@@ -36,6 +36,7 @@ import com.inhuman.AppCapabilities
 import com.inhuman.R
 import com.inhuman.core.ai.policy.ToolPolicy
 import com.inhuman.core.ai.tools.ToolCatalog
+import com.inhuman.ui.chat.AssistantEditRequest
 import com.inhuman.ui.chat.SuggestionFormat
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
@@ -130,10 +131,25 @@ fun AgentsScreen(
 	viewModel: AgentsViewModel,
 	onBack: () -> Unit,
 	onOpenSettings: () -> Unit,
+	/**
+	 * A draft a configuration-workshop proposal prepared, applied once.
+	 *
+	 * The screen owns the one-shot contract for the same reason the chat screen
+	 * owns navigation: the view model cannot tell a recomposition from a new
+	 * request, and re-applying would overwrite edits the user made after the
+	 * draft opened.
+	 */
+	pendingDraft: AssistantEditRequest? = null,
+	onPendingConsumed: () -> Unit = {},
 ) {
 	val state by viewModel.state.collectAsStateWithLifecycle()
 	var pendingDelete by remember { mutableStateOf<AgentEntity?>(null) }
 	LaunchedEffect(Unit) { viewModel.refreshGlobalSwitches() }
+	LaunchedEffect(pendingDraft) {
+		val draft = pendingDraft ?: return@LaunchedEffect
+		viewModel.openProposal(draft)
+		onPendingConsumed()
+	}
 
 	Scaffold(
 		topBar = {

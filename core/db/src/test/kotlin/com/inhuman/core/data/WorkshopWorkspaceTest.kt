@@ -16,11 +16,12 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 /**
- * The built-in role-play workshop on the JVM.
+ * The built-in workshops on the JVM.
  *
  * The row is the whole state: the kind must survive a re-read, ordinary
- * workspaces must not acquire it, and `ensureWorkshop` must be idempotent
- * because the entry can be tapped twice before the first creation finishes.
+ * workspaces must not acquire it, each kind has one row, and the ensure calls
+ * must be idempotent because an entry can be tapped twice before the first
+ * creation finishes.
  */
 class WorkshopWorkspaceTest {
 
@@ -87,5 +88,40 @@ class WorkshopWorkspaceTest {
 		assertEquals(workshop.id, scene.workspaceId)
 		assertNotEquals("", scene.rpSnapshotJson)
 		assertEquals("[]", scene.toolsJson)
+	}
+
+	@Test
+	fun `ensureStudio creates one permanent configuration workspace`() = runBlocking {
+		val studio = repository.ensureStudio("Config workshop")
+
+		assertEquals(WorkspaceKinds.STUDIO, studio.kind)
+		assertTrue(studio.isPermanent)
+		assertEquals("Config workshop", studio.name)
+		assertEquals(WorkspaceKinds.STUDIO, repository.studio()?.kind)
+		assertEquals(null, repository.workshop())
+	}
+
+	@Test
+	fun `ensureStudio is idempotent and never replaces the first row`() = runBlocking {
+		val first = repository.ensureStudio("Config workshop")
+		val second = repository.ensureStudio("Another name")
+
+		assertEquals(first.id, second.id)
+		assertEquals("Config workshop", repository.studio()?.name)
+	}
+
+	@Test
+	fun `the two built-in kinds are separate rows`() = runBlocking {
+		val workshop = repository.ensureWorkshop("RP 工坊")
+		val studio = repository.ensureStudio("配置工坊")
+
+		assertNotEquals(workshop.id, studio.id)
+		assertEquals(WorkspaceKinds.ROLEPLAY, repository.workshop()?.kind)
+		assertEquals(WorkspaceKinds.STUDIO, repository.studio()?.kind)
+		// Each lookup must not mistake the other kind for its own, and an
+		// ordinary workspace must never become one of them.
+		val notes = repository.createWorkspace("notes")
+		assertEquals(3, repository.workspaces().size)
+		assertEquals(WorkspaceKinds.NONE, repository.workspaceRecord(notes.id)?.kind)
 	}
 }

@@ -61,8 +61,10 @@ import com.inhuman.ui.agents.AgentsScreen
 import com.inhuman.ui.agents.AgentsViewModel
 import com.inhuman.ui.backup.BackupReminderStore
 import com.inhuman.ui.backup.BackupReminderUi
+import com.inhuman.ui.chat.AssistantEditRequest
 import com.inhuman.ui.chat.ChatScreen
 import com.inhuman.ui.chat.ChatViewModel
+import com.inhuman.ui.chat.InstructionEditRequest
 import com.inhuman.ui.chat.SettingsViewModel
 import com.inhuman.ui.files.FilesScreen
 import com.inhuman.ui.files.FilesViewModel
@@ -304,6 +306,17 @@ private fun InhumanRoot(
 	var filesWorkspaceId by rememberSaveable { mutableStateOf<String?>(null) }
 	/** Where Back returns after closing a conversation opened inside a workspace. */
 	var chatOriginWorkspaceId by rememberSaveable { mutableStateOf<String?>(null) }
+	/**
+	 * A configuration-workshop draft waiting for the assistants screen.
+	 *
+	 * Deliberately not `rememberSaveable`: a draft is a question asked by the card
+	 * under the user's finger, and restoring one after a rotation would open an
+	 * editor the user did not tap. The handoff is one-shot either way; the screen
+	 * clears it after applying it to the editor.
+	 */
+	var pendingAssistantDraft by remember { mutableStateOf<AssistantEditRequest?>(null) }
+	/** A proposed `AGENTS.md` waiting for the Files screen. Same one-shot rule. */
+	var pendingInstructionEdit by remember { mutableStateOf<InstructionEditRequest?>(null) }
 
 	val pendingConversation = deepLinkedConversation
 	LaunchedEffect(pendingConversation) {
@@ -519,6 +532,8 @@ private fun InhumanRoot(
 			val vm: AgentsViewModel = viewModel(factory = factory)
 			AgentsScreen(
 				viewModel = vm,
+				pendingDraft = pendingAssistantDraft,
+				onPendingConsumed = { pendingAssistantDraft = null },
 				onBack = { showAgents = false },
 				onOpenSettings = { showSettings = true },
 			)
@@ -543,6 +558,8 @@ private fun InhumanRoot(
 			}
 			FilesScreen(
 				viewModel = vm,
+				pendingEdit = pendingInstructionEdit,
+				onPendingConsumed = { pendingInstructionEdit = null },
 				onBack = {
 					showFiles = false
 					filesWorkspaceId = null
@@ -673,6 +690,19 @@ private fun InhumanRoot(
 					openConversationId = newId
 					chatFocusMessageId = null
 				},
+				onOpenAssistantDraft = { draft ->
+					// The chat stays underneath: Back from the assistants screen
+					// returns to the conversation the card was in.
+					pendingAssistantDraft = draft
+					showAgents = true
+				},
+				onOpenInstructionEditor = { edit ->
+					// Files opens over the chat, targeting the proposed
+					// workspace; Back returns to the conversation.
+					pendingInstructionEdit = edit
+					filesWorkspaceId = edit.workspaceId
+					showFiles = true
+				},
 				onDialogVisibilityChange = { chatDialogOpen = it },
 			)
 		}
@@ -735,11 +765,12 @@ private fun InhumanRoot(
 				}
 			}
 			val vm: ConversationsViewModel = viewModel(factory = factory)
-			// The workshop's display name is resolved from the activity's
+			// The workshop display names are resolved from the activity's
 			// resources, not the application context the view model holds: the
 			// app has its own language setting, and a name created from the
 			// system locale disagreed with the UI that showed the entry.
 			val workshopName = stringResource(R.string.workshop_name)
+			val studioName = stringResource(R.string.studio_name)
 			ConversationsScreen(
 				viewModel = vm,
 				onOpenConversation = {
@@ -765,6 +796,16 @@ private fun InhumanRoot(
 					// so reading the name there stored one language and displayed
 					// another.
 					vm.openWorkshop(workshopName) { workspaceId ->
+						showSettings = false
+						showFiles = false
+						showAgents = false
+						showWorkspaces = false
+						workspaceFromHome = true
+						openWorkspaceId = workspaceId
+					}
+				},
+				onOpenStudio = {
+					vm.openStudio(studioName) { workspaceId ->
 						showSettings = false
 						showFiles = false
 						showAgents = false

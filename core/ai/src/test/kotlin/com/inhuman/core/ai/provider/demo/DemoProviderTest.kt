@@ -268,4 +268,66 @@ class DemoProviderTest {
 
 		assertTrue(callsIn(request(tools = listOf("rp_create_scene"), messages = afterProposal)).isEmpty())
 	}
+
+	@Test
+	fun `a configuration workshop conversation proposes an assistant and an instruction`() = runTest {
+		// Both configuration-workshop helpers are host-appended and write nothing,
+		// so the demo can drive the draft -> editor -> Save loop with no key.
+		val calls = callsIn(
+			request(
+				tools = listOf(
+					DemoProvider.PROPOSE_ASSISTANT_TOOL,
+					DemoProvider.PROPOSE_INSTRUCTION_TOOL,
+				),
+				messages = listOf(ChatMessage(Role.User, "config please")),
+			),
+		)
+
+		assertEquals(
+			listOf(
+				DemoProvider.PROPOSE_ASSISTANT_TOOL,
+				DemoProvider.PROPOSE_INSTRUCTION_TOOL,
+			),
+			calls.map { it.name },
+		)
+		val assistant = Json.parseToJsonElement(calls[0].argumentsJson).jsonObject
+		assertEquals(
+			"Notebook Keeper",
+			assistant["name"]?.jsonPrimitive?.content,
+		)
+		assertTrue(
+			"a new assistant needs some content",
+			assistant["prompt"]?.jsonPrimitive?.content?.isNotBlank() == true,
+		)
+		val instruction = Json.parseToJsonElement(calls[1].argumentsJson).jsonObject
+		assertTrue(
+			instruction["text"]?.jsonPrimitive?.content?.contains("Demo instructions") == true,
+		)
+	}
+
+	@Test
+	fun `the configuration script is not repeated after its results arrive`() = runTest {
+		val afterDrafts = listOf(
+			ChatMessage(Role.User, "config"),
+			ChatMessage(
+				Role.Assistant,
+				"preparing",
+				toolCalls = listOf(
+					ToolCall("demo-call-0", DemoProvider.PROPOSE_ASSISTANT_TOOL, "{}"),
+					ToolCall("demo-call-1", DemoProvider.PROPOSE_INSTRUCTION_TOOL, "{}"),
+				),
+			),
+			ChatMessage(Role.Tool, "{}", toolCallId = "demo-call-0"),
+			ChatMessage(Role.Tool, "{}", toolCallId = "demo-call-1"),
+		)
+
+		assertTrue(
+			callsIn(
+				request(
+					tools = listOf(DemoProvider.PROPOSE_ASSISTANT_TOOL),
+					messages = afterDrafts,
+				),
+			).isEmpty(),
+		)
+	}
 }

@@ -85,6 +85,7 @@ import com.inhuman.core.data.db.MaintenanceRunEntity
 import com.inhuman.core.data.db.MaintenanceRunKind
 import com.inhuman.core.data.db.MaintenanceRunOutcome
 import com.inhuman.core.data.db.SessionMode
+import com.inhuman.core.data.db.WorkspaceEntity
 import com.inhuman.core.data.db.WorkspaceKinds
 import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.core.files.SessionWorkspace
@@ -1880,6 +1881,129 @@ class ChatViewModel(
 	fun consumeOpenSceneConversation() {
 		_state.update { s ->
 			if (s.openSceneConversationId == null) s else s.copy(openSceneConversationId = null)
+		}
+	}
+
+	// --- Configuration workshop proposals ----------------------------------
+
+	/**
+	 * Hand an assistant proposal to the assistant editor.
+	 *
+	 * This is a handoff, not a write: the draft is a request the screen turns
+	 * into navigation to the assistants screen, where the editor opens prefilled
+	 * from the existing row (or from the new-assistant defaults). The user's Save
+	 * is still the only writer, and the editor's own fields -- tools, model,
+	 * approval rules -- are not carried by the proposal.
+	 */
+	fun openProposedAssistant(messageId: String) {
+		val state = _state.value
+		if (state.isStreaming || state.isCompacting) return
+		val proposal = state.messages.firstOrNull { it.id == messageId }?.assistantProposal
+			?: return
+		_state.update {
+			it.copy(
+				openAssistantDraft = AssistantEditRequest(
+					agentId = proposal.agentId,
+					name = if (proposal.changeName) proposal.name else null,
+					// A create with no prompt starts blank rather than with the
+					// editor's default instructions: the proposal said card-only,
+					// and Save would otherwise store text the model never wrote.
+					systemPrompt = if (proposal.changePrompt) {
+						proposal.prompt
+					} else if (proposal.agentId == null) {
+						""
+					} else {
+						null
+					},
+					cardJson = if (proposal.changeCard) proposal.cardJson else null,
+				),
+			)
+		}
+	}
+
+	/** Drop an assistant proposal the user does not want. Nothing was written. */
+	fun dismissAssistantProposal(messageId: String) {
+		updateMessage(messageId) { it.copy(assistantProposal = null) }
+	}
+
+	/** Clear the one-shot "open the assistant editor" signal. */
+	fun consumeOpenAssistantDraft() {
+		_state.update { s ->
+			if (s.openAssistantDraft == null) s else s.copy(openAssistantDraft = null)
+		}
+	}
+
+	/**
+	 * Resolve an instruction proposal's workspace and open the Files editor.
+	 *
+	 * The workspace is named on the wire, never identified, so the id is looked up
+	 * at the moment of the tap: a workspace renamed or deleted between the
+	 * proposal and the tap is answered here, and a missing or ambiguous name
+	 * leaves the card with an error instead of opening the wrong workspace's
+	 * editor.
+	 */
+	fun openProposedInstruction(messageId: String) {
+		val state = _state.value
+		if (state.isStreaming || state.isCompacting) return
+		val proposal = state.messages.firstOrNull { it.id == messageId }?.instructionProposal
+			?: return
+		viewModelScope.launch {
+			val workspaces = runCatching {
+				withContext(Dispatchers.IO) { repository.workspaces() }
+			}.getOrNull()
+			if (workspaces == null) {
+				updateMessage(messageId) {
+					it.copy(
+						instructionProposalError = context.getString(
+							R.string.chat_instruction_proposal_workspace_failed,
+						),
+					)
+				}
+				return@launch
+			}
+			when (val lookup = resolveInstructionWorkspace(workspaces, proposal.workspaceName)) {
+				is WorkspaceLookup.Ok -> _state.update {
+					it.copy(
+						openInstructionEditor = InstructionEditRequest(
+							workspaceId = lookup.workspace.id,
+							workspaceName = lookup.workspace.name,
+							text = proposal.text,
+						),
+					)
+				}
+
+				is WorkspaceLookup.Missing -> updateMessage(messageId) {
+					it.copy(
+						instructionProposalError = context.getString(
+							R.string.chat_instruction_proposal_missing,
+							proposal.workspaceName,
+						),
+					)
+				}
+
+				is WorkspaceLookup.Ambiguous -> updateMessage(messageId) {
+					it.copy(
+						instructionProposalError = context.getString(
+							R.string.chat_instruction_proposal_ambiguous,
+							proposal.workspaceName,
+						),
+					)
+				}
+			}
+		}
+	}
+
+	/** Drop an instruction proposal the user does not want. Nothing was written. */
+	fun dismissInstructionProposal(messageId: String) {
+		updateMessage(messageId) {
+			it.copy(instructionProposal = null, instructionProposalError = null)
+		}
+	}
+
+	/** Clear the one-shot "open the Files editor" signal. */
+	fun consumeOpenInstructionEditor() {
+		_state.update { s ->
+			if (s.openInstructionEditor == null) s else s.copy(openInstructionEditor = null)
 		}
 	}
 
@@ -5311,23 +5435,33 @@ class ChatViewModel(
 							event.result.isError,
 							id,
 						)
-						// A scene proposal is app data the card renders, not a
-						// mutation: the assistant has prepared it and the user's
-						// tap is what creates the conversation. Parsed here, from
-						// the full result content, because the persisted stub is a
-						// one-line summary.
-						if (event.call.name == RoleplaySceneProposalTool.NAME && !event.result.isError) {
-							SceneProposal.fromJson(event.result.content)?.let { proposal ->
-								_state.update { state ->
-									val messages = state.messages.toMutableList()
-									val index = messages.indexOfLast {
-										it.isToolResult && it.toolResultFor == call.id
+						// Proposals are app data a card renders, not mutations: the
+						// assistant prepared the draft, and the user's tap is what
+						// opens an existing editor or creates the conversation.
+						// Parsed here, from the full result content, because the
+						// persisted stub is a one-line summary.
+						if (!event.result.isError) {
+							when (event.call.name) {
+								RoleplaySceneProposalTool.NAME ->
+									SceneProposal.fromJson(event.result.content)?.let { proposal ->
+										attachToToolResult(call.id) {
+											it.copy(sceneProposal = proposal)
+										}
 									}
-									if (index >= 0) {
-										messages[index] = messages[index].copy(sceneProposal = proposal)
+
+								StudioTools.PROPOSE_ASSISTANT ->
+									AssistantProposal.fromJson(event.result.content)?.let { proposal ->
+										attachToToolResult(call.id) {
+											it.copy(assistantProposal = proposal)
+										}
 									}
-									state.copy(messages = messages)
-								}
+
+								StudioTools.PROPOSE_INSTRUCTION ->
+									InstructionProposal.fromJson(event.result.content)?.let { proposal ->
+										attachToToolResult(call.id) {
+											it.copy(instructionProposal = proposal)
+										}
+									}
 							}
 						}
 						// The suggestions are the result. They are rendered as
@@ -6300,16 +6434,29 @@ class ChatViewModel(
 		// never become a read path on its own. A scene (`roleplayActive`) keeps
 		// its empty tool set. The rule is a pure function so it can be tested
 		// without a view model.
-		val workshop = runCatching {
-			repository.workspaceRecord(entity.workspaceId)?.kind == WorkspaceKinds.ROLEPLAY
-		}.getOrDefault(false)
+		//
+		// The kind is read from the workspace row, never from the conversation:
+		// no tool can create, enter or retag a workspace, so a model cannot talk
+		// itself into either workshop (`docs/07-gotchas.md` A31/A32).
+		val workspaceKind = runCatching {
+			repository.workspaceRecord(entity.workspaceId)?.kind
+		}.getOrNull()
+		val roleplayActive = roleplayCard() != null || roleplayScene() != null
 		val roleplayHelpers = planRoleplayHelpers(
-			workshop = workshop,
-			roleplayActive = roleplayCard() != null || roleplayScene() != null,
+			workshop = workspaceKind == WorkspaceKinds.ROLEPLAY,
+			roleplayActive = roleplayActive,
 			fileToolNames = fileTools.map { it.name },
 		) {
 			ToolCatalog.permits(selected, it)
 		}
+		// The configuration workshop's helpers can read the app's own
+		// configuration and prepare drafts, but write nothing: a proposal opens
+		// the user's existing editor prefilled. Same management shape, same
+		// reason, and none of it is a capability (`docs/proposals/config-workshop.md`).
+		val studioHelpers = planStudioHelpers(
+			studio = workspaceKind == WorkspaceKinds.STUDIO,
+			roleplayActive = roleplayActive,
+		)
 
 		return buildList {
 			addAll(fileTools)
@@ -6554,6 +6701,46 @@ class ChatViewModel(
 						// capability seam beyond the assistant list it reads to
 						// resolve a named character card.
 						add(RoleplaySceneProposalTool { agents.all() })
+					}
+					// Configuration-workshop helpers. Read-only seams for the
+					// app's own configuration, and proposal tools whose results
+					// only open an existing editor. `repository.workspace` is
+					// reached through the ordinary resolver for the one known
+					// file name, so the instruction reader cannot be pointed at
+					// a path.
+					if (studioHelpers.listAssistants) {
+						add(StudioListAssistantsTool { agents.all() })
+					}
+					if (studioHelpers.readAssistant) {
+						add(StudioReadAssistantTool { agents.all() })
+					}
+					if (studioHelpers.proposeAssistant) {
+						add(StudioProposeAssistantTool { agents.all() })
+					}
+					if (studioHelpers.listInstructions) {
+						add(
+							StudioListInstructionsTool(
+								loadWorkspaces = { repository.workspaces() },
+								readInstructions = ::workspaceInstructionsOf,
+							),
+						)
+					}
+					if (studioHelpers.readInstruction) {
+						add(
+							StudioReadInstructionTool(
+								loadWorkspaces = { repository.workspaces() },
+								readInstructions = ::workspaceInstructionsOf,
+							),
+						)
+					}
+					if (studioHelpers.proposeInstruction) {
+						add(
+							StudioProposeInstructionTool(
+								loadWorkspaces = { repository.workspaces() },
+								currentWorkspace = { repository.workspaceRecord(entity.workspaceId) },
+								readInstructions = ::workspaceInstructionsOf,
+							),
+						)
 					}
 				}
 				// The record search belongs to the session mode, not to the
@@ -6888,6 +7075,18 @@ class ChatViewModel(
 			)
 		}
 	}
+
+	/**
+	 * The root `AGENTS.md` of any workspace, for the configuration helpers.
+	 *
+	 * One file name, resolved through that workspace's own `SessionWorkspace`:
+	 * the helper is handed a workspace row, never a path, so this cannot become a
+	 * read path into the workspace's other files. A workspace that is gone or
+	 * unreadable reads as "no instructions", the same answer the prompt reader
+	 * gives.
+	 */
+	private fun workspaceInstructionsOf(workspace: WorkspaceEntity): WorkspaceInstructions? =
+		runCatching { readWorkspaceInstructions(repository.workspace(workspace.id)) }.getOrNull()
 
 	/**
 	 * Pin the workspace's `AGENTS.md` block for this conversation, once.
@@ -7318,6 +7517,25 @@ class ChatViewModel(
 	private fun updateMessage(id: String, transform: (ChatMessageUi) -> ChatMessageUi) {
 		_state.update { s ->
 			s.copy(messages = s.messages.map { if (it.id == id) transform(it) else it })
+		}
+	}
+
+	/**
+	 * Attach proposal data to the tool-result row that produced it.
+	 *
+	 * A card belongs on the result row rather than on the assistant message: the
+	 * result row is what the transcript shows where the tool ran, and the card is
+	 * a rendering of that result. The row is found by the call id because the
+	 * persisted result and the UI row are two views of the same stored message.
+	 */
+	private fun attachToToolResult(callId: String?, transform: (ChatMessageUi) -> ChatMessageUi) {
+		if (callId == null) return
+		_state.update { state ->
+			val messages = state.messages.toMutableList()
+			val index = messages.indexOfLast { it.isToolResult && it.toolResultFor == callId }
+			if (index < 0) return@update state
+			messages[index] = transform(messages[index])
+			state.copy(messages = messages)
 		}
 	}
 

@@ -327,7 +327,10 @@ bold span arriving in pieces, a list whose markers precede their text — becaus
 those are the constructs that are awkward while streaming. **In an RP workshop
 conversation, a message containing `scene` makes the demo call
 `rp_create_scene`, so the proposal card and the tap-to-create path are reachable
-offline too**; the card it proposes is a small scripted character.
+offline too**; the card it proposes is a small scripted character. **In a
+configuration-workshop conversation, a message containing `config` (or `配置`)
+makes the demo call the two propose helpers, so both draft cards and their
+editor handoffs are reachable offline**; nothing is written.
 
 ### What adb cannot verify, and what to do instead
 
@@ -634,6 +637,24 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   model, and the workshop as its permanent workspace. A proposal that is never
   tapped leaves no row and no file. `docs/07-gotchas.md` A31 is the invariant;
   ordinary workspaces losing the RP helpers is the deliberate management shape.
+- **The configuration workshop drafts configuration; it never writes it.** The
+  second built-in permanent workspace has `workspaces.kind = "studio"` (same v28
+  column), created lazily by its Home row or the Create sheet
+  (`ConversationRepository.ensureStudio`). A non-scene conversation there gets
+  six host-appended helpers, none in `ToolCatalog`: `app_list_assistants`,
+  `app_read_assistant`, `app_propose_assistant`, `app_list_instructions`,
+  `app_read_instruction`, `app_propose_instruction`. Reads return content fields
+  only -- assistant name/prompt/card/model id (never tools, provider or approval
+  rules), and each **permanent** workspace's root `AGENTS.md` (one known file
+  name, through that workspace's `SessionWorkspace`). The propose helpers write
+  nothing: the card opens the existing assistant editor
+  (`AgentsViewModel.openProposal`) or Files text editor
+  (`FilesViewModel.openProposedEditor`) prefilled, and the user's Save is the
+  only write. A proposal carries no tool/provider/model/approval field; a
+  workspace is carried by display name, never its directory id; the saved-prompt
+  library stays invisible; a saved `AGENTS.md` keeps the normal pin rule. Do not
+  add an "apply" tool: a tool that writes configuration is a category change.
+  `docs/07-gotchas.md` A32 is the invariant.
 - **A role-play reply is painted, not rewritten.** In a scene (a conversation
   whose assistant has a card, or a scene with a snapshot) assistant text goes
   through `RoleplayText` (`app/.../ui/chat/RoleplayText.kt`) instead of the

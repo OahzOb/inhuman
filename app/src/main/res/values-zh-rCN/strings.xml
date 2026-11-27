@@ -1592,4 +1592,39 @@
 	<string name="chat_scene_proposal_dismiss">不要</string>
 	<string name="chat_scene_proposal_creating">正在创建场景…</string>
 	<string name="chat_scene_proposal_failed">无法创建场景：%1$s</string>
+	<!-- 内置配置工坊：一个永久工作区，助手在这里可以读 app 配置、准备草稿。 -->
+	<string name="studio_name">配置工坊</string>
+	<string name="home_studio_detail">让助手起草助手与指令文件</string>
+	<string name="home_create_studio_detail">助手只写草稿，仍由你在原来的编辑器里保存</string>
+	<string name="studio_open_failed">无法打开配置工坊：%1$s</string>
+	<!-- 配置工坊的提案：只打开已有编辑器，保存前什么都不会写入。 -->
+	<string name="chat_proposal_dismiss">不要</string>
+	<string name="chat_assistant_proposal_title">助手草稿</string>
+	<string name="chat_assistant_proposal_create">新建助手：%1$s</string>
+	<string name="chat_assistant_proposal_update">修改助手：%1$s</string>
+	<string name="chat_assistant_proposal_renames">改名</string>
+	<string name="chat_assistant_proposal_rewrites_prompt">新系统提示词</string>
+	<string name="chat_assistant_proposal_sets_card">设置角色卡</string>
+	<string name="chat_assistant_proposal_clears_card">清空角色卡</string>
+	<string name="chat_assistant_proposal_summary">改动：%1$s</string>
+	<string name="chat_assistant_proposal_pending">尚未保存。点开编辑器会带上这份草稿，只有在那里保存才会写入。</string>
+	<string name="chat_assistant_proposal_open">打开助手编辑器</string>
+	<string name="chat_instruction_proposal_title">AGENTS.md 草稿</string>
+	<string name="chat_instruction_proposal_workspace">工作区：%1$s</string>
+	<string name="chat_instruction_proposal_creates">新文件，%1$d 字节</string>
+	<string name="chat_instruction_proposal_replaces">用 %2$d 字节替换现有的 %1$d 字节</string>
+	<string name="chat_instruction_proposal_clears">清空该文件</string>
+	<string name="chat_instruction_proposal_pending">尚未写入。点开文件编辑器会带上这段文本，只有在那里保存才会写入。</string>
+	<string name="chat_instruction_proposal_open">打开文件编辑器</string>
+	<string name="chat_instruction_proposal_missing">工作区“%1$s”已不存在。</string>
+	<string name="chat_instruction_proposal_ambiguous">有多个工作区叫“%1$s”。</string>
+	<string name="chat_instruction_proposal_workspace_failed">读取工作区列表失败。</string>
+	<string name="agents_proposal_missing">该助手已不存在。</string>
+	<!-- 配置工坊辅助工具在折叠行里的标题。 -->
+	<string name="chat_studio_list_assistants_title">助手列表</string>
+	<string name="chat_studio_read_assistant_title">助手</string>
+	<string name="chat_studio_propose_assistant_title">助手草稿</string>
+	<string name="chat_studio_list_instructions_title">指令文件</string>
+	<string name="chat_studio_read_instruction_title">指令文件</string>
+	<string name="chat_studio_propose_instruction_title">AGENTS.md 草稿</string>
 </resources>

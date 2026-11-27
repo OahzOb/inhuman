@@ -145,19 +145,22 @@ Back is handled by a **single** `BackHandler` at the root, registered once, with
 an explicit ordering: dialog → directory level → settings/agents → conversation
 → workspace detail → workspace list. A conversation opened inside a workspace
 records its origin, so Back returns to the workspace rather than the home list.
-A workspace entered from Home (the RP workshop's persistent entry) records that
+A workspace entered from Home (either workshop's persistent entry) records that
 too, so Back returns to Home rather than the Workspaces list the user never
 visited. Registering one handler per screen would fire several on a single press
 and jump two or three levels at once.
 
-**The RP workshop is not a screen.** It is the built-in permanent workspace with
-`workspaces.kind = roleplay`; the persistent home row and the Create-sheet entry
-both call `ConversationsViewModel.openWorkshop`, which lazily creates it
-(`ConversationRepository.ensureWorkshop`) and opens the existing
-`WorkspaceDetailScreen` as its hub. The kind is what makes
-`ChatViewModel.buildTools` append the capability-free role-play helpers to a
-non-scene conversation in it (`docs/06-agent-loop-ui.md`), and scenes proposed
-from that conversation bind the same permanent workspace.
+**The two workbenches are not screens.** Each is a built-in permanent workspace
+with a `workspaces.kind`: `roleplay` is the RP workshop and `studio` is the
+configuration workshop. The persistent home rows and the Create-sheet entries
+call `ConversationsViewModel.openWorkshop` / `openStudio`, which lazily create the
+row (`ConversationRepository.ensureWorkshop` / `ensureStudio`) and open the
+existing `WorkspaceDetailScreen` as the hub. The kind is what makes
+`ChatViewModel.buildTools` append the matching capability-free helpers to a
+non-scene conversation in it (`docs/06-agent-loop-ui.md`), and the configuration
+workshop's drafts are handed to the existing assistant/Files editors through
+one-shot signals in `MainActivity`. Scenes proposed from the RP workshop bind
+that same permanent workspace.
 
 ### Process lifetime
 

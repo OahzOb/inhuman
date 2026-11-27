@@ -265,6 +265,18 @@ tools -- the fence is what makes the file trustworthy. The pinned string lives
 in the database, so an encrypted backup carries it; the workspace zip carries
 the file itself, not the pinned copy.
 
+**The configuration workshop can manage these files across permanent
+workspaces**, and only these files: `app_list_instructions` and
+`app_read_instruction` read exactly the root `AGENTS.md` of a permanent
+workspace, by display name, through that workspace's own `SessionWorkspace`.
+`app_propose_instruction` returns a draft for the Files editor, which the user
+saves; the write is then the ordinary `WorkspaceTransfer` write above (quota,
+per-file ceiling, atomic replace), not a tool side effect. Temporary workspaces
+are excluded: their instructions cannot outlive their single conversation.
+Agents are not given a general way to read or write another workspace's files,
+and a workspace's directory id never enters a request
+([07-gotchas.md](07-gotchas.md) A32).
+
 ### Document tools
 
 `DocumentTools.all` appends `read_document`, `write_document` and

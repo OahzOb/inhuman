@@ -313,10 +313,13 @@ data class WorkspaceEntity(
 	 * A workspace kind is a data attribute, not a permission level: it decides
 	 * which *host-appended helpers* a conversation in this workspace gets
 	 * ([WorkspaceKinds.ROLEPLAY] adds the role-play authoring helpers and the
-	 * scene-proposal tool, none of which can read files, reach the network or
-	 * execute). Capability-bearing tools still come from the assistant and the
-	 * conversation's own tool list, so this column cannot widen what an agent
-	 * may do -- see `docs/proposals/rp-agent-studio.md` and `docs/07-gotchas.md`.
+	 * scene-proposal tool; [WorkspaceKinds.STUDIO] adds the assistant and
+	 * instruction-file helpers). None of those helpers can reach the network,
+	 * execute anything, or read a workspace file the conversation's tool set
+	 * did not already allow. Capability-bearing tools still come from the
+	 * assistant and the conversation's own tool list, so this column cannot
+	 * widen what an agent may do -- see `docs/proposals/rp-agent-studio.md`,
+	 * `docs/proposals/config-workshop.md` and `docs/07-gotchas.md` A31/A32.
 	 *
 	 * Empty is the default so every workspace an upgrade already has stays an
 	 * ordinary one; nothing is promoted automatically.
@@ -330,9 +333,13 @@ data class WorkspaceEntity(
 /**
  * The known workspace kinds.
  *
- * Deliberately a tiny closed set rather than free text: the only kind today is
- * the built-in role-play workshop, and an unknown string is treated as an
- * ordinary workspace by every reader.
+ * Deliberately a tiny closed set rather than free text: an unknown string is
+ * treated as an ordinary workspace by every reader, so a kind added by a newer
+ * release degrades to "no extra helpers" rather than to an error.
+ *
+ * Each kind has at most one row: [ConversationRepository.workshop] and
+ * [ConversationRepository.studio] find the built-in one, and the app creates it
+ * lazily from the home entry.
  */
 object WorkspaceKinds {
 
@@ -343,10 +350,22 @@ object WorkspaceKinds {
 	 * The built-in role-play workshop.
 	 *
 	 * At most one row has this kind; the app creates it lazily when the user
-	 * opens the workshop entry (see `ConversationRepository.workshop`). It is a
-	 * permanent workspace, so scenes created from it keep their materials.
+	 * opens the workshop entry (see [ConversationRepository.ensureWorkshop]). It
+	 * is a permanent workspace, so scenes created from it keep their materials.
 	 */
 	const val ROLEPLAY = "roleplay"
+
+	/**
+	 * The built-in configuration workshop.
+	 *
+	 * At most one row has this kind; [ConversationRepository.ensureStudio]
+	 * creates it lazily. In a non-scene conversation there, the host appends the
+	 * assistant- and instruction-file helpers: they can list and read the app's
+	 * own configuration, and a "proposal" they return only opens one of the
+	 * user's existing editors prefilled. No row is written by a tool, and no
+	 * capability is added -- see `docs/proposals/config-workshop.md`.
+	 */
+	const val STUDIO = "studio"
 }
 
 /**

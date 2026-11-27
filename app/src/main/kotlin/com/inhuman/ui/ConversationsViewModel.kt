@@ -14,6 +14,7 @@ import com.inhuman.core.data.db.AgentEntity
 import com.inhuman.core.data.db.ConversationEntity
 import com.inhuman.core.data.db.MessageEntity
 import com.inhuman.core.data.db.SessionMode
+import com.inhuman.core.data.db.WorkspaceEntity
 import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.core.engine.roleplay.RoleplayCard
 import com.inhuman.core.engine.roleplay.RoleplayCodec
@@ -487,19 +488,44 @@ class ConversationsViewModel(
 	 *   caller navigates to the workspace detail screen (the workshop hub).
 	 */
 	fun openWorkshop(name: String, onWorkspace: (String) -> Unit) {
+		openBuiltIn(name, R.string.workshop_open_failed, onWorkspace) {
+			repository.ensureWorkshop(name)
+		}
+	}
+
+	/**
+	 * Open the built-in configuration workshop, creating it on first use.
+	 *
+	 * The same shape as [openWorkshop], and the same name-passing rule: the
+	 * activity resolves the localized name because this view model only sees the
+	 * application context's locale.
+	 */
+	fun openStudio(name: String, onWorkspace: (String) -> Unit) {
+		openBuiltIn(name, R.string.studio_open_failed, onWorkspace) {
+			repository.ensureStudio(name)
+		}
+	}
+
+	/** The one ensure-then-navigate path both built-in workshops share. */
+	private fun openBuiltIn(
+		name: String,
+		errorRes: Int,
+		onWorkspace: (String) -> Unit,
+		ensure: suspend () -> WorkspaceEntity,
+	) {
 		viewModelScope.launch {
 			runCatching {
-				withContext(Dispatchers.IO) {
-					repository.ensureWorkshop(name)
-				}
+				withContext(Dispatchers.IO) { ensure() }
 			}.onSuccess { workspace ->
 				onWorkspace(workspace.id)
 			}.onFailure { failure ->
+				// The display name is user content, so it stays out of the
+				// diagnostics: the failure and the caller are enough to find it.
 				Diag.w("workshop", "open failed", failure)
 				_state.update {
 					it.copy(
 						error = context.getString(
-							R.string.workshop_open_failed,
+							errorRes,
 							failure.message ?: failure::class.simpleName ?: "unknown error",
 						),
 					)

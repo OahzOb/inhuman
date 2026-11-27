@@ -251,6 +251,10 @@ fun ChatScreen(
 	onOpenFiles: () -> Unit = {},
 	/** Open another conversation, created beside this one. */
 	onOpenConversation: (String) -> Unit = {},
+	/** Open the assistant editor with a configuration-workshop draft. */
+	onOpenAssistantDraft: (AssistantEditRequest) -> Unit = {},
+	/** Open the Files text editor with a proposed AGENTS.md in another workspace. */
+	onOpenInstructionEditor: (InstructionEditRequest) -> Unit = {},
 	/** Raised while a dialog is up, so system Back closes it rather than leaving. */
 	onDialogVisibilityChange: (Boolean) -> Unit = {},
 ) {
@@ -314,6 +318,21 @@ fun ChatScreen(
 		val id = openSceneConversationId ?: return@LaunchedEffect
 		viewModel.consumeOpenSceneConversation()
 		onOpenConversation(id)
+	}
+	// Configuration-workshop handoffs work the same way: the view model prepares
+	// no navigation, so the screen consumes the one-shot signal and the activity
+	// opens the editor. Neither signal writes anything; the editor's Save does.
+	val openAssistantDraft by fieldOf(viewModel.state, null) { it.openAssistantDraft }
+	LaunchedEffect(openAssistantDraft) {
+		val draft = openAssistantDraft ?: return@LaunchedEffect
+		viewModel.consumeOpenAssistantDraft()
+		onOpenAssistantDraft(draft)
+	}
+	val openInstructionEditor by fieldOf(viewModel.state, null) { it.openInstructionEditor }
+	LaunchedEffect(openInstructionEditor) {
+		val edit = openInstructionEditor ?: return@LaunchedEffect
+		viewModel.consumeOpenInstructionEditor()
+		onOpenInstructionEditor(edit)
 	}
 	// A continuous conversation has no manual compaction to retry. A context
 	// overflow there is the same dead end Retry already solves, and the copy
@@ -1897,6 +1916,10 @@ fun ChatScreen(
 							onUseSuggestion = viewModel::useSuggestion,
 							onCreateScene = viewModel::createProposedScene,
 							onDismissSceneProposal = viewModel::dismissSceneProposal,
+							onOpenAssistantProposal = viewModel::openProposedAssistant,
+							onDismissAssistantProposal = viewModel::dismissAssistantProposal,
+							onOpenInstructionProposal = viewModel::openProposedInstruction,
+							onDismissInstructionProposal = viewModel::dismissInstructionProposal,
 							modelLabel = displayModel,
 							speakState = when {
 								speakingReply?.id == message.id && speechPaused ->
@@ -4639,8 +4662,8 @@ private fun PaidActionNotice() {
 /**
  * The row title for a tool that has no catalogue entry of its own.
  *
- * `recall` is a conversation capability built into continuous mode, not a
- * catalogue entry the user picked, so it has no `ToolCatalog` name to show.
+ * `recall` is a conversation capability built into continuous mode, and the
+ * workshop helpers are host-appended, so none has a `ToolCatalog` name to show.
  */
 @Composable
 private fun toolRowTitle(name: String?): String = when (name) {
@@ -4648,6 +4671,12 @@ private fun toolRowTitle(name: String?): String = when (name) {
 	// The proposal's *result* is the card; this names the call that prepared it
 	// rather than showing a raw `rp_create_scene` in the transcript.
 	"rp_create_scene" -> stringResource(R.string.chat_scene_proposal_title)
+	StudioTools.LIST_ASSISTANTS -> stringResource(R.string.chat_studio_list_assistants_title)
+	StudioTools.READ_ASSISTANT -> stringResource(R.string.chat_studio_read_assistant_title)
+	StudioTools.PROPOSE_ASSISTANT -> stringResource(R.string.chat_studio_propose_assistant_title)
+	StudioTools.LIST_INSTRUCTIONS -> stringResource(R.string.chat_studio_list_instructions_title)
+	StudioTools.READ_INSTRUCTION -> stringResource(R.string.chat_studio_read_instruction_title)
+	StudioTools.PROPOSE_INSTRUCTION -> stringResource(R.string.chat_studio_propose_instruction_title)
 	else -> name ?: stringResource(R.string.chat_tool_result)
 }
 
@@ -4869,6 +4898,14 @@ private fun MessageBubble(
 	onCreateScene: (String) -> Unit = {},
 	/** Drop a proposal without creating anything. */
 	onDismissSceneProposal: (String) -> Unit = {},
+	/** Open the assistant editor with a configuration-workshop draft. */
+	onOpenAssistantProposal: (String) -> Unit = {},
+	/** Drop an assistant draft without opening the editor. */
+	onDismissAssistantProposal: (String) -> Unit = {},
+	/** Open the Files editor with a proposed AGENTS.md. */
+	onOpenInstructionProposal: (String) -> Unit = {},
+	/** Drop an AGENTS.md draft without opening the editor. */
+	onDismissInstructionProposal: (String) -> Unit = {},
 	/** The model label shown on a scene proposal card. */
 	modelLabel: String = "",
 	onSelectBranch: (String?, String) -> Unit,
@@ -4922,6 +4959,28 @@ private fun MessageBubble(
 				error = message.sceneProposalError,
 				onCreate = { onCreateScene(message.id) },
 				onDismiss = { onDismissSceneProposal(message.id) },
+			)
+			return
+		}
+		// Configuration-workshop drafts. Like the scene card they are app objects
+		// with an action, not machinery: the card is the only way to open the
+		// editor the draft belongs in, and opening it writes nothing either.
+		val assistantProposal = message.assistantProposal
+		if (assistantProposal != null) {
+			AssistantProposalCard(
+				proposal = assistantProposal,
+				onOpen = { onOpenAssistantProposal(message.id) },
+				onDismiss = { onDismissAssistantProposal(message.id) },
+			)
+			return
+		}
+		val instructionProposal = message.instructionProposal
+		if (instructionProposal != null) {
+			InstructionProposalCard(
+				proposal = instructionProposal,
+				error = message.instructionProposalError,
+				onOpen = { onOpenInstructionProposal(message.id) },
+				onDismiss = { onDismissInstructionProposal(message.id) },
 			)
 			return
 		}
@@ -5509,6 +5568,196 @@ private fun SceneProposalCard(
 			}
 			TextButton(onClick = onDismiss, enabled = !busy) {
 				Text(stringResource(R.string.chat_scene_proposal_dismiss))
+			}
+		}
+	}
+}
+
+/**
+ * An assistant draft from the configuration workshop.
+ *
+ * The same bordered surface as the scene proposal: an app object with actions,
+ * not something the assistant said. The action opens the assistant editor
+ * prefilled; Save there is still the only write, and that editor shows the fields
+ * a draft cannot carry -- tools, model, approval rules -- before anything takes
+ * effect.
+ */
+@Composable
+private fun AssistantProposalCard(
+	proposal: AssistantProposal,
+	onOpen: () -> Unit,
+	onDismiss: () -> Unit,
+) {
+	val isCreate = proposal.agentId == null
+	val changes = listOfNotNull(
+		// A create's name is in the title already; "renames it" only makes sense
+		// for an update.
+		if (!isCreate && proposal.changeName) {
+			stringResource(R.string.chat_assistant_proposal_renames)
+		} else {
+			null
+		},
+		if (proposal.changePrompt) {
+			stringResource(R.string.chat_assistant_proposal_rewrites_prompt)
+		} else {
+			null
+		},
+		if (proposal.changeCard) {
+			when {
+				// A new assistant with no card has nothing worth a "change" label.
+				isCreate && proposal.cardJson.isEmpty() -> null
+				proposal.cardJson.isEmpty() ->
+					stringResource(R.string.chat_assistant_proposal_clears_card)
+				else -> stringResource(R.string.chat_assistant_proposal_sets_card)
+			}
+		} else {
+			null
+		},
+	)
+	Column(
+		modifier = Modifier
+			.widthIn(max = Layout.ChatMeasure)
+			.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+			.padding(16.dp),
+		verticalArrangement = Arrangement.spacedBy(6.dp),
+	) {
+		Text(
+			text = stringResource(R.string.chat_assistant_proposal_title),
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.primary,
+		)
+		Text(
+			text = stringResource(
+				if (proposal.agentId == null) {
+					R.string.chat_assistant_proposal_create
+				} else {
+					R.string.chat_assistant_proposal_update
+				},
+				proposal.name,
+			),
+			style = MaterialTheme.typography.titleSmall,
+			color = MaterialTheme.colorScheme.onSurface,
+		)
+		if (proposal.summary.isNotBlank()) {
+			Text(
+				text = proposal.summary,
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 3,
+				overflow = TextOverflow.Ellipsis,
+			)
+		}
+		if (changes.isNotEmpty()) {
+			Text(
+				text = stringResource(
+					R.string.chat_assistant_proposal_summary,
+					changes.joinToString(" · "),
+				),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+		Text(
+			text = stringResource(R.string.chat_assistant_proposal_pending),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		Row(
+			modifier = Modifier.fillMaxWidth(),
+			horizontalArrangement = Arrangement.spacedBy(8.dp),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			Button(onClick = onOpen) {
+				Text(stringResource(R.string.chat_assistant_proposal_open))
+			}
+			TextButton(onClick = onDismiss) {
+				Text(stringResource(R.string.chat_proposal_dismiss))
+			}
+		}
+	}
+}
+
+/**
+ * A root `AGENTS.md` draft from the configuration workshop.
+ *
+ * The action opens the Files text editor with this text; Save there goes through
+ * the ordinary `WorkspaceTransfer`, so the write is the same one the user could
+ * have made by editing the file themselves.
+ */
+@Composable
+private fun InstructionProposalCard(
+	proposal: InstructionProposal,
+	error: String?,
+	onOpen: () -> Unit,
+	onDismiss: () -> Unit,
+) {
+	val bytes = proposal.text.toByteArray(Charsets.UTF_8).size
+	val sizeLabel = when {
+		proposal.text.isEmpty() -> stringResource(R.string.chat_instruction_proposal_clears)
+		proposal.existingBytes == null ->
+			stringResource(R.string.chat_instruction_proposal_creates, bytes)
+		else -> stringResource(
+			R.string.chat_instruction_proposal_replaces,
+			proposal.existingBytes,
+			bytes,
+		)
+	}
+	Column(
+		modifier = Modifier
+			.widthIn(max = Layout.ChatMeasure)
+			.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+			.padding(16.dp),
+		verticalArrangement = Arrangement.spacedBy(6.dp),
+	) {
+		Text(
+			text = stringResource(R.string.chat_instruction_proposal_title),
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.primary,
+		)
+		Text(
+			text = stringResource(
+				R.string.chat_instruction_proposal_workspace,
+				proposal.workspaceName,
+			),
+			style = MaterialTheme.typography.titleSmall,
+			color = MaterialTheme.colorScheme.onSurface,
+		)
+		Text(
+			text = sizeLabel,
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		if (proposal.summary.isNotBlank()) {
+			Text(
+				text = proposal.summary,
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 3,
+				overflow = TextOverflow.Ellipsis,
+			)
+		}
+		Text(
+			text = stringResource(R.string.chat_instruction_proposal_pending),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		error?.let {
+			Text(
+				text = it,
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.error,
+			)
+		}
+		Row(
+			modifier = Modifier.fillMaxWidth(),
+			horizontalArrangement = Arrangement.spacedBy(8.dp),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			Button(onClick = onOpen) {
+				Text(stringResource(R.string.chat_instruction_proposal_open))
+			}
+			TextButton(onClick = onDismiss) {
+				Text(stringResource(R.string.chat_proposal_dismiss))
 			}
 		}
 	}

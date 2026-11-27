@@ -1044,6 +1044,13 @@ Two special cases that exist for real reasons:
   proposal card and the tap-to-create path are reachable offline exactly like a
   real model's call. The card is a small scripted character, and the next round
   answers prose instead of proposing again.
+- **In a configuration-workshop conversation, a message containing `config` (or
+  `配置`) makes the demo call `app_propose_assistant` and
+  `app_propose_instruction` in one turn.** Both are host-appended there, return
+  drafts and write nothing, so the two proposal cards and the editor handoffs are
+  reachable offline. The assistant draft is the fixed scripted "Notebook Keeper";
+  the instruction draft names no workspace, so it targets the conversation's own
+  (the workshop), and the next round answers prose rather than proposing again.
 
 ## `web_search` and `web_fetch`: independently configured paid backends
 

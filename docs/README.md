@@ -78,6 +78,7 @@ should be built and why; they are not a description of current behaviour.
 | [proposals/rp-authoring-assistant.md](proposals/rp-authoring-assistant.md) | RP materials as workspace files plus two authoring tools: `rp_format` / `rp_validate` (Phase 0) and the folder-based scene-creation flow with the legacy-card export (Phase 1) — both implemented; the remaining multi-character/worldbook work is not part of this proposal |
 | [proposals/rp-formatting.md](proposals/rp-formatting.md) | How the mature RP ecosystem renders replies (text conventions + a front-end Markdown/HTML layer, with display-only transforms) and why inhuman's default scene read as one flat block. Decision: do not depend on the model obeying a format — **B (a display-only RP typography layer) implemented 2026-11-26**; a formatting prompt contract / scene presets (A) and a status side-channel (C) remain optional. §9 also surveys external cards with HTML UIs (Chub sample: 2.75% raw HTML in card text; front-end cards live in `regex_scripts`) and records **P0a, external card import, implemented 2026-11-26** (PNG/JSON/CHARX, text mapping, HTML-to-text, explicit "not imported" reports); HTML rendering (P1), the WebView runtime (P2), URL import and extension execution were deliberately not taken |
 | [proposals/rp-agent-studio.md](proposals/rp-agent-studio.md) | The RP workshop: one built-in permanent workspace (`workspaces.kind = roleplay`, schema v28) is the only place the role-play authoring helpers exist. **P0 implemented 2026-11-27**: the workshop entry (persistent home row + Create sheet), host-appended `rp_format`/`rp_validate`/`rp_create_scene`, the scene-proposal card and the tap-to-create-and-open path through `RoleplaySceneCreator`. v1's per-assistant opt-in design is kept in the appendix as the rejected alternative; later phases (community-card file sources, assistant creation, entry decisions) are not implemented |
+| [proposals/config-workshop.md](proposals/config-workshop.md) | The configuration workshop: one built-in permanent workspace (`workspaces.kind = studio`, same v28 column) where six host-appended helpers list/read the user's assistants and each permanent workspace's root `AGENTS.md`, and prepare assistant or instruction drafts. **P0 implemented 2026-11-27**: the persistent home row and Create-sheet entry, `app_list_assistants` / `app_read_assistant` / `app_propose_assistant` / `app_list_instructions` / `app_read_instruction` / `app_propose_instruction`, and the cards that open the existing assistant or Files editor prefilled. Tools write nothing; proposals carry no tool/model/provider/approval fields; the saved-prompt library stays model-invisible |
 | [proposals/conversation-references.md](proposals/conversation-references.md) | Let an agent read another conversation at the user's explicit gesture: **P0b copy-a-reference into the RP workshop workspace** (sanitised Markdown, no new capability) and **P1 a workshop-level allowlist plus a read-only `read_conversation` tool**. Not implemented; the design keeps the read/egress disclosure and excludes tool results, reasoning and attachments |
 
 The role-play proposal (`proposals/roleplay.md`) was implemented on 2026-11-25
@@ -95,7 +96,10 @@ The user-configured sync proposal still waits on a product decision; it records
 its own open questions and suggested order. The RP workshop proposal's P0
 (the built-in workshop workspace, the scene-proposal card and the tap-to-create
 path) is implemented on 2026-11-27; its later phases and the conversation-
-reference proposal are not.
+reference proposal are not. The configuration-workshop proposal's P0 (the second
+built-in workspace, its six read/draft helpers and the editor handoffs) is
+implemented the same day; assistant deletion, saved-prompt access and
+proposal-card persistence are not.
 
 ## Conventions used here
 

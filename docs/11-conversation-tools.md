@@ -155,15 +155,25 @@ request to forget the selection.
 ## Helpers the sheet never shows
 
 `recall` (continuous sessions), `rp_format` / `rp_validate` / `rp_create_scene`
-(RP workshop conversations) and `unavailable_tools` are appended by the host
-after the allow-list. They are not catalogue entries, so the sheet neither shows
-nor changes them: a conversation's selection is about **capability**, and these
-have none. `recall` reads this conversation's own record; `rp_format` is
-constant text; `rp_validate` reads a workspace file only when a read tool is
-already selected; `rp_create_scene` prepares a proposal and creates nothing
-until the user taps a card. The role-play helpers exist only in a non-scene
-conversation whose workspace has `kind = roleplay` — a workspace-scoped
-presentation decision, not a grant (`docs/07-gotchas.md` A31).
+(RP workshop conversations), the six configuration-workshop helpers
+(`app_list_assistants`, `app_read_assistant`, `app_propose_assistant`,
+`app_list_instructions`, `app_read_instruction`, `app_propose_instruction`) and
+`unavailable_tools` are appended by the host after the allow-list. They are not
+catalogue entries, so the sheet neither shows nor changes them: a conversation's
+selection is about **capability**, and these have none. `recall` reads this
+conversation's own record; `rp_format` is constant text; `rp_validate` reads a
+workspace file only when a read tool is already selected; `rp_create_scene`
+prepares a proposal and creates nothing until the user taps a card.
+
+The role-play helpers exist only in a non-scene conversation whose workspace has
+`kind = roleplay`, and the configuration helpers only in a non-scene conversation
+whose workspace has `kind = studio` — workspace-scoped presentation decisions,
+not grants (`docs/07-gotchas.md` A31/A32). The configuration helpers read app
+configuration rather than workspace files: assistant content, and each permanent
+workspace's root `AGENTS.md` by display name. Their two propose tools write
+nothing; the card opens the existing assistant/Files editor and the user's Save
+is the only write. A proposal cannot carry a tool selection, provider, model or
+approval rule, and the saved-prompt library remains invisible to the model.
 
 ## Why this is not a new exception
 

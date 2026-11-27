@@ -353,6 +353,22 @@ data class ChatUiState(
 	 * every recomposition. The screen consumes it and clears it.
 	 */
 	val openSceneConversationId: String? = null,
+	/**
+	 * An assistant-proposal card's handoff to the assistant editor.
+	 *
+	 * Same one-shot shape as [openSceneConversationId], for the same reason: the
+	 * view model does not navigate. The screen hands it to the activity, which
+	 * opens the assistants screen with this draft; nothing is written until the
+	 * user saves there.
+	 */
+	val openAssistantDraft: AssistantEditRequest? = null,
+	/**
+	 * An instruction-proposal card's handoff to the Files text editor.
+	 *
+	 * The workspace has already been resolved by display name when this is set;
+	 * the editor is the only writer, so a cancelled edit changes nothing.
+	 */
+	val openInstructionEditor: InstructionEditRequest? = null,
 ) {
 	/** What the error banner should offer, derived from [error]. */
 	val errorAction: ChatErrorAction? get() = chatErrorAction(error)
@@ -558,6 +574,24 @@ data class ChatMessageUi(
 	val sceneProposalBusy: Boolean = false,
 	/** Why the last create attempt failed; shown on the card so retry is possible. */
 	val sceneProposalError: String? = null,
+	/**
+	 * An assistant the configuration workshop proposed, rendered as a card on the
+	 * tool result.
+	 *
+	 * Transient like [sceneProposal]: parsed from the tool result already in the
+	 * transcript, and a reopened conversation shows the plain result line instead.
+	 * Nothing is written until the user opens the editor from the card and saves.
+	 */
+	val assistantProposal: AssistantProposal? = null,
+	/**
+	 * A root `AGENTS.md` the configuration workshop proposed.
+	 *
+	 * Same transient contract as [assistantProposal]. The workspace is stored by
+	 * display name on the wire; the app resolves it when the card is tapped.
+	 */
+	val instructionProposal: InstructionProposal? = null,
+	/** Why the tap could not resolve the proposed workspace; shown on the card. */
+	val instructionProposalError: String? = null,
 )
 
 /**

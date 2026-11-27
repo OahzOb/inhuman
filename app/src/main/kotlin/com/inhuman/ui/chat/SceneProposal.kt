@@ -196,7 +196,7 @@ internal object SceneProposals {
 				systemPrompt = "",
 				cardJson = RoleplayCodec.encodeCard(decoded),
 				characterName = name,
-				description = preview(decoded.description),
+				description = previewLine(decoded.description),
 				sceneJson = sceneJson,
 				title = requestedTitle ?: name,
 			),
@@ -234,7 +234,7 @@ internal object SceneProposals {
 				systemPrompt = agent.systemPrompt,
 				cardJson = agent.rpJson,
 				characterName = name,
-				description = preview(card.description),
+				description = previewLine(card.description),
 				sceneJson = sceneJson,
 				title = requestedTitle ?: name,
 			),
@@ -250,7 +250,7 @@ internal object SceneProposals {
 	 */
 	private fun cardProblem(cardJson: String, subject: String): String? {
 		val result = RoleplayValidator.validateCard(cardJson)
-		return if (result.ok) null else problems(subject, result.issues)
+		return if (result.ok) null else blockingProblems(subject, result.issues)
 	}
 
 	/** The normalised scene JSON, or the field-level reason it cannot be used. */
@@ -258,7 +258,7 @@ internal object SceneProposals {
 		if (scene == null) return SceneCheck.Ok(EMPTY_SCENE)
 		val raw = scene.toString()
 		val result = RoleplayValidator.validateScene(raw)
-		if (!result.ok) return SceneCheck.Rejected(problems("the scene", result.issues))
+		if (!result.ok) return SceneCheck.Rejected(blockingProblems("the scene", result.issues))
 		// The validator has already applied RoleplayLimits.sceneErrors; decoding
 		// again only turns the text into the value that is re-encoded below. An
 		// all-blank scene is a warning there and `"{}"` here, so the stored form
@@ -266,21 +266,7 @@ internal object SceneProposals {
 		val decoded = RoleplayCodec.decodeScene(raw) ?: RoleplayScene()
 		return SceneCheck.Ok(RoleplayCodec.encodeScene(decoded).ifEmpty { EMPTY_SCENE })
 	}
-
-	/** Every blocking finding, one per line; no field value is ever quoted. */
-	private fun problems(subject: String, issues: List<RoleplayValidator.Issue>): String =
-		buildString {
-			append(subject).append(" cannot be used as role-play material:")
-			for (issue in issues) {
-				if (issue.warning) continue
-				append("\n- ").append(issue.render())
-			}
-		}
 }
-
-/** A one-line preview: the description collapsed and capped for the card UI. */
-private fun preview(description: String): String =
-	description.trim().replace(WHITESPACE, " ").take(DESCRIPTION_PREVIEW_MAX)
 
 /** A string value, or null for a missing/null/non-string value. */
 private fun JsonObject.text(key: String): String? {
@@ -291,17 +277,6 @@ private fun JsonObject.text(key: String): String? {
 
 /** The one normalised spelling of "no scene", shared by both sources. */
 private const val EMPTY_SCENE = "{}"
-
-/**
- * The proposal card's preview length.
- *
- * The card is one line in a list of turns, not a transcript view: 160
- * characters is enough to recognise the character and short enough that it
- * cannot turn the tool result into a second copy of the card.
- */
-private const val DESCRIPTION_PREVIEW_MAX = 160
-
-private val WHITESPACE = Regex("\\s+")
 
 /** The outcome of normalising the optional scene object. */
 private sealed interface SceneCheck {

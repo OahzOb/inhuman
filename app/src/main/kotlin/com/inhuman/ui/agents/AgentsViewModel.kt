@@ -15,6 +15,7 @@ import com.inhuman.core.data.db.SavedPromptEntity
 import com.inhuman.core.data.db.ToolsColumn
 import com.inhuman.AppCapabilities
 import com.inhuman.core.data.secret.SecureStore
+import com.inhuman.ui.chat.AssistantEditRequest
 import com.inhuman.ui.chat.MediaProviderFacts
 import com.inhuman.ui.chat.MediaToolStore
 import com.inhuman.ui.chat.mediaConfiguredToolNames
@@ -422,6 +423,55 @@ class AgentsViewModel(
 			)
 		}
 		refreshMediaConfiguredTools(agent.providerId)
+	}
+
+	/**
+	 * Open the editor with a configuration-workshop draft.
+	 *
+	 * The draft carries content only -- name, system prompt, character card. An
+	 * update starts from the existing row and applies only the fields the
+	 * proposal actually changed, so the user reviews the difference beside their
+	 * own tools, model and approval rules; a create starts from the same defaults
+	 * as **New assistant**. Either way nothing is written here: [save] is still
+	 * the only writer, and the proposal cannot name a field it has no business
+	 * setting.
+	 */
+	fun openProposal(request: AssistantEditRequest) {
+		val agentId = request.agentId
+		if (agentId == null) {
+			create()
+			applyProposalContent(request)
+			return
+		}
+		viewModelScope.launch {
+			val agent = runCatching { repository.byId(agentId) }.getOrNull()
+			if (agent == null) {
+				// The row was deleted between the proposal and the tap. Say so
+				// instead of opening a blank editor that would create a new
+				// assistant under the same name.
+				_state.update { it.copy(error = context.getString(R.string.agents_proposal_missing)) }
+				return@launch
+			}
+			// `edit` opens the editor immediately and loads the approval rules and
+			// model list afterwards; applying the draft right after it keeps that
+			// behaviour and leaves those loads in flight.
+			edit(agent)
+			applyProposalContent(request)
+		}
+	}
+
+	/** Apply only the content fields the draft changed; null leaves a field alone. */
+	private fun applyProposalContent(request: AssistantEditRequest) {
+		updateDraft { draft ->
+			draft.copy(
+				name = request.name ?: draft.name,
+				systemPrompt = request.systemPrompt ?: draft.systemPrompt,
+				// An empty card is a deliberate clear: `decodeCard("")` is null and
+				// the blank [RoleplayCard] is what the editor writes as "no card".
+				card = request.cardJson?.let { RoleplayCodec.decodeCard(it) ?: RoleplayCard() }
+					?: draft.card,
+			)
+		}
 	}
 
 	fun closeEditor() = _state.update { it.copy(editing = null, cardExport = null) }
