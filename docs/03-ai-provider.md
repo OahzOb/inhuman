@@ -1038,6 +1038,12 @@ Two special cases that exist for real reasons:
   a branch switched, then start calling delete on a file that is already gone.
   Anything after the last user message is this turn's own work in progress
   (`DemoProvider.kt:131-146`).
+- **In an RP workshop conversation, a message containing `scene` makes the demo
+  call `rp_create_scene`.** The tool is host-appended there (`docs/06`), so the
+  demo keys on it being offered plus the word, not on a settings switch: the
+  proposal card and the tap-to-create path are reachable offline exactly like a
+  real model's call. The card is a small scripted character, and the next round
+  answers prose instead of proposing again.
 
 ## `web_search` and `web_fetch`: independently configured paid backends
 

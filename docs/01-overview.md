@@ -226,10 +226,20 @@ Confirmed by `README.md:17-29` and by the code:
   creation**: the scene keeps its own copy of the assistant prompt, name and
   card, so editing a card later (or the file it came from) does not rewrite a
   story already in progress; **Scene settings** has an explicit reload for when
-  the user does want the current card. Tools with workspace-file access also
-  carry `rp_format` and `rp_validate`; they are helpers, not selectable
-  capabilities, and a scene with no tools keeps an empty tool set
-  ([06-agent-loop-ui.md](06-agent-loop-ui.md)).
+  the user does want the current card, and that reload is offered only when the
+  live assistant actually has a card (a folder- or proposal-created scene has
+  its persona only in the snapshot). **The RP workshop** is the built-in home
+  for this: a single permanent workspace (`workspaces.kind = roleplay`, schema
+  v28) reached from a persistent home row or the Create sheet. In a non-scene
+  conversation there, the host appends `rp_format`, `rp_validate` (only where a
+  read tool already exists) and `rp_create_scene`; the last one only prepares a
+  **scene proposal card** and creates nothing until the user taps **Create and
+  open**, which runs the same creator as the New-scene dialog and binds the new
+  scene to the workshop. Ordinary workspaces get no role-play helpers; a scene
+  with no tools keeps an empty tool set. None of the three helpers is in the
+  tool catalogue, so none appears in a picker, approval table or the gap report
+  ([06-agent-loop-ui.md](06-agent-loop-ui.md), [07-gotchas.md](07-gotchas.md)
+  A31).
 - A root `AGENTS.md` in the conversation's workspace is pinned on the
   conversation's first request and appended to the system prompt. Later edits
   apply to new conversations, or to the current one through the chat menu's

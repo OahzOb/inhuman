@@ -122,6 +122,7 @@ class DemoProvider(
 
 		emit(StreamChunk.TextStart())
 		val answer = when {
+			calls.any { it.name == PROPOSAL_TOOL } -> PROPOSAL_PREAMBLE
 			calls.isNotEmpty() -> CALL_PREAMBLE
 			// Scoped to *this* turn, which is the bug this fixes. Scanning the
 			// whole history for a tool message meant that once a conversation
@@ -295,6 +296,18 @@ class DemoProvider(
 		// this check exists to prevent.
 		if (inFlight.any { it.toolCalls.isNotEmpty() }) return emptyList()
 
+		// A workshop conversation: the host appends the scene-proposal tool, so
+		// the proposal card can be exercised end to end with no key and no
+		// network. Keyed on the word "scene" so an ordinary workshop question
+		// still answers as prose; the tool itself creates nothing, so the demo is
+		// not writing app state behind the user's back.
+		if (
+			PROPOSAL_TOOL in offered &&
+			request.messages[lastUser].content.contains(SCENE_MARKER, ignoreCase = true)
+		) {
+			return listOf(ScriptedCall(PROPOSAL_TOOL, PROPOSAL_ARGUMENTS))
+		}
+
 		return listOfNotNull(
 			fileCall("write_file", offered, WRITE_ARGUMENTS),
 			fileCall("delete_file", offered, DELETE_ARGUMENTS),
@@ -457,6 +470,26 @@ class DemoProvider(
 		const val CALL_PREAMBLE =
 			"Demo mode with tools. Creating a file, then deleting it. Configure a " +
 				"rule on delete_file if you want to be asked first."
+
+		/**
+		 * The scene-proposal script for a workshop conversation.
+		 *
+		 * `rp_create_scene` is a host-appended, capability-free helper: it
+		 * returns a proposal card and creates nothing. The demo uses it so the
+		 * whole workshop loop -- tool, proposal card, tap, new scene -- is
+		 * reachable offline with no key. Keyed on the word "scene" in the user
+		 * message so an ordinary workshop question still answers as prose.
+		 */
+		const val PROPOSAL_TOOL = "rp_create_scene"
+		const val SCENE_MARKER = "scene"
+
+		val PROPOSAL_ARGUMENTS = """
+			{"card":{"name":"The Lamp Keeper","description":"A keeper of a late-night counter who has seen every kind of traveller.","personality":"Dry, precise, quietly kind.","greeting":"The lamp is lit. Sit, and tell me what the sea did to you."},"scene":{"world":"A counter at the edge of a drowned city, open only at night.","premise":"You step in out of the rain."},"title":"The lamp is lit"}
+		""".trimIndent()
+
+		const val PROPOSAL_PREAMBLE =
+			"Demo mode. The workshop helper prepared a scene proposal; nothing is " +
+				"created until you tap Create and open."
 
 		/**
 		 * The closing answer, written in Markdown on purpose.

@@ -20,10 +20,10 @@ The app installs `InhumanDatabase.MIGRATIONS` and
 `Context` builder. The callback seeds the DeepSeek provider and the default
 assistant on create, so an install does not start from an empty schema.
 
-## The schema, version 27
+## The schema, version 28
 
 `InhumanDatabase` (`core/db/src/main/kotlin/com/inhuman/core/data/db/InhumanDatabase.kt`):
-`version = 27`, `exportSchema = true`, database file `inhuman.db`. Schemas are
+`version = 28`, `exportSchema = true`, database file `inhuman.db`. Schemas are
 exported to `core/db/schemas/` by KSP — configured in `core/db/build.gradle`
 with the reason stated: without it the schemas exist only inside the build
 directory and are lost on clean, which makes a missed migration impossible to
@@ -207,6 +207,23 @@ uses the card's optional `name` (then the chosen assistant's name, then the
 folder name) as the display name. Prompt content, not capability: no tool or
 approval reads the column.
 
+### `workspaces.kind` — added in 27→28
+
+The purpose of a workspace. Empty is an ordinary workspace and is the default
+for every row an upgrade already has; `roleplay` marks the single built-in RP
+workshop, created lazily by the app the first time the user opens the workshop
+entry (`ConversationRepository.ensureWorkshop`). The migration only adds the
+column: a migration has no filesystem handle and must not invent user data, so
+nothing is promoted to the workshop during an upgrade.
+
+The column is a data attribute, not a capability tier. It gates only
+**capability-free host helpers** — `rp_format`, `rp_validate` (which still needs
+an existing read tool) and the scene-proposal tool that creates nothing until
+the user taps a card — and it has no effect on assistant tools, approvals, SSH
+or download consent. Scenes created from the workshop bind it as their permanent
+workspace, so materials and transcripts survive conversation deletion. See
+`docs/07-gotchas.md` A31.
+
 ### `saved_prompts` — added in 15→16
 
 | Column | Meaning |
@@ -299,6 +316,7 @@ default to `deepseek` in 11→12, so every existing row keeps working.
 | `name` | What the user sees. A permanent workspace keeps this name across renames of its conversations. A temporary workspace is kept in step with its conversation title. |
 | `isPermanent` | `0` while the workspace is owned by one conversation and deleted with it; `1` once promoted or created from the Workspaces screen. |
 | `ownerConversationId` | The single owner of a temporary workspace; null for a permanent one. A temporary workspace deliberately holds exactly one conversation, so deleting its owner cannot orphan another conversation's files. |
+| `kind` | What the workspace is for; empty for an ordinary one, `roleplay` for the built-in RP workshop. A data attribute, not a permission level: it only decides which capability-free host helpers a conversation in that workspace gets (`docs/07-gotchas.md` A31). |
 | `createdAt`, `updatedAt` | Ordering and display. |
 
 `conversations.workspaceId` points at `workspaces.id` and is **not unique**: a
@@ -510,6 +528,9 @@ order below.
 | 22→23 | `conversations` gains `sessionMode TEXT NOT NULL DEFAULT 'classic'`; `context_summaries` gains `kind TEXT NOT NULL DEFAULT 'manual'`, nullable `coveredTurns`/`coveredMessages`/`summaryTokens` and `truncated INTEGER NOT NULL DEFAULT 0`; `maintenance_runs` is created empty with a cascade and `(conversationId, at)` index. Every upgraded conversation is classic and every upgraded summary is manual with unknown coverage — the feature is opt-in per conversation, and an upgrade must not start spending. |
 | 23→24 | `agents` gains `rpJson TEXT NOT NULL DEFAULT ''` and `conversations` gains `sceneJson TEXT NOT NULL DEFAULT ''`: the role-play character card and the scene. Empty is "not role-play", so an upgraded assistant stays a plain assistant and an upgraded conversation stays an ordinary one; both values are prompt content only (no capability check reads them), and a malformed value decodes as "not role-play" rather than blocking the row. |
 | 24→25 | `conversations` gains `downloadAllowed INTEGER NOT NULL DEFAULT 0`: the per-conversation URL-download acknowledgement. Additive and defaulted off, so an upgraded install behaves exactly as before until the user switches the capability on globally, selects it on an assistant, and consents in a conversation. |
+| 25→26 | `messages` gains `injected INTEGER NOT NULL DEFAULT 0`: a user message sent while its turn was already running. False by default, so every existing user row remains a turn root. |
+| 26→27 | `conversations` gains `rpSnapshotJson TEXT NOT NULL DEFAULT ''`: the frozen role-play persona, empty meaning "not pinned yet". An upgraded scene pins on its next turn; a non-scene never writes it. |
+| 27→28 | `workspaces` gains `kind TEXT NOT NULL DEFAULT ''`: empty is an ordinary workspace, `roleplay` is the built-in RP workshop. Nothing is promoted during the upgrade; the app creates the workshop row lazily when the user opens the entry. The column gates only capability-free host helpers, never assistant tools or grants. |
 
 The 7→8 comment records a product change that is *not* in the migration:
 deletion no longer asks for approval, and that lives in `DeleteFileTool`, not

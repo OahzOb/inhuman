@@ -302,6 +302,19 @@ fun ChatScreen(
 	// read by the request builder, never by this screen.
 	val roleplayCharacter by fieldOf(viewModel.state, false) { it.roleplayCharacter }
 	val roleplayScene by fieldOf(viewModel.state, null) { it.roleplayScene }
+	// The reload button copies the live assistant's card into the frozen
+	// persona. A scene built from a workspace folder or an inline card has no
+	// live card to copy, so the button is hidden rather than allowed to empty it.
+	val roleplayReloadable by fieldOf(viewModel.state, false) { it.roleplayReloadable }
+	// A scene the proposal card just created. Opening is navigation, which the
+	// screen owns: the signal is consumed here so a recomposition cannot reopen
+	// it, and the view model stays free of navigation.
+	val openSceneConversationId by fieldOf(viewModel.state, null) { it.openSceneConversationId }
+	LaunchedEffect(openSceneConversationId) {
+		val id = openSceneConversationId ?: return@LaunchedEffect
+		viewModel.consumeOpenSceneConversation()
+		onOpenConversation(id)
+	}
 	// A continuous conversation has no manual compaction to retry. A context
 	// overflow there is the same dead end Retry already solves, and the copy
 	// names the two things the user can actually do instead of offering a
@@ -1882,6 +1895,9 @@ fun ChatScreen(
 							},
 							onRetry = viewModel::retryLastTurn,
 							onUseSuggestion = viewModel::useSuggestion,
+							onCreateScene = viewModel::createProposedScene,
+							onDismissSceneProposal = viewModel::dismissSceneProposal,
+							modelLabel = displayModel,
 							speakState = when {
 								speakingReply?.id == message.id && speechPaused ->
 									ReplySpeechState.Paused
@@ -2953,6 +2969,7 @@ fun ChatScreen(
 		SceneSettingsDialog(
 			initial = roleplayScene,
 			streaming = isStreaming,
+			reloadEnabled = roleplayReloadable,
 			onSave = { scene ->
 				viewModel.setScene(scene)
 				showSceneDialog = false
@@ -4628,6 +4645,9 @@ private fun PaidActionNotice() {
 @Composable
 private fun toolRowTitle(name: String?): String = when (name) {
 	"recall", "recall_get" -> stringResource(R.string.chat_recall_title)
+	// The proposal's *result* is the card; this names the call that prepared it
+	// rather than showing a raw `rp_create_scene` in the transcript.
+	"rp_create_scene" -> stringResource(R.string.chat_scene_proposal_title)
 	else -> name ?: stringResource(R.string.chat_tool_result)
 }
 
@@ -4845,6 +4865,12 @@ private fun MessageBubble(
 	speechCached: Boolean,
 	onSpeakReply: () -> Unit,
 	onUseSuggestion: (String) -> Unit,
+	/** Create the scene this proposal card prepared. Nothing exists until this runs. */
+	onCreateScene: (String) -> Unit = {},
+	/** Drop a proposal without creating anything. */
+	onDismissSceneProposal: (String) -> Unit = {},
+	/** The model label shown on a scene proposal card. */
+	modelLabel: String = "",
 	onSelectBranch: (String?, String) -> Unit,
 	/** Reads one attachment's bytes for its thumbnail; bounded by the caller. */
 	onLoadAttachmentPreview: suspend (String) -> ByteArray?,
@@ -4883,6 +4909,22 @@ private fun MessageBubble(
 	// The row names the tool and summarises what came back, because those are
 	// the two things that decide whether it is worth opening.
 	if (message.isToolResult) {
+		// A scene proposal is the one tool result that is not machinery: it is
+		// an offer with a button. Everything about it is app data -- the card is
+		// rendered from the proposal, and the conversation is created on tap, not
+		// by the tool.
+		val proposal = message.sceneProposal
+		if (proposal != null) {
+			SceneProposalCard(
+				proposal = proposal,
+				modelLabel = modelLabel,
+				busy = message.sceneProposalBusy,
+				error = message.sceneProposalError,
+				onCreate = { onCreateScene(message.id) },
+				onDismiss = { onDismissSceneProposal(message.id) },
+			)
+			return
+		}
 		val firstLine = message.plainText.lineSequence()
 			.firstOrNull { it.isNotBlank() }
 			?.trim()
@@ -5381,6 +5423,92 @@ private fun MessageBubble(
 						)
 					}
 				}
+			}
+		}
+	}
+}
+
+/**
+ * The scene proposal a workshop conversation offers before anything exists.
+ *
+ * Deliberately a bordered surface rather than a chat bubble: it is an app
+ * object with actions, not something the assistant said. The card shows the
+ * facts a user needs before starting a story -- who it is and which model it
+ * will spend on -- and one primary action. Nothing is created until that action
+ * runs; the model's tool call only prepared this data.
+ */
+@Composable
+private fun SceneProposalCard(
+	proposal: SceneProposal,
+	modelLabel: String,
+	busy: Boolean,
+	error: String?,
+	onCreate: () -> Unit,
+	onDismiss: () -> Unit,
+) {
+	Column(
+		modifier = Modifier
+			.widthIn(max = Layout.ChatMeasure)
+			.border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+			.padding(16.dp),
+		verticalArrangement = Arrangement.spacedBy(6.dp),
+	) {
+		Text(
+			text = stringResource(R.string.chat_scene_proposal_title),
+			style = MaterialTheme.typography.labelLarge,
+			color = MaterialTheme.colorScheme.primary,
+		)
+		Text(
+			text = stringResource(R.string.chat_scene_proposal_character, proposal.characterName),
+			style = MaterialTheme.typography.titleSmall,
+			color = MaterialTheme.colorScheme.onSurface,
+		)
+		if (proposal.description.isNotBlank()) {
+			Text(
+				text = proposal.description,
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+				maxLines = 3,
+				overflow = TextOverflow.Ellipsis,
+			)
+		}
+		if (modelLabel.isNotBlank()) {
+			Text(
+				text = stringResource(R.string.chat_scene_proposal_model, modelLabel),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+		Text(
+			text = stringResource(R.string.chat_scene_proposal_pending),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
+		error?.let {
+			Text(
+				text = it,
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.error,
+			)
+		}
+		Row(
+			modifier = Modifier.fillMaxWidth(),
+			horizontalArrangement = Arrangement.spacedBy(8.dp),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			Button(onClick = onCreate, enabled = !busy) {
+				Text(
+					stringResource(
+						if (busy) {
+							R.string.chat_scene_proposal_creating
+						} else {
+							R.string.chat_scene_proposal_create
+						},
+					),
+				)
+			}
+			TextButton(onClick = onDismiss, enabled = !busy) {
+				Text(stringResource(R.string.chat_scene_proposal_dismiss))
 			}
 		}
 	}
@@ -6713,6 +6841,8 @@ private fun ConversationToolsDialog(
 private fun SceneSettingsDialog(
 	initial: RoleplayScene?,
 	streaming: Boolean,
+	/** False when the live assistant has no card this scene could reload from. */
+	reloadEnabled: Boolean,
 	onSave: (RoleplayScene) -> Unit,
 	/** Replace the frozen persona with the assistant's current card and prompt. */
 	onReloadPersona: () -> Unit,
@@ -6746,19 +6876,24 @@ private fun SceneSettingsDialog(
 			style = MaterialTheme.typography.bodyMedium,
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
-		Text(
-			text = stringResource(R.string.scene_reload_persona_note),
-			style = MaterialTheme.typography.bodySmall,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-		)
-		TextButton(
-			onClick = {
-				onReloadPersona()
-				onDismiss()
-			},
-			enabled = !streaming,
-		) {
-			Text(stringResource(R.string.scene_reload_persona))
+		// Only a scene whose persona came from the assistant's card can refresh
+		// from it. A folder-built or proposed scene has no live card, and the
+		// reload would replace the frozen persona with an empty one.
+		if (reloadEnabled) {
+			Text(
+				text = stringResource(R.string.scene_reload_persona_note),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			TextButton(
+				onClick = {
+					onReloadPersona()
+					onDismiss()
+				},
+				enabled = !streaming,
+			) {
+				Text(stringResource(R.string.scene_reload_persona))
+			}
 		}
 		SceneField(stringResource(R.string.roleplay_field_world), world) { world = it }
 		SceneField(stringResource(R.string.roleplay_field_premise), premise) { premise = it }

@@ -307,9 +307,47 @@ data class WorkspaceEntity(
 	 * another conversation is still using.
 	 */
 	val ownerConversationId: String? = null,
+	/**
+	 * What this workspace is for, or [WorkspaceKinds.NONE] for an ordinary one.
+	 *
+	 * A workspace kind is a data attribute, not a permission level: it decides
+	 * which *host-appended helpers* a conversation in this workspace gets
+	 * ([WorkspaceKinds.ROLEPLAY] adds the role-play authoring helpers and the
+	 * scene-proposal tool, none of which can read files, reach the network or
+	 * execute). Capability-bearing tools still come from the assistant and the
+	 * conversation's own tool list, so this column cannot widen what an agent
+	 * may do -- see `docs/proposals/rp-agent-studio.md` and `docs/07-gotchas.md`.
+	 *
+	 * Empty is the default so every workspace an upgrade already has stays an
+	 * ordinary one; nothing is promoted automatically.
+	 */
+	@ColumnInfo(defaultValue = "")
+	val kind: String = WorkspaceKinds.NONE,
 	val createdAt: Long,
 	val updatedAt: Long,
 )
+
+/**
+ * The known workspace kinds.
+ *
+ * Deliberately a tiny closed set rather than free text: the only kind today is
+ * the built-in role-play workshop, and an unknown string is treated as an
+ * ordinary workspace by every reader.
+ */
+object WorkspaceKinds {
+
+	/** An ordinary workspace: no extra host helpers. */
+	const val NONE = ""
+
+	/**
+	 * The built-in role-play workshop.
+	 *
+	 * At most one row has this kind; the app creates it lazily when the user
+	 * opens the workshop entry (see `ConversationRepository.workshop`). It is a
+	 * permanent workspace, so scenes created from it keep their materials.
+	 */
+	const val ROLEPLAY = "roleplay"
+}
 
 /**
  * A conversation.

@@ -707,13 +707,14 @@ interface SavedPromptDao {
 	// for the OpenCode reasoning-mode correction, again for the pinned
 	// workspace instructions, again for the per-conversation SSH host
 	// selection, again for continuous-session maintenance, again for
-	// role-play cards and scenes, and again for the per-conversation URL
-	// download acknowledgement. Room refuses to open a database whose schema
+	// role-play cards and scenes, again for the per-conversation URL
+	// download acknowledgement, and again for the workspace kind that marks the
+	// built-in role-play workshop. Room refuses to open a database whose schema
 	// hash does not match rather than guessing, which is how each was caught:
 	// the app crashed on launch with "Looks like you've changed schema but
 	// forgot to update the version number" instead of quietly losing
 	// conversations.
-	version = 27,
+	version = 28,
 	exportSchema = true,
 )
 abstract class InhumanDatabase : RoomDatabase() {
@@ -1359,6 +1360,19 @@ abstract class InhumanDatabase : RoomDatabase() {
 			}
 		}
 
+		val MIGRATION_27_28 = object : Migration(27, 28) {
+			override fun migrate(connection: SQLiteConnection) {
+				// Additive and defaulted: every existing workspace stays an
+				// ordinary one, and nothing is promoted to the workshop by the
+				// upgrade. The workshop row is created lazily by the app when
+				// the user first opens the entry, not here -- a migration has no
+				// filesystem handle and should not invent user data.
+				connection.execSQL(
+					"ALTER TABLE workspaces ADD COLUMN kind TEXT NOT NULL DEFAULT ''",
+				)
+			}
+		}
+
 		/**
 		 * Every migration, in order.
 		 *
@@ -1394,6 +1408,7 @@ abstract class InhumanDatabase : RoomDatabase() {
 			MIGRATION_24_25,
 			MIGRATION_25_26,
 			MIGRATION_26_27,
+			MIGRATION_27_28,
 		)
 
 		/**

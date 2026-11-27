@@ -1306,6 +1306,24 @@ scene** (`NewSceneDialog`), which offers two sources:
   scene file is a creation template only: after creation the conversation owns
   its scene copy, and **Scene settings** edits do not write back to the file.
 
+**The RP workshop and the scene proposal.** The app keeps one built-in
+permanent workspace with `workspaces.kind = roleplay` (schema v28), created
+lazily by the entry on Home or in the Create sheet. A **non-scene** conversation
+in that workspace gets the authoring helpers and `rp_create_scene`; a
+conversation that is itself a scene does not, and an ordinary workspace gets no
+role-play tooling at all. `rp_create_scene` prepares and validates a
+`SceneProposal` (an assistant's card or a card the model wrote, plus an optional
+scene) and returns it as JSON; it creates nothing. The chat renders that result
+as a proposal card showing the character, a one-line description and the model,
+with **Create and open** and **Not now**. Tapping Create runs the app action
+`ChatViewModel.createProposedScene` through the shared `RoleplaySceneCreator` —
+`tools = "[]"`, the frozen snapshot, the greeting in the same transaction, and
+the model copied from the current conversation — binds the scene to the
+workshop's permanent workspace, and navigates into it. A proposal that is never
+tapped leaves no conversation, no workspace and no row behind. The result is
+transient like suggestions: a reopened transcript shows the plain persisted
+line, not a live button.
+
 A scene whose fields are all blank is stored as `{}` rather than `""`: the
 empty string keeps meaning "ordinary conversation", and otherwise a blank scene
 lost its scene-ness — it was renamed after the first message and the persona
@@ -1334,20 +1352,28 @@ change an already-started story either. A scene created before the column
 existed pins on its first turn (empty means "not pinned yet"; a malformed value
 is treated the same way and repaired). The scene-settings dialog's **Reload
 card and assistant prompt** replaces the snapshot deliberately, exactly like the
-`AGENTS.md` reload: one cold request, because it rebuilds the system prefix.
+`AGENTS.md` reload: one cold request, because it rebuilds the system prefix. The
+button is shown only when the live assistant has a decodable card
+(`ChatUiState.roleplayReloadable`): a scene created from a workspace folder or
+from a proposal has its persona only in the snapshot, and reloading it from an
+assistant with no card would empty the story. `reloadRoleplayPersona` refuses in
+the same case, so a stale screen cannot erase it either.
 
 **Authoring helpers.** `rp_format` returns the published card/scene format (field
 names, text limits, folder convention, a valid example); `rp_validate` checks a
 workspace-relative card file, scene file or story folder and returns
-field-level problems and a size summary. Both are built in
+field-level problems and a size summary; `rp_create_scene` prepares a scene
+proposal (above). All three are built in `app/.../ui/chat/` and
 `core/engine/.../roleplay/RoleplayTools.kt`; the format text comes from
 `RoleplaySpec.kt`, generated from the serializers and `RoleplayLimits` so it
 cannot drift from the codec. They are **infrastructural**, appended after the
-allow-list only when the conversation already has workspace file tools, and
+allow-list only in an RP-workshop conversation that is not itself a scene, and
 `rp_validate` additionally requires `read_file` or `list_files` — a pure scene
 (`tools = []`) keeps its empty tool set, and the validator can never become a
-read path the user did not grant. The findings name fields, lengths and JSON
-types, never the file's prose.
+read path the user did not grant. None is in `ToolCatalog`, so none appears in
+the assistant editor, the conversation tool sheet, the approval tables or the
+capability gap report. The findings name fields, lengths and JSON types, never
+the file's prose.
 
 **What goes on the wire.** `buildWireHistory` appends, after the assistant's own
 prompt, the rendered card, the scene and the rules block; then the

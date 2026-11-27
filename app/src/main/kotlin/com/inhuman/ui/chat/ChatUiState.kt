@@ -336,6 +336,23 @@ data class ChatUiState(
 	 * scene says.
 	 */
 	val roleplayScene: RoleplayScene? = null,
+	/**
+	 * Whether the scene's frozen persona may be reloaded from the live assistant.
+	 *
+	 * False when the assistant has no decodable card: a scene created from a
+	 * workspace folder or from an inline card has its persona only in
+	 * `rpSnapshotJson`, and "reload" would overwrite it with an empty card. The
+	 * button is hidden rather than left to empty a story.
+	 */
+	val roleplayReloadable: Boolean = false,
+	/**
+	 * A conversation the scene-proposal card just created, to open once.
+	 *
+	 * One-shot rather than a navigation call inside the view model: the screen
+	 * owns navigation, and a value that stays set would re-open the scene on
+	 * every recomposition. The screen consumes it and clears it.
+	 */
+	val openSceneConversationId: String? = null,
 ) {
 	/** What the error banner should offer, derived from [error]. */
 	val errorAction: ChatErrorAction? get() = chatErrorAction(error)
@@ -528,6 +545,19 @@ data class ChatMessageUi(
 	 * stripped from the stored text, so they never reach a later request.
 	 */
 	val suggestions: List<String> = emptyList(),
+	/**
+	 * A scene the workshop assistant proposed, rendered as a card on the tool
+	 * result.
+	 *
+	 * Transient like [suggestions]: the proposal is parsed from the tool result
+	 * that is already in the transcript, and a reopened conversation shows the
+	 * plain result line instead. Nothing here is created until the user taps.
+	 */
+	val sceneProposal: SceneProposal? = null,
+	/** True while the tap's create request is running; disables the card. */
+	val sceneProposalBusy: Boolean = false,
+	/** Why the last create attempt failed; shown on the card so retry is possible. */
+	val sceneProposalError: String? = null,
 )
 
 /**

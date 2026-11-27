@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -229,5 +231,41 @@ class DemoProviderTest {
 			FinishReason.Stop,
 			chunks.filterIsInstance<StreamChunk.Finish>().single().reason,
 		)
+	}
+
+	@Test
+	fun `a workshop conversation with the proposal tool proposes a scene`() = runTest {
+		// The proposal tool is a host-appended helper: the workshop demo has to
+		// exercise the card and the tap offline, because that loop is the only
+		// way to verify it with no key.
+		val calls = callsIn(
+			request(
+				tools = listOf("rp_create_scene", "list_files"),
+				messages = listOf(ChatMessage(Role.User, "make a scene")),
+			),
+		)
+
+		assertEquals(1, calls.size)
+		assertEquals(DemoProvider.PROPOSAL_TOOL, calls.single().name)
+		val card = Json.parseToJsonElement(calls.single().argumentsJson)
+			.jsonObject["card"]?.jsonObject
+		assertEquals("The Lamp Keeper", card?.get("name")?.jsonPrimitive?.content)
+	}
+
+	@Test
+	fun `the proposal is not repeated after its result arrives`() = runTest {
+		val afterProposal = listOf(
+			ChatMessage(Role.User, "make a scene"),
+			ChatMessage(
+				Role.Assistant,
+				"preparing",
+				toolCalls = listOf(
+					ToolCall("demo-call-0", DemoProvider.PROPOSAL_TOOL, "{}"),
+				),
+			),
+			ChatMessage(Role.Tool, "{}", toolCallId = "demo-call-0"),
+		)
+
+		assertTrue(callsIn(request(tools = listOf("rp_create_scene"), messages = afterProposal)).isEmpty())
 	}
 }

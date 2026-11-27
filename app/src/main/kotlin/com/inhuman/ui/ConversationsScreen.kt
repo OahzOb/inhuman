@@ -116,6 +116,14 @@ fun ConversationsScreen(
 	onOpenAgents: () -> Unit,
 	onOpenWorkspaces: () -> Unit,
 	onNewWorkspace: () -> Unit,
+	/**
+	 * Open the built-in role-play workshop (creating it on first use).
+	 *
+	 * A persistent entry, not only a Create-sheet choice: the workshop is where
+	 * the agent builds cards and scenes, so it is somewhere the user returns to
+	 * manage materials, not a one-off action buried one level down.
+	 */
+	onOpenWorkshop: () -> Unit = {},
 	sshToolEnabled: Boolean = false,
 	bilibiliEnabled: Boolean = false,
 	downloadEnabled: Boolean = false,
@@ -275,6 +283,7 @@ fun ConversationsScreen(
 							onCreate = { showCreateSheet = true },
 							onOpenWorkspaces = onOpenWorkspaces,
 							onOpenAssistants = onOpenAgents,
+							onOpenWorkshop = onOpenWorkshop,
 							compactLayout = frame.isCompact,
 							showStartButton = true,
 							backupReminder = backupReminder,
@@ -312,6 +321,7 @@ fun ConversationsScreen(
 					onCreate = { showCreateSheet = true },
 					onOpenWorkspaces = onOpenWorkspaces,
 					onOpenAssistants = onOpenAgents,
+					onOpenWorkshop = onOpenWorkshop,
 					compactLayout = frame.isCompact,
 					showStartButton = false,
 					backupReminder = backupReminder,
@@ -349,6 +359,10 @@ fun ConversationsScreen(
 			onNewWorkspace = {
 				showCreateSheet = false
 				onNewWorkspace()
+			},
+			onOpenWorkshop = {
+				showCreateSheet = false
+				onOpenWorkshop()
 			},
 		)
 	}
@@ -626,6 +640,7 @@ private fun CreateSheet(
 	onConversation: (String?) -> Unit,
 	onNewScene: () -> Unit,
 	onNewWorkspace: () -> Unit,
+	onOpenWorkshop: () -> Unit,
 ) {
 	val sheetState = androidx.compose.material3.rememberModalBottomSheetState(
 		skipPartiallyExpanded = true,
@@ -722,6 +737,16 @@ private fun CreateSheet(
 					title = stringResource(R.string.scene_new),
 					detail = stringResource(R.string.scene_new_detail),
 					onClick = onNewScene,
+					leadingIcon = Icons.Outlined.TheaterComedy,
+				)
+				// The same entry as the persistent row above the list: the
+				// Create sheet is where a user who is already creating goes,
+				// and the workshop is where an agent-configured scene comes
+				// from. Both open the same hub.
+				CreateChoice(
+					title = stringResource(R.string.workshop_name),
+					detail = stringResource(R.string.home_create_workshop_detail),
+					onClick = onOpenWorkshop,
 					leadingIcon = Icons.Outlined.TheaterComedy,
 				)
 				CreateChoice(
@@ -1153,6 +1178,8 @@ private fun ConversationPanel(
 	onCreate: () -> Unit,
 	onOpenWorkspaces: () -> Unit,
 	onOpenAssistants: () -> Unit,
+	/** Open the built-in role-play workshop from the persistent home entry. */
+	onOpenWorkshop: () -> Unit = {},
 	compactLayout: Boolean,
 	showStartButton: Boolean,
 	backupReminder: BackupReminderUi?,
@@ -1246,6 +1273,8 @@ private fun ConversationPanel(
 			Spacer(Modifier.height(10.dp))
 			Hairline()
 			if (!selecting) {
+				WorkshopEntryRow(onOpen = onOpenWorkshop)
+				Hairline()
 				backupReminder?.let { reminder ->
 					BackupReminderBanner(
 						reminder = reminder,
@@ -1367,6 +1396,54 @@ private fun ConversationPanel(
 				}
 			}
 		}
+	}
+}
+
+/**
+ * The persistent RP workshop entry.
+ *
+ * It sits above the conversation list on every form factor because the
+ * workshop is the place the RP authoring tools live: the list below is a
+ * record of conversations, this is a workbench the user keeps coming back to.
+ * It is a row rather than a card because the visual system separates sections
+ * with hairlines, and a raised card here would compete with the conversation
+ * rows for the same attention.
+ */
+@Composable
+private fun WorkshopEntryRow(onOpen: () -> Unit) {
+	Row(
+		modifier = Modifier
+			.fillMaxWidth()
+			.clickable(onClick = onOpen)
+			.padding(vertical = 12.dp),
+		verticalAlignment = Alignment.CenterVertically,
+	) {
+		Icon(
+			Icons.Outlined.TheaterComedy,
+			contentDescription = null,
+			modifier = Modifier.size(18.dp),
+			tint = MaterialTheme.colorScheme.primary,
+		)
+		Spacer(Modifier.width(12.dp))
+		Column(modifier = Modifier.weight(1f)) {
+			Text(
+				text = stringResource(R.string.workshop_name),
+				style = MaterialTheme.typography.bodyLarge,
+				color = MaterialTheme.colorScheme.onSurface,
+			)
+			Text(
+				text = stringResource(R.string.home_workshop_detail),
+				style = MaterialTheme.typography.bodySmall,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+		Spacer(Modifier.width(8.dp))
+		Icon(
+			Icons.AutoMirrored.Filled.KeyboardArrowRight,
+			contentDescription = null,
+			modifier = Modifier.size(18.dp),
+			tint = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
 	}
 }
 

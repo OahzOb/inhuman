@@ -14,10 +14,13 @@ import com.inhuman.core.data.db.SessionMode
 import com.inhuman.core.data.db.ToolsColumn
 import com.inhuman.core.data.db.UsageRow
 import com.inhuman.core.data.db.WorkspaceEntity
+import com.inhuman.core.data.db.WorkspaceKinds
 import com.inhuman.core.files.SessionWorkspace
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
@@ -334,14 +337,22 @@ class ConversationRepository(
 	/**
 	 * Create a permanent workspace. It has no conversation yet and must survive
 	 * the orphan sweep, so the row is written before the directory is created.
+	 *
+	 * [kind] is the workspace's purpose ([WorkspaceKinds]); the app passes the
+	 * role-play kind for the built-in workshop, and ordinary workspaces keep the
+	 * empty default.
 	 */
-	suspend fun createWorkspace(name: String): WorkspaceEntity {
+	suspend fun createWorkspace(
+		name: String,
+		kind: String = WorkspaceKinds.NONE,
+	): WorkspaceEntity {
 		val now = System.currentTimeMillis()
 		val workspace = WorkspaceEntity(
 			id = UUID.randomUUID().toString(),
 			name = name.trim().ifBlank { "Untitled workspace" },
 			isPermanent = true,
 			ownerConversationId = null,
+			kind = kind,
 			createdAt = now,
 			updatedAt = now,
 		)
@@ -349,6 +360,30 @@ class ConversationRepository(
 		paths.workspaceDir(workspace.id).mkdirs()
 		return workspace
 	}
+
+	/**
+	 * The built-in role-play workshop, or null before the user has opened it.
+	 *
+	 * At most one row carries [WorkspaceKinds.ROLEPLAY]. Read from the whole
+	 * table rather than adding a DAO query: the workspace list is small and the
+	 * only caller is the app's "open the workshop" action.
+	 */
+	suspend fun workshop(): WorkspaceEntity? =
+		db.workspaces().all().firstOrNull { it.kind == WorkspaceKinds.ROLEPLAY }
+
+	/**
+	 * Open the workshop, creating it on first use.
+	 *
+	 * The row and the directory are app-owned; the user never configures a
+	 * workspace *into* the workshop, so this is the only writer of the roleplay
+	 * kind. Serialised because the entry can be tapped twice before the first
+	 * creation finishes, and two workshops would split the materials.
+	 */
+	suspend fun ensureWorkshop(name: String): WorkspaceEntity = workshopMutex.withLock {
+		workshop() ?: createWorkspace(name, WorkspaceKinds.ROLEPLAY)
+	}
+
+	private val workshopMutex = Mutex()
 
 	/**
 	 * Turn a conversation's temporary workspace into a permanent one.
@@ -583,6 +618,20 @@ class ConversationRepository(
 		 */
 		rpSnapshotJson: String = "",
 		greeting: String? = null,
+		/**
+		 * The model configuration for the new conversation, or null to copy the
+		 * assistant's.
+		 *
+		 * A scene proposed from a conversation the user is already having with
+		 * the workshop assistant must spend on the same model as that
+		 * conversation, not on whatever the assistant row says: the conversation
+		 * copy is what the user sees and pays for, and a per-conversation model
+		 * change must not silently revert when a scene is created from it.
+		 */
+		providerId: String? = null,
+		model: String? = null,
+		reasoningEffort: String? = null,
+		thinking: Boolean? = null,
 	): ConversationEntity {
 		val now = System.currentTimeMillis()
 		val conversationId = UUID.randomUUID().toString()
@@ -616,10 +665,12 @@ class ConversationRepository(
 			// then have to move the directory, and a failed move orphans files.
 			workspaceId = resolvedWorkspace,
 			agentId = agent?.id,
-			providerId = agent?.providerId ?: com.inhuman.core.data.db.ProviderIds.DEEPSEEK,
-			model = agent?.model,
-			reasoningEffort = agent?.reasoningEffort,
-			thinking = agent?.thinking ?: false,
+			providerId = providerId
+				?: agent?.providerId
+				?: com.inhuman.core.data.db.ProviderIds.DEEPSEEK,
+			model = model ?: agent?.model,
+			reasoningEffort = reasoningEffort ?: agent?.reasoningEffort,
+			thinking = thinking ?: agent?.thinking ?: false,
 			// Copied, not read through the assistant later: editing an
 			// assistant's tools must not change what a conversation already
 			// held is able to do.
@@ -643,7 +694,7 @@ class ConversationRepository(
 				parentId = null,
 				role = "assistant",
 				content = text,
-				model = agent?.model,
+				model = model ?: agent?.model,
 				// A greeting is a finished assistant turn, not a partial one.
 				// Without this the row's null finishReason makes
 				// `isInterruptedTurn` offer **Continue** on a scene that has

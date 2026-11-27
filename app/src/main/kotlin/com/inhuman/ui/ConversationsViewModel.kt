@@ -32,6 +32,7 @@ import com.inhuman.core.files.WorkspaceTransfer
 import com.inhuman.ui.chat.ConversationBundleCodec
 import com.inhuman.ui.chat.ConversationBundleZip
 import com.inhuman.ui.chat.SpeechCache
+import com.inhuman.ui.roleplay.RoleplaySceneCreator
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Job
@@ -304,6 +305,9 @@ class ConversationsViewModel(
 	)
 	val state: StateFlow<ConversationsUiState> = _state.asStateFlow()
 
+	/** The one scene-creation path, shared with the workshop's proposal card. */
+	private val sceneCreator by lazy { RoleplaySceneCreator(repository) }
+
 	/**
 	 * Remember the Create-sheet choice for later conversations.
 	 *
@@ -465,6 +469,43 @@ class ConversationsViewModel(
 		pendingWorkspaceId = null
 		_state.update { it.copy(choosingAgent = null) }
 		create(agent, workspaceId, onCreated)
+	}
+
+	/**
+	 * Open the built-in role-play workshop, creating it on first use.
+	 *
+	 * The workspace is a permanent workspace the app owns; it is the only place
+	 * where the role-play authoring helpers and the scene-proposal tool exist.
+	 * Creating it lazily keeps first launch unchanged and makes the entry a
+	 * normal product surface rather than a migration side effect.
+	 *
+	 * @param name the display name to use when creating it. Passed in rather than
+	 *   read here because a view model holds the *application* context, whose
+	 *   resources follow the system locale -- the activity's locale override is
+	 *   not on it. Reading the name here stored "RP workshop" under a Chinese UI.
+	 * @param onWorkspace called with the workshop's id on the main thread; the
+	 *   caller navigates to the workspace detail screen (the workshop hub).
+	 */
+	fun openWorkshop(name: String, onWorkspace: (String) -> Unit) {
+		viewModelScope.launch {
+			runCatching {
+				withContext(Dispatchers.IO) {
+					repository.ensureWorkshop(name)
+				}
+			}.onSuccess { workspace ->
+				onWorkspace(workspace.id)
+			}.onFailure { failure ->
+				Diag.w("workshop", "open failed", failure)
+				_state.update {
+					it.copy(
+						error = context.getString(
+							R.string.workshop_open_failed,
+							failure.message ?: failure::class.simpleName ?: "unknown error",
+						),
+					)
+				}
+			}
+		}
 	}
 
 	/**
@@ -824,18 +865,12 @@ class ConversationsViewModel(
 		viewModelScope.launch {
 			// The scene copies the assistant prompt, name and card at creation:
 			// editing the assistant later must not rewrite a story already in
-			// progress. Written in the same transaction as the conversation so a
-			// scene never exists unpinned and then silently picks a different
-			// character on its first turn.
-			val persona = RoleplayCodec.encodeSnapshot(
-				RoleplaySnapshot(
-					systemPrompt = assistant.systemPrompt,
-					characterName = characterName.ifBlank { assistant.name },
-					card = cardJson,
-				),
-			)
+			// progress. The creator writes the frozen persona and the greeting in
+			// the same transaction as the conversation, so a scene never exists
+			// unpinned and then silently picks a different character on its first
+			// turn -- and it is the same writer the workshop's proposal card uses.
 			val result = runCatching {
-				repository.create(
+				sceneCreator.create(
 					title = characterName.ifBlank { context.getString(R.string.scene_title) },
 					agent = assistant,
 					// Assistant source: null is a new temporary workspace, exactly
@@ -843,12 +878,12 @@ class ConversationsViewModel(
 					// source: the permanent workspace holding the story files, so
 					// the agent can later be given file tools over the same tree.
 					workspaceId = workspaceId,
+					cardJson = cardJson,
+					card = card,
+					characterName = characterName.ifBlank { assistant.name },
+					systemPrompt = assistant.systemPrompt,
+					scene = scene,
 					sessionMode = newConversationSessionMode(),
-					tools = emptyList(),
-					sceneJson = RoleplayCodec.encodeScene(scene).ifEmpty { "{}" },
-					rpSnapshotJson = persona,
-					greeting = RoleplayPrompt.greeting(card, characterName.ifBlank { assistant.name })
-						.takeIf { it.isNotBlank() },
 				)
 			}
 			result.onSuccess { conversation ->
@@ -857,7 +892,7 @@ class ConversationsViewModel(
 					"created id=${Diag.shortId(conversation.id)} " +
 						"agent=${Diag.shortId(conversation.agentId)} " +
 						"workspace=${Diag.shortId(conversation.workspaceId)} " +
-						"snapshotChars=${persona.length}",
+						"cardChars=${RoleplayLimits.cardChars(card)}",
 				)
 				_state.update { it.copy(sceneDialog = null) }
 				onCreated(conversation.id)

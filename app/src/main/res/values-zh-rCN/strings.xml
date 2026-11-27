@@ -1578,4 +1578,18 @@
 	<string name="settings_keywords_display">布局 紧凑 舒适 字体 字号 显示 建议回复 配色 主题 颜色 深色 浅色 余烬 苔绿 靛蓝 紫檀 底材 石墨 纸 暖色 冷灰 棕墨 米纸</string>
 	<string name="settings_keywords_language">语言 中文 英文</string>
 	<string name="settings_keywords_time">时间 提示 时区 间隔</string>
-	</resources>
+	<!-- 内置 RP 工坊：一个永久工作区，助手在这里获得 RP 写作辅助和场景提案工具。 -->
+	<string name="workshop_name">RP 工坊</string>
+	<string name="home_workshop_detail">用助手做角色卡、开场景</string>
+	<string name="home_create_workshop_detail">角色卡、资料和场景都放在一个永久工作区里</string>
+	<string name="workshop_open_failed">无法打开 RP 工坊：%1$s</string>
+	<!-- 场景提案：创建之前先给用户看的一张卡片。 -->
+	<string name="chat_scene_proposal_title">场景提案</string>
+	<string name="chat_scene_proposal_character">角色：%1$s</string>
+	<string name="chat_scene_proposal_model">模型：%1$s（沿用当前对话）</string>
+	<string name="chat_scene_proposal_pending">尚未创建；点“创建并打开”才会开始这段场景。</string>
+	<string name="chat_scene_proposal_create">创建并打开</string>
+	<string name="chat_scene_proposal_dismiss">不要</string>
+	<string name="chat_scene_proposal_creating">正在创建场景…</string>
+	<string name="chat_scene_proposal_failed">无法创建场景：%1$s</string>
+</resources>

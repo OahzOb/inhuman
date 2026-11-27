@@ -28,7 +28,7 @@ not; `AGENTS.md` states the non-negotiable working rules. These files explain
 | [01-overview.md](01-overview.md) | What this is, which module holds what, what the app does today, what is deliberately missing |
 | [02-architecture.md](02-architecture.md) | Module graph, dependency rule, start-up wiring, navigation, build toolchain, build/verify commands |
 | [03-ai-provider.md](03-ai-provider.md) | Provider interface and stream types, provider profiles, OpenAI-compatible / Anthropic / Gemini / Responses adapters, SSE, demo mode, paid web tools, SSH tools and limits |
-| [04-data-persistence.md](04-data-persistence.md) | Room schema v27 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
+| [04-data-persistence.md](04-data-persistence.md) | Room schema v28 and exported versions, repositories, ordering, key storage, `DocumentsProvider`, orphan sweeps |
 | [05-files-sandbox.md](05-files-sandbox.md) | `SessionWorkspace`, path confinement, quotas, the file tools, import/export |
 | [06-agent-loop-ui.md](06-agent-loop-ui.md) | Turn lifecycle, tool execution, approval gate, cancellation, context gauge, Compose layout |
 | [07-gotchas.md](07-gotchas.md) | Load-bearing invariants, and mistakes that already cost someone a day |
@@ -77,6 +77,8 @@ should be built and why; they are not a description of current behaviour.
 | [proposals/user-cloud-sync.md](proposals/user-cloud-sync.md) | Let the user bring their own cloud storage: **Phase 1 implemented 2026-11-26** (mirrors the encrypted backup into a remembered SAF sync folder in one tap); Phase 2 is conversation-level two-way sync with stable ids, tombstones and explicit conflict copies |
 | [proposals/rp-authoring-assistant.md](proposals/rp-authoring-assistant.md) | RP materials as workspace files plus two authoring tools: `rp_format` / `rp_validate` (Phase 0) and the folder-based scene-creation flow with the legacy-card export (Phase 1) — both implemented; the remaining multi-character/worldbook work is not part of this proposal |
 | [proposals/rp-formatting.md](proposals/rp-formatting.md) | How the mature RP ecosystem renders replies (text conventions + a front-end Markdown/HTML layer, with display-only transforms) and why inhuman's default scene read as one flat block. Decision: do not depend on the model obeying a format — **B (a display-only RP typography layer) implemented 2026-11-26**; a formatting prompt contract / scene presets (A) and a status side-channel (C) remain optional. §9 also surveys external cards with HTML UIs (Chub sample: 2.75% raw HTML in card text; front-end cards live in `regex_scripts`) and records **P0a, external card import, implemented 2026-11-26** (PNG/JSON/CHARX, text mapping, HTML-to-text, explicit "not imported" reports); HTML rendering (P1), the WebView runtime (P2), URL import and extension execution were deliberately not taken |
+| [proposals/rp-agent-studio.md](proposals/rp-agent-studio.md) | The RP workshop: one built-in permanent workspace (`workspaces.kind = roleplay`, schema v28) is the only place the role-play authoring helpers exist. **P0 implemented 2026-11-27**: the workshop entry (persistent home row + Create sheet), host-appended `rp_format`/`rp_validate`/`rp_create_scene`, the scene-proposal card and the tap-to-create-and-open path through `RoleplaySceneCreator`. v1's per-assistant opt-in design is kept in the appendix as the rejected alternative; later phases (community-card file sources, assistant creation, entry decisions) are not implemented |
+| [proposals/conversation-references.md](proposals/conversation-references.md) | Let an agent read another conversation at the user's explicit gesture: **P0b copy-a-reference into the RP workshop workspace** (sanitised Markdown, no new capability) and **P1 a workshop-level allowlist plus a read-only `read_conversation` tool**. Not implemented; the design keeps the read/egress disclosure and excludes tool results, reasoning and attachments |
 
 The role-play proposal (`proposals/roleplay.md`) was implemented on 2026-11-25
 (single character, single scene; no multi-character turns, world books or card
@@ -88,9 +90,12 @@ its current behaviour is in [06-agent-loop-ui.md](06-agent-loop-ui.md) and
 [07-gotchas.md](07-gotchas.md) A29. The RP authoring proposal has been decided:
 Phase 0 — the frozen scene persona (`conversations.rpSnapshotJson`) and the
 `rp_format` / `rp_validate` authoring helpers — is implemented (schema v27),
-while Phase 1, creating scenes from a workspace folder, is not. The
-user-configured sync proposal still waits on a product decision; it records its
-own open questions and suggested order.
+and Phase 1, creating scenes from a workspace folder, is implemented as well.
+The user-configured sync proposal still waits on a product decision; it records
+its own open questions and suggested order. The RP workshop proposal's P0
+(the built-in workshop workspace, the scene-proposal card and the tap-to-create
+path) is implemented on 2026-11-27; its later phases and the conversation-
+reference proposal are not.
 
 ## Conventions used here
 

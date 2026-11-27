@@ -281,6 +281,15 @@ private fun InhumanRoot(
 	var showWorkspaces by rememberSaveable { mutableStateOf(false) }
 	var startWorkspaceCreation by rememberSaveable { mutableStateOf(false) }
 	var openWorkspaceId by rememberSaveable { mutableStateOf<String?>(null) }
+	/**
+	 * Whether the open workspace was entered from Home rather than the
+	 * Workspaces list.
+	 *
+	 * Back must return where the user came from: the workshop has a persistent
+	 * home entry, so opening it from Home and landing on the Workspaces list on
+	 * Back would be a navigation the user never asked for.
+	 */
+	var workspaceFromHome by rememberSaveable { mutableStateOf(false) }
 	/** Open Settings with the backup fold expanded, from the home reminder. */
 	var startBackupSection by rememberSaveable { mutableStateOf(false) }
 
@@ -652,7 +661,10 @@ private fun InhumanRoot(
 					chatOriginWorkspaceId = null
 					if (origin != null) {
 						openWorkspaceId = origin
-						showWorkspaces = true
+						// Return to where the workspace was entered from: the
+						// workshop's persistent home entry means the Workspaces
+						// list is not always the parent.
+						showWorkspaces = !workspaceFromHome
 					}
 				},
 				onOpenSettings = { showSettings = true },
@@ -677,7 +689,11 @@ private fun InhumanRoot(
 				viewModel = vm,
 				onBack = {
 					openWorkspaceId = null
-					showWorkspaces = true
+					if (workspaceFromHome) {
+						workspaceFromHome = false
+					} else {
+						showWorkspaces = true
+					}
 				},
 				onOpenConversation = { conversationId ->
 					chatOriginWorkspaceId = id
@@ -705,6 +721,7 @@ private fun InhumanRoot(
 				onCreateStarted = { startWorkspaceCreation = false },
 				onBack = { showWorkspaces = false },
 				onOpenWorkspace = { id ->
+					workspaceFromHome = false
 					showWorkspaces = true
 					openWorkspaceId = id
 				},
@@ -718,6 +735,11 @@ private fun InhumanRoot(
 				}
 			}
 			val vm: ConversationsViewModel = viewModel(factory = factory)
+			// The workshop's display name is resolved from the activity's
+			// resources, not the application context the view model holds: the
+			// app has its own language setting, and a name created from the
+			// system locale disagreed with the UI that showed the entry.
+			val workshopName = stringResource(R.string.workshop_name)
 			ConversationsScreen(
 				viewModel = vm,
 				onOpenConversation = {
@@ -736,6 +758,20 @@ private fun InhumanRoot(
 				onNewWorkspace = {
 					startWorkspaceCreation = true
 					showWorkspaces = true
+				},
+				onOpenWorkshop = {
+					// Resolved here, from the activity's resources: the view model
+					// holds the application context, whose locale is the system's,
+					// so reading the name there stored one language and displayed
+					// another.
+					vm.openWorkshop(workshopName) { workspaceId ->
+						showSettings = false
+						showFiles = false
+						showAgents = false
+						showWorkspaces = false
+						workspaceFromHome = true
+						openWorkspaceId = workspaceId
+					}
 				},
 				sshToolEnabled = secure.get(SecureStore.KEY_SSH_TOOL_ENABLED) == "1",
 				bilibiliEnabled = secure.get(SecureStore.KEY_BILIBILI_TOOL_ENABLED) == "1",

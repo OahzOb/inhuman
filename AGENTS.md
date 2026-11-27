@@ -17,7 +17,7 @@ than implementation; the old feasibility studies are archived under
 | `docs/01-overview.md` | What this is, what works, what is deliberately missing, the vocabulary |
 | `docs/02-architecture.md` | Module graph, wiring at start-up, navigation, build toolchain, `tools/` scripts |
 | `docs/03-ai-provider.md` | Provider profiles, the OpenAI-compatible adapter, SSE, demo mode, **the paid `web_search`/`web_fetch` backends**, **the per-tool media backends (image/video/speech/transcription/decision)**, **the SSH tools (`ssh_probe`, `ssh_list`, `ssh_read_file`, `ssh_exec`, `ssh_upload`, `ssh_write_file`, `ssh_download`)**, **`download_url` (app-proxied file download into the workspace)**, and the user-set `SshLimits` ceilings |
-| `docs/04-data-persistence.md` | Room schema v27, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup, and the continuous-session cost ledger |
+| `docs/04-data-persistence.md` | Room schema v28, orderings, migrations, repositories, `SecureStore`, the `DocumentsProvider`, encrypted backup, and the continuous-session cost ledger |
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the file and document tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, continuous-session projection and read-only record recall, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
@@ -324,7 +324,10 @@ plain
 
 The long answers are written in Markdown deliberately — an unclosed fence, a
 bold span arriving in pieces, a list whose markers precede their text — because
-those are the constructs that are awkward while streaming.
+those are the constructs that are awkward while streaming. **In an RP workshop
+conversation, a message containing `scene` makes the demo call
+`rp_create_scene`, so the proposal card and the tap-to-create path are reachable
+offline too**; the card it proposes is a small scripted character.
 
 ### What adb cannot verify, and what to do instead
 
@@ -599,17 +602,38 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   projection reads the snapshot instead of the live assistant, so editing a
   card or prompt cannot rewrite a story already in progress. A scene created
   before the column existed pins on its first turn (empty column means "not
-  pinned yet"); the scene-settings dialog's **Reload card and assistant prompt**
-  is the only way to update it, matching the `AGENTS.md` reload pattern. Do not
-  fall back to the live card once a snapshot exists: that would make a cleared
-  card silently resurrect. `rp_format`/`rp_validate` (`core/engine/.../roleplay/
-  RoleplayTools.kt`) are the authoring helpers: they are appended after the
-  allow-list only when the conversation already has workspace file tools, and
-  `rp_validate` additionally requires `read_file`/`list_files`, so a scene with
-  no tools keeps an empty tool set and the validator can never become a read
-  path the user did not grant. It reports structure only, never file prose.
+  pinned yet"); the scene-settings **Reload card and assistant prompt** is the
+  only way to update it, matching the `AGENTS.md` reload pattern. Do not fall
+  back to the live card once a snapshot exists: that would make a cleared card
+  silently resurrect. The button is shown only when the live assistant has a
+  decodable card (`ChatUiState.roleplayReloadable`; `reloadRoleplayPersona`
+  refuses otherwise), because a scene built from a files folder or from a
+  proposal has its persona only in the snapshot and reloading it from an
+  assistant with no card would empty the story. `rp_format`/`rp_validate`
+  (`core/engine/.../roleplay/RoleplayTools.kt`) are the authoring helpers: they
+  are appended after the allow-list only in a **non-scene conversation of the RP
+  workshop**, and `rp_validate` additionally requires `read_file`/`list_files`,
+  so a scene with no tools keeps an empty tool set and the validator can never
+  become a read path the user did not grant. Ordinary workspaces get no
+  role-play helpers. It reports structure only, never file prose.
   The format text is generated from the serializers and `RoleplayLimits`
   (`RoleplaySpecTest` pins the match). See `docs/07-gotchas.md` A30.
+- **The RP workshop is a workspace kind, not a permission tier.** The app keeps
+  one built-in permanent workspace with `workspaces.kind = "roleplay"` (schema
+  v28), created lazily by the Home entry or the Create sheet
+  (`ConversationRepository.ensureWorkshop`). In a non-scene conversation there,
+  the host appends `rp_format`, `rp_validate` (read tool required) and
+  `rp_create_scene`; none is in `ToolCatalog`, so none appears in the assistant
+  editor, conversation tool sheet, approval rules or gap report. The kind adds
+  **no capability**: file/SSH/download/media tools still come from the assistant
+  and the conversation's own list. The model cannot create, enter or mark a
+  workspace, so it cannot talk itself into the workshop. `rp_create_scene`
+  returns a `SceneProposal` only; the conversation is created by the user's tap
+  through `RoleplaySceneCreator` (the same writer the New-scene dialog uses) with
+  `tools = "[]"`, the frozen snapshot, the greeting, the current conversation's
+  model, and the workshop as its permanent workspace. A proposal that is never
+  tapped leaves no row and no file. `docs/07-gotchas.md` A31 is the invariant;
+  ordinary workspaces losing the RP helpers is the deliberate management shape.
 - **A role-play reply is painted, not rewritten.** In a scene (a conversation
   whose assistant has a card, or a scene with a snapshot) assistant text goes
   through `RoleplayText` (`app/.../ui/chat/RoleplayText.kt`) instead of the

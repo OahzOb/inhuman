@@ -1607,4 +1607,18 @@
 	<string name="settings_keywords_display">layout compact comfortable font size display suggestions theme palette colour color dark light accent ember moss indigo plum surface graphite paper warm slate sepia</string>
 	<string name="settings_keywords_language">language Chinese English</string>
 	<string name="settings_keywords_time">time hint timezone gap</string>
-	</resources>
+	<!-- The built-in role-play workshop: a permanent workspace where the agent gets the RP authoring helpers and the scene-proposal tool. -->
+	<string name="workshop_name">RP workshop</string>
+	<string name="home_workshop_detail">Build cards and open scenes with an assistant</string>
+	<string name="home_create_workshop_detail">Character cards, materials and scenes in one permanent place</string>
+	<string name="workshop_open_failed">Could not open the RP workshop: %1$s</string>
+	<!-- The scene proposal a workshop conversation offers before anything is created. -->
+	<string name="chat_scene_proposal_title">Scene proposal</string>
+	<string name="chat_scene_proposal_character">Character: %1$s</string>
+	<string name="chat_scene_proposal_model">Model: %1$s (same as this conversation)</string>
+	<string name="chat_scene_proposal_pending">Nothing has been created yet. Tap Create and open to start this scene.</string>
+	<string name="chat_scene_proposal_create">Create and open</string>
+	<string name="chat_scene_proposal_dismiss">Not now</string>
+	<string name="chat_scene_proposal_creating">Creating the scene…</string>
+	<string name="chat_scene_proposal_failed">Could not create the scene: %1$s</string>
+</resources>

@@ -152,6 +152,19 @@ Hidden remote tools (SSH switched off while the conversation still names one) ar
 preserved through an edit rather than dropped, because a switch-off is not a
 request to forget the selection.
 
+## Helpers the sheet never shows
+
+`recall` (continuous sessions), `rp_format` / `rp_validate` / `rp_create_scene`
+(RP workshop conversations) and `unavailable_tools` are appended by the host
+after the allow-list. They are not catalogue entries, so the sheet neither shows
+nor changes them: a conversation's selection is about **capability**, and these
+have none. `recall` reads this conversation's own record; `rp_format` is
+constant text; `rp_validate` reads a workspace file only when a read tool is
+already selected; `rp_create_scene` prepares a proposal and creates nothing
+until the user taps a card. The role-play helpers exist only in a non-scene
+conversation whose workspace has `kind = roleplay` — a workspace-scoped
+presentation decision, not a grant (`docs/07-gotchas.md` A31).
+
 ## Why this is not a new exception
 
 The SSH exception is about a capability that leaves the device; this change is
@@ -181,6 +194,9 @@ per turn, not for the lifetime of the conversation.
 ## Non-goals
 
 - A model-callable `set_tools` tool.
+- A model-callable workspace-kind change or role-play-helper toggle: entering
+  the workshop and leaving it are user gestures, and the helpers are not a
+  capability to grant.
 - Automatic synchronisation from the assistant on every edit.
 - Per-conversation approval policy. Approval remains global / per-assistant /
   per-path; this sheet changes *which* tools exist, not whether a call asks.

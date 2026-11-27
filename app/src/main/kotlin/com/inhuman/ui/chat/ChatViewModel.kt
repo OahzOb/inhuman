@@ -63,6 +63,7 @@ import com.inhuman.core.engine.roleplay.RoleplayPrompt
 import com.inhuman.core.engine.roleplay.RoleplayScene
 import com.inhuman.core.engine.roleplay.RoleplaySnapshot
 import com.inhuman.core.engine.roleplay.RoleplayValidateTool
+import com.inhuman.ui.roleplay.RoleplaySceneCreator
 import com.inhuman.core.data.AgentRepository
 import com.inhuman.core.data.ApprovalRecord
 import com.inhuman.core.data.Branches
@@ -84,6 +85,7 @@ import com.inhuman.core.data.db.MaintenanceRunEntity
 import com.inhuman.core.data.db.MaintenanceRunKind
 import com.inhuman.core.data.db.MaintenanceRunOutcome
 import com.inhuman.core.data.db.SessionMode
+import com.inhuman.core.data.db.WorkspaceKinds
 import com.inhuman.core.data.secret.SecureStore
 import com.inhuman.core.files.SessionWorkspace
 import com.inhuman.core.files.WorkspaceTransfer
@@ -482,6 +484,9 @@ class ChatViewModel(
 	private var providerBaseUrl: String? = null
 	private var workspaceId: String? = null
 
+	/** The one scene-creation path shared with the New-scene dialog. */
+	private val sceneCreator by lazy { RoleplaySceneCreator(repository) }
+
 	/**
 	 * The assistant's model, but only while the conversation is still on the
 	 * assistant's provider.
@@ -659,6 +664,7 @@ class ChatViewModel(
 				it.copy(
 					roleplayCharacter = roleplayCard() != null,
 					roleplayScene = roleplayScene(),
+					roleplayReloadable = liveAssistantCard() != null,
 				)
 			}
 			providerId = c?.providerId ?: agent?.providerId
@@ -1693,6 +1699,11 @@ class ChatViewModel(
 	fun reloadRoleplayPersona() {
 		if (_state.value.isStreaming || _state.value.isCompacting) return
 		val entity = conversation ?: return
+		// A scene whose persona came from a workspace folder or an inline card
+		// has no live assistant card to refresh from. The button is hidden in
+		// that case; refusing here as well keeps one code path from erasing a
+		// story if the screen and the state ever disagree.
+		if (liveAssistantCard() == null) return
 		// A scene created after schema v27 is pinned even when its fields were
 		// left blank (stored as `{}`), so the snapshot alone is enough: a
 		// legacy scene with no scene text is still not reloadable.
@@ -1713,6 +1724,7 @@ class ChatViewModel(
 							error = null,
 							roleplayCharacter = roleplayCard() != null,
 							roleplayScene = roleplayScene(),
+							roleplayReloadable = liveAssistantCard() != null,
 						)
 					}
 					Diag.i("roleplay", "persona reloaded conv=${Diag.shortId(entity.id)}")
@@ -1728,6 +1740,146 @@ class ChatViewModel(
 						)
 					}
 				}
+		}
+	}
+
+	// --- role-play scene proposals (RP workshop) ----------------------------
+
+	/**
+	 * The live assistant's card, or null when it has none.
+	 *
+	 * This is exactly what "reload card and assistant prompt" would copy into
+	 * the frozen persona. A scene created from a workspace file or from an
+	 * inline card has its persona only in `rpSnapshotJson`, so reloading from an
+	 * assistant with no card would empty the story: the button is hidden when
+	 * this returns null.
+	 */
+	private fun liveAssistantCard(): RoleplayCard? =
+		agent?.rpJson?.takeIf { it.isNotBlank() }?.let { RoleplayCodec.decodeCard(it) }
+
+	/**
+	 * Create the scene a proposal card prepared, then open it.
+	 *
+	 * This is an app action triggered by the user's tap, not a tool: the agent
+	 * only prepared the data. The conversation is created with an explicit empty
+	 * tool selection, the persona frozen and the greeting written, and the model
+	 * configuration copied from *this* conversation -- so the user spends on the
+	 * model they are already using, and an assistant edit cannot silently
+	 * replace it.
+	 *
+	 * The scene binds this conversation's workspace (the RP workshop), which is
+	 * permanent: materials and the story stay in one place, and deleting the
+	 * transcript does not delete them.
+	 */
+	fun createProposedScene(messageId: String) {
+		val state = _state.value
+		if (state.isStreaming || state.isCompacting) return
+		val message = state.messages.firstOrNull { it.id == messageId } ?: return
+		if (message.sceneProposalBusy) return
+		val proposal = message.sceneProposal ?: return
+		val entity = conversation ?: return
+		_state.update { s ->
+			s.copy(
+				messages = s.messages.map {
+					if (it.id == messageId) {
+						it.copy(sceneProposalBusy = true, sceneProposalError = null)
+					} else {
+						it
+					}
+				},
+			)
+		}
+		viewModelScope.launch {
+			val outcome = runCatching {
+				val card = RoleplayCodec.decodeCard(proposal.cardJson)
+					?: error("the character card is no longer readable")
+				val chosenAgent = proposal.agentId?.let { agents.byId(it) }
+				val mode = if (secure.newConversationContinuous()) {
+					SessionMode.CONTINUOUS
+				} else {
+					SessionMode.CLASSIC
+				}
+				sceneCreator.create(
+					title = proposal.title,
+					agent = chosenAgent,
+					workspaceId = entity.workspaceId,
+					cardJson = proposal.cardJson,
+					card = card,
+					characterName = proposal.characterName,
+					systemPrompt = proposal.systemPrompt,
+					scene = RoleplayCodec.decodeScene(proposal.sceneJson) ?: RoleplayScene(),
+					sessionMode = mode,
+					providerId = entity.providerId,
+					model = entity.model,
+					reasoningEffort = entity.reasoningEffort,
+					thinking = entity.thinking,
+				)
+			}
+			outcome.onSuccess { created ->
+				Diag.i(
+					"scene",
+					"workshop scene created id=${Diag.shortId(created.id)} " +
+						"workspace=${Diag.shortId(created.workspaceId)} " +
+						"characterChars=${proposal.characterName.length}",
+				)
+				_state.update { s ->
+					s.copy(
+						messages = s.messages.map {
+							if (it.id == messageId) {
+								it.copy(
+									sceneProposal = null,
+									sceneProposalBusy = false,
+									sceneProposalError = null,
+								)
+							} else {
+								it
+							}
+						},
+						openSceneConversationId = created.id,
+					)
+				}
+			}.onFailure { failure ->
+				Diag.w("scene", "workshop scene create failed", failure)
+				_state.update { s ->
+					s.copy(
+						messages = s.messages.map {
+							if (it.id == messageId) {
+								it.copy(
+									sceneProposalBusy = false,
+									sceneProposalError = context.getString(
+										R.string.chat_scene_proposal_failed,
+										failure.message ?: failure::class.simpleName ?: "unknown error",
+									),
+								)
+							} else {
+								it
+							}
+						},
+					)
+				}
+			}
+		}
+	}
+
+	/** Drop a proposal the user does not want. Nothing was created, so nothing else changes. */
+	fun dismissSceneProposal(messageId: String) {
+		_state.update { s ->
+			s.copy(
+				messages = s.messages.map {
+					if (it.id == messageId) {
+						it.copy(sceneProposal = null, sceneProposalError = null)
+					} else {
+						it
+					}
+				},
+			)
+		}
+	}
+
+	/** Clear the one-shot "open the scene that was just created" signal. */
+	fun consumeOpenSceneConversation() {
+		_state.update { s ->
+			if (s.openSceneConversationId == null) s else s.copy(openSceneConversationId = null)
 		}
 	}
 
@@ -5159,6 +5311,25 @@ class ChatViewModel(
 							event.result.isError,
 							id,
 						)
+						// A scene proposal is app data the card renders, not a
+						// mutation: the assistant has prepared it and the user's
+						// tap is what creates the conversation. Parsed here, from
+						// the full result content, because the persisted stub is a
+						// one-line summary.
+						if (event.call.name == RoleplaySceneProposalTool.NAME && !event.result.isError) {
+							SceneProposal.fromJson(event.result.content)?.let { proposal ->
+								_state.update { state ->
+									val messages = state.messages.toMutableList()
+									val index = messages.indexOfLast {
+										it.isToolResult && it.toolResultFor == call.id
+									}
+									if (index >= 0) {
+										messages[index] = messages[index].copy(sceneProposal = proposal)
+									}
+									state.copy(messages = messages)
+								}
+							}
+						}
 						// The suggestions are the result. They are rendered as
 						// chips on the answer, not parsed again by the UI: the
 						// JSON shape is `Advice`'s, and a second reader is how the
@@ -6119,14 +6290,24 @@ class ChatViewModel(
 				}
 		}.orEmpty()
 
-		// Role-play authoring helpers follow workspace file capability: they are
-		// only useful where the agent can already touch files, and a pure scene
-		// (tools = []) keeps its empty tool set. `rp_format` describes the format
-		// and touches nothing; `rp_validate` reads one workspace file, so it
-		// additionally needs a read/list tool -- it must never become a read
-		// path the user did not grant. The rule is a pure function so it can be
-		// tested without a view model.
-		val roleplayHelpers = planRoleplayHelpers(fileTools.map { it.name }) {
+		// Role-play authoring helpers belong to the built-in RP workshop, not to
+		// "any conversation with file tools": a workspace kind decides where the
+		// RP surface exists, which keeps the management story to one place and
+		// keeps the tool definitions out of every ordinary request. They are
+		// appended after the allow-list because none of them adds capability --
+		// `rp_format` is constant text, the scene proposal only previews data,
+		// and `rp_validate` additionally needs an existing read tool so it can
+		// never become a read path on its own. A scene (`roleplayActive`) keeps
+		// its empty tool set. The rule is a pure function so it can be tested
+		// without a view model.
+		val workshop = runCatching {
+			repository.workspaceRecord(entity.workspaceId)?.kind == WorkspaceKinds.ROLEPLAY
+		}.getOrDefault(false)
+		val roleplayHelpers = planRoleplayHelpers(
+			workshop = workshop,
+			roleplayActive = roleplayCard() != null || roleplayScene() != null,
+			fileToolNames = fileTools.map { it.name },
+		) {
 			ToolCatalog.permits(selected, it)
 		}
 
@@ -6366,6 +6547,13 @@ class ChatViewModel(
 					val ws = workspace
 					if (roleplayHelpers.validate && ws != null) {
 						add(RoleplayValidateTool(ws))
+					}
+					if (roleplayHelpers.createScene) {
+						// Preview-only: the result is a card the user taps. The
+						// tool never writes a conversation, so it needs no
+						// capability seam beyond the assistant list it reads to
+						// resolve a named character card.
+						add(RoleplaySceneProposalTool { agents.all() })
 					}
 				}
 				// The record search belongs to the session mode, not to the

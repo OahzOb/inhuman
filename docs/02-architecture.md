@@ -145,8 +145,19 @@ Back is handled by a **single** `BackHandler` at the root, registered once, with
 an explicit ordering: dialog → directory level → settings/agents → conversation
 → workspace detail → workspace list. A conversation opened inside a workspace
 records its origin, so Back returns to the workspace rather than the home list.
-Registering one handler per screen would fire several on a single press and jump
-two or three levels at once.
+A workspace entered from Home (the RP workshop's persistent entry) records that
+too, so Back returns to Home rather than the Workspaces list the user never
+visited. Registering one handler per screen would fire several on a single press
+and jump two or three levels at once.
+
+**The RP workshop is not a screen.** It is the built-in permanent workspace with
+`workspaces.kind = roleplay`; the persistent home row and the Create-sheet entry
+both call `ConversationsViewModel.openWorkshop`, which lazily creates it
+(`ConversationRepository.ensureWorkshop`) and opens the existing
+`WorkspaceDetailScreen` as its hub. The kind is what makes
+`ChatViewModel.buildTools` append the capability-free role-play helpers to a
+non-scene conversation in it (`docs/06-agent-loop-ui.md`), and scenes proposed
+from that conversation bind the same permanent workspace.
 
 ### Process lifetime
 

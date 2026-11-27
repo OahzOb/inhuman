@@ -480,7 +480,7 @@ moves `lastUser`, orphans the start checkpoint, and turns Continue into a second
 kind of retry. The queue itself (`ChatUiState.queued`) is memory-only, exactly
 like the composer draft; the draft has never been persisted either.
 
-### A30. A role-play scene freezes its persona, and its helpers attach to the file capability
+### A30. A role-play scene freezes its persona, and its helpers live in the workshop
 
 `conversations.rpSnapshotJson` (schema v27) holds the assistant prompt, display
 name and card copied when a scene is created. The projection reads the snapshot
@@ -537,11 +537,15 @@ undone:
 `rp_format` and `rp_validate` (`core/engine/.../roleplay/RoleplayTools.kt`) are
 authoring helpers, not selectable capabilities:
 
-- They are appended **after** the allow-list, like `recall`, only when the
-  conversation already has workspace file tools. `rp_validate` additionally
-  requires `read_file` or `list_files`: it must not become a read path the user
-  did not grant. A pure scene (`tools = []`) keeps its empty tool set — the
-  create path and `RoleplayToolsPlanTest` pin that.
+- They are appended **after** the allow-list, like `recall`, but only in a
+  conversation whose workspace is the built-in RP workshop
+  (`WorkspaceKinds.ROLEPLAY`, A31) and which is **not** itself a role-play
+  scene. An ordinary workspace gets no role-play tooling, even with file tools;
+  a scene keeps its explicit empty tool set. `RoleplayToolsPlanTest` pins the
+  truth table.
+- `rp_validate` additionally requires `read_file` or `list_files`: it must not
+  become a read path the user did not grant. `rp_format` is constant text and
+  `rp_create_scene` only previews data, so neither needs a capability.
 - The validator resolves through `SessionWorkspace` and reports field names,
   lengths, JSON types and unknown-field warnings. It must not quote the file's
   prose; that would be a second read tool with different permission rules. Its
@@ -554,6 +558,48 @@ authoring helpers, not selectable capabilities:
   would turn an infrastructural helper into a capability row the user is asked
   to grant, which is the "greyed row" `docs/08-port-philosophy.md` §1.2.1
   refuses in spirit: there is nothing there to grant or refuse.
+- **The reload button has a condition.** `ChatViewModel.reloadRoleplayPersona`
+  copies the live assistant's card into the snapshot. A scene created from a
+  workspace folder or from an inline card has no live card; the dialog hides the
+  button (`roleplayReloadable`) instead of letting it empty the frozen persona,
+  and the method refuses as well. This also covers folder scenes that existed
+  before the guard.
+
+### A31. The RP workshop is a workspace kind, not a permission level
+
+`workspaces.kind` (schema v28) is a **data attribute**, like `isPermanent`. It
+exists so the role-play authoring surface has one home instead of a per-assistant
+switch on every conversation. Four rules make that safe, and each is a bug if
+undone:
+
+- **The kind gates only capability-free helpers.** In a non-scene conversation
+  whose workspace is the workshop, the host appends `rp_format`, `rp_validate`
+  (only where a read tool already exists) and `rp_create_scene` (A30). None of
+  them reads outside the workspace, reaches the network, executes anything, or
+  writes app state. Capability-bearing tools still come from the assistant and
+  the conversation's own `toolsJson`; the kind adds none.
+- **The model cannot enter, create or mark a workshop.** There is no tool that
+  creates a workspace or changes its kind. Entering the workshop is a user
+  gesture (the home entry or a Create-sheet choice), so there is no
+  "convince the model to give you more" path — the thing
+  `docs/08-port-philosophy.md` §1.1 warns about. The same entry is the only
+  writer of the roleplay row (`ConversationRepository.ensureWorkshop`).
+- **A scene says so in its tool list, and the proposal creates nothing.** The
+  scene-proposal tool returns data only; the conversation is created by the
+  user's tap through `RoleplaySceneCreator` (the same writer the New-scene
+  dialog uses), with `tools = emptyList()` (stored `"[]"`), the persona frozen
+  and the greeting in the same transaction. A proposed-but-untapped card leaves
+  no database row and no workspace behind. Never let the tool call
+  `repository.create` itself: that would be the first tool writing app state,
+  and it would need a new invariant decision.
+- **A scene created from the workshop binds the workshop workspace.** The
+  permanent workspace is where the materials and the transcripts live, so
+  deleting the scene does not delete the cards; deleting the workspace itself is
+  still refused while any conversation uses it.
+- **The helper set is not a mode.** There is no global switch, no approval row
+  and no picker entry; a workspace either has the kind or it does not. Ordinary
+  workspaces lose `rp_format`/`rp_validate` by design — that is the management
+  shape, not a removal of a capability (the helpers never were one).
 
 ---
 
