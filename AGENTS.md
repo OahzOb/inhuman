@@ -21,7 +21,7 @@ than implementation; the old feasibility studies are archived under
 | `docs/05-files-sandbox.md` | The sandbox, quotas, the file and document tools, import/export, the design layer |
 | `docs/06-agent-loop-ui.md` | The turn lifecycle, the approval gate, cancellation, the context gauge, continuous-session projection and read-only record recall, layout |
 | `docs/07-gotchas.md` | The load-bearing invariants, the current defects, and comments that contradict the code |
-| `docs/08-port-philosophy.md` | **Why** the runtime is ported, which options the project refuses to have, the seven design questions, the paid-disclosure rule (§1.4), and the SSH, URL-download and local-page-fetch exceptions (§1.2.1/§1.5/§1.6/§1.7) |
+| `docs/08-port-philosophy.md` | **Why** the runtime is ported, which options the project refuses to have, the seven design questions, the paid-disclosure rule (§1.4), the authoring principle (§1.8: content may be authored, behaviour may not), and the SSH, URL-download and local-page-fetch exceptions (§1.2.1/§1.5/§1.6/§1.7) |
 | `docs/09-approvals.md` | The approval model: why the default is no prompts at all, how per-tool, per-assistant and per-path rules compose, and what of it is built |
 | `docs/10-diagnostics.md` | The flight recorder: what is logged, what is deliberately not, where the file lives and how to share it |
 | `docs/11-conversation-tools.md` | The conversation-level tool sheet: who may change it, the assistant ceiling, when it applies, and why it is not a new SSH exception |
@@ -110,6 +110,17 @@ multi-character scenes (several calls per turn, `messages.speakerId`) are a
 separate design that answers `docs/08-port-philosophy.md` Q4. A greeting is a
 real assistant row and the request's wire-only start line must stay wire-only;
 see `docs/07-gotchas.md` A26.
+
+**The agent authors content, never behaviour.** It may draft and rehearse
+prompts, cards, scenes, world-book entries, saved prompts and a permanent
+workspace's root `AGENTS.md`; tool selection, provider/model, sampling and
+approval rules are only suggestions and never enter a proposal; how tools run,
+the sandbox, permissions, grants, keys and global settings are untouchable. A
+rehearsal is bounded, ephemeral and tool-free (stubs only), it grants nothing,
+and it proves only "these cases did not fail". The user's tap is the only writer.
+Do not add a tool that writes a prompt, card, scene or `AGENTS.md`; do not
+rehearse with real tools. `docs/08-port-philosophy.md` §1.8 (mechanism not built
+yet), `docs/13-product.md` #13.
 
 **Safety here comes from structure, not from prompts.** The agent can only see
 and change the workspace the conversation is attached to, and what the user

@@ -697,6 +697,18 @@ which this setup does not use.
   platform credential store, are absent from backups, and can be forgotten in
   Settings; the model must opt in with `useSavedHost` and explicit connection
   details still win. There is no host list, allowlist or multi-host switching.
+- **Agent-authored configuration is a principle, and it is not implemented yet.**
+  A user cannot be expected to write a system prompt or configure cards, scenes
+  and world books, so the agent drafts that **content**, runs it against cases in
+  an isolated, zero-capability rehearsal (ephemeral draft, stub tools, one
+  request budget), revises it, and hands over a proposal that has already run;
+  the user supplies what it cannot know, authorizes the budget and taps Save.
+  Content is authorable, behaviour is not: tool, model, sampling and approval
+  choices are only suggestions, and runtime, permissions, grants, keys and
+  global settings are untouchable. A rehearsal proves "these cases did not fail",
+  never "this is good". See
+  [docs/08-port-philosophy.md](docs/08-port-philosophy.md) §1.8 and
+  [docs/proposals/authoring-rehearsal.md](docs/proposals/authoring-rehearsal.md).
 
 ## Licensing
 
