@@ -927,8 +927,9 @@ last body is kept in `ChatViewModel.wire` in memory. It shows:
 
 - request parameters (`model`, `stream`, `thinking`, `reasoning_effort`,
   `stream_options`, `user_id`);
-- the composed system message split into assistant prompt, compaction summary
-  and workspace instructions;
+- the composed system message split into assistant prompt, workshop context
+  (only in a workshop conversation), compaction summary and workspace
+  instructions;
 - tool names, descriptions, typed parameter tables and an optional raw schema;
 - numbered messages with role, text, `content: null`, `reasoning_content`,
   `tool_calls` (call id, name, parsed fields, raw arguments) and linked
@@ -998,6 +999,27 @@ pin and is the only way an edit reaches an existing conversation. It changes the
 system message, so the next request is one deliberate cold start
 ([03-ai-provider.md](03-ai-provider.md)); an edit alone now costs nothing in the
 conversation where it was made, and a new conversation is cold anyway.
+
+### Workshop context
+
+A non-scene conversation in the RP workshop or the configuration workshop gets
+one more system paragraph, written by the host: `Workshop context: this
+conversation runs in the user's RP workshop...` or `...configuration
+workshop...`. It explains what the host-appended helpers mean, because a fresh
+workshop has no `AGENTS.md` and the tools' own descriptions do not say what
+situation the conversation is in -- a model in the RP workshop can otherwise
+start narrating a scene that does not exist, and one in the configuration
+workshop can announce a change nobody saved.
+
+`WorkshopPrompt.kt` derives it from `workspaces.kind` and the conversation's
+scene state (`roleplayActive`); a scene gets none, because it has its own
+role-play prompt and the workshop is not a mode it can switch back into. The
+text is the same on every turn, so it needs no pin and does not move the cache
+prefix; it is appended after the assistant prompt and the continuous-session
+instruction, before the compaction summary and the `AGENTS.md` block. It is
+content, not capability: it cannot add a tool, an approval or a grant
+(`docs/07-gotchas.md` A31/A32). The wire inspector labels it **Workshop
+context** and splits it away from the prompt, the summary and the file block.
 
 ### The approval dialog
 
@@ -1172,8 +1194,9 @@ projection can replace older complete turns with a model-written summary:
   turns. A tool call and its results are never split.
 - **The wire gets a system summary plus the suffix.** `buildWireHistory` checks
   that `throughMessageId` is still on the active path; if it is not, the full
-  history is sent. The assistant prompt, the summary and the workspace
-  instructions are combined into the first system message.
+  history is sent. The assistant prompt, the workshop context (in a workshop),
+  the summary and the workspace instructions are combined into the first system
+  message.
 - **Failure is a no-op.** No key, timeout, provider failure, blank summary or a
   changed transcript leaves the previous projection intact and reports the cause.
   Demo mode uses `demoCompactionSummary`, a deterministic list of questions and

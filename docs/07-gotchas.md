@@ -600,6 +600,16 @@ undone:
   and no picker entry; a workspace either has the kind or it does not. Ordinary
   workspaces lose `rp_format`/`rp_validate` by design — that is the management
   shape, not a removal of a capability (the helpers never were one).
+- **The workshop says where it is.** A non-scene conversation in the workshop
+  gets a host-written `Workshop context:` paragraph in the system message
+  (`WorkshopPrompt.kt`), derived from `workspaces.kind` and the conversation's
+  scene state. A fresh workshop has no `AGENTS.md`, and the helpers' own
+  descriptions do not say which situation the conversation is in: without the
+  sentence a model starts narrating a scene that does not exist. The text is
+  identical on every turn, so it is not pinned and does not move the cache
+  prefix; a scene gets none, because its role-play prompt already describes the
+  story. It is content-only: it cannot add a tool, change an approval or grant
+  SSH. `WorkshopPromptTest` and the wire-split tests pin it.
 
 ### A32. The configuration workshop drafts configuration; it never writes it
 
@@ -645,6 +655,14 @@ had, and Save there is the only write.
   and a role-play scene gets none of the helpers (`planStudioHelpers`). The model
   cannot create, enter or retag a workspace — the home entry is the only writer
   of the studio row, exactly as with the RP workshop.
+- **The workshop says where it is, and that a draft is not a change.** The same
+  host-written `Workshop context:` paragraph (A31, `WorkshopPrompt.kt`) tells a
+  configuration-workshop conversation that the host lets it read assistant
+  content and `AGENTS.md` and prepare drafts, that a draft's card only opens the
+  user's editor, and that it cannot change tools/approvals/SSH/downloads/
+  providers or read the saved-prompt library. Derived from `workspaces.kind`
+  alone, so it is deterministic and needs no pin; content, not capability, and
+  the helpers themselves are attached by the same kind check in `buildTools`.
 
 ---
 

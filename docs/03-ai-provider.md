@@ -286,8 +286,21 @@ block, and the app does not claim either as a guarantee. The old units are not
 deleted: the requests after the reload rebuild against the new prompt. The turn's
 usage line is where the reload's cost becomes visible.
 
-**Time hints are derived, so they do not move between turns.** When the setting
-is on, `buildWireHistory` prefixes qualifying user messages with the time they
+**Workshop context is derived, so it does not move either.** A non-scene
+conversation in the RP workshop or the configuration workshop gets a
+host-written `Workshop context:` paragraph in the system message, after the
+assistant prompt (and the continuous-session instruction) and before the
+summary and the pinned `AGENTS.md` block. It says which workshop this is and
+what the host-appended helpers mean -- "the RP workshop, not a scene, and a
+scene proposal creates nothing until the user taps" or "the configuration
+workshop, a draft is not a change, and these capabilities cannot be changed
+here". The text is computed from `workspaces.kind` alone, so it is identical on
+every turn and costs no extra cold request; it exists because a fresh workshop
+has no `AGENTS.md`, and the attached helpers by themselves do not say what
+situation the conversation is in. It is content, not capability: it cannot add
+a tool, an approval or a grant, and `docs/07-gotchas.md` A31/A32 says why.
+
+**Time hints are derived, so they do not move between turns.** When the settingis on, `buildWireHistory` prefixes qualifying user messages with the time they
 were sent (`docs/06`, "Time hints on the wire"). The prefix comes from
 `messages.createdAt`, not from the clock, so the same row renders the same bytes
 on every later request and the cache prefix still hits; only the message being

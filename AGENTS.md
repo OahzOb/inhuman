@@ -636,7 +636,7 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   `tools = "[]"`, the frozen snapshot, the greeting, the current conversation's
   model, and the workshop as its permanent workspace. A proposal that is never
   tapped leaves no row and no file. `docs/07-gotchas.md` A31 is the invariant;
-  ordinary workspaces losing the RP helpers is the deliberate management shape.
+  a host-written `Workshop context` block tells the model where it is.
 - **The configuration workshop drafts configuration; it never writes it.** The
   second built-in permanent workspace has `workspaces.kind = "studio"` (same v28
   column), created lazily by its Home row or the Create sheet
@@ -653,8 +653,9 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   only write. A proposal carries no tool/provider/model/approval field; a
   workspace is carried by display name, never its directory id; the saved-prompt
   library stays invisible; a saved `AGENTS.md` keeps the normal pin rule. Do not
-  add an "apply" tool: a tool that writes configuration is a category change.
-  `docs/07-gotchas.md` A32 is the invariant.
+  add an "apply" tool: writing configuration is a category change.
+  `docs/07-gotchas.md` A32 is the invariant; the same `Workshop context` block
+  says a draft is not a change.
 - **A role-play reply is painted, not rewritten.** In a scene (a conversation
   whose assistant has a card, or a scene with a snapshot) assistant text goes
   through `RoleplayText` (`app/.../ui/chat/RoleplayText.kt`) instead of the

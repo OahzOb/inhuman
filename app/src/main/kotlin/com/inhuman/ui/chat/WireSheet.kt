@@ -141,37 +141,44 @@ private const val SUMMARY_MARKER =
 /**
  * Split the composed system message for the inspector.
  *
- * The order is assistant prompt, compaction summary, workspace instructions;
- * each is optional. The workspace block is found by its own marker so a
- * summary marker inside the file's text cannot make the block look like part of
- * the summary.
+ * The order is assistant prompt, workshop context, compaction summary, workspace
+ * instructions; each is optional. Each block is found by its own marker, and a
+ * marker is only accepted in the region before the next structural block -- a
+ * summary sentence inside the `AGENTS.md` text must not make that file look like
+ * the summary, and a "Workshop context:" line inside the file must not become a
+ * separate segment.
  */
 internal fun splitSystem(content: String): List<Pair<String, String>> {
 	val workspaceAt = content.indexOf(WORKSPACE_INSTRUCTIONS_MARKER)
-	val summaryAt = content.indexOf(SUMMARY_MARKER).takeIf {
-		it >= 0 && (workspaceAt < 0 || it < workspaceAt)
-	} ?: -1
-	return when {
-		summaryAt < 0 && workspaceAt < 0 -> listOf("System message" to content)
-		summaryAt < 0 -> buildList {
-			val prompt = content.substring(0, workspaceAt).trim()
-			if (prompt.isNotEmpty()) add("Assistant prompt" to prompt)
-			add("Workspace instructions (AGENTS.md)" to content.substring(workspaceAt).trim())
+	val summaryLimit = if (workspaceAt >= 0) workspaceAt else content.length
+	val summaryAt = content.indexOf(SUMMARY_MARKER).takeIf { it in 0 until summaryLimit } ?: -1
+	val workshopLimit = listOf(summaryAt, workspaceAt).filter { it >= 0 }.minOrNull()
+		?: content.length
+	val workshopAt = content.indexOf(WORKSHOP_PROMPT_MARKER)
+		.takeIf { it in 0 until workshopLimit } ?: -1
+
+	// Offset is how much of the marker line to drop from the rendered text: the
+	// workspace header is informative and stays; the summary marker is a
+	// sentence and the workshop marker is a label, so both are removed.
+	val markers = buildList {
+		if (workshopAt >= 0) {
+			add(Triple(workshopAt, WORKSHOP_PROMPT_MARKER.length, "Workshop context"))
 		}
-		workspaceAt < 0 -> buildList {
-			val prompt = content.substring(0, summaryAt).trim()
-			if (prompt.isNotEmpty()) add("Assistant prompt" to prompt)
-			add("Earlier conversation summary" to content.substring(summaryAt + SUMMARY_MARKER.length).trim())
+		if (summaryAt >= 0) {
+			add(Triple(summaryAt, SUMMARY_MARKER.length, "Earlier conversation summary"))
 		}
-		else -> buildList {
-			val prompt = content.substring(0, summaryAt).trim()
-			if (prompt.isNotEmpty()) add("Assistant prompt" to prompt)
-			add(
-				"Earlier conversation summary" to content
-					.substring(summaryAt + SUMMARY_MARKER.length, workspaceAt)
-					.trim(),
-			)
-			add("Workspace instructions (AGENTS.md)" to content.substring(workspaceAt).trim())
+		if (workspaceAt >= 0) {
+			add(Triple(workspaceAt, 0, "Workspace instructions (AGENTS.md)"))
+		}
+	}.sortedBy { it.first }
+	if (markers.isEmpty()) return listOf("System message" to content)
+
+	return buildList {
+		val prompt = content.substring(0, markers.first().first).trim()
+		if (prompt.isNotEmpty()) add("Assistant prompt" to prompt)
+		markers.forEachIndexed { index, marker ->
+			val end = markers.getOrNull(index + 1)?.first ?: content.length
+			add(marker.third to content.substring(marker.first + marker.second, end).trim())
 		}
 	}
 }

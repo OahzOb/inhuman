@@ -478,12 +478,23 @@ class ChatViewModel(
 	}
 
 	private var conversation: ConversationEntity? = null
+
 	/** The provider profile this conversation copied at creation. */
 	private var providerId: String = com.inhuman.core.data.db.ProviderIds.DEEPSEEK
 	private var providerName: String = "DeepSeek"
 	private var providerKind: String? = null
 	private var providerBaseUrl: String? = null
 	private var workspaceId: String? = null
+	/**
+	 * The workspace's kind, for the workshop-context paragraph in the system
+	 * message.
+	 *
+	 * Not a permission: it only selects which sentence the host writes, and it
+	 * is the same value [buildTools] reads to decide which helpers exist. Cached
+	 * because [buildWireHistory] is not a coroutine and is also used for the
+	 * request preview; set by [reload], which already reads the workspace row.
+	 */
+	private var workspaceKind: String? = null
 
 	/** The one scene-creation path shared with the New-scene dialog. */
 	private val sceneCreator by lazy { RoleplaySceneCreator(repository) }
@@ -2524,6 +2535,10 @@ class ChatViewModel(
 				.onFailure { Diag.w("workspace", "workspace lookup failed", it) }
 				.getOrNull()
 		}
+		// The workshop sentence is derived from this, and buildTools reads the
+		// same value for the helper set, so the two cannot disagree about which
+		// workshop the conversation is in.
+		workspaceKind = workspace?.kind
 		val workspaceConversations = loaded?.entity?.let { entity ->
 			runCatching { repository.workspaceConversationCount(entity.workspaceId) }
 				.getOrDefault(1)
@@ -6441,12 +6456,11 @@ class ChatViewModel(
 		// its empty tool set. The rule is a pure function so it can be tested
 		// without a view model.
 		//
-		// The kind is read from the workspace row, never from the conversation:
+		// The kind is read once per conversation by reload() into [workspaceKind]:
 		// no tool can create, enter or retag a workspace, so a model cannot talk
-		// itself into either workshop (`docs/07-gotchas.md` A31/A32).
-		val workspaceKind = runCatching {
-			repository.workspaceRecord(entity.workspaceId)?.kind
-		}.getOrNull()
+		// itself into either workshop (`docs/07-gotchas.md` A31/A32). The same
+		// value writes the workshop-context paragraph, so the helpers and the
+		// sentence that explains them cannot disagree.
 		val roleplayActive = roleplayCard() != null || roleplayScene() != null
 		val roleplayHelpers = planRoleplayHelpers(
 			workshop = workspaceKind == WorkspaceKinds.ROLEPLAY,
@@ -7269,6 +7283,16 @@ class ChatViewModel(
 		// scene) reads the live row, exactly as it did before snapshots existed.
 		val persona = roleplayPersona()
 		val card = persona.card
+		// The workshop helpers are attached structurally, but a fresh workshop
+		// has no AGENTS.md and no card, so without a sentence the model cannot
+		// tell "the RP workshop, with no scene yet" from an ordinary chat with a
+		// few authoring tools -- and it may narrate a scene or announce a config
+		// change that does not exist. Derived from the kind alone, so it is the
+		// same text on every turn and the cache prefix does not move.
+		val workshopBlock = workshopPrompt(
+			kind = workspaceKind,
+			roleplayActive = card != null || scene != null,
+		)
 		val system = buildString {
 			persona.systemPrompt.takeIf { it.isNotBlank() }?.let { append(it) }
 			if (card != null) {
@@ -7288,6 +7312,10 @@ class ChatViewModel(
 						CONTINUOUS_SESSION_INSTRUCTION
 					},
 				)
+			}
+			if (workshopBlock != null) {
+				if (isNotEmpty()) append("\n\n")
+				append(workshopBlock)
 			}
 			if (activeSummary != null) {
 				if (isNotEmpty()) append("\n\n")
