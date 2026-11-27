@@ -12,7 +12,7 @@ import com.inhuman.ui.documents.AndroidPdfBackend
 import com.inhuman.ui.ssh.SshHostStore
 import com.inhuman.ui.ssh.toSummary
 import com.inhuman.updates.ConversationUploader
-import com.inhuman.updates.normalizeServerUrl
+import com.inhuman.updates.loadServerEndpoints
 import com.inhuman.R
 import com.inhuman.TurnNotifications
 import com.inhuman.TurnStatus
@@ -2280,9 +2280,15 @@ class ChatViewModel(
 			runCatching { renderConversationMarkdown(includeToolResults) }
 		}
 
-	/** The normalized base URL for a conversation upload, or null when unset. */
-	fun conversationUploadTarget(): String? =
-		normalizeServerUrl(secure.get(SecureStore.KEY_LOCAL_SERVER_URL).orEmpty())
+	/**
+	 * The normalized upload server for a conversation upload, or null when unset.
+	 *
+	 * This is the **upload** address, not the update one: the useful deployment
+	 * sends updates from the public release feed and transcripts to a dev
+	 * server on the LAN/Tailscale, and the feeds have no `/conversation`
+	 * endpoint.
+	 */
+	fun conversationUploadTarget(): String? = loadServerEndpoints(secure).uploadBaseUrl
 
 	/**
 	 * Upload one transcript to `POST /conversation`.

@@ -50,9 +50,11 @@ import com.inhuman.ui.settings.buildUsageReport
 import com.inhuman.updates.UpdateInfo
 import com.inhuman.updates.UpdateInstaller
 import com.inhuman.updates.isNewerVersion
+import com.inhuman.updates.loadServerEndpoints
 import com.inhuman.updates.logUploadUrl
 import com.inhuman.updates.normalizeServerUrl
 import com.inhuman.updates.parseUpdateInfo
+import com.inhuman.updates.storeServerUrl
 import com.inhuman.updates.updateManifestUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -297,8 +299,15 @@ data class SettingsUiState(
 	val knownHosts: List<KnownHost> = emptyList(),
 	/** Result of the last forget action, shown in the host-key dialog. */
 	val knownHostsStatus: String? = null,
-	/** LAN/Tailscale base URL used by both the updater and the log upload. */
-	val localServerUrl: String = "",
+	/** Base URL for update checks. The upload server is a separate setting. */
+	val updateServerUrl: String = "",
+	/**
+	 * Base URL for log and conversation uploads.
+	 *
+	 * A LAN/Tailscale dev server in the useful deployment, while updates come
+	 * from the public release feed; the two are deliberately independent.
+	 */
+	val uploadServerUrl: String = "",
 	val currentVersionName: String = "",
 	val currentVersionCode: Long = 0,
 	val updateChecking: Boolean = false,
@@ -458,6 +467,10 @@ class SettingsViewModel(
 		val packageInfo = runCatching {
 			context.packageManager.getPackageInfo(context.packageName, 0)
 		}.getOrNull()
+		// An upgraded install may still have the single pre-split address; this
+		// read migrates it (and removes the legacy key) before the screen shows
+		// either field.
+		val servers = loadServerEndpoints(secure)
 		_state.value = SettingsUiState(
 			demoMode = secure.get(SecureStore.KEY_DEMO_MODE) == "1",
 			suggestionsEnabled = secure.get(SecureStore.KEY_SUGGESTIONS_ENABLED) == "1",
@@ -509,7 +522,8 @@ class SettingsViewModel(
 			backupReminderDays = BackupReminderPolicy.normalizePeriod(
 				secure.get(SecureStore.KEY_BACKUP_REMINDER_DAYS)?.toIntOrNull(),
 			),
-			localServerUrl = secure.get(SecureStore.KEY_LOCAL_SERVER_URL).orEmpty(),
+			updateServerUrl = servers.updateBaseUrl.orEmpty(),
+			uploadServerUrl = servers.uploadBaseUrl.orEmpty(),
 			currentVersionName = packageInfo?.versionName ?: "?",
 			currentVersionCode = packageInfo?.longVersionCode ?: 0L,
 			recordingActive = AppDiagnostics.recordingActive(),
@@ -575,44 +589,58 @@ class SettingsViewModel(
 		)
 	}
 
-	// ## Local update / log server
+	// ## Update server and upload server
 	//
-	// Both actions are explicit user gestures. There is no background polling
-	// and no automatic upload, and the agent has no path to either URL. The
-	// URL is kept in SecureStore for the same reason the other app-wide
-	// settings are: there is no second settings store, and the value is small.
+	// Two independent addresses, because the useful deployment is two servers:
+	// updates from the public release feed (or any HTTPS mirror), logs and
+	// conversations to a dev server on the LAN or Tailscale. Both actions are
+	// explicit user gestures -- no background polling, no automatic upload --
+	// and the agent has no path to either URL. The addresses are kept in
+	// SecureStore for the same reason the other app-wide settings are: there is
+	// no second settings store, and the values are small.
 
-	fun onLocalServerUrlChange(value: String) {
-		_state.value = _state.value.copy(localServerUrl = value)
-		// Keep the store in step with the edit. Uploading a conversation from
-		// the chat screen reads SecureStore directly: waiting for a Settings
-		// action to persist the URL made a fully typed address look unset there
-		// until the user happened to press Check for updates or Upload log.
-		// An invalid/cleared field removes the old value rather than leaving a
-		// hidden target behind the visible one.
-		val normalized = normalizeServerUrl(value)
-		if (normalized != null) {
-			secure.put(SecureStore.KEY_LOCAL_SERVER_URL, normalized)
-		} else {
-			secure.remove(SecureStore.KEY_LOCAL_SERVER_URL)
-		}
+	fun onUpdateServerUrlChange(value: String) {
+		_state.value = _state.value.copy(updateServerUrl = value)
+		// Keep the store in step with the edit. The updater reads this value
+		// when the action runs; waiting for a button press to persist made a
+		// fully typed address look unset to the next screen. An invalid or
+		// cleared field removes the stored value rather than leaving a hidden
+		// target behind the visible one.
+		storeServerUrl(secure, SecureStore.KEY_UPDATE_SERVER_URL, value)
+	}
+
+	fun onUploadServerUrlChange(value: String) {
+		_state.value = _state.value.copy(uploadServerUrl = value)
+		// Same rule for the upload address, which the chat's conversation upload
+		// reads directly from SecureStore.
+		storeServerUrl(secure, SecureStore.KEY_UPLOAD_SERVER_URL, value)
 	}
 
 	/**
-	 * The normalized base URL, persisted the first time an action uses it.
+	 * The normalized update address, persisted the first time an action uses it.
 	 *
 	 * Returning null means the field is not a usable URL. The caller decides
 	 * which status line to show.
 	 */
-	private fun requireServerUrl(): String? {
-		val normalized = normalizeServerUrl(_state.value.localServerUrl) ?: return null
+	private fun requireUpdateServerUrl(): String? {
+		val normalized = normalizeServerUrl(_state.value.updateServerUrl) ?: return null
 		// Write on every action, not only when the trailing slash changed. The
 		// previous version persisted only when normalization altered the text,
 		// so a perfectly typed URL was used for that check and then forgotten on
 		// the next process start.
-		secure.put(SecureStore.KEY_LOCAL_SERVER_URL, normalized)
-		if (normalized != _state.value.localServerUrl) {
-			_state.value = _state.value.copy(localServerUrl = normalized)
+		secure.put(SecureStore.KEY_UPDATE_SERVER_URL, normalized)
+		if (normalized != _state.value.updateServerUrl) {
+			_state.value = _state.value.copy(updateServerUrl = normalized)
+		}
+		return normalized
+	}
+
+	/** The normalized upload address, persisted the first time an action uses it. */
+	private fun requireUploadServerUrl(): String? {
+		val normalized = normalizeServerUrl(_state.value.uploadServerUrl) ?: return null
+		secure.put(SecureStore.KEY_UPLOAD_SERVER_URL, normalized)
+		if (normalized != _state.value.uploadServerUrl) {
+			_state.value = _state.value.copy(uploadServerUrl = normalized)
 		}
 		return normalized
 	}
@@ -629,7 +657,7 @@ class SettingsViewModel(
 
 	fun checkForUpdates() {
 		if (_state.value.updateChecking) return
-		val base = requireServerUrl()
+		val base = requireUpdateServerUrl()
 		if (base == null) {
 			_state.value = _state.value.copy(
 				updateStatus = context.getString(R.string.settings_local_invalid),
@@ -974,7 +1002,7 @@ class SettingsViewModel(
 			)
 			return
 		}
-		val base = requireServerUrl()
+		val base = requireUploadServerUrl()
 		if (base == null) {
 			_state.value = _state.value.copy(
 				logUploadStatus = context.getString(R.string.settings_log_no_server),

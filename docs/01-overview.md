@@ -305,12 +305,15 @@ Confirmed by `README.md:17-29` and by the code:
   for one **Undo last import**.
 - A local diagnostic log records turns, tool calls, HTTP failures and crashes;
   Settings → Diagnostics can show its size, share it or clear it, and
-  **Upload log** sits in Settings → Updates and logs beside the server URL
-  ([10-diagnostics.md](10-diagnostics.md)).
-- The Android app can check a user-run LAN/Tailscale server for an update,
-  verify the APK's hash, package, version and signing certificate, then hand it
-  to `PackageInstaller`; the system still asks before installing. The same
-  server can receive an explicit **Upload log** POST from Updates and logs.
+  **Upload log** sits in Settings → Updates and uploads beside the upload server
+  address ([10-diagnostics.md](10-diagnostics.md)).
+- The app keeps **two independent server addresses**. The **update server** can
+  be one of the built-in GitHub Releases feeds or a LAN/Tailscale server; the app
+  checks its `update.json`, verifies the APK's hash, package, version and signing
+  certificate, then hands it to `PackageInstaller`; the system still asks before
+  installing. The **upload server** is separate and receives the explicit
+  **Upload log** and conversation POSTs; a release feed has no `/log` endpoint,
+  which is why the two are not one field.
 
 Phases 0–5 in `README.md:17-24` are all marked done. Work since then has been
 incremental and is visible in `git log`.

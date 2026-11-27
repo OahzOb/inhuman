@@ -1390,7 +1390,8 @@ fun SettingsScreen(
 				summary = stringResource(R.string.settings_local_summary),
 			) {
 				LocalNetworkSection(
-					serverUrl = state.localServerUrl,
+					updateServerUrl = state.updateServerUrl,
+					uploadServerUrl = state.uploadServerUrl,
 					currentVersionName = state.currentVersionName,
 					currentVersionCode = state.currentVersionCode,
 					checking = state.updateChecking,
@@ -1405,7 +1406,8 @@ fun SettingsScreen(
 					logStatusIsError = state.logUploadStatusIsError,
 					recordingActive = state.recordingActive,
 					recordingBytes = state.recordingBytes,
-					onServerUrlChange = viewModel::onLocalServerUrlChange,
+					onUpdateServerUrlChange = viewModel::onUpdateServerUrlChange,
+					onUploadServerUrlChange = viewModel::onUploadServerUrlChange,
 					onCheck = viewModel::checkForUpdates,
 					onDownload = viewModel::downloadUpdate,
 					onInstall = viewModel::installUpdate,
@@ -3054,7 +3056,8 @@ private fun updatePresetLabel(url: String): Int = when {
 
 @Composable
 private fun LocalNetworkSection(
-	serverUrl: String,
+	updateServerUrl: String,
+	uploadServerUrl: String,
 	currentVersionName: String,
 	currentVersionCode: Long,
 	checking: Boolean,
@@ -3069,7 +3072,8 @@ private fun LocalNetworkSection(
 	logStatusIsError: Boolean,
 	recordingActive: Boolean,
 	recordingBytes: Long,
-	onServerUrlChange: (String) -> Unit,
+	onUpdateServerUrlChange: (String) -> Unit,
+	onUploadServerUrlChange: (String) -> Unit,
 	onCheck: () -> Unit,
 	onDownload: () -> Unit,
 	onInstall: () -> Unit,
@@ -3092,16 +3096,17 @@ private fun LocalNetworkSection(
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 		OutlinedTextField(
-			value = serverUrl,
-			onValueChange = onServerUrlChange,
-			label = { Text(stringResource(R.string.settings_local_url)) },
-			placeholder = { Text(stringResource(R.string.settings_local_url_hint)) },
+			value = updateServerUrl,
+			onValueChange = onUpdateServerUrlChange,
+			label = { Text(stringResource(R.string.settings_update_server)) },
+			placeholder = { Text(stringResource(R.string.settings_update_server_hint)) },
 			singleLine = true,
 			modifier = Modifier.fillMaxWidth(),
 		)
 		// One tap instead of typing a 70+ character URL. Choosing a chip is
-		// exactly "set this server address": it writes the same field the user
-		// could type, and the field stays visible and editable afterwards.
+		// exactly "set the update address": it writes the same field the user
+		// could type, and the field stays visible and editable afterwards. It
+		// deliberately does not touch the upload address.
 		Text(
 			text = stringResource(R.string.settings_update_presets),
 			style = MaterialTheme.typography.labelSmall,
@@ -3110,8 +3115,8 @@ private fun LocalNetworkSection(
 		FlowRowCompat {
 			BUILT_IN_UPDATE_URLS.forEach { url ->
 				FilterChip(
-					selected = serverUrl.trimEnd('/') == url,
-					onClick = { onServerUrlChange(url) },
+					selected = updateServerUrl.trimEnd('/') == url,
+					onClick = { onUpdateServerUrlChange(url) },
 					label = { Text(stringResource(updatePresetLabel(url))) },
 				)
 			}
@@ -3189,9 +3194,24 @@ private fun LocalNetworkSection(
 			}
 		}
 
-		// Uploading the log belongs here, not in Diagnostics: this section owns
-		// the server URL the upload uses, and the old split left the button in
-		// one fold and the address it needs in another.
+		// Uploading the log and uploading a conversation belong to the second
+		// address, not the update one: the public release feeds have no /log or
+		// /conversation endpoint. This section owns that address, which is why
+		// the button lives here rather than in Diagnostics.
+		HorizontalDivider(Modifier.padding(top = 4.dp))
+		OutlinedTextField(
+			value = uploadServerUrl,
+			onValueChange = onUploadServerUrlChange,
+			label = { Text(stringResource(R.string.settings_upload_server)) },
+			placeholder = { Text(stringResource(R.string.settings_upload_server_hint)) },
+			singleLine = true,
+			modifier = Modifier.fillMaxWidth(),
+		)
+		Text(
+			text = stringResource(R.string.settings_upload_note),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+		)
 		TextButton(
 			onClick = {
 				focus.clearFocus()

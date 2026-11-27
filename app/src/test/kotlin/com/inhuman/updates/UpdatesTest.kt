@@ -124,4 +124,69 @@ class UpdatesTest {
 			)
 		}
 	}
+
+	// ------------------------------------------------- update vs upload split
+
+	@Test
+	fun `the update and upload addresses are independent`() {
+		val feed = BUILT_IN_UPDATE_URLS.first()
+		val lan = "http://192.168.1.50:8787"
+		val endpoints = resolveServerEndpoints(
+			updateRaw = "$feed/",
+			uploadRaw = "$lan/",
+			legacyRaw = null,
+		)
+
+		assertEquals(feed, endpoints.updateBaseUrl)
+		assertEquals(lan, endpoints.uploadBaseUrl)
+	}
+
+	@Test
+	fun `a legacy release feed becomes the update address only`() {
+		val feed = BUILT_IN_UPDATE_URLS.first()
+		val endpoints = resolveServerEndpoints(
+			updateRaw = null,
+			uploadRaw = null,
+			legacyRaw = feed,
+		)
+
+		assertEquals(feed, endpoints.updateBaseUrl)
+		// The feeds have no /log or /conversation endpoint; carrying the feed
+		// into the upload field would turn every upload into a 404 that reads
+		// like a broken server.
+		assertNull(endpoints.uploadBaseUrl)
+	}
+
+	@Test
+	fun `a legacy LAN address becomes both servers`() {
+		val endpoints = resolveServerEndpoints(
+			updateRaw = null,
+			uploadRaw = null,
+			legacyRaw = "http://192.168.1.50:8787/",
+		)
+
+		assertEquals("http://192.168.1.50:8787", endpoints.updateBaseUrl)
+		assertEquals("http://192.168.1.50:8787", endpoints.uploadBaseUrl)
+	}
+
+	@Test
+	fun `a cleared field does not fall back to the legacy address`() {
+		val endpoints = resolveServerEndpoints(
+			updateRaw = "",
+			uploadRaw = "http://192.168.1.50:8787",
+			legacyRaw = "http://192.168.2.60:8787",
+		)
+
+		assertNull(endpoints.updateBaseUrl)
+		assertEquals("http://192.168.1.50:8787", endpoints.uploadBaseUrl)
+	}
+
+	@Test
+	fun `release feeds are recognised with or without a trailing slash`() {
+		for (url in BUILT_IN_UPDATE_URLS) {
+			assertTrue(url, isReleaseFeedUrl(url))
+			assertTrue(url, isReleaseFeedUrl("$url/"))
+			assertFalse(url, isReleaseFeedUrl("http://192.168.1.50:8787"))
+		}
+	}
 }

@@ -413,8 +413,8 @@
 	<string name="settings_third_party_notices">Third-party notices</string>
 	<string name="settings_third_party_missing">The notices file is missing from this build.</string>
 	<string name="settings_section_local">09 / Local</string>
-	<string name="settings_local_title">Updates and logs</string>
-	<string name="settings_local_summary">Check for updates and upload a log over LAN, Tailscale or a release server</string>
+	<string name="settings_local_title">Updates and uploads</string>
+	<string name="settings_local_summary">Check a release feed, and send logs or conversations to a LAN, Tailscale or your own server</string>
 	<string name="settings_section_display">10 / Display</string>
 	<string name="settings_display_title">Layout and palette</string>
 	<string name="settings_layout_auto">Auto: follow this window</string>
@@ -546,9 +546,12 @@
 	<string name="settings_clear_log_title">Clear the diagnostic log?</string>
 	<string name="settings_clear_log_body">The record of what happened will be deleted. Share it first if you are about to report a problem.</string>
 	<string name="settings_share_subject">inhuman diagnostics</string>
-	<string name="settings_local_body">Both actions use this one server. The built-in addresses point at the public release feed: they serve updates over HTTPS but have no /log endpoint, so log and conversation uploads need a LAN or Tailscale server.</string>
-	<string name="settings_local_url">Server URL</string>
-	<string name="settings_local_url_hint">http://192.168.1.50:8787</string>
+	<string name="settings_local_body">The update server and the upload server are two independent addresses. The built-in addresses are public release feeds: they serve updates over HTTPS but have no /log or /conversation endpoint. The upload server is your LAN/Tailscale dev server; log and conversation uploads both use it and never go to a release feed.</string>
+	<string name="settings_update_server">Update server</string>
+	<string name="settings_update_server_hint">https://github.com/... or http://192.168.1.50:8787</string>
+	<string name="settings_upload_server">Upload server (logs and conversations)</string>
+	<string name="settings_upload_server_hint">http://192.168.1.50:8787</string>
+	<string name="settings_upload_note">Log and conversation uploads both use this address; update checks use the address above.</string>
 	<string name="settings_update_presets">Built-in addresses (same release; the mirrors are usually faster from mainland China)</string>
 	<string name="settings_update_preset_github">GitHub</string>
 	<string name="settings_update_preset_mirror">gh-proxy.com</string>
@@ -573,7 +576,7 @@
 	<string name="settings_log_uploading">Uploading…</string>
 	<string name="settings_log_uploaded">Uploaded: %1$s</string>
 	<string name="settings_log_failed">Upload failed: %1$s</string>
-	<string name="settings_log_no_server">Set the server URL first.</string>
+	<string name="settings_log_no_server">Set the upload server URL first.</string>
 	<string name="settings_log_empty">There is no log to upload yet.</string>
 	<string name="settings_recording_title">Diagnostic recording</string>
 	<string name="settings_recording_body">Records the same diagnostic lines from the whole app -- chat, files, settings, network, scroll -- into a separate file, so one reproduction can be uploaded alone. The normal flight recorder keeps running; starting a new recording replaces the last one.</string>
@@ -998,7 +1001,7 @@
 	<string name="chat_upload_working">Uploading…</string>
 	<string name="chat_upload_ok">Uploaded: %1$s</string>
 	<string name="chat_upload_failed">Upload failed: %1$s</string>
-	<string name="chat_upload_no_server">Set the server URL in Settings → Local first.</string>
+	<string name="chat_upload_no_server">Set the upload server URL in Settings → 09 / Local first.</string>
 	<string name="chat_upload_streaming">Stop the reply before uploading the conversation.</string>
 	<string name="export_role_user">You</string>
 	<string name="export_role_assistant">Assistant</string>
@@ -1603,7 +1606,7 @@
 	<string name="settings_keywords_backup">backup encrypt import export sync folder passphrase restore undo</string>
 	<string name="settings_keywords_approvals">approval rules ask deny path audit</string>
 	<string name="settings_keywords_diagnostics">log diagnostics upload notices record</string>
-	<string name="settings_keywords_local">update server LAN Tailscale address check</string>
+	<string name="settings_keywords_local">update server upload log conversation GitHub release LAN Tailscale address check</string>
 	<string name="settings_keywords_display">layout compact comfortable font size display suggestions theme palette colour color dark light accent ember moss indigo plum surface graphite paper warm slate sepia</string>
 	<string name="settings_keywords_language">language Chinese English</string>
 	<string name="settings_keywords_time">time hint timezone gap</string>

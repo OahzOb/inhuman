@@ -397,8 +397,8 @@
 	<string name="settings_third_party_notices">第三方许可</string>
 	<string name="settings_third_party_missing">这个构建里缺少许可文件。</string>
 	<string name="settings_section_local">09 / 本地</string>
-	<string name="settings_local_title">更新与日志</string>
-	<string name="settings_local_summary">在局域网、Tailscale 或发布服务器上检查更新、上传日志</string>
+	<string name="settings_local_title">更新与上传</string>
+	<string name="settings_local_summary">从发布源检查更新，把日志或对话上传到局域网、Tailscale 或自建服务器</string>
 	<string name="settings_section_display">10 / 显示</string>
 	<string name="settings_display_title">布局与配色</string>
 	<string name="settings_layout_auto">自动：跟随当前窗口</string>
@@ -527,9 +527,12 @@
 	<string name="settings_clear_log_title">清除诊断日志？</string>
 	<string name="settings_clear_log_body">已有的记录会被删除。如果要报告问题，请先分享日志。</string>
 	<string name="settings_share_subject">inhuman 诊断</string>
-	<string name="settings_local_body">两个操作共用这个服务器地址。内置地址指向公开发布源：通过 HTTPS 提供更新，但没有 /log 端点，上传日志或对话需要局域网或 Tailscale 服务器。</string>
-	<string name="settings_local_url">服务器地址</string>
-	<string name="settings_local_url_hint">http://192.168.1.50:8787</string>
+	<string name="settings_local_body">更新服务器和上传服务器是两个独立地址。内置地址是公开的发布源：通过 HTTPS 提供更新，但没有 /log 或 /conversation 端点。上传服务器填局域网或 Tailscale 上的 dev-server，日志和对话上传都走它，永远不会发到发布源。</string>
+	<string name="settings_update_server">更新服务器</string>
+	<string name="settings_update_server_hint">https://github.com/... 或 http://192.168.1.50:8787</string>
+	<string name="settings_upload_server">上传服务器（日志与对话）</string>
+	<string name="settings_upload_server_hint">http://192.168.1.50:8787</string>
+	<string name="settings_upload_note">日志和对话上传都使用这个地址；更新检查使用上面的地址。</string>
 	<string name="settings_update_presets">内置地址（同一个 release；国内镜像通常更快）</string>
 	<string name="settings_update_preset_github">GitHub</string>
 	<string name="settings_update_preset_mirror">gh-proxy.com</string>
@@ -554,7 +557,7 @@
 	<string name="settings_log_uploading">上传中…</string>
 	<string name="settings_log_uploaded">已上传：%1$s</string>
 	<string name="settings_log_failed">上传失败：%1$s</string>
-	<string name="settings_log_no_server">请先设置服务器地址。</string>
+	<string name="settings_log_no_server">请先设置上传服务器地址。</string>
 	<string name="settings_log_empty">还没有可上传的日志。</string>
 	<string name="settings_recording_title">诊断记录</string>
 	<string name="settings_recording_body">记录这段时间内整个应用的诊断事件（对话、文件、设置、网络、滚动等），另存为一个文件，这样只上传一次复现的片段。正常日志仍在运行；开始新记录会替换上一段。</string>
@@ -975,7 +978,7 @@
 	<string name="chat_upload_working">正在上传…</string>
 	<string name="chat_upload_ok">已上传：%1$s</string>
 	<string name="chat_upload_failed">上传失败：%1$s</string>
-	<string name="chat_upload_no_server">请先在 设置 → 本地 中填写服务端地址。</string>
+	<string name="chat_upload_no_server">请先在 设置 → 09 / 本地 中填写上传服务器地址。</string>
 	<string name="chat_upload_streaming">请先停止回复再上传对话。</string>
 	<string name="export_role_user">你</string>
 	<string name="export_role_assistant">助手</string>
@@ -1574,7 +1577,7 @@
 	<string name="settings_keywords_backup">备份 加密 导入 导出 同步文件夹 口令 恢复 撤销</string>
 	<string name="settings_keywords_approvals">审批 规则 询问 拒绝 路径 审计</string>
 	<string name="settings_keywords_diagnostics">日志 诊断 上传 许可 记录</string>
-	<string name="settings_keywords_local">更新 服务器 局域网 Tailscale 地址 检查</string>
+	<string name="settings_keywords_local">更新 服务器 上传 日志 对话 GitHub 发布 局域网 Tailscale 地址 检查</string>
 	<string name="settings_keywords_display">布局 紧凑 舒适 字体 字号 显示 建议回复 配色 主题 颜色 深色 浅色 余烬 苔绿 靛蓝 紫檀 底材 石墨 纸 暖色 冷灰 棕墨 米纸</string>
 	<string name="settings_keywords_language">语言 中文 英文</string>
 	<string name="settings_keywords_time">时间 提示 时区 间隔</string>

@@ -375,11 +375,25 @@ class SecureStore(
 		const val KEY_SURFACE_FAMILY = "theme.surface"
 
 		/**
-		 * Base URL for the user's LAN/Tailscale update and log server.
+		 * Base URL for update checks, and the separate base URL for uploads.
 		 *
-		 * Not a secret, but it is app-wide configuration and this is the only
-		 * settings store; giving one string its own storage would be worse than
-		 * the mild misnomer. The value is validated before every use.
+		 * Two keys rather than one because the useful deployment is two
+		 * servers: updates from the public release feed (or any mirror), logs
+		 * and conversations to a dev server on the LAN or Tailscale. Neither
+		 * is a secret, but they are app-wide configuration and this is the only
+		 * settings store; giving two strings their own storage would be worse
+		 * than the mild misnomer. Both are validated before every use.
+		 */
+		const val KEY_UPDATE_SERVER_URL = "updates.server_url"
+		const val KEY_UPLOAD_SERVER_URL = "uploads.server_url"
+
+		/**
+		 * The single address releases before the split used for everything.
+		 *
+		 * Read only to migrate an upgraded install: a release-feed address
+		 * becomes [KEY_UPDATE_SERVER_URL] alone (the feeds have no `/log`), and
+		 * a LAN/Tailscale address becomes both. Every reader migrates and then
+		 * removes it, so a cleared field cannot resurrect the old value.
 		 */
 		const val KEY_LOCAL_SERVER_URL = "local.server_url"
 	}

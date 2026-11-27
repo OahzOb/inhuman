@@ -32,16 +32,18 @@ owns, which survives the process and a crash.
 - **Settings → Diagnostics** shows the current size and has two actions:
   **Share log** (a `FileProvider` URI into the system share sheet) and
   **Clear** (confirmed, because the moment before clearing is exactly when the
-  record matters). **Upload log** is in **Settings → Updates and logs**, beside
-  the server URL it uses; the old split put the button and its address in two
-  different folds.
-- **Upload log** sends the same text to `<server>/log`, where
-  `tools/dev-server.py` saves it under `logs/`. The server URL is set in
-  **Settings → Updates and logs** and shared with the in-app updater. It is a
-  user action, not polling: nothing is uploaded until the button is pressed.
+  record matters). **Upload log** is in **Settings → Updates and uploads**,
+  beside the upload server URL it uses; the old split put the button and its
+  address in two different folds.
+- **Upload log** sends the same text to `<upload server>/log`, where
+  `tools/dev-server.py` saves it under `logs/`. The address is set in
+  **Settings → Updates and uploads** and is **separate from the update server**:
+  the useful setup checks updates against the GitHub Releases feed and uploads
+  logs/conversations to a LAN or Tailscale server. It is a user action, not
+  polling: nothing is uploaded until the button is pressed.
 - **Upload conversation** is a different action and a different endpoint:
-  `<server>/conversation`, saved under `logs/conversations/`. It posts the
-  conversation's Markdown, so unlike this recorder it contains message text,
+  `<upload server>/conversation`, saved under `logs/conversations/`. It posts
+  the conversation's Markdown, so unlike this recorder it contains message text,
   reasoning, attachment paths, and — when the tool-result checkbox is on; it is
   off by default — tool calls and results, which can contain file or document
   text. It is invoked only from the chat menu after a preview, and it is never

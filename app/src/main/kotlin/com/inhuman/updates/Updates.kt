@@ -72,6 +72,51 @@ val BUILT_IN_UPDATE_URLS: List<String> = listOf(
 	"https://ghfast.top/https://github.com/OahzOb/inhuman/releases/latest/download",
 )
 
+/**
+ * The two server addresses the app keeps, each independently configured.
+ *
+ * Null means "not configured". Keeping them separate is the point: an update
+ * can come from the public release feed while a log upload goes to a dev
+ * server on the LAN or Tailscale, and pointing either at the other would
+ * produce a 404 rather than a useful error.
+ */
+data class ServerEndpoints(
+	val updateBaseUrl: String?,
+	val uploadBaseUrl: String?,
+)
+
+/**
+ * Resolve the two addresses, including installs from before the split.
+ *
+ * The legacy single address is consulted only when neither new key exists. If
+ * it is a release feed it becomes the update address **only** -- the feeds
+ * serve releases and have no `/log` or `/conversation` endpoint, so carrying it
+ * into the upload field would turn every upload into a 404 that reads like a
+ * broken server. Any other legacy address (a LAN/Tailscale dev server) becomes
+ * both, which is exactly what it already served.
+ */
+fun resolveServerEndpoints(
+	updateRaw: String?,
+	uploadRaw: String?,
+	legacyRaw: String?,
+): ServerEndpoints {
+	val update = normalizeServerUrl(updateRaw.orEmpty())
+	val upload = normalizeServerUrl(uploadRaw.orEmpty())
+	// Any stored new key means the split has happened. Falling back to the
+	// legacy value here would resurrect an address the user cleared.
+	if (update != null || upload != null) return ServerEndpoints(update, upload)
+	val legacy = normalizeServerUrl(legacyRaw.orEmpty())
+		?: return ServerEndpoints(null, null)
+	return ServerEndpoints(
+		updateBaseUrl = legacy,
+		uploadBaseUrl = legacy.takeUnless { isReleaseFeedUrl(it) },
+	)
+}
+
+/** Whether [url] is one of the public release feeds, which serve updates only. */
+fun isReleaseFeedUrl(url: String): Boolean =
+	BUILT_IN_UPDATE_URLS.any { it == url.trimEnd('/') }
+
 fun logUploadUrl(base: String): String = "$base/log"
 
 /**

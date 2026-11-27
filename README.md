@@ -561,14 +561,15 @@ that reflects over its own classes needs a keep rule there before release.
 ### Local updates, log and conversation upload
 
 The app can install an update, upload a diagnostic log, and upload one
-conversation over a LAN or Tailscale link. All use one base URL, set in
-**Settings → 09 Local**; nothing is checked or uploaded until you tap a button,
+conversation over a LAN or Tailscale link. It keeps **two independent
+addresses** in **Settings → 09 / Updates and uploads**: an **update server** and
+an **upload server**. The useful setup is updates from this project's GitHub
+Releases (`releases/latest/download` — the canonical host plus two mirrors;
+three built-in chips fill the update field) and logs/conversations to a dev
+server on the LAN or Tailscale. A release feed serves updates over HTTPS only —
+it has no `/log` or `/conversation` endpoint — which is exactly why the upload
+address is its own field. Nothing is checked or uploaded until you tap a button,
 and the conversation upload additionally has a preview/confirmation dialog.
-The same section offers three built-in addresses for this project's own GitHub
-Releases (`releases/latest/download` — the canonical host plus two mirrors), so
-an update check needs no typed URL. They serve updates over HTTPS only: they
-have no `/log` endpoint, so log and conversation uploads still need a
-LAN/Tailscale server.
 
 ```powershell
 # Bump versionCode/versionName in app/build.gradle first: Android refuses a
@@ -589,9 +590,11 @@ Tailscale URLs. To start it at logon, put a shortcut to it in
 version, relative APK URL and SHA-256. `dev-server.py` serves that directory,
 accepts `POST /log` into `logs/`, and accepts the explicit
 `POST /conversation` into `logs/conversations/`; it prints the LAN addresses it
-sees. Use the PC's LAN address (for example `http://192.168.1.50:8787`) or a
-Tailscale `100.x`/MagicDNS address. Plain HTTP is accepted only for private, LAN
-or Tailscale hosts; a public host must use HTTPS.
+sees. Put the PC's LAN address (for example `http://192.168.1.50:8787`) or a
+Tailscale `100.x`/MagicDNS address in the **upload server** field; the **update
+server** field can stay on a built-in release feed, or point at the same server
+if you want it to serve `update.json` too. Plain HTTP is accepted only for
+private, LAN or Tailscale hosts; a public host must use HTTPS.
 
 The **Upload conversation** action is separate from **Upload log**: it sends
 the conversation as plain Markdown (title, messages, reasoning, attachment

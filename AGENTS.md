@@ -353,20 +353,20 @@ Also worth knowing: `adb shell input` is blocked outright on some OEM builds
 (HyperOS refuses synthetic events without an extra developer setting), so a
 physical phone may be deployable and inspectable but not drivable.
 
-### The LAN server: updates and log upload
+### The LAN server: updates and uploads
 
 `tools/dev-server.py` is how a build reaches the phone and a log comes back when
 no cable is attached. It serves `dist/` (the APK and `update.json`) and accepts
 two POSTs: `/log` → `logs/`, `/conversation` → `logs/conversations/`. No
 authentication, no accounts: LAN or Tailscale only, never a public port.
 
-The app also ships one-tap presets for the public GitHub Releases feed
-(`Updates.BUILT_IN_UPDATE_URLS`: `releases/latest/download` on GitHub plus two
-mirrors, rendered as chips in `LocalNetworkSection`). They fill the same server
-address and serve updates only — the POST endpoints need a server. Note that
-the manifest's relative APK URL is joined to the base by **string
-concatenation**, not `URI.resolve`, because Java's resolver collapses the
-mirror base's inner `https://`; see `docs/07-gotchas.md` A28.
+The app keeps **two independent addresses**: an update server and an upload
+server. Updates usually come from the public GitHub Releases feed
+(`Updates.BUILT_IN_UPDATE_URLS`: `releases/latest/download` plus two mirrors,
+rendered as chips); logs and conversations go to a LAN/Tailscale dev server,
+the only side with `/log` and `/conversation`. Chips fill the **update** field
+only. A pre-split single `local.server_url` is migrated on first read
+(`loadServerEndpoints`); the legacy key is then removed.
 
 ```powershell
 # The interpreter is not interchangeable. Windows firewall has inbound allow
@@ -376,10 +376,10 @@ mirror base's inner `https://`; see `docs/07-gotchas.md` A28.
 C:\python314\python.exe tools\dev-server.py --port 8787 --dist dist --logs logs
 ```
 
-It prints the addresses it can be reached at (on this machine Tailscale comes
-first; the LAN address is the one for a phone on the same Wi-Fi). Put one in
-Settings → Updates and logs. HTTP is accepted only for private ranges, `*.local`,
-`*.ts.net` and Tailscale CGNAT, so a public host would need HTTPS.
+It prints the addresses it can be reached at. Put the LAN/Tailscale one in
+Settings → 09 / Updates and uploads → **upload server**; the **update server**
+can stay on a built-in preset. HTTP is accepted only for private ranges,
+`*.local`, `*.ts.net` and Tailscale CGNAT.
 
 **Publishing a build needs the version bump first.** The updater offers only
 `versionCode >` the installed one, and `release-apk.ps1` deliberately does not
