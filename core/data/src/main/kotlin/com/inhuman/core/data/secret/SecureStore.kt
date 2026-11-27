@@ -363,6 +363,18 @@ class SecureStore(
 		const val KEY_LAYOUT_PREFERENCE = "layout.preference"
 
 		/**
+		 * Accent palette, neutral surface family and dark/light choice.
+		 *
+		 * Presentation only: no tool, approval or capability reads either key.
+		 * They live here rather than in a separate preferences file because
+		 * this is the app's only settings store, and a theme choice is no more
+		 * secret than the layout preference beside it.
+		 */
+		const val KEY_THEME_PALETTE = "theme.palette"
+		const val KEY_THEME_MODE = "theme.mode"
+		const val KEY_SURFACE_FAMILY = "theme.surface"
+
+		/**
 		 * Base URL for the user's LAN/Tailscale update and log server.
 		 *
 		 * Not a secret, but it is app-wide configuration and this is the only

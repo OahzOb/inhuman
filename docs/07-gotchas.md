@@ -1831,6 +1831,37 @@ extraction did not move any behaviour.
 opacity and font selection on existing rows, and the third is a boolean
 expression, so no device drive was needed.
 
+### B52. More palettes would have multiplied the two contrast bugs already found here — **FIXED**
+
+- The original palette had two hand-found defects: `PaperMuted` at 4.35:1 on
+  the dialog surface (it passed on the page background, but every dialog uses
+  the surface), and `Ink700` at about 1.3:1 reused as placeholder text in
+  twelve places. Adding three accent palettes and three neutral surface families
+  would have repeated both mistakes thirty-six times over, so the text/background
+  pairs for every palette × family × scheme are now checked in
+  `PaletteContrastTest` on a plain JVM; the same test asserts the outline slots
+  *stay* hairline-grade, because "fixing" their low contrast would make every
+  divider loud.
+- A surface family must move **every** neutral together. `SurfaceColors` carries
+  background, surface, raised, outline and all text neutrals as one value, and
+  `Theme.kt` reads nothing else for those roles: mixing a slate text colour
+  onto a sepia surface is exactly how a "variant" becomes unreadable. The
+  `defaultsAreTheOriginalLook` test pins the warm slots to the legacy constants.
+- Forcing light on a dark system (or the reverse) used to flash the wrong
+  window colour before the first Compose frame. `MainActivity.onCreate` now
+  paints the window background from the stored `ThemeMode` and `SurfaceFamily`
+  before `setContent`; the stored values are only colours — Compose still owns
+  the theme.
+- Choosing a palette or a ground is presentation, not capability: `ThemePalette`,
+  `ThemeMode` and `SurfaceFamily` are read only by the theme and Settings, never
+  by a tool, policy or request. The defaults are the original burnt orange and
+  warm graphite/paper, so an install that has never touched the setting looks
+  exactly as it did before.
+
+**Verified by `:core:design:testDebugUnitTest` and the full build.** The theme
+change is visual, so the device check is a screenshot, not a unit test; the
+contrast numbers are the part worth pinning in code.
+
 ## C. Comments that contradict the code
 
 By this repository's standard, the comment is the bug. These were all verified.

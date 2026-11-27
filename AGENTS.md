@@ -255,9 +255,17 @@ the recorded case, and the layout is described in `docs/06-agent-loop-ui.md`.
 The app is a working tool, not a chat template. The visual system is deliberately
 small:
 
-- **Warm paper (light) / warm graphite (dark)**, with a single burnt-orange
-  signal accent used for the primary action, section codes and the assistant
-  marker. Light uses a deeper accent so text and buttons keep contrast on paper.
+- **Warm paper (light) / warm graphite (dark)**, with a single signal accent
+  used for the primary action, section codes and the assistant marker. The
+  original pair and the burnt-orange accent are the defaults; Settings → 10 /
+  Display offers three opt-in accents (moss, indigo, plum), three neutral
+  **surface families** (warm, slate, sepia), and a separate system/light/dark
+  choice. An accent moves only the slots in `PaletteColors`; a surface family
+  moves all of `SurfaceColors` together, so text can never come from a
+  different family than its background. Type and spacing never move. Light
+  uses a deeper accent so text and buttons keep contrast on paper;
+  `PaletteContrastTest` checks every slot for every palette × family × scheme
+  before it can drift.
 - **Mono is for metadata**, not body text: wordmark, section codes, timestamps,
   model/workspace lines. Body text stays 16sp/26sp sans.
 - **Hairlines, not cards**, separate list rows and sections. Corners are 3–10dp;
@@ -867,6 +875,7 @@ Not style. Each of these was a bug, and undoing it silently restores the bug.
   :core:files:test `
   :core:documents:test `
   :core:common:test `
+  :core:design:testDebugUnitTest `
   --console=plain --rerun-tasks
 ```
 

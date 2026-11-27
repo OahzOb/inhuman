@@ -400,11 +400,25 @@
 	<string name="settings_local_title">更新与日志</string>
 	<string name="settings_local_summary">在局域网、Tailscale 或发布服务器上检查更新、上传日志</string>
 	<string name="settings_section_display">10 / 显示</string>
-	<string name="settings_display_title">布局</string>
+	<string name="settings_display_title">布局与配色</string>
 	<string name="settings_layout_auto">自动：跟随当前窗口</string>
 	<string name="settings_layout_compact">紧凑：单列布局，间距更小</string>
 	<string name="settings_layout_comfortable">舒适：宽布局，边距更大</string>
 	<string name="settings_layout_body">自动会跟随当前窗口，包括旋转、分屏和折叠屏。紧凑会在平板上强制单列；舒适会保留宽布局。这是阅读偏好，不是屏幕比例选择器。</string>
+	<string name="settings_theme_title">配色</string>
+	<string name="settings_theme_body">配色只改变强调色与次要色；石墨/纸的底材和深浅是另外两个独立选项。字体与间距始终不变。默认的余烬色保持原样。这只是外观选择，不会改变任何能力。</string>
+	<string name="settings_surface_title">底材</string>
+	<string name="settings_surface_body">选择石墨与纸的质地：原来的暖色、偏蓝的冷灰，或棕墨与米纸。底色、分隔线、文字中性色会整组一起切换，不会出现文字和背景来自不同的一套。默认是原来的暖色。</string>
+	<string name="settings_surface_warm">暖石墨</string>
+	<string name="settings_surface_slate">冷石墨</string>
+	<string name="settings_surface_sepia">棕墨</string>
+	<string name="settings_theme_ember">余烬</string>
+	<string name="settings_theme_moss">苔绿</string>
+	<string name="settings_theme_indigo">靛蓝</string>
+	<string name="settings_theme_plum">紫檀</string>
+	<string name="settings_theme_mode_system">跟随系统</string>
+	<string name="settings_theme_mode_light">始终浅色</string>
+	<string name="settings_theme_mode_dark">始终深色</string>
 	<string name="settings_suggestions_title">建议回复</string>
 	<string name="settings_suggestions_body">让助手可以选用 suggest_replies 工具。默认关闭；每个助手还要自己勾选，勾选后每次调用会额外请求一次建议模型。调用和结果都会留在对话记录里。</string>
 	<string name="settings_section_language">11 / 语言</string>
@@ -1561,7 +1575,7 @@
 	<string name="settings_keywords_approvals">审批 规则 询问 拒绝 路径 审计</string>
 	<string name="settings_keywords_diagnostics">日志 诊断 上传 许可 记录</string>
 	<string name="settings_keywords_local">更新 服务器 局域网 Tailscale 地址 检查</string>
-	<string name="settings_keywords_display">布局 紧凑 舒适 字体 字号 显示 建议回复</string>
+	<string name="settings_keywords_display">布局 紧凑 舒适 字体 字号 显示 建议回复 配色 主题 颜色 深色 浅色 余烬 苔绿 靛蓝 紫檀 底材 石墨 纸 暖色 冷灰 棕墨 米纸</string>
 	<string name="settings_keywords_language">语言 中文 英文</string>
 	<string name="settings_keywords_time">时间 提示 时区 间隔</string>
-</resources>
+	</resources>

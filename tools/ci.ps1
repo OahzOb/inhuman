@@ -81,6 +81,7 @@ try {
 		':core:files:test'
 		':core:documents:test'
 		':core:common:test'
+		':core:design:testDebugUnitTest'
 	)
 
 	$gradle = Join-Path $repo 'gradlew.bat'

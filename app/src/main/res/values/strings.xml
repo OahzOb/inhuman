@@ -416,11 +416,25 @@
 	<string name="settings_local_title">Updates and logs</string>
 	<string name="settings_local_summary">Check for updates and upload a log over LAN, Tailscale or a release server</string>
 	<string name="settings_section_display">10 / Display</string>
-	<string name="settings_display_title">Layout</string>
+	<string name="settings_display_title">Layout and palette</string>
 	<string name="settings_layout_auto">Auto: follow this window</string>
 	<string name="settings_layout_compact">Compact: single column, tighter spacing</string>
 	<string name="settings_layout_comfortable">Comfortable: wide shell and larger gutters</string>
 	<string name="settings_layout_body">Auto follows the current window, including rotation, split-screen and foldables. Compact forces one column on a tablet; Comfortable keeps the wide shell. This is a reading preference, not a screen-ratio selector.</string>
+	<string name="settings_theme_title">Palette</string>
+	<string name="settings_theme_body">The palette changes only the signal colours. The ground underneath it (graphite and paper) is a separate choice, as is dark or light; typography and spacing never change. The original burnt orange is the default; this is presentation only and grants nothing.</string>
+	<string name="settings_surface_title">Surface</string>
+	<string name="settings_surface_body">Choose what graphite and paper are made of: the original warm pair, a cool blue-grey pair, or brown ink on parchment. Every surface, outline and text neutral moves together, so text never comes from a different family than its background. The warm pair is the default.</string>
+	<string name="settings_surface_warm">Warm</string>
+	<string name="settings_surface_slate">Slate</string>
+	<string name="settings_surface_sepia">Sepia</string>
+	<string name="settings_theme_ember">Ember</string>
+	<string name="settings_theme_moss">Moss</string>
+	<string name="settings_theme_indigo">Indigo</string>
+	<string name="settings_theme_plum">Plum</string>
+	<string name="settings_theme_mode_system">Follow system</string>
+	<string name="settings_theme_mode_light">Always light</string>
+	<string name="settings_theme_mode_dark">Always dark</string>
 	<string name="settings_suggestions_title">Follow-up suggestions</string>
 	<string name="settings_suggestions_body">Makes the suggest_replies tool available to assistants. Off by default; each assistant must also select it, and every answer that calls it sends one extra request to the suggestion model. The call and its result stay in the transcript.</string>
 	<string name="settings_section_language">11 / Language</string>
@@ -1590,7 +1604,7 @@
 	<string name="settings_keywords_approvals">approval rules ask deny path audit</string>
 	<string name="settings_keywords_diagnostics">log diagnostics upload notices record</string>
 	<string name="settings_keywords_local">update server LAN Tailscale address check</string>
-	<string name="settings_keywords_display">layout compact comfortable font size display suggestions</string>
+	<string name="settings_keywords_display">layout compact comfortable font size display suggestions theme palette colour color dark light accent ember moss indigo plum surface graphite paper warm slate sepia</string>
 	<string name="settings_keywords_language">language Chinese English</string>
 	<string name="settings_keywords_time">time hint timezone gap</string>
-</resources>
+	</resources>

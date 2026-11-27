@@ -11,101 +11,101 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 // Small named constants keep the two schemes from drifting at the one place
-// where Material's defaults would reintroduce a generic purple.
-private val ColorOnAccent = Color(0xFF24110A)
-private val ColorSecondaryLight = Color(0xFF3E665C)
-private val ColorTertiaryLight = Color(0xFF94621F)
-private val ColorDarkSecondaryContainer = Color(0xFF4A2418)
+// where Material's defaults would reintroduce a generic purple. The slots in
+// `PaletteColors` and `SurfaceColors` are the only ones the user may move;
+// these stay put.
+private val ColorLightTertiary = Color(0xFF94621F)
 private val ColorDarkTertiaryContainer = Color(0xFF3A2A16)
-private val ColorDarkErrorContainer = Color(0xFF4A1E1A)
 private val ColorLightTertiaryContainer = Color(0xFFE8D7BD)
+private val ColorDarkErrorContainer = Color(0xFF4A1E1A)
 private val ColorLightErrorContainer = Color(0xFFF3D6D0)
 private val ColorLightOnErrorContainer = Color(0xFF5A1D16)
 
-private val DarkScheme = darkColorScheme(
-	primary = Accent,
-	onPrimary = ColorOnAccent,
-	primaryContainer = AccentDim,
-	onPrimaryContainer = Ink50,
+private fun darkScheme(p: PaletteColors, s: SurfaceColors) = darkColorScheme(
+	primary = p.darkPrimary,
+	onPrimary = p.onDarkPrimary,
+	primaryContainer = p.darkPrimaryContainer,
+	onPrimaryContainer = s.darkEmphasis,
 
-	secondary = Ok,
-	onSecondary = Ink900,
-	secondaryContainer = ColorDarkSecondaryContainer,
-	onSecondaryContainer = Ink50,
+	secondary = p.darkSecondary,
+	onSecondary = s.darkBackground,
+	secondaryContainer = p.darkSecondaryContainer,
+	onSecondaryContainer = s.darkEmphasis,
 	tertiary = Warn,
-	onTertiary = Ink900,
+	onTertiary = s.darkBackground,
 	tertiaryContainer = ColorDarkTertiaryContainer,
 	onTertiaryContainer = Warn,
 
-	background = Ink900,
-	onBackground = Ink200,
-	surface = Ink850,
-	onSurface = Ink50,
-	surfaceVariant = Ink800,
-	onSurfaceVariant = Ink300,
+	background = s.darkBackground,
+	onBackground = s.darkBodyText,
+	surface = s.darkSurface,
+	onSurface = s.darkEmphasis,
+	surfaceVariant = s.darkRaised,
+	onSurfaceVariant = s.darkSecondaryText,
 	surfaceTint = Color.Transparent,
-	surfaceDim = Ink900,
-	surfaceBright = Ink800,
-	surfaceContainerLowest = Ink900,
-	surfaceContainerLow = Ink900,
-	surfaceContainer = Ink850,
-	surfaceContainerHigh = Ink800,
-	surfaceContainerHighest = Ink700,
-	// A hairline colour, not a text colour: Ink700 on Ink850 is about 1.3:1.
-	// Secondary text and glyphs use `onSurfaceVariant` (Ink300, about 7:1).
-	// Nothing should hand `outline` to a `Text(color = ...)` -- an audit found
-	// twelve places that did, and placeholders at 1.3:1 read as disabled.
-	outline = Ink700,
-	outlineVariant = Ink700,
-	inverseSurface = Ink50,
-	inverseOnSurface = Ink900,
-	inversePrimary = AccentDim,
+	surfaceDim = s.darkBackground,
+	surfaceBright = s.darkRaised,
+	surfaceContainerLowest = s.darkBackground,
+	surfaceContainerLow = s.darkBackground,
+	surfaceContainer = s.darkSurface,
+	surfaceContainerHigh = s.darkRaised,
+	surfaceContainerHighest = s.darkOutline,
+	// A hairline colour, not a text colour: a divider is about 1.3:1 against
+	// the surface in every family. Secondary text and glyphs use
+	// `onSurfaceVariant` (about 7:1). Nothing should hand `outline` to a
+	// `Text(color = ...)` -- an audit found twelve places that did, and
+	// placeholders at 1.3:1 read as disabled.
+	outline = s.darkOutline,
+	outlineVariant = s.darkOutline,
+	inverseSurface = s.darkEmphasis,
+	inverseOnSurface = s.darkBackground,
+	inversePrimary = p.darkPrimaryContainer,
 
 	error = Danger,
-	onError = Ink900,
+	onError = s.darkBackground,
 	errorContainer = ColorDarkErrorContainer,
 	onErrorContainer = Danger,
 )
 
-private val LightScheme = lightColorScheme(
-	primary = AccentDeep,
-	onPrimary = Paper100,
-	primaryContainer = Paper300,
-	onPrimaryContainer = PaperInk,
+private fun lightScheme(p: PaletteColors, s: SurfaceColors) = lightColorScheme(
+	primary = p.lightPrimary,
+	onPrimary = s.lightBackground,
+	primaryContainer = s.lightRaised,
+	onPrimaryContainer = s.lightInk,
 
-	secondary = ColorSecondaryLight,
-	onSecondary = Paper100,
-	secondaryContainer = Paper300,
-	onSecondaryContainer = PaperInk,
-	tertiary = ColorTertiaryLight,
-	onTertiary = Paper100,
+	secondary = p.lightSecondary,
+	onSecondary = s.lightBackground,
+	secondaryContainer = s.lightRaised,
+	onSecondaryContainer = s.lightInk,
+	tertiary = ColorLightTertiary,
+	onTertiary = s.lightBackground,
 	tertiaryContainer = ColorLightTertiaryContainer,
-	onTertiaryContainer = PaperInk,
+	onTertiaryContainer = s.lightInk,
 
-	background = Paper100,
-	onBackground = PaperInk,
-	surface = Paper200,
-	onSurface = PaperInk,
-	surfaceVariant = Paper300,
-	onSurfaceVariant = PaperMuted,
+	background = s.lightBackground,
+	onBackground = s.lightInk,
+	surface = s.lightSurface,
+	onSurface = s.lightInk,
+	surfaceVariant = s.lightRaised,
+	onSurfaceVariant = s.lightMuted,
 	surfaceTint = Color.Transparent,
-	surfaceDim = Paper200,
-	surfaceBright = Paper100,
-	surfaceContainerLowest = Paper100,
-	surfaceContainerLow = Paper100,
-	surfaceContainer = Paper200,
-	surfaceContainerHigh = Paper300,
-	surfaceContainerHighest = Paper300,
-	// Hairline only: Paper300 on Paper100 is about 1.3:1. `onSurfaceVariant` is
-	// the secondary text colour (see the note in the dark scheme).
-	outline = Paper300,
-	outlineVariant = Paper300,
-	inverseSurface = PaperInk,
-	inverseOnSurface = Paper100,
-	inversePrimary = AccentDim,
+	surfaceDim = s.lightSurface,
+	surfaceBright = s.lightBackground,
+	surfaceContainerLowest = s.lightBackground,
+	surfaceContainerLow = s.lightBackground,
+	surfaceContainer = s.lightSurface,
+	surfaceContainerHigh = s.lightRaised,
+	surfaceContainerHighest = s.lightRaised,
+	// Hairline only: the raised neutral is about 1.3:1 on the page background.
+	// `onSurfaceVariant` is the secondary text colour (see the dark note).
+	outline = s.lightRaised,
+	outlineVariant = s.lightRaised,
+	inverseSurface = s.lightInk,
+	inverseOnSurface = s.lightBackground,
+	inversePrimary = p.darkPrimaryContainer,
 
 	error = DangerDeep,
-	onError = Paper100,
+	onError = s.lightBackground,
 	errorContainer = ColorLightErrorContainer,
 	onErrorContainer = ColorLightOnErrorContainer,
 )
@@ -121,16 +121,33 @@ private val InhumanShapes = Shapes(
 /**
  * The app theme.
  *
- * [darkTheme] is a parameter rather than read internally so a screenshot test
- * or a preview can force a scheme without touching the system setting.
+ * [darkTheme] is the *system* value: it is a parameter rather than read
+ * internally so a screenshot test or a preview can force a scheme without
+ * touching the platform setting. [mode] decides whether that value is used;
+ * a preview that passes `darkTheme = false` still works with the default
+ * `ThemeMode.System`, while an explicit `ThemeMode.Light/Dark` ignores it.
+ *
+ * [palette] and [surface] both default to the original look, so an install
+ * that has never chosen either looks exactly as it did before these choices
+ * existed. They are independent: the accent moves the signal slots and the
+ * surface family moves the neutrals.
  */
 @Composable
 fun InhumanTheme(
 	darkTheme: Boolean = isSystemInDarkTheme(),
+	palette: ThemePalette = ThemePalette.Ember,
+	mode: ThemeMode = ThemeMode.System,
+	surface: SurfaceFamily = SurfaceFamily.Warm,
 	content: @Composable () -> Unit,
 ) {
+	val accents = paletteColors(palette)
+	val neutrals = surfaceColors(surface)
 	MaterialTheme(
-		colorScheme = if (darkTheme) DarkScheme else LightScheme,
+		colorScheme = if (mode.usesDark(darkTheme)) {
+			darkScheme(accents, neutrals)
+		} else {
+			lightScheme(accents, neutrals)
+		},
 		typography = InhumanTypography,
 		shapes = InhumanShapes,
 		content = content,

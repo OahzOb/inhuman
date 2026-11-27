@@ -246,6 +246,14 @@ data class SettingsUiState(
 	/** Auto follows the window; Compact/Comfortable override the shell. */
 	val layoutPreference: com.inhuman.core.design.LayoutPreference =
 		com.inhuman.core.design.LayoutPreference.Auto,
+	/** Accent palette and dark/light choice; presentation only, never capability. */
+	val themePalette: com.inhuman.core.design.ThemePalette =
+		com.inhuman.core.design.ThemePalette.Ember,
+	val themeMode: com.inhuman.core.design.ThemeMode =
+		com.inhuman.core.design.ThemeMode.System,
+	/** Neutral graphite/paper ground; presentation only, never capability. */
+	val surfaceFamily: com.inhuman.core.design.SurfaceFamily =
+		com.inhuman.core.design.SurfaceFamily.Warm,
 	/**
 	 * Whether a request marks when each user message was sent.
 	 *
@@ -464,6 +472,15 @@ class SettingsViewModel(
 			toolCallLimit = readToolCallLimit(),
 			layoutPreference = com.inhuman.core.design.LayoutPreference.fromStored(
 				secure.get(SecureStore.KEY_LAYOUT_PREFERENCE),
+			),
+			themePalette = com.inhuman.core.design.ThemePalette.fromStored(
+				secure.get(SecureStore.KEY_THEME_PALETTE),
+			),
+			themeMode = com.inhuman.core.design.ThemeMode.fromStored(
+				secure.get(SecureStore.KEY_THEME_MODE),
+			),
+			surfaceFamily = com.inhuman.core.design.SurfaceFamily.fromStored(
+				secure.get(SecureStore.KEY_SURFACE_FAMILY),
 			),
 			timeHints = TimeHintPolicy.decode(
 				secure.get(SecureStore.KEY_TIME_HINTS_MODE),
@@ -1098,6 +1115,21 @@ class SettingsViewModel(
 	fun setLayoutPreference(preference: com.inhuman.core.design.LayoutPreference) {
 		secure.put(SecureStore.KEY_LAYOUT_PREFERENCE, preference.name)
 		_state.value = _state.value.copy(layoutPreference = preference)
+	}
+
+	fun setThemePalette(palette: com.inhuman.core.design.ThemePalette) {
+		secure.put(SecureStore.KEY_THEME_PALETTE, palette.name)
+		_state.value = _state.value.copy(themePalette = palette)
+	}
+
+	fun setThemeMode(mode: com.inhuman.core.design.ThemeMode) {
+		secure.put(SecureStore.KEY_THEME_MODE, mode.name)
+		_state.value = _state.value.copy(themeMode = mode)
+	}
+
+	fun setSurfaceFamily(family: com.inhuman.core.design.SurfaceFamily) {
+		secure.put(SecureStore.KEY_SURFACE_FAMILY, family.name)
+		_state.value = _state.value.copy(surfaceFamily = family)
 	}
 
 	private fun readToolRoundLimit(): Int =

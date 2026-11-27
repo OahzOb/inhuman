@@ -1754,7 +1754,14 @@ Comfortable. Auto derives the shell from the window; Compact forces the
 single-column shell, and Comfortable keeps the wide shell. It is supplied at the
 root through `LocalLayoutPreference`, so rotation and split-screen still work
 under Auto, and is persisted under `layout.preference`. It is a reading
-preference, not a per-ratio selector.
+preference, not a per-ratio selector. The same section also holds the
+`ThemePalette` (ember / moss / indigo / plum, persisted under `theme.palette`),
+`ThemeMode` (system / light / dark, under `theme.mode`) and `SurfaceFamily`
+(warm / slate / sepia, under `theme.surface`). All three are read at the
+composition root, above the screen that changes them, so a chip tap repaints the
+whole app at once; `MainActivity` also paints the window background from the
+mode and family before the first Compose frame. None is read by a tool, a policy
+or a request — they are presentation only.
 
 **Language** (`11 / Language`) sets the system-owned per-app locale through
 `LocaleManager`: 中文 or English. Chinese is the default, set by

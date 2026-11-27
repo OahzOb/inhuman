@@ -546,13 +546,22 @@ case.
 
 ### The visual system
 
-The palette is **warm paper in light, warm graphite in dark**, with one burnt
-orange signal accent (`Color.kt`). The light scheme uses `AccentDeep` for text and
-buttons so the accent still passes contrast on paper; the dark scheme uses the
-brighter `Accent` with a dark `onPrimary`. `Theme.kt` fills the Material
-`secondaryContainer`, surface-container and error-container roles as well: leaving
-them at the Material defaults reintroduced a lavender `FilterChip` and a generic
-purple dialog on the first render.
+The default ground is **warm paper in light, warm graphite in dark**, with one
+signal accent at a time (`Color.kt`). Settings → 10 / Display offers moss,
+indigo and plum as accents, and three **surface families** as the ground: warm
+(the original), slate (cool blue-grey graphite/paper) and sepia (brown ink on
+parchment). An accent moves only the slots in `PaletteColors`; a family moves
+all of `SurfaceColors` together, so a text neutral is never paired with a
+background from another family. Type and spacing never change. The light scheme
+uses the palette's deeper primary for text and buttons so the accent still passes
+contrast on paper; the dark scheme uses the brighter primary with a dark
+`onPrimary`. `ThemePalette` / `ThemeMode` / `SurfaceFamily`
+(`ThemePreference.kt`) hold the choices; `Theme.kt` fills the Material
+`secondaryContainer`, surface-container and error-container roles as well:
+leaving them at the Material defaults reintroduced a lavender `FilterChip` and a
+generic purple dialog on the first render. `PaletteContrastTest` checks every
+text/background pair in every palette × family × scheme, and keeps the outline
+slots hairline-grade.
 
 `Type.kt` keeps body text at 16sp/26sp and moves `labelMedium`/`labelSmall` to
 monospace with 1sp tracking. Mono is for metadata (wordmark, section codes,

@@ -4,6 +4,7 @@ import android.app.LocaleManager
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import android.net.Uri
 import android.os.LocaleList
@@ -63,6 +64,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -139,6 +141,10 @@ fun SettingsScreen(
 	viewModel: SettingsViewModel,
 	onBack: () -> Unit,
 	onLayoutPreferenceChange: (com.inhuman.core.design.LayoutPreference) -> Unit = {},
+	/** Theme changes are applied at the composition root, beside the layout preference. */
+	onThemePaletteChange: (com.inhuman.core.design.ThemePalette) -> Unit = {},
+	onThemeModeChange: (com.inhuman.core.design.ThemeMode) -> Unit = {},
+	onSurfaceFamilyChange: (com.inhuman.core.design.SurfaceFamily) -> Unit = {},
 	/** Open with the backup section expanded, for the home reminder's action. */
 	startBackup: Boolean = false,
 	onBackupStarted: () -> Unit = {},
@@ -263,7 +269,9 @@ fun SettingsScreen(
 	val displayText = SettingsSectionText(
 		stringResource(R.string.settings_section_display),
 		stringResource(R.string.settings_display_title),
-		stringResource(R.string.settings_layout_body),
+		stringResource(R.string.settings_layout_body) + " " +
+			stringResource(R.string.settings_theme_body) + " " +
+			stringResource(R.string.settings_surface_body),
 		stringResource(R.string.settings_keywords_display),
 	)
 	val languageText = SettingsSectionText(
@@ -1450,6 +1458,137 @@ fun SettingsScreen(
 												R.string.settings_layout_comfortable_short
 										},
 									),
+								)
+							},
+						)
+					}
+				}
+				HorizontalDivider(
+					modifier = Modifier.padding(vertical = 8.dp),
+					color = MaterialTheme.colorScheme.outlineVariant,
+				)
+				Text(
+					text = stringResource(R.string.settings_theme_title),
+					style = MaterialTheme.typography.titleSmall,
+					color = MaterialTheme.colorScheme.onSurface,
+				)
+				Text(
+					text = stringResource(R.string.settings_theme_body),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				FlowRowCompat {
+					com.inhuman.core.design.ThemePalette.entries.forEach { preference ->
+						FilterChip(
+							selected = state.themePalette == preference,
+							onClick = {
+								viewModel.setThemePalette(preference)
+								onThemePaletteChange(preference)
+							},
+							label = {
+								Text(
+									stringResource(
+										when (preference) {
+											com.inhuman.core.design.ThemePalette.Ember ->
+												R.string.settings_theme_ember
+											com.inhuman.core.design.ThemePalette.Moss ->
+												R.string.settings_theme_moss
+											com.inhuman.core.design.ThemePalette.Indigo ->
+												R.string.settings_theme_indigo
+											com.inhuman.core.design.ThemePalette.Plum ->
+												R.string.settings_theme_plum
+										},
+									),
+								)
+							},
+							leadingIcon = {
+								// The chip is the swatch's label, not the other way
+								// round: a colour alone would be unreadable and
+								// would fail the same check that took `outline`
+								// out of text slots.
+								Box(
+									Modifier
+										.size(12.dp)
+										.background(
+											com.inhuman.core.design.paletteColors(preference).darkPrimary,
+											CircleShape,
+										),
+								)
+							},
+						)
+					}
+				}
+				FlowRowCompat {
+					com.inhuman.core.design.ThemeMode.entries.forEach { mode ->
+						FilterChip(
+							selected = state.themeMode == mode,
+							onClick = {
+								viewModel.setThemeMode(mode)
+								onThemeModeChange(mode)
+							},
+							label = {
+								Text(
+									stringResource(
+										when (mode) {
+											com.inhuman.core.design.ThemeMode.System ->
+												R.string.settings_theme_mode_system
+											com.inhuman.core.design.ThemeMode.Light ->
+												R.string.settings_theme_mode_light
+											com.inhuman.core.design.ThemeMode.Dark ->
+												R.string.settings_theme_mode_dark
+										},
+									),
+								)
+							},
+						)
+					}
+				}
+				HorizontalDivider(
+					modifier = Modifier.padding(vertical = 8.dp),
+					color = MaterialTheme.colorScheme.outlineVariant,
+				)
+				Text(
+					text = stringResource(R.string.settings_surface_title),
+					style = MaterialTheme.typography.titleSmall,
+					color = MaterialTheme.colorScheme.onSurface,
+				)
+				Text(
+					text = stringResource(R.string.settings_surface_body),
+					style = MaterialTheme.typography.bodySmall,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+				)
+				FlowRowCompat {
+					com.inhuman.core.design.SurfaceFamily.entries.forEach { family ->
+						val swatch = com.inhuman.core.design.surfaceColors(family)
+						FilterChip(
+							selected = state.surfaceFamily == family,
+							onClick = {
+								viewModel.setSurfaceFamily(family)
+								onSurfaceFamilyChange(family)
+							},
+							label = {
+								Text(
+									stringResource(
+										when (family) {
+											com.inhuman.core.design.SurfaceFamily.Warm ->
+												R.string.settings_surface_warm
+											com.inhuman.core.design.SurfaceFamily.Slate ->
+												R.string.settings_surface_slate
+											com.inhuman.core.design.SurfaceFamily.Sepia ->
+												R.string.settings_surface_sepia
+										},
+									),
+								)
+							},
+							leadingIcon = {
+								// The paper step is the one visible on both a
+								// dark and a light chip; the outline keeps a
+								// pale swatch from disappearing on paper.
+								Box(
+									Modifier
+										.size(12.dp)
+										.background(swatch.lightBackground, CircleShape)
+										.border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
 								)
 							},
 						)

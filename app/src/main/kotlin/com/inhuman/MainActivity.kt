@@ -2,6 +2,7 @@ package com.inhuman
 
 import android.app.LocaleManager
 import android.content.Context
+import android.graphics.drawable.ColorDrawable
 import android.content.res.Configuration
 import android.os.Bundle
 import android.os.LocaleList
@@ -26,6 +27,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -48,6 +50,10 @@ import com.inhuman.core.design.Hairline
 import com.inhuman.core.design.InhumanTheme
 import com.inhuman.core.design.LayoutPreference
 import com.inhuman.core.design.LocalLayoutPreference
+import com.inhuman.core.design.SurfaceFamily
+import com.inhuman.core.design.ThemeMode
+import com.inhuman.core.design.ThemePalette
+import com.inhuman.core.design.surfaceColors
 import com.inhuman.core.design.WideDialog
 import com.inhuman.ui.ConversationsScreen
 import com.inhuman.ui.ConversationsViewModel
@@ -76,6 +82,13 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 class MainActivity : ComponentActivity() {
+
+	/**
+	 * The one settings store for the process, created lazily so it is available
+	 * both for the first-frame window colour and for every screen downstream.
+	 * A second instance would duplicate the cached Keystore key handle.
+	 */
+	private val secure: SecureStore by lazy { SecureStore(applicationContext) }
 
 	/** A conversation requested by a notification tap, consumed by the root. */
 	private val pendingConversationId = mutableStateOf<String?>(null)
@@ -109,6 +122,23 @@ class MainActivity : ComponentActivity() {
 	override fun onCreate(savedInstanceState: Bundle?) {
 		enableEdgeToEdge()
 		super.onCreate(savedInstanceState)
+		// The window background is drawn before the first Compose frame. Without
+		// this, a forced light theme on a dark system would flash graphite for
+		// one frame -- the same flash `values-night/colors.xml` prevents for the
+		// default look. The value is only a colour; Compose still owns the theme.
+		val systemDark = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+			Configuration.UI_MODE_NIGHT_YES
+		val firstSurface = surfaceColors(
+			SurfaceFamily.fromStored(secure.get(SecureStore.KEY_SURFACE_FAMILY)),
+		)
+		window.setBackgroundDrawable(
+			ColorDrawable(
+				if (ThemeMode.fromStored(secure.get(SecureStore.KEY_THEME_MODE)).usesDark(systemDark))
+					firstSurface.darkBackground.toArgb()
+				else
+					firstSurface.lightBackground.toArgb(),
+			),
+		)
 		if (savedInstanceState == null) {
 			pendingConversationId.value =
 				intent?.getStringExtra(TurnNotifications.EXTRA_CONVERSATION_ID)
@@ -121,11 +151,27 @@ class MainActivity : ComponentActivity() {
 		pendingShare.value = sharedContentFrom(this, intent)
 		oauthCallbackFrom(intent)?.let { pendingOAuth.value = it }
 		setContent {
-			InhumanTheme {
+			// Theme state lives above the root screen so a change in Settings
+			// repaints the whole app immediately, the same way the layout
+			// preference is held at the root. Both are stored in the one store.
+			var themePalette by remember {
+				mutableStateOf(ThemePalette.fromStored(secure.get(SecureStore.KEY_THEME_PALETTE)))
+			}
+			var themeMode by remember {
+				mutableStateOf(ThemeMode.fromStored(secure.get(SecureStore.KEY_THEME_MODE)))
+			}
+			var surfaceFamily by remember {
+				mutableStateOf(SurfaceFamily.fromStored(secure.get(SecureStore.KEY_SURFACE_FAMILY)))
+			}
+			InhumanTheme(palette = themePalette, mode = themeMode, surface = surfaceFamily) {
 				// Named Root, not InhumanApp: InhumanApp is the Application
 				// class in this same package, and a composable of the same name
 				// is an overload ambiguity rather than a shadowing warning.
 				InhumanRoot(
+					secure = secure,
+					onThemePaletteChange = { themePalette = it },
+					onThemeModeChange = { themeMode = it },
+					onSurfaceFamilyChange = { surfaceFamily = it },
 					deepLinkedConversation = pendingConversationId.value,
 					onDeepLinkConsumed = { pendingConversationId.value = null },
 					shared = pendingShare.value,
@@ -164,6 +210,10 @@ class MainActivity : ComponentActivity() {
  */
 @Composable
 private fun InhumanRoot(
+	secure: SecureStore,
+	onThemePaletteChange: (ThemePalette) -> Unit,
+	onThemeModeChange: (ThemeMode) -> Unit,
+	onSurfaceFamilyChange: (SurfaceFamily) -> Unit,
 	deepLinkedConversation: String?,
 	onDeepLinkConsumed: () -> Unit,
 	shared: SharedContent?,
@@ -172,12 +222,10 @@ private fun InhumanRoot(
 	onOAuthConsumed: () -> Unit,
 ) {
 	val context = androidx.compose.ui.platform.LocalContext.current
-	// One store and one repository for the process. The Keystore lookup inside
-	// SecureStore is not free, and Room's concurrency is per-instance -- two
-	// instances against one file would serialise badly and invite locking that
-	// a single instance avoids. AgentRepository also caches the model list, so
-	// a second instance would fetch it twice.
-	val secure = remember { SecureStore(context) }
+	// The store is created by the activity, above the theme: the first frame's
+	// window colour and every downstream screen must share one Keystore key
+	// handle. Room is likewise one instance per process -- two against one file
+	// would serialise badly and invite locking a single instance avoids.
 	var layoutPreference by remember {
 		mutableStateOf(
 			LayoutPreference.fromStored(secure.get(SecureStore.KEY_LAYOUT_PREFERENCE)),
@@ -443,6 +491,9 @@ private fun InhumanRoot(
 				viewModel = vm,
 				onBack = { showSettings = false },
 				onLayoutPreferenceChange = { layoutPreference = it },
+				onThemePaletteChange = onThemePaletteChange,
+				onThemeModeChange = onThemeModeChange,
+				onSurfaceFamilyChange = onSurfaceFamilyChange,
 				startBackup = startBackupSection,
 				onBackupStarted = { startBackupSection = false },
 				oauthCallback = oauthCallback,
